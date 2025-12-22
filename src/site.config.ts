@@ -88,8 +88,8 @@ export const integ: IntegrationUserConfig = {
     applyTip: [
       { name: 'Name', val: theme.title },
       { name: 'Desc', val: theme.description || 'Null' },
-      { name: 'Link', val: 'https://axi404.top' },
-      { name: 'Avatar', val: 'https://axi404.top/avatar/avatar.png' }
+      { name: 'Link', val: 'https://hana0721.top' },
+      { name: 'Avatar', val: 'https://hana0721.top/avatar/avatar.png' }
     ]
   },
   // Enable page search function
