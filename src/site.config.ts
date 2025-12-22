@@ -3,13 +3,13 @@ import type { CardListData, Config, IntegrationUserConfig, ThemeUserConfig } fro
 export const theme: ThemeUserConfig = {
   // === Basic configuration ===
   /** Title for your website. Will be used in metadata and as browser tab title. */
-  title: 'Axi\'s Blog',
+  title: 'Hana\'s Blog',
   /** Will be used in index page & copyright declaration */
-  author: '阿汐',
-  author_en: 'Axi',
+  author: '菊花花',
+  author_en: 'Hana',
   /** Description metadata for your website. Can be used in page metadata. */
-  description: '一只可爱小猫',
-  description_en: 'A cute catgirl',
+  description: '一个笨蛋学生',
+  description_en: 'A Silly Student',
   /** The default favicon for your site which should be a path to an image in the `public/` directory. */
   favicon: '/favicon/favicon.ico',
   /** Specify the default language for this site. */
