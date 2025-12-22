@@ -30,7 +30,12 @@ import {
 } from './src/plugins/shiki-transformers.ts'
 import config from './src/site.config.ts'
 
-const platform = process.env.DEPLOYMENT_PLATFORM || 'vercel'
+// const platform = process.env.DEPLOYMENT_PLATFORM || 'vercel'
+// const isCloudflare = platform === 'cloudflare'
+// const isGithubPages = platform === 'github'
+
+// Cloudflare 会自动注入 CF_PAGES=1，我们优先检测这个
+const platform = process.env.CF_PAGES ? 'cloudflare' : (process.env.DEPLOYMENT_PLATFORM || 'vercel')
 const isCloudflare = platform === 'cloudflare'
 const isGithubPages = platform === 'github'
 
