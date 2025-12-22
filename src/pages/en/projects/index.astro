@@ -1,0 +1,151 @@
+---
+import { Image } from 'astro:assets'
+
+import PageLayout from '@/layouts/CommonPage.astro'
+import ProjectSection from '@/components/projects/ProjectSection.astro'
+import Sponsors from '@/components/projects/Sponsors.astro'
+import alipay from '@/assets/alipay-qrcode.jpg'
+import wechat from '@/assets/wechat-qrcode.jpg'
+import config from '@/site-config'
+
+import { Button, Icon } from '@/components/user'
+import type { iconsType } from '@/types'
+
+const headings = [
+  { depth: 2, slug: 'projects', text: 'Projects' },
+  { depth: 2, slug: 'sponsorship', text: 'Sponsorship' }
+]
+---
+
+<PageLayout title='Projects' {headings} info={{ slug: '/projects', hideComment: true }}>
+  <p>
+    If you find my projects helpful or interesting, consider sponsoring me to keep me motivated.
+  </p>
+  <Button title='Checkout sponsorship' class='w-fit' href='#sponsorship'>
+    <Icon class='size-5' name='receive-money' slot='before' />
+  </Button>
+
+  <h2 id='projects'>Projects</h2>
+  <ProjectSection
+    project={[
+      {
+        name: 'Lumina Embodied Community',
+        description: 'A community focused on embodied intelligence.',
+        image: 'lumina.webp',
+        links: [{ type: 'site', href: 'https://lumina-embodied.ai/' }]
+      },
+      {
+        name: 'CS-BAOYAN-DDL',
+        description:
+          'A schedule summary of summer camps/pre-admission deadlines similar to CCF-DDL.',
+        image: 'byddl.webp',
+        links: [
+          { type: 'site', href: 'https://ddl.csbaoyan.top/' },
+          { type: 'github', href: 'https://github.com/CS-BAOYAN/CS-BAOYAN-DDL' }
+        ]
+      },
+      {
+        name: 'Minimalist Text Framework',
+        description:
+          'A minimalist text-based game framework built with Astro, game content defined purely by JSON.',
+        image: 'mtf.webp',
+        links: [
+          { type: 'site', href: 'https://mtf.axi404.top/' },
+          { type: 'github', href: 'https://github.com/Axi404/MinimalistTextFramework' }
+        ]
+      },
+      {
+        name: 'Survival Guide for XJTU',
+        description:
+          'A comprehensive survival guide for studying and living at Xi’an Jiaotong University.',
+        image: 'survivexjtu.webp',
+        links: [
+          { type: 'site', href: 'https://survivexjtu.github.io/' },
+          { type: 'github', href: 'https://github.com/survivexjtu/survivexjtu.github.io' }
+        ]
+      },
+      {
+        name: 'CSWiki',
+        description:
+          'An encyclopedia on topics related to graduate recommendation in computer science.',
+        image: 'cswiki.webp',
+        links: [
+          { type: 'site', href: 'https://csbaoyan.top/' },
+          { type: 'github', href: 'https://github.com/CS-BAOYAN/CS-BAOYAN-Wiki' }
+        ]
+      // },
+      // {
+      //   name: 'Dress-Collection',
+      //   description: 'My cute dress-up gallery.',
+      //   image: 'dress.webp',
+      //   links: [
+      //     { type: 'site', href: 'https://dress.axi404.top/' },
+      //     { type: 'github', href: 'https://github.com/Axi404/Dress-Collection' }
+      //   ]
+      }
+    ]}
+  />
+
+  <!-- sponsorship -->
+  <h2 id='sponsorship'>Sponsorship</h2>
+  <p>
+    Please leave a message or contact me directly after sponsoring to be added to the sponsor list.
+    Wishing you joy!
+  </p>
+  <div class='flex flex-col justify-center gap-4 sm:flex-row'>
+    {
+      [
+        { name: 'WeChat', icon: 'wechat-pay', image: wechat },
+        { name: 'Alipay', icon: 'alipay', image: alipay }
+      ].map((item) => (
+        <div class='group relative justify-center overflow-hidden rounded-xl border bg-white'>
+          <div class='absolute bottom-0 end-0 start-0 top-0 flex items-center justify-center transition-opacity group-hover:opacity-0'>
+            <Icon class='size-20' name={item.icon as iconsType} />
+          </div>
+          <Image
+            class='mx-auto my-0 max-w-60 opacity-30 blur-sm transition-opacity group-hover:opacity-100 group-hover:blur-none'
+            src={item.image}
+            alt={item.name}
+            loading='lazy'
+          />
+        </div>
+      ))
+    }
+  </div>
+  <p>Thanks to the following people for providing cat food:</p>
+  <Sponsors
+    sponsors={[
+      { name: 'yjk', amount: '100.0', date: '2025-11-13' },
+      { name: 'Ray Wu', amount: '9.9', date: '2025-05-03' },
+      { name: '0x33B', amount: '5.2', date: '2025-05-03' },
+      { name: '匿名 Sponsor', amount: '20.0', date: '2025-04-15' },
+      { name: 'SOTA', amount: '50.0', date: '2025-03-17' },
+      { name: '匿名 Sponsor', amount: '10.0', date: '2025-03-05' },
+      { name: '匿名 Sponsor', amount: '5.2', date: '2025-03-01' },
+      { name: '匿名 Sponsor', amount: '0.2', date: '2025-02-19' },
+      { name: '匿名 Sponsor', amount: '16.8', date: '2025-01-24' }
+    ]}
+  />
+</PageLayout>
+
+<script
+  is:inline
+  type='module'
+  data-astro-rerun
+  define:vars={{ npmCDN: config.npmCDN, walineServer: config.integ.waline.server }}
+>
+  const normalizePath = (path) => {
+    if (path === '/') return path
+    return path.endsWith('/') ? path.slice(0, -1) : path
+  }
+
+  const loadPageviewCount = async () => {
+    const pageview = await import(`${npmCDN}/@waline/client@v3/dist/pageview.js`)
+    pageview.pageviewCount({
+      serverURL: walineServer,
+      path: normalizePath(window.location.pathname)
+    })
+  }
+
+  await loadPageviewCount()
+</script>

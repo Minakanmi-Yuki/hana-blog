@@ -1,0 +1,184 @@
+---
+title: Pitfalls in Installing Anygrasp
+publishDate: 2025-06-28
+updatedDate: 2025-06-28
+description: Installing Anygrasp on Ubuntu 22.04 with CUDA 12.1.
+heroImage: {src : "https://picr2.axi404.top/anygrasp-en.webp", color: '#FCD585'}
+category: 'tech'
+pixivLink: '86616238'
+tags:
+    - AnyGrasp
+    - 'bug-report'
+    - 'robotics'
+codeHeightLimit: 300
+---
+
+> A while ago, I wrote [this blog post](/blog/anygrasp) about how to install AnyGrasp and the pitfalls I encountered. Later, I realized this post could also be helpful to many friends overseas, so I translated it into English (with the help of [Gemini](http://gemini.google.com/)). Here you can find how to install AnyGrasp, as well as MinkowskiEngine and PointNet2.\
+> For Chinese readers, you can find the original post [here](/blog/anygrasp) and they are the same.\
+> If you have any questions, please feel free to leave a comment or share this post to who you think needs it.
+
+import { Aside } from '@/components/user'
+
+I was recently configuring AnyGrasp and am documenting the problems I encountered here. My environment is Ubuntu 22.04, CUDA 12.1, and cudnn 9.3.0.
+
+<Aside type='note'>
+I had actually written a version before, but I felt it wasn't detailed enough; at least, following it wouldn't guarantee a painless installation. So, I've replaced it with a new, rewritten one.
+</Aside>
+
+## Basic Configuration
+
+First, here is the link to the AnyGrasp GitHub repository: [https://github.com/graspnet/anygrasp_sdk](https://github.com/graspnet/anygrasp_sdk). The `Installation` section provides brief installation steps, but because its dependency, MinkowskiEngine, has not been updated for a long time, some extra steps are required.
+
+First, set up a conda environment:
+
+```bash
+conda create -n anygrasp python=3.10
+conda install openblas-devel -c anaconda
+pip install torch 'numpy<1.23' ninja
+````
+
+## MinkowskiEngine
+
+Next, we can start with the first step, which is configuring MinkowskiEngine:
+
+```bash
+git clone https://github.com/NVIDIA/MinkowskiEngine.git
+cd MinkowskiEngine
+```
+
+Based on experience, you need to configure the following environment variables:
+
+```bash
+export CXX=c++
+export CUDA_HOME=/usr/local/cuda-12.1
+export MAX_JOBS=2
+export SKLEARN_ALLOW_DEPRECATED_SKLEARN_PACKAGE_INSTALL=True
+```
+
+Regarding the last two, `MAX_JOBS` is for the "CUDA: Out of memory" issue, and `SKLEARN_ALLOW_DEPRECATED_SKLEARN_PACKAGE_INSTALL=True` is for an outdated scikit-learn issue. Then, if you run the installation command:
+
+```bash
+python setup.py install --blas_include_dirs=${CONDA_PREFIX}/include --blas=openblas
+```
+
+The first potential error you might encounter has the core issue `error: namespace "thrust" has no member "device"`. This is essentially due to the library being outdated and incompatible with CUDA 12.X.
+
+Following [Issue\#543](https://github.com/NVIDIA/MinkowskiEngine/issues/543) in the repository, I found a method that worked for me, which involves adding `#include` to four different files:
+
+```cpp title="src/convolution_kernel.cuh"
+#include <thrust/execution_policy.h>
+```
+
+```cpp title="src/coordinate_map_gpu.cu"
+#include <thrust/unique.h>
+#include <thrust/remove.h>
+```
+
+```cpp title="src/spmm.cu"
+#include <thrust/execution_policy.h>
+#include <thrust/reduce.h>
+#include <thrust/sort.h>
+```
+
+```cpp title="src/3rdparty/concurrent_unordered_map.cuh"
+#include <thrust/execution_policy.h>
+```
+
+After that, you might get the error `ModuleNotFoundError: No module named 'distutils.msvccompiler'`. If so, run `pip install "setuptools <65"`.
+
+Installing again might lead to another error:
+
+```txt
+Traceback (most recent call last):
+  File "/home/gaoning/miniconda3/envs/anygrasp/lib/python3.10/site-packages/torch/utils/cpp_extension.py", line 2105, in _run_ninja_build
+    subprocess.run(
+  File "/home/gaoning/miniconda3/envs/anygrasp/lib/python3.10/subprocess.py", line 526, in run
+    raise CalledProcessError(retcode, process.args,
+subprocess.CalledProcessError: Command '['ninja', '-v', '-j', '2']' returned non-zero exit status 1.
+```
+
+You can edit `setup.py`:
+
+```python
+setup(
+    name="MinkowskiEngine",
+    version=find_version("MinkowskiEngine", "__init__.py"),
+    install_requires=["torch", "numpy"],
+    packages=["MinkowskiEngine", "MinkowskiEngine.utils", "MinkowskiEngine.modules"],
+    package_dir={"MinkowskiEngine": "./MinkowskiEngine"},
+    ext_modules=ext_modules,
+    include_dirs=[str(SRC_PATH), str(SRC_PATH / "3rdparty"), *include_dirs],
+    cmdclass={"build_ext": BuildExtension.with_options(use_ninja=False)},
+    author="Christopher Choy",
+    author_email="chrischoy@ai.stanford.edu",
+    ...,
+)
+
+```
+
+Set `use_ninja` to `False`, and then run the installation again. It should work without issues.
+
+Note that when installing with CUDA 12.4, an additional error occurred: `error: no instance of overloaded function "std::__shared_ptr<_Tp>::_M_enable_shared_from this ..."`. This triggers several errors, but they all revolve around `__shared_ptr` and `__to_address`, specifically related to overloading.
+
+This issue requires modifying `/usr/include/c++/12/bits/shared_ptr_base.h` (this was the file for me; someone in the Issue mentioned a different one, `ptr_traits.h`). Search for and replace the following:
+
+```cpp
+auto __raw = __to_address(__r.get()); // [!code --]
+auto __raw = std::__to_address(__r.get()); // [!code ++]
+```
+
+Then, another error might appear: `ld: cannot find -lopenblas: No such file or directory; collect2: error: ld returned 1 exit status`. After installing `conda install openblas-devel -c anaconda`, you need to copy a file. For me, the command was `cp /ssd/gaoning/miniconda3/envs/anygrasp/lib/libopenblas.so* /ssd/gaoning/miniconda3/envs/anygrasp/lib/python3.10/site-packages/torch/lib/.`.
+
+After that, the installation should proceed as usual.
+
+## AnyGrasp
+
+Next, install `anygrasp_sdk`:
+
+```bash
+git clone https://github.com/graspnet/anygrasp_sdk.git
+cd anygrasp_sdk
+pip install -r requirements.txt
+```
+
+## PointNet2
+
+Next, install `pointnet2`:
+
+```bash
+cd pointnet2
+python setup.py install
+```
+
+It's worth mentioning that during the installation of pointnet2, the `Command '['ninja', '-v', '-j', '2']'` error might still occur. The solution is the same as before: modify the arguments of the `setup()` function in `setup.py`.
+
+During this process, a rather rare issue might also appear:
+
+```txt
+gcc: fatal error: cannot execute ‘cc1plus’: execvp: No such file or directory
+compilation terminated.
+error: command '/usr/bin/gcc' failed with exit code 1
+```
+
+Usually, running `sudo apt install build-essential` is enough, but my problem went beyond that, as `gcc` and `g++` on my system were fine. After checking, I found it's because the compilation process of pointnet2 involves `gcc` calling `g++`. `gcc` likely calls the same version of `g++`, and the problem might have been caused by a version mismatch between `gcc --version` and `g++ --version`. Reinstall using a specific version with `sudo apt install` (for `Ubuntu 22.04`, this can be version 12):
+
+```bash
+sudo apt install gcc-12 g++-12
+```
+
+After this, the installation should proceed normally.
+
+## License Checker
+
+Finally, using AnyGrasp requires a key, which needs to be generated using `./license_checker -f`. On Ubuntu 22.04, this can also cause errors: one is the missing `libcrypto.so.1.1`, and the other is `sh: 1: ifconfig: not found`.
+
+```bash
+# to solve libcrypto.so.1.1 issue
+find / -name libcrypto.so.1.1
+# for example found a libcrypto.so.1.1 from cuda
+sudo ln -s /usr/local/cuda-12.1/nsight-systems-2023.1.2/host-linux-x64/libcrypto.so.1.1 /usr/lib/libcrypto.so.1.1
+# to solve ifconfig issue
+sudo apt install net-tools
+```
+
+Also, the machine code output after running `./license_checker -f` will likely end with a `%`. This is because a newline character was not added to the output (Python's `print()` adds one by default, but the language used for this program might not). Just submit the content without the `%` to the application form. Additionally, you need to use an educational email address.

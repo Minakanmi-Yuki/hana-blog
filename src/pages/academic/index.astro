@@ -1,0 +1,303 @@
+---
+import PageLayout from '@/layouts/CommonPage.astro'
+import {
+  Button,
+  Icon,
+  PublicationSection,
+  ResearchProjectSection,
+  SimpleIcon
+} from '@/components/user'
+import config from '@/site-config'
+
+const headings = [
+  { depth: 2, slug: 'about-me', text: 'About Me' },
+  { depth: 2, slug: 'research-interests', text: 'Research Interests' },
+  { depth: 2, slug: 'publications', text: 'Publications' },
+  { depth: 2, slug: 'open-source-projects', text: 'Open-source Projects' }
+]
+---
+
+<PageLayout title='Academic' {headings} info={{ slug: '/academic', hideComment: true }}>
+  <h2 id='about-me'>About Me<a class='anchor' href='#about-me'>#</a></h2>
+  <p>
+    I am a third-year undergraduate student in the
+    <a href='http://www.aiar.xjtu.edu.cn/' target='_blank'>School of Artificial Intelligence</a> /
+    <a href='https://bjb.xjtu.edu.cn/' target='_blank'>Qian Xuesen Honors College</a> at
+    <a href='https://www.xjtu.edu.cn/' target='_blank'>Xi’an Jiaotong University</a>. I am currently
+    interning at the
+    <a href='https://www.shlab.org.cn/' target='_blank'
+      >Shanghai Artificial Intelligence Laboratory</a
+    >, working closely with
+    <a href='https://yilunchen.com/about/' target='_blank'>Researcher Yilun Chen</a>, and will be
+    joining the lab under the supervision of
+    <a href='https://oceanpang.github.io/' target='_blank'>Research Scientist Jiangmiao Pang</a>.
+  </p>
+
+  <p>My research philosophy is simple: I build things because it’s fun.</p>
+  <p>
+    I’m not chasing lofty slogans — I just genuinely enjoy making robots move, do things, and
+    occasionally accomplish something useful. If a project eventually turns into a paper, great; if
+    it only ends up as a GIF of a robot knocking over a mug, that’s fine too.
+  </p>
+  <p>
+    Right now, I’m focused on large-scale synthetic data generation, aiming to use it to connect
+    Vision-Language Models with real-world actions. I see simulation as a critical stage in this
+    process: it allows ideas to be tested, refined, and expanded before being deployed in the real
+    world. Then, by incorporating massive amounts of real-world data, the system can become truly
+    grounded. At the same time, I aim to build a systematic engineering setup that runs smoothly and
+    reliably, and to keep the distance from an idea to a working prototype as short as possible.
+  </p>
+
+  <p>Here is my academic CV, feel free to download it.</p>
+  <Button title='Download CV' class='w-fit' href='/cv.pdf' target='_blank'>
+    <Icon class='size-5' name='download' slot='before' />
+  </Button>
+  <h2 id='research-interests'>
+    Research Interests<a class='anchor' href='#research-interests'>#</a>
+  </h2>
+  <div class='grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3'>
+    {
+      [
+        {
+          title: 'Robotics Manipulation',
+          description: 'Robotic Manipulation, Grasping, Dexterous Control, Object Interaction',
+          icon: 'ros'
+        },
+        {
+          title: 'VLA',
+          description: 'Vision-Language-Action Models, Multi-modal Learning, Embodied AI',
+          icon: 'pytorch'
+        },
+        {
+          title: 'Simulation Platform',
+          description: 'Virtual Environments, Physics Simulation, Training Platforms',
+          icon: 'nvidia'
+        }
+      ].map((interest) => (
+        <div class='group relative overflow-hidden rounded-xl border border-border bg-card p-4 transition-all hover:border-foreground/25 hover:shadow-md'>
+          <div class='flex items-start gap-4'>
+            <div class='flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 transition-colors group-hover:bg-primary/20'>
+              <SimpleIcon
+                class='size-5 text-primary transition-transform duration-300 group-hover:scale-110'
+                name={interest.icon}
+              />
+            </div>
+            <div class='flex-1'>
+              <p class='text-xl font-medium leading-tight text-foreground transition-colors group-hover:text-primary'>
+                {interest.title}
+              </p>
+              <p class='text-sm leading-relaxed text-muted-foreground'>{interest.description}</p>
+            </div>
+          </div>
+        </div>
+      ))
+    }
+  </div>
+  <h2 id='publications'>Publications<a class='anchor' href='#publications'>#</a></h2>
+  <PublicationSection
+    publications={[
+      {
+        title:
+          'InternData-A1: Pioneering High-Fidelity Synthetic Data for Pre-training Generalist Policy',
+        authors: [
+          { name: 'Yang Tian', isEqual: true },
+          { name: 'Yuyin Yang', isEqual: true },
+          { name: 'Yiman Xie', isEqual: true },
+          { name: 'Zetao Cai', isEqual: true },
+          { name: 'Xu Shi', isEqual: true },
+          { name: 'Ning Gao', isMe: true },
+          { name: 'Hangxu Liu' },
+          { name: 'Xuekun Jiang' },
+          { name: 'Zherui Qiu' },
+          { name: 'Feng Yuan' },
+          { name: 'Yaping Li' },
+          { name: 'Ping Wang' },
+          { name: 'Junhao Cai' },
+          { name: 'Jia Zeng' },
+          { name: 'Hao Dong' },
+          { name: 'Jiangmiao Pang', isCoreContributor: true }
+        ],
+        venue: 'Tech Report',
+        year: '2025',
+        type: 'preprint',
+        abstract:
+          'InternData-A1 is a large-scale synthetic robotic dataset (630k trajectories, 7,433 hours across 4 embodiments and 70 tasks) generated through a fully autonomous and compositional simulation pipeline. Using the same architecture as π₀, we show—for the first time—that a VLA model trained entirely on synthetic data can match the strongest real-robot datasets, achieving comparable performance across 49 simulation tasks, 5 real-world tasks, and long-horizon dexterous manipulation. The model also demonstrates zero-shot sim-to-real transfer, highlighting the substantial value of scalable simulation for embodied AI. The dataset and generation pipeline are released to enable broader access to large-scale robotic data creation.',
+        links: [
+          { type: 'website', href: 'https://internrobotics.github.io/interndata-a1.github.io/' },
+          {
+            type: 'dataset',
+            href: 'https://huggingface.co/datasets/InternRobotics/InternData-A1'
+          },
+          { type: 'arxiv', href: 'https://arxiv.org/abs/2511.16651' }
+        ],
+        status: 'published'
+      },
+      {
+        title:
+          'InternVLA-M1: Latent Spatial Grounding for Instruction-Following Robotic Manipulation',
+        authors: [
+          { name: 'Yilun Chen', isCoreContributor: true },
+          { name: 'Ning Gao', isMe: true, isCoreContributor: true },
+          { name: 'Jiangmiao Pang', isCoreContributor: true },
+          { name: 'Bolun Wang', isCoreContributor: true },
+          { name: 'Fangjing Wang', isCoreContributor: true },
+          { name: 'Jinhui Ye', isCoreContributor: true },
+          { name: 'Junqiu Yu', isCoreContributor: true },
+          { name: 'Jinyu Zhang', isCoreContributor: true },
+          { name: 'Yangkun Zhu', isCoreContributor: true },
+          { name: 'Xinyi Chen' },
+          { name: 'Weiyang Jin' },
+          { name: 'Hao Li' },
+          { name: 'Yu Qiao' },
+          { name: 'Yang Tian' },
+          { name: 'Bin Wang' },
+          { name: 'Hanqing Wang' },
+          { name: 'Tai Wang' },
+          { name: 'Ziqin Wang' },
+          { name: 'Xueyuan Wei' },
+          { name: 'Chao Wu' },
+          { name: 'Shuai Yang' },
+          { name: 'Jia Zeng' },
+          { name: 'Jingjing Zhang' },
+          { name: 'Shi Zhang' },
+          { name: 'Bowen Zhou' }
+        ],
+        authorsAlphabetical: true,
+        venue: 'Tech Report',
+        year: '2025',
+        type: 'preprint',
+        abstract:
+          'InternVLA-M1 is a unified framework for spatial grounding and robot control that advances instruction-following robots toward general-purpose intelligence. Its core idea is spatially guided vision-language-action training, where spatial grounding serves as the critical link between instructions and robot actions. InternVLA-M1 employs a two-stage pipeline: (i) spatial grounding pre-training on over 2.3M spatial reasoning data to determine “where to act” by aligning instructions with visual, embodiment-agnostic positions, and (ii) spatially guided action post-training to decide “how to act” by generating embodiment-aware actions through plug-and-play spatial prompting.',
+        links: [
+          { type: 'code', href: 'https://github.com/InternRobotics/InternVLA-M1' },
+          { type: 'website', href: 'https://internrobotics.github.io/internvla-m1.github.io/' },
+          {
+            type: 'arxiv',
+            href: 'https://github.com/InternRobotics/InternVLA-M1/blob/InternVLA-M1/assets/InternVLA_M1.pdf'
+          },
+          {
+            type: 'model',
+            href: 'https://huggingface.co/collections/InternRobotics/internvla-m1-68c96eaebcb5867786ee6cf3'
+          },
+          { type: 'video', href: 'https://youtu.be/n129VDqJCk4' }
+        ],
+        status: 'published'
+      },
+      {
+        title:
+          'GenManip: A Simulation Platform for Generalizable TableTop Manipulation in the Era of MLLM',
+        authors: [
+          { name: 'Ning Gao', isMe: true, isEqual: true },
+          { name: 'Yilun Chen', isEqual: true, role: 'project-leader' },
+          { name: 'Shuai Yang', isEqual: true },
+          { name: 'Xinyi Chen', isEqual: true },
+          { name: 'Yang Tian' },
+          { name: 'Hao Li' },
+          { name: 'Haifeng Huang' },
+          { name: 'Hanqing Wang' },
+          { name: 'Tai Wang' },
+          { name: 'Jiangmiao Pang', role: 'corresponding' }
+        ],
+        venue: 'Conference on Computer Vision and Pattern Recognition (CVPR)',
+        year: '2025',
+        type: 'conference',
+        abstract:
+          'Embodied manipulation benchmark based on Isaac Sim with automatic demonstration/layout generation and closed-loop test features. Served as a core developer and provided support for subsequent research at SHAILAB. To be released later.',
+        links: [
+          { type: 'code', href: 'https://github.com/OpenRobotLab/GenManip' },
+          { type: 'website', href: 'https://genmanip.axi404.top' },
+          { type: 'arxiv', href: 'https://arxiv.org/abs/2506.10966' },
+          { type: 'video', href: 'https://youtu.be/FnoFvzVlM6E' }
+        ],
+        status: 'published'
+      },
+      {
+        title:
+          'PMT: Progressive Mean Teacher via Exploring Temporal Consistency for Semi-Supervised Medical Image Segmentation',
+        authors: [
+          { name: 'Ning Gao', isMe: true },
+          { name: 'Sanping Zhou', role: 'corresponding' },
+          { name: 'Le Wang' },
+          { name: 'Nanning Zheng' }
+        ],
+        venue: 'European Conference on Computer Vision (ECCV)',
+        year: '2024',
+        type: 'conference',
+        abstract:
+          'Proposed a semi-supervised learning framework for medical image segmentation using Mean Teachers to enhance model diversity and regularization. Achieved state-of-the-art results and demonstrated generalization across datasets.',
+        links: [
+          { type: 'arxiv', href: 'https://arxiv.org/abs/2409.05122' },
+          { type: 'code', href: 'https://github.com/Axi404/PMT' }
+        ],
+        status: 'published'
+      }
+    ]}
+  />
+  <h2 id='open-source-projects'>
+    Open-source Projects<a class='anchor' href='#open-source-projects'>#</a>
+  </h2>
+  <ResearchProjectSection
+    projects={[
+      {
+        title: 'InternManip',
+        description:
+          'An All-in-one robot manipulation learning suite for policy models training and evaluation on various datasets and benchmarks.',
+        category: 'Robotics Simulation',
+        status: 'active',
+        links: [
+          { type: 'github', href: 'https://github.com/InternRobotics/InternManip', label: 'Code' }
+        ]
+      },
+      {
+        title: 'InternData-M1',
+        description:
+          'InternData-M1 is a comprehensive embodied robotics dataset containing ~250,000 simulation demonstrations with rich frame-based information including 2D/3D boxes, trajectories, grasp points, and semantic masks, with comprehensive annotations.',
+        category: 'Robotics Dataset',
+        status: 'active',
+        links: [
+          {
+            type: 'huggingface',
+            href: 'https://huggingface.co/datasets/InternRobotics/InternData-M1',
+            label: 'Hugging Face'
+          }
+        ]
+      },
+      {
+        title: 'InternData-A1',
+        description:
+          'InternData-A1 is a hybrid synthetic-real manipulation dataset containing over 630k trajectories and 7,433 hours across 4 embodiments, 18 skills, 70 tasks, and 227 scenes, covering rigid, articulated, deformable, and fluid-object manipulation.',
+        category: 'Robotics Dataset',
+        status: 'active',
+        links: [
+          {
+            type: 'huggingface',
+            href: 'https://huggingface.co/datasets/InternRobotics/InternData-A1',
+            label: 'Hugging Face'
+          }
+        ]
+      }
+    ]}
+  />
+</PageLayout>
+
+<script
+  is:inline
+  type='module'
+  data-astro-rerun
+  define:vars={{ npmCDN: config.npmCDN, walineServer: config.integ.waline.server }}
+>
+  const normalizePath = (path) => {
+    if (path === '/') return path
+    return path.endsWith('/') ? path.slice(0, -1) : path
+  }
+
+  const loadPageviewCount = async () => {
+    const pageview = await import(`${npmCDN}/@waline/client@v3/dist/pageview.js`)
+    pageview.pageviewCount({
+      serverURL: walineServer,
+      path: normalizePath(window.location.pathname)
+    })
+  }
+
+  await loadPageviewCount()
+</script>

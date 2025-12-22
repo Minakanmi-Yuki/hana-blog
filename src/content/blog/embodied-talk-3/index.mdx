@@ -1,0 +1,107 @@
+---
+title: 具身十日谈：GEN-0 以及后续的 VLA 发展的看法
+publishDate: 2025-11-06
+updatedDate: 2025-11-19
+description: GEN-0 出现的背后，我们可以从中学到什么。一些被改变，一些新的东西出现，研究还在继续。
+heroImage: {src : "https://picr2.axi404.top/e6fb15ff1c094b79736e83f905ed1cf2.webp", color: '#927B5F'}
+category: 'research'
+pixivLink: ''
+draft: false
+tags:
+    - 'Embodied AI'
+    - 'Deep Dive'
+---
+
+import { ManualTOC } from '@/components/advanced'
+
+<ManualTOC title='' categories={[
+    {
+        title: '具身十日谈',
+        items: [
+            {
+                title: '数据与仿真器',
+                href: '/blog/embodied-talk-1',
+                order: '1'
+            },
+            {
+                title: 'VLA 为什么需要 VLM',
+                href: '/blog/embodied-talk-2',
+                order: '2'
+            },
+            {
+                title: 'GEN-0 以及后续的 VLA 发展的看法',
+                href: '/blog/embodied-talk-3',
+                order: '3'
+            },
+            {
+                title: '关于仿真以及 InternData A1',
+                href: '/blog/embodied-talk-4',
+                order: '4'
+            }
+        ]
+    }
+]} />
+
+## 前言
+
+最近 [GEN-0](https://generalistai.com/blog/nov-04-2025-GEN-0)[^gen0] 的发布对于具身智能领域可以说是轰动性的。Manipulation 作为 Robotics 领域一直以来皇冠上的明珠，并且作为具身智能带来现实生产力必不可少的一环，一向以泛化的困难性著称。由于缺乏实际的使用场景，缺乏数据飞轮导致的数据匮乏使得模型的预训练难以 scaling up，而模型高度依赖后训练的数据。
+
+在此之前，领域内最具代表性的工作莫过于 Pi 系列[^pi0][^pi05]，在 Pi dataset 私有数据集上进行预训练。其结果是显著的，使用此类预训练之后，带来了模型后训练时的性能提升。从实际部署中，Pi 不同于若干号称反超自己的模型，在动作连贯性与平滑程度上有显著的差异。然而对于 zero-shot 完成任务仍有欠缺。
+
+GEN-0 充分利用了数据工厂，采集了 270000 小时的数据，也就是大约 31 年，并且目前每周可以以 10000 小时的速度继续采集，这意味着每周采集三个领域中当前最大的数据集，如 OXE[^oxe] 或者 AgiBot-World[^agibotworld]。在大约半年的时间之后，基于这些数据的预训练诞生了 GEN-0。假如不去争论是否是为了融资而画饼，从结果上来看，GEN-0 是一个比 Pi 系列更充分预训练的模型，为后训练带来了更强的增益。不过， 从原文依然没有大量去 overclaim 所谓 GPT 时刻或者 zero-shot（对于融资来说，这两个点是绝对的 Highlight），不难推测，从本质上来说 GEN-0 依然没有迎来 GPT 时刻，本身依然难以 zero-shot。
+
+这乍一看是令人沮丧的，我们还没有迎来 GPT 时刻，然而其中却仍可以说明大量的事情。最近常看 The Bitter Lesson[^bitterlesson]，只能感慨其是不朽的圣经，常看常新，而在 GEN-0 这一贴近苦涩的教训的范式下，我们可以看出不少的东西。Scaling Law 再次展现了她锋利的獠牙，她带走了一些领域，解决了一些问题，并且带来了更多的问题，这对于领域的发展毫无疑问是有裨益的。
+
+## 合成数据的挑战
+
+「仿真已死」是一个夸张的表述，然而 UMI 的兴起确实在一定程度上对仿真在内的合成数据方案带来了显著的 Challenge。我在这里提供几个视角进行阐述，但是不过多辩论这一话题。
+
+1. 仿真数据的成功率并非 100%，而真机采集（尤其是 UMI）在大多数时候的成功率接近 100%，这意味着在生成 Long horizon 数据的时候，成功率为 Subtask 成功率的乘积。仿真数据的开销呈指数，而真机近似为线性。这意味着在面对长时序的任务的数据采集过程中，对于仿真来说，一个合理的方案是将任务分解为多个子任务，并且将子任务的采集结果拼接起来，这种拼接相对是生硬的；而对于真机来说，则可以更加灵活地进行数据采集。
+2. 当前仿真数据对于 Skill 以及机械臂灵活性仍有欠缺，编写一个 Scalable 的通用仿真 Skill 需要考虑大量的 corner case，并且需要花费大量精通于仿真的研究者进行维护（相较于数据工厂，需要更长的培训时间以及相关技能的素养），而对于生成数据，在承担 Skill 本身制造数据的代码编写的同时，自然也有正常 Scaling 的计算开销。假如说将每一个任务的 Skill 去 hard code 编写，一个我大致可以确定的 insight 在于数据最大的价值在于轨迹的多样性，而 hardcode 的方案虽然与易写成正比，但是与多样性成反比。
+3. Sim2Real Gap，这是一个经久不衰的问题，这方面不只有 Visual 的 Gap，也包括了 Physics 的 Gap。同时，Simulation 对于布料以及软体等物理现象的仿真仍然差点意思。
+4. 算力开销，显然国内没有那么多大量的算力可以用来 Scaling 真的 Trillion 或者 Billion Episode 的数据。
+
+当然一切还在发展中，我所认知的周遭其实也拥有了不错的进展。我们实验室的团队做的大规模合成数据集 InternData A1 获得了显著的预训练效果，足以 comparable 甚至超越 GEN-0 出现之前最好的真机数据集 Pi Dataset 的预训练效果。
+
+我在具身智能领域先前的探索主要在仿真合成数据以及搭建仿真平台，辅有一些模型方面的探索。在去年的此时此刻，一个合理的直觉是那时还不是最合适做 VLA 的时候，因为数据的匮乏难以支撑模型的训练。仿真作为强大的合成与渲染工具，一些巧妙的方法可以用格式化算法以及 Motion Planner 高效生成大量多样性数据，例如我一年来维护的 GenManip[^genmanip] 的一种 usage 是在 14K 的 Objaverse[^objaverse] 资产上生成数万量级彼此不同的 cross-embodiment 的 long horizon 数据。
+
+然而无论 GenManip 在内的仿真，还是最近使用 World Model 生成数据，在 Manipulation 任务中的故事都会受到相当的 Challenge。尽管仿真面临的 sim2real gap 在上述的项目中已经取得了相当 impressive 的 demo 级进展，而 world model 对于 Delta Obs 以及 Action 之间的一致性问题则尚且保留，这些领域依然需要等待半年甚至一年才可能稍微更加成熟，而成熟的数据工厂已经可以在这段时间内使用 UMI 采集大量的数据，完成更进一步的积累了。难以争辩的事实是，GEN-0 的 Scaling Law 冰冷且残忍地用 UMI[^umi] 解决了数据问题。UMI 并非最新的东西，然而如何用更多的人力将其充分地 Scaling up，是一切的关键。
+
+仿真人所畅想的，使用仿真数据通过算力不分昼夜生产数据，作为预训练的基石，并且通过可控的消融来研究数据的奥秘，已经显然地被数据工厂甩在身后，并且可观的一段时间内的未来中差距只会持续拉大。即使现在局势没有清晰，我们也可以给出这个准确的结论，面对没有 sim2real gap 的数据工厂，合成数据暂时此路不通。 GEN-0 的答案在于数据多样性，而在仿真将 short horizon 在一定程度下 push to the limit 之后，如果此时的多样性仍然不满足预训练的需求。或者说，在上述提及的对于 Long horizon 的效率问题之下，做到了相对 Scalable 的 Skill 之后，只通过增加数量的方式提升数据量，若此时若包含的信息量依然匮乏，那么留给仿真去解决的，会是一个很漫长很漫长的问题。
+
+所以先打个广告，我们推出了基于 Isaac Sim 的 GenManip Suite 1.0 Pre-release：一个快速构建 Manipulation Benchmark/Data Scaling 的平台，研究者只需专注任务内容，构建自己的测试/生成任务最短约 7 分钟即可完成。平台已支持大规模数据生成与测试（如 [InternData M1](https://huggingface.co/datasets/InternRobotics/InternData-M1)、[SHAILAB IROS Challenge](https://internrobotics.shlab.org.cn/challenge/2025/)）。更多信息见双语官网，[genmanip.com](https://genmanip.com)。
+
+## GEN-0 的启示
+
+另一点则聚焦于工作本身，GEN-0 尽管没有带来 zero-shot 的能力，但是却带来了更多的 insight。
+
+首先，对于数据的需求远超我们的想象。在此之前诸如仿真等技术方案，本质都是相信，在提升一个数量级的数据之后，模型的能力就会带来本质的提高，然而目前在 real data 的验证下，远高出几个数量级的数据依然没有带来 zero-shot，这也在另一个侧面破灭了这些路线。假如无法忍受多一个数量级的时间开销，难以负担多一个数量级的算力开销，也很难将运行效率优化一个数量级，那么确实意义不大。
+
+其次，VLA 也会进入大模型时代，小模型走不通。在这里的小模型指小型的 VLA，而不是更加小型的模型，然而这些模型期望使用如 0.5B 的参数来获得最终的泛化，而同时保持直接通过模型体积获得的 efficient 收益。GEN-0 的结果表明模型只有随着体积的增大才能吃下更多的数据，即「参数规模较小的模型在数据过载时会表现出类似“僵化”的现象，而更大规模的模型则持续提升」。这事实上小于大家期望的模型的 volume，小模型在 scaling 上的碰壁比大多数人预料中更加靠前。因此而衍生的，既然要端测运行大模型，那么相应的 VLA infra 必然会存在显著大于当下的前景，而研究「VLA infra」，即类似如 World model，根据前后时序的因果性等角度出发，还有大量的空白，而非直接套用上游领域的方法。
+
+第三，模型的 pre-training 在从数据中学习 action space 的 exploration，而非类似 LLM 在概念上的泛化。当我们假设 VLA 模型主要在预训练中学习 VL 能力以及 Action 能力。预训练从数据中学习，主要本质上从数据中获得的提升可以朴素理解为主要学习数据中包含的最大多样性，那么对于 GEN-0 dataset 同时 rich of VL and A，结果上对于 post-training 的友好以及各类 Loss 的下降明显是 result in A，而没有泛化则某种程度上不完全地说明模型几乎没有 result in VL，没有对于能力的维持或者 transfer to A 的迹象。这与我们内部的一些实验结论吻合，相关内容或许只能等到放出来再给更多讨论，但是武断些的话，几乎可以确定的是，研究 co-training，尤其如何不通过类似 KI 的方法，更加本质地实现 transfer，这也是一个长久的命题。Pre-training，无论 Pi 还是 GEN，都体现了其在动作能力上的有效性，而如何带来一个泛化的模型，学界能做的依然很多。
+
+第四，关于预训练科学。GEN-0 的博客中提到大规模消融研究表明，数据质量与多样性比单纯数据量更关键，不同数据混合策略会带来不同模型特性。在对于不同数据混合的数据训练出来的模型进行评估，使用 MSE 以及 reverse-KL 可以对模型的特性进行评估。对于模型来说，低 MSE + 低 reverse-KL 会适合监督后训练，高 MSE + 低 reverse-KL 则更具分布多峰性，适合后训练强化学习。更多细节见 GEN-0 的博客。
+
+顺便再打个广告：我们推出的 InternVLA-M1[^internvlam1] 采用干净易扩展的 [Codebase](https://github.com/InternRobotics/InternVLA-M1)，实现了 co-training 并在 SimplerEnv[^simplerenv] 上 +10% 的 SOTA 提升，同时通过了真机验证，后续跟进非常低成本。基于同样理念，我们还开源了 [starVLA](https://github.com/starVLA/starVLA)，在 Qwen 基础上实现 Lego 式可组合 VLA 构建，非常适合快速实验与研究落地，欢迎 Star & Follow Up！
+
+同样，依然存在的问题还在于 Post-traning，以及成功率 90 to 99 的最后一步的问题，或许真机 RL 也是一种出路。
+
+可预见的未来的一段时间内，国内数采厂也会跟进，为具身带来预训练的环境，再之后，预训练科学将逐渐揭开她的面纱。而我的下一篇博文将讨论关于数据集本身，以及数据工厂对于数据集本身带来的改变。
+
+## 结语
+
+GEN-0 强有力地 Challenge 了一大部分我之前从事领域的意义，但是相关的 insight 以及对于数据的洞见却可以带到别的地方。所以对于个人来说，坏消息是，解决问题的领域我身处其中，如合成数据，我们需要寻找新的问题，或者加入更多的 engineering effort；好消息是，带来问题的领域我也身处其中，比如 Benchmark，比如 co-training。而对于领域来说，处于 Scaling Law 的洞见总是最有价值的，她解决了一些问题，并且强调了更多的问题，也留下了一些悬念，可能等到 2700000 小时的数据之后再去揭开，一切其实都还欣欣向荣。
+
+[^gen0]: GEN-0: https://generalistai.com/blog/nov-04-2025-GEN-0
+[^pi0]: Pi-0: https://arxiv.org/abs/2410.24164
+[^pi05]: Pi-0.5: https://arxiv.org/abs/2504.16054
+[^oxe]: OXE: https://arxiv.org/abs/2310.08864
+[^agibotworld]: AgiBot-World: https://arxiv.org/abs/2503.06669
+[^bitterlesson]: The Bitter Lesson: http://www.incompleteideas.net/IncIdeas/BitterLesson.html
+[^genmanip]: GenManip: https://genmanip.com/
+[^objaverse]: Objaverse: https://objaverse.allenai.org/
+[^umi]: UMI: https://arxiv.org/abs/2402.10329
+[^isaacsim]: Isaac Sim: https://developer.nvidia.com/isaac/sim
+[^internvlam1]: InternVLA-M1: https://arxiv.org/abs/2510.13778
+[^simplerenv]: SimplerEnv: https://arxiv.org/abs/2405.05941

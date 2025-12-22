@@ -1,0 +1,78 @@
+---
+import { Image } from 'astro:assets'
+import { Button, Card, Icon, Label, Spoiler } from '@/components/user'
+import GitHubActivityCalendar from '@/components/home/GitHubActivityCalendar.astro'
+import PageLayout from '@/layouts/BaseLayout.astro'
+import Section from '@/components/home/Section.astro'
+import BlogStats from '@/components/home/BlogStats.astro'
+import avatar from '@/assets/avatar.png'
+import config from '@/site-config'
+---
+
+<PageLayout meta={{ title: 'Home' }} highlightColor='#659EB966'>
+  <main class='flex w-full flex-col items-center'>
+    <section class='animate mb-10 flex flex-col items-center gap-y-7' id='content-header'>
+      <div class='flex flex-row items-center gap-x-6'>
+        <Image
+          src={avatar}
+          alt='profile'
+          class='h-36 w-auto rounded-lg border p-1'
+          loading='eager'
+        />
+        <div class='flex flex-col gap-y-4'>
+          <h1 class='text-3xl font-bold'>{config.author}</h1>
+          <div class='flex flex-wrap gap-x-1 gap-y-1'>
+            <Label title='China'>
+              <Icon name='location' class='size-4' slot='icon' />
+            </Label>
+            <Label
+              title='Github'
+              as='a'
+              href='https://github.com/Axi404'
+              target='_blank'
+            >
+              <Icon name='github' class='size-4' slot='icon' />
+            </Label>
+            <Label title='Email' as='a' href='mailto:gaoning@pjlab.org.cn'>
+              <Icon name='email' class='size-4' slot='icon' />
+            </Label>
+            <Label title='Scholar' as='a' href='https://scholar.google.com/citations?user=W9mT0rcAAAAJ&hl=zh-CN'>
+              <Icon name='earth' class='size-4' slot='icon' />
+            </Label>
+          </div>
+        </div>
+      </div>
+
+    <div id='content' class='animate flex flex-col gap-y-10 md:w-4/5 lg:w-5/6'>
+      <Section title='About'>
+        <p class='text-muted-foreground'>学生 / <Spoiler>可爱猫娘🎉󠇖󠅸󠆁󠇖󠅳󠆣󠇘󠆖󠅱󠇖󠅸󠆀󠇔󠆨󠆪󠇕󠅿󠆟󠇗󠅸󠆡󠇗󠆄󠆧󠇕󠆘󠆈</Spoiler></p>
+        <p class='text-muted-foreground'>
+          我是一名来自西安交通大学的人工智能专业的在读生，是 22 级。我正在上海人工智能实验室（SHAILAB）的具身智能中心中进行科研实习，从事具身智能 manipulation 领域的研究。Feel free to contact me~
+        </p>
+        <Button title='More about me' class='w-fit self-end' href='/about' style='ahead' />
+      </Section>
+      <Section title='Education'>
+        <Card
+          as='a'
+          heading='上海人工智能实验室'
+          subheading='具身智能中心，实习生'
+          date='Jul 2024 - Present'
+          href='https://www.shlab.org.cn/'
+        >
+        </Card>
+        <Card
+          as='a'
+          heading='西安交通大学'
+          subheading='人工智能专业，本科'
+          date='Sep 2022 - Present'
+          href='http://www.aiar.xjtu.edu.cn/'
+        >
+        </Card>
+      </Section>
+      <Section title='Statistics'>
+        <BlogStats blogStartDate={new Date('2024-06-15')} />
+      </Section>
+      <GitHubActivityCalendar username='Axi404'/>
+    </div>
+  </main>
+</PageLayout>
