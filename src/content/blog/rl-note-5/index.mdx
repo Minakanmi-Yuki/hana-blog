@@ -14,7 +14,7 @@ DP 的核心思想是将复杂问题分解为子问题，通过求解子问题�
 -   预测问题（Prediction）：给定策略 $\pi$ ，求解该策略的价值函数 $V^\pi$。
 -   控制问题（Control）：求解最优价值函数 $V^*$ 和最优策略 $\pi^*$。
 
-## 策略迭代
+## 策略迭代 (Policy Iteration)
 核心思想： “先以此为据，算个清楚；再择优而行。”
 策略迭代将求解过程严格拆分为两个交替的步骤，直到策略不再改变。
 -   步骤一：策略评估 (Policy Evaluation)：在当前策略 $\pi$ 固定不变的情况下，计算出该策略下精确的状态价值函数 $V^\pi$。这意味着在这个步骤里，我们通常需要多次迭代（或者解线性方程组）直到 $V^\pi$ 完全收敛。
@@ -22,7 +22,7 @@ DP 的核心思想是将复杂问题分解为子问题，通过求解子问题�
 
 特点： 收敛所需的迭代步数少，但每一步内部的计算量大（因为策略评估需要很久）。
 
-### 策略评估
+### 策略评估（Policy Evaluation）
 策略评估的目标是求解给定策略 $\pi$ 的状态价值函数 $V^\pi$。
 对于策略 $\pi$，状态价值函数满足贝尔曼期望方程：
 $$
@@ -56,4 +56,18 @@ $$
     $$
 3.  结论：只要折扣因子 satisfying $0 \le \gamma < 1$，算子 $\mathcal{T}^\pi$ 就是一个$\gamma$-压缩映射（Contraction Mapping）。根据 Banach 不动点定理，序列 $\{V_k\}$ 必收敛于唯一的固定点 $V^\pi$。
 
+### 策略提升（Policy Improvement）
+在计算出 $V^\pi$ 后，我们需要判断当前策略是否最优。如果不是，如何改进？
+
+#### 策略提升定理
+给定策略 $\pi$ 和其价值函数 $V^\pi$，构造新策略 $\pi^\prime$ 使得其在每个状态下都贪心地选择动作价值最大的动作：
+$$
+\pi^\prime(s) = \argmax_{a\in\mathcal{A}} Q^\pi(s,a) = \argmax_{a\in\mathcal{A}} \left( r(s,a)+\gamma\sum_{s^\prime \in\mathcal{S}}P(s^\prime|s,a)V^\pi(s^\prime) \right)
+$$
+**定理保证**：
+1.  $V^{\pi^\prime}(s) \geqslant V^\pi(s), \forall s \in \mathcal{S}$（策略单调递增）。
+2.  如果 $V^{\pi^\prime}(s) = V^\pi(s)$，则 $\pi$ 已经是与最优策略 $V^*$ 等价的策略。
+
+**证明思路（简述）**：
+利用 $V^\pi(s) \leqslant \max_a Q^\pi(s,a) = Q^\pi(s, \pi'(s))$，反复展开 $Q^\pi$ 即可证
 
