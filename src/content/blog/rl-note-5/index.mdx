@@ -8,3 +8,57 @@ category: 'daily'
 pixivLink: '127192375'
 ---
 
+## 策略迭代
+
+### 策略评估
+贝尔曼期望方程：
+$$
+V^\pi(s)=\sum_{a\in \mathcal{A}}\pi(a|s)(\mathcal{R}(s,a)+\gamma\sum_{s^\prime\in \mathcal{S}}\mathcal{P}(s^\prime|s,a)V^\pi(s^\prime))
+$$
+
+根据动态规划的思想，可以把计算下一个可能状态的价值当成一个子问题，把计算当前状态的价值看作当前问题。
+在得知子问题的解后，就可以求解当前问题。
+
+动态规划算法的基本思想是将当前问题分解为若干个子问题，先求解子问题，再求解当前问题。
+-   当前问题：求解当前状态 $s$ 的价值函数 $V^\pi(s)$；
+-   子问题：求解下一个状态 $s^\prime$ 的价值函数 $V^\pi(s^\prime)$；
+
+考虑所有的状态，可以使用上一轮的状态价值函数来计算当前这轮的状态价值函数：
+$$
+V^{k+1}(s)=\sum_{a\in\mathcal{A}}\pi(a|s)(\mathcal{R}(s,a)+\gamma\sum_{s^\prime\in\mathcal{S}}\mathcal{P}(s^\prime|s,a)V^{k}(s^\prime))
+$$
+
+随机选定初始值 $V^0$ ，当 $k\rightarrow\infin$ 时，序列 $\{ V^k \}$ 会收敛到 $V^\pi$ ，证明如下：
+
+1. Bellman操作定义 $$\mathcal{T}$$：
+$$\mathcal{T} V(s)=\sum_{a\in\mathcal{A}}\pi(a|s)(r(s,a)+\gamma\sum_{s^\prime\in\mathcal{S}}P(s^\prime|s,a)V(s^\prime))$$
+2. 不动点：
+我们要证明，当 $$k\rightarrow\infin$$时，序列  $$\{V^k\}$$收敛到不动点 $$V^\pi$$，即：
+$$V(s)=\mathcal{T}V(s)$$
+3. 收敛性证明：
+我们使用Banach不动点定理（压缩映射定理）证明序列 $$\{V^k\}$$可以收敛到不动点，即对于任何两个 $$V^n$$和 $$V^m$$，存在常数 $$c<1$$满足：
+$$\parallel \mathcal{T} V^n - \mathcal{T}V^m \parallel \leqslant c\parallel V^n - V^m \parallel$$
+我们可以将范数选择为无穷范数：
+$$\parallel V \parallel_\infin=\max_{s\in \mathcal{S}} | V(s)| $$
+对于任何状态 $$s$$，满足：
+$$\begin{align}
+|\mathcal{T} V^n(s)-\mathcal{T}V^m(s)|
+&=|\sum_{a\in\mathcal{A}}\pi(a|s)(r(s,a)+\gamma\sum_{s^\prime\in\mathcal{S}}P(s^\prime|s,a)V^n(s^\prime))-\sum_{a\in\mathcal{A}}\pi(a|s)(r(s,a)+\gamma\sum_{s^\prime\in\mathcal{S}}P(s^\prime|s,a)V^m(s^\prime))| \notag \\
+&=|\gamma\sum_{a\in\mathcal{A}}\pi(a|s)\sum_{s^\prime\in\mathcal{S}}P(s^\prime|s,a)(V^n(s^\prime)-V^m(s^\prime))| \notag \\
+\end{align}$$
+由三角不等式，可以推导出：
+$$\begin{align}
+|\mathcal{T} V^n(s)-\mathcal{T} V^m(s)| &\leqslant \gamma \sum_{a\in\mathcal{A}}\pi(a|s)\sum_{s^\prime\in\mathcal{S}}P(s^\prime|s,a)|V^n(s^\prime)-V^m(s^\prime)|\notag \\
+&\leqslant \gamma \sum_{a\in\mathcal{A}}\pi(a|s)\max_{s^\prime\in\mathcal{S}}|V^n(s^\prime)-V^m(s^\prime)|\notag \\
+&=\gamma \sum_{a\in\mathcal{A}}\pi(a|s) \parallel V^n - V^m\parallel_\infin\notag \\
+&= \gamma \parallel V^n - V^m \parallel_\infin \notag \;\; ,\forall s \in \mathcal{S}
+\end{align}$$
+进而，推导出：
+$$\begin{align}
+\parallel \mathcal{T}V^n - \mathcal{T}V^m \parallel_\infin 
+&= \max_{s\in\mathcal{S}}|\mathcal{T}V^n(s) - \mathcal{T}V^m(s)|\notag \\
+&\leqslant \gamma \parallel V^n-V^m\parallel_\infin\notag
+\end{align}$$
+其中，满足$$\gamma \leqslant 1$$，故序列 $$\{V^k\}$$会收敛到不动点。
+
+在实际的实现中，如果某轮的 $$\max_{s\in\mathcal{S}}|V^{k+1}(s)-V^k(s)|$$很小，那么可以提前结束策略评估，以提高算法效率。
