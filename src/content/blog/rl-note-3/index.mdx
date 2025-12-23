@@ -8,7 +8,22 @@ category: 'daily'
 pixivLink: '127192375'
 ---
 
-# 随机过程（Stochastic Process）
+## 随机过程（Stochastic Process）
 随机过程是研究随时间演变的随机现象。
 在随机过程中，随机现象在$$t$$时刻的取值为$S_t$，并且$S_t$通常会取决于之前的状态 $(S_1,...,S_{t-1})$。
 在已知 $(S_1,...,S_{t-1})$的情况下，下一个时刻 $t$的状态为 $S_t$的概率可以表示为$P(S_t | S_1,...,S_{t-1})$。
+
+## 马尔可夫性质（Markov Property）
+当且仅当某个时刻的状态只取决于上个时刻的状态时，这个随机过程满足马尔可夫性质，即$P(S_t | S_{t-1}) = P(S_t | S_1, ..., S_{t-1})$。
+
+## 马尔可夫过程（Markov Process）
+马尔可夫过程就是满足了马尔可夫性质的随机过程，也叫马尔可夫链（Markov Chain）。
+通常使用一个二元组 $<\mathcal{S}, \mathcal{P}>$ 来描述马尔可夫过程，其中 $\mathcal{S}$是有限数量的状态集合， $\mathcal{P}$是状态转移矩阵（State Transition Matrix）。
+假设 $|\mathcal{S}|=n$，那么有：
+$$\mathcal{P}=
+\begin{bmatrix}
+P(s_1|s_1)      & \cdots & P(s_n|s_1)      \\
+\vdots & \ddots & \vdots \\
+P(s_n|s_1)      & \cdots & P(s_n|s_n)
+\end{bmatrix}$$
+且对于任意 $i$行，满足 $\sum_{j=1}^{n} P(s_j|s_i)=1$。
