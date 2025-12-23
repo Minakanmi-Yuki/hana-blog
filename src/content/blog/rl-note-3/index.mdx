@@ -92,3 +92,30 @@ $\pi(a|s)=P(A_t=a|S_t=s)$ 表示状态 $s$ 下，选择动作 $a$ 的概率。
 
 #### 随机性策略（Stochastic Policy）
 随机性策略和确定性策略相反，它输出的各个动作的概率分布（Probability  Distribution），每次采取动作时会从分布中进行采样。
+
+### 状态价值函数（State-Value Function）
+基于策略 $\pi$ 的状态价值函数被记为 $V^\pi(s)=\mathbb{E}_\pi[G_t|S_t=s]$ 。
+注意：若 $\pi \ne \pi^\prime$ ，则 $V^\pi \ne V^{\pi^\prime}$ 。
+
+### 动作价值函数（Action-Value Function）
+马尔可夫决策过程引入了动作，我们额外定义了一个动作价值函数（Action-Value Function）。
+基于策略 $\pi$ 的动作价值函数被记为 $Q^\pi(s,a)$ ，表达式为 $Q^\pi(s,a)=\mathbb{E}_{\pi}[G_t|S_t=s,A_t=a]$ 。
+经过简单的推导，可以得出如下公式：
+$$
+\begin{align}
+Q^\pi(s,a)&=\mathbb{E}_\pi[G_t|S_t=s,A_t=a] \notag \\
+&=\mathbb{E}_\pi[R_t+\gamma R_{t+1}+\gamma^2 R_{t+2}+...|S_t=s,A_t=a] \notag \\
+&= \mathbb{E}_\pi[R_t+\gamma(R_{t+1}+\gamma R_{t+2}+...)|S_t=s,A_t=a] \notag \\
+&= \mathbb{E}_\pi[R_t+\gamma V(S_{t+1})|S_t=s,A_t=a] \notag \\
+&= \mathbb{E}_\pi[R_t]+\gamma \mathbb{E}_\pi[V^\pi(S_{t+1})|S_t=s,A_t=a] \notag \\
+&= r(s,a)+\gamma \sum_{s^\prime \in \mathcal{S}}P(s^\prime|s,a)V^\pi(s^\prime) \notag
+\end{align}
+$$
+状态价值函数和动作价值函数之间的关系：
+$$
+\begin{align}
+V^\pi(s)&= \mathbb{E}_{a\sim \pi( \cdot | s)}[Q^\pi(s,a)] \notag \\
+&=\sum_{a\in \mathcal{A}}\pi(a|s)Q^\pi(s,a) \notag
+\end{align}
+$$
+注意：若 $\pi \ne \pi^\prime$ ，则 $Q^\pi \ne Q^{\pi^\prime}$ 。
