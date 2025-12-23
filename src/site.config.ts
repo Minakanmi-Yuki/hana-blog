@@ -119,7 +119,7 @@ export const integ: IntegrationUserConfig = {
   },
   // Comment system
   waline: {
-    enable: true,
+    enable: false,
     // Server service link
     // server: 'https://waline.axi404.top/', 
     server: 'https://waline.hana0721.top/',  
