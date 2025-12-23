@@ -28,3 +28,7 @@ $$
 
 且对于任意 $i$行，满足 $\sum_{j=1}^{n} P(s_j|s_i)=1$。
 特别的，当一个状态 $s_t$ 满足 $P(s_t|s_t)=1$，那么称 $s_t$为终止状态（Terminal State）。
+给定马尔可夫过程，从某个状态 $S_1$ 出发，根据状态转移矩阵 $\mathcal{P}$ 得出一段状态序列 $S_1 S_2...S_T$（Episode），这个过程也叫做采样（Sampling）。
+
+## 马尔可夫奖励过程（Markov Reward Process）
+马尔可夫奖励过程基于马尔可夫过程加入了奖励函数 $\mathcal{R}$（Reward Function）与折扣因子 $$\gamma$$（Discount Factor），通常由四元组 $<\mathcal{S},\mathcal{P},\mathcal{R},\gamma>$ 构成：
