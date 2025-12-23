@@ -119,3 +119,21 @@ V^\pi(s)&= \mathbb{E}_{a\sim \pi( \cdot | s)}[Q^\pi(s,a)] \notag \\
 \end{align}
 $$
 注意：若 $\pi \ne \pi^\prime$ ，则 $Q^\pi \ne Q^{\pi^\prime}$ 。
+
+### 贝尔曼期望方程（Bellman Expectation Equation）
+对状态价值函数进行边缘化（Marginalization），可以得出 $V^\pi(s)$ 的贝尔曼期望方程：
+$$
+\begin{align}
+V^\pi(s)&=\mathbb{E}_\pi[R_t+\gamma V^\pi(S_{t+1})|S_t=s] \notag \\
+&=r(s)+\gamma\sum_{s^\prime\in \mathcal{S}}\mathcal{P}(s^\prime|s)V^\pi(s^\prime) \notag \\
+&=\sum_{a\in \mathcal{A}}\pi(a|s)(r(s,a)+\gamma\sum_{s^\prime\in \mathcal{S}}\mathcal{P}(s^\prime|s,a)V^\pi(s^\prime)) \notag
+\end{align}
+$$
+将 $V^\pi(s)=\sum_{a\in\mathcal{A}}\pi(a|s)Q^\pi(s,a)$ 代入，可以得出 $Q^\pi(s,a)$ 的贝尔曼期望方程：
+$$
+\begin{align}
+Q^\pi(s,a)&=\mathbb{E}_{\pi}[G_t|S_t=s,A_t=a] \notag \\
+&=r(s,a) + \gamma \sum_{s^\prime\in \mathcal{S}}\mathcal{P}(s^\prime|s,a)V^\pi(s^\prime) \notag \\
+&= r(s,a)+\gamma\sum_{s\in\mathcal{S}}\mathcal{P}(s^\prime|s,a)\sum_{a^\prime\in\mathcal{A}}\pi(a^\prime|s^\prime)Q^\pi(s^\prime,a^\prime) \notag
+\end{align}
+$$
