@@ -108,7 +108,7 @@ Q^\pi(s,a)&=\mathbb{E}_\pi[G_t|S_t=s,A_t=a] \notag \\
 &= \mathbb{E}_\pi[R_t+\gamma(R_{t+1}+\gamma R_{t+2}+...)|S_t=s,A_t=a] \notag \\
 &= \mathbb{E}_\pi[R_t+\gamma V(S_{t+1})|S_t=s,A_t=a] \notag \\
 &= \mathbb{E}_\pi[R_t]+\gamma \mathbb{E}_\pi[V^\pi(S_{t+1})|S_t=s,A_t=a] \notag \\
-&= r(s,a)+\gamma \sum_{s^\prime \in \mathcal{S}}P(s^\prime|s,a)V^\pi(s^\prime) \notag
+&= r(s,a)+\gamma \sum_{s^\prime \in \mathcal{S}}\mathcal{P}(s^\prime|s,a)V^\pi(s^\prime) \notag
 \end{align}
 $$
 状态价值函数和动作价值函数之间的关系：
@@ -136,4 +136,37 @@ Q^\pi(s,a)&=\mathbb{E}_{\pi}[G_t|S_t=s,A_t=a] \notag \\
 &=r(s,a) + \gamma \sum_{s^\prime\in \mathcal{S}}\mathcal{P}(s^\prime|s,a)V^\pi(s^\prime) \notag \\
 &= r(s,a)+\gamma\sum_{s\in\mathcal{S}}\mathcal{P}(s^\prime|s,a)\sum_{a^\prime\in\mathcal{A}}\pi(a^\prime|s^\prime)Q^\pi(s^\prime,a^\prime) \notag
 \end{align}
+$$
+
+### 状态访问分布（State Visitation Distribution）
+在同一个马尔可夫过程中，不同的策略，它们的价值函数是不一样的。
+因为在不同的策略，智能体能够访问的状态的概率分布是不同的。
+我们使用 $P_t^\pi(s)$ 来表示智能体使用策略 $\pi$ 在 $t$ 时刻访问状态 $s$ 的概率。
+策略 $\pi$ 的状态访问分布（State Visitation Distribution）定义如下：
+$$
+\nu^\pi(s)=(1-\gamma)\sum_{t=0}^{\infin}\gamma^t P_t^\pi(s)
+$$
+
+$1-\gamma$ 是归一化因子，它保证 $\nu^\pi(s)$ 是一个有效的概率分布，即 $\sum_s \nu^\pi(s)=1$，推导如下：
+$$
+\begin{align}
+\sum_s \nu^\pi(s)&=\sum_s (1-\gamma) \sum_{t=0}^\infin \gamma^t P_t^\pi(s) \notag \\
+&= (1-\gamma)\sum_{t=0}^\infin \gamma^t \sum_s P_t^\pi(s) \notag \\
+\end{align}
+$$
+
+在任意时刻 $t$，满足 $\sum_s P_t^\pi(s)=1$，可以推导出：
+$$
+\sum_s \nu^\pi(s)=(1-\gamma) \sum_{t=0}^\infin \gamma^t
+$$
+这里有个几何级数，满足 $\sum_{t=0}^\infin\gamma^t=\frac{1}{1-\gamma}$，可以推导出：
+$$
+\sum_s \nu^\pi(s)=(1-\gamma) \frac{1}{1-\gamma}=1
+$$
+
+特别地，定义初始状态分布为 $\nu_0(s)$，且 $P_0^\pi(s)=\nu_0(s)$。
+
+使用上述公式计算该分布涉及到了无穷步的交互，但是实际上的交互数量是有限的。同时，状态访问分布满足以下性质：
+$$
+\nu^\pi(s^\prime)=(1-\gamma)\nu_0(s^\prime)+\gamma  \int P(s^\prime|s,a)\pi(a|s)\nu^\pi(s) {\rm d} s {\rm d} a
 $$
