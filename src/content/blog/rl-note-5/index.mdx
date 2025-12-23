@@ -35,6 +35,14 @@ $$
 $$
 V^{k+1}(s)\leftarrow\sum_{a\in\mathcal{A}}\pi(a|s)(\mathcal{R}(s,a)+\gamma\sum_{s^\prime\in\mathcal{S}}\mathcal{P}(s^\prime|s,a)V^{k}(s^\prime))
 $$
+随机选定初始值 $V^0$ ，当 $k\rightarrow\infin$ 时，序列 $\{ V^k \}$ 会收敛到 $V^\pi$ ，下节给出证明。
+
+#### 收敛性证明（Banach不动点定理）
+为了证明序列 ${ V^k \}$ 收敛于 $V^\pi$，我们将迭代过程看作算子 $\mathcal{T}^\pi$ 的应用：
+$$
+V_{k+1}=\mathcal{T}^\pi V_k
+$$
+
 
 根据动态规划的思想，可以把计算下一个可能状态的价值当成一个子问题，把计算当前状态的价值看作当前问题。
 在得知子问题的解后，就可以求解当前问题。
