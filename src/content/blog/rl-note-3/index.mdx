@@ -32,3 +32,7 @@ $$
 
 ## 马尔可夫奖励过程（Markov Reward Process）
 马尔可夫奖励过程基于马尔可夫过程加入了奖励函数 $\mathcal{R}$（Reward Function）与折扣因子 $$\gamma$$（Discount Factor），通常由四元组 $<\mathcal{S},\mathcal{P},\mathcal{R},\gamma>$ 构成：
+- $\mathcal{S}$ 是有限状态集；
+- $\mathcal{P}$ 是状态转移矩阵；
+- $\mathcal{R}$ 是奖励函数，$\mathcal{R}(s)$ 表示达到状态 $s$ 可以获得的奖励；
+- $\gamma$ 是折扣因子，取值为 $[0,1)$。 $\gamma$ 的越小，对于未来的利益折扣越大；
