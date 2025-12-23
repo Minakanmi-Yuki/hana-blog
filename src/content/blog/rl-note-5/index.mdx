@@ -23,9 +23,17 @@ DP 的核心思想是将复杂问题分解为子问题，通过求解子问题�
 特点： 收敛所需的迭代步数少，但每一步内部的计算量大（因为策略评估需要很久）。
 
 ### 策略评估
-贝尔曼期望方程：
+策略评估的目标是求解给定策略 $\pi$ 的状态价值函数 $V^\pi$。
+对于策略 $\pi$，状态价值函数满足贝尔曼期望方程：
 $$
 V^\pi(s)=\sum_{a\in \mathcal{A}}\pi(a|s)(\mathcal{R}(s,a)+\gamma\sum_{s^\prime\in \mathcal{S}}\mathcal{P}(s^\prime|s,a)V^\pi(s^\prime))
+$$
+这构成了一个线性方程组，但在状态空间较大时直接求解困难，因此采用迭代法。
+
+#### 贝尔曼方程迭代更新
+将当前时刻估计的价值函数 $V_k$ 代入贝尔曼方程右侧，计算下一轮的估计 $V_{k+1}$ ：
+$$
+V^{k+1}(s)\leftarrow\sum_{a\in\mathcal{A}}\pi(a|s)(\mathcal{R}(s,a)+\gamma\sum_{s^\prime\in\mathcal{S}}\mathcal{P}(s^\prime|s,a)V^{k}(s^\prime))
 $$
 
 根据动态规划的思想，可以把计算下一个可能状态的价值当成一个子问题，把计算当前状态的价值看作当前问题。
