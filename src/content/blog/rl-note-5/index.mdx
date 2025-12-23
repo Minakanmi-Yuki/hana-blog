@@ -69,7 +69,7 @@ $$
 2.  如果 $V^{\pi^\prime}(s) = V^\pi(s)$，则 $\pi$ 已经是与最优策略 $V^*$ 等价的策略。
 
 证明思路（简述）：
-利用 $V^\pi(s) \leqslant \max_a Q^\pi(s,a) = Q^\pi(s, \pi'(s))$，反复展开 $Q^\pi$ 即可证。
+利用 $V^\pi(s) \leqslant \max_a Q^\pi(s,a) = Q^\pi(s, \pi^\prime(s))$，反复展开 $Q^\pi$ 即可证。
 
 ### 迭代算法（Iteration Algorithm）
 策略迭代交替进行“策略评估”和“策略提升”，直到策略不再变化。
@@ -85,14 +85,14 @@ $$
     *   $\Delta \leftarrow 0$
     *   For each $s \in \mathcal{S}$:
         *   $v \leftarrow V(s)$
-        *   $V(s) \leftarrow \sum_{s', r} P(s',r|s,\pi(s))[r + \gamma V(s')]$
+        *   $V(s) \leftarrow \sum_{s\prime, r} P(s\prime,r|s,\pi(s))[r + \gamma V(s\prime)]$
         *   $\Delta \leftarrow \max(\Delta, |v - V(s)|)$
     *   若 $\Delta < \theta$，停止评估。
 3.  策略提升：
     *   $policy\_stable \leftarrow true$
     *   For each $s \in \mathcal{S}$:
         *   $old\_action \leftarrow \pi(s)$
-        *   $\pi(s) \leftarrow \argmax_a \sum_{s', r} P(s',r|s,a)[r + \gamma V(s')]$
+        *   $\pi(s) \leftarrow \argmax_a \sum_{s\prime, r} P(s\prime,r|s,a)[r + \gamma V(s\prime)]$
         *   If $old\_action \neq \pi(s)$, then $policy\_stable \leftarrow false$
     *   If $policy\_stable$ is true，停止并返回 $V^*, \pi^*$；否则跳转至步骤 2。
 
