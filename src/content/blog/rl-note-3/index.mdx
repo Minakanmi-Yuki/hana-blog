@@ -82,3 +82,13 @@ $$
 -  $\gamma$ 是折扣因子；
 -  $\mathcal{R}(s,a)$ 是奖励函数；
 -  $\mathcal{P}(s^\prime|s,a)$ 是状态转移函数；
+
+### 策略（Policy）
+策略的定义：智能体根据当前的状态 $S_t$，并从动作集合 $\mathcal{A}$中选取一个 $A_t$ 的函数，一般记为 $\pi$。
+$\pi(a|s)=P(A_t=a|S_t=s)$ 表示状态 $s$ 下，选择动作 $a$ 的概率。
+
+#### 确定性策略（Deterministic Policy）
+如果一个策略 $\pi$ ，对于每一个状态 $s\in\mathcal{S}$ ，有且仅有唯一动作 $a\in\mathcal{A}$ ，使得 $\pi(a|s)=1$ ，那么这个策略就是一个确定性策略。
+
+#### 随机性策略（Stochastic Policy）
+随机性策略和确定性策略相反，它输出的各个动作的概率分布（Probability  Distribution），每次采取动作时会从分布中进行采样。
