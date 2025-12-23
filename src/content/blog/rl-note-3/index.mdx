@@ -73,3 +73,12 @@ $$
 \mathcal{V}&=(I-\gamma\mathcal{P})^{-1}\mathcal{R} \notag
 \end{align}
 $$
+
+## 马尔可夫决策过程（Markov Decision Process）
+在马尔可夫奖励过程的基础上，加入外界的刺激，即智能体（Agent）的动作（Action），就有了马尔可夫决策过程（Markov Decision Process）。
+马尔可夫决策由五元组 $<\mathcal{S},\mathcal{A},\mathcal{P},\mathcal{R},\gamma>$构成，分别是：
+-  $\mathcal{S}$ 是有限状态集；
+-  $\mathcal{A}$ 是动作的集合；
+-  $\gamma$ 是折扣因子；
+-  $\mathcal{R}(s,a)$ 是奖励函数；
+-  $\mathcal{P}(s^\prime|s,a)$ 是状态转移函数；
