@@ -20,10 +20,14 @@ pixivLink: '127192375'
 马尔可夫过程就是满足了马尔可夫性质的随机过程，也叫马尔可夫链（Markov Chain）。
 通常使用一个二元组 $<\mathcal{S}, \mathcal{P}>$ 来描述马尔可夫过程，其中 $\mathcal{S}$是有限数量的状态集合， $\mathcal{P}$是状态转移矩阵（State Transition Matrix）。
 假设 $|\mathcal{S}|=n$，那么有：
+
 $$\mathcal{P}=
 \begin{bmatrix}
-P(s_1|s_1)      & \cdots & P(s_n|s_1)      \\
-\vdots & \ddots & \vdots \\
+P(s_1|s_1)      & \cdots & P(s_n|s_1)      \cr
+\vdots & \ddots & \vdots \cr
 P(s_n|s_1)      & \cdots & P(s_n|s_n)
 \end{bmatrix}$$
+
 且对于任意 $i$行，满足 $\sum_{j=1}^{n} P(s_j|s_i)=1$。
+
+特别的，当一个状态 $s_t$ 满足 $P(s_t|s_t)=1$，那么称 $s_t$为终止状态（Terminal State）。
