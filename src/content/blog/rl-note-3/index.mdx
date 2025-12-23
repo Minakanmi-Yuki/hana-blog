@@ -1,8 +1,8 @@
 ---
-title: "RL笔记（3）：马尔科夫决策过程"
+title: "RL笔记（3）：马尔可夫决策过程"
 publishDate: 2025-12-23
 updatedDate: 2025-12-23
-description: "马尔科夫决策过程"
+description: "马尔可夫决策过程"
 heroImage: {src : "https://picr2.axi404.top/Paper-reading-Uni-zh.webp", color: '#8C8275'}
 category: 'daily'
 pixivLink: '127192375'
@@ -38,3 +38,10 @@ $$
 - $\mathcal{P}$ 是状态转移矩阵；
 - $\mathcal{R}$ 是奖励函数，$\mathcal{R}(s)$ 表示达到状态 $s$ 可以获得的奖励；
 - $\gamma$ 是折扣因子，取值为 $[0,1)$。 $\gamma$ 的越小，对于未来的利益折扣越大；
+
+### 回报（Return）
+在一个马尔可夫奖励过程中，在某个时刻 $t$，其回报 $G_t$ 的定义如下：
+$$
+G_t=R_t+\gamma R_{t+1}+\gamma^2 R_{t+2}+...=\sum_{k=0}^\infin \gamma^k R_{t+k}
+$$
+其中， $R_t$ 表示 $t$ 时刻获得的奖励。
