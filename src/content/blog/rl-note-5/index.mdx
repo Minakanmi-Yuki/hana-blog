@@ -64,10 +64,12 @@ $$
 $$
 \pi^\prime(s) = \argmax_{a\in\mathcal{A}} Q^\pi(s,a) = \argmax_{a\in\mathcal{A}} \left( r(s,a)+\gamma\sum_{s^\prime \in\mathcal{S}}P(s^\prime|s,a)V^\pi(s^\prime) \right)
 $$
-**定理保证**：
+定理保证：
 1.  $V^{\pi^\prime}(s) \geqslant V^\pi(s), \forall s \in \mathcal{S}$（策略单调递增）。
 2.  如果 $V^{\pi^\prime}(s) = V^\pi(s)$，则 $\pi$ 已经是与最优策略 $V^*$ 等价的策略。
 
-**证明思路（简述）**：
-利用 $V^\pi(s) \leqslant \max_a Q^\pi(s,a) = Q^\pi(s, \pi'(s))$，反复展开 $Q^\pi$ 即可证
+证明思路（简述）：
+利用 $V^\pi(s) \leqslant \max_a Q^\pi(s,a) = Q^\pi(s, \pi'(s))$，反复展开 $Q^\pi$ 即可证。
+
+
 
