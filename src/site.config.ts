@@ -119,9 +119,10 @@ export const integ: IntegrationUserConfig = {
   },
   // Comment system
   waline: {
-    enable: false,
+    enable: true,
     // Server service link
-    server: 'https://waline.axi404.top/',  
+    // server: 'https://waline.axi404.top/', 
+    server: 'https://hana-waline.vercel.app/',  
     // Refer https://waline.js.org/en/guide/features/emoji.html
     emoji: ['bmoji', 'weibo'],
     // Refer https://waline.js.org/en/reference/client/props.html
