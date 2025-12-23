@@ -45,3 +45,31 @@ $$
 G_t=R_t+\gamma R_{t+1}+\gamma^2 R_{t+2}+...=\sum_{k=0}^\infin \gamma^k R_{t+k}
 $$
 其中， $R_t$ 表示 $t$ 时刻获得的奖励。
+
+### 价值函数（Value Function）
+某个状态 $s$的期望回报 $\mathbb{E}[G_t|S_t=s]$，被称为这个状态的价值（Value）。那么所有状态的价值组成了价值函数（Value Function），展开如下：
+$$
+\begin{align}
+V(s)&=\mathbb{E}[G_t|S_t=s] \notag \\
+&=\mathbb{E}[R_t+\gamma R_{t+1}+\gamma^2 R_{t+2}+...|S_t=s] \notag \\
+&=\mathbb{E}[R_t+\gamma(R_{t+1}+\gamma R_{t+2}+...)|S_t=s] \notag \\
+&=\mathbb{E}[R_t+\gamma G_{t+1}|S_t=s] \notag \\
+&= \mathbb{E}[R_t+\gamma V(S_{t+1})|S_t=s] \notag \\
+\end{align}
+$$
+经过几步简单的推导，可以得出贝尔曼方程（Bellman Equation）：
+$$
+\begin{align}
+V(s)&= \mathbb{E}[R_t+\gamma V(S_{t+1})|S_t=s] \notag \\
+&= \mathbb{E}[R_t|S_t=s]+\gamma\mathbb{E}[V(S_{t+1})|S_t=s] \notag \\
+&= r(s)+\gamma\sum_{s^\prime \in \mathcal{S}} P(s^\prime|s) V(s^\prime) \notag
+\end{align}
+$$
+可以写成矩阵形式：
+$$
+\begin{align}
+\mathcal{V}&=\mathcal{R}+\gamma\mathcal{P}\mathcal{V} \notag \\
+(I-\gamma\mathcal{P})\mathcal{V}&=\mathcal{R} \notag \\
+\mathcal{V}&=(I-\gamma\mathcal{P})^{-1}\mathcal{R} \notag
+\end{align}
+$$
