@@ -170,3 +170,25 @@ $$
 $$
 \nu^\pi(s^\prime)=(1-\gamma)\nu_0(s^\prime)+\gamma  \int P(s^\prime|s,a)\pi(a|s)\nu^\pi(s) {\rm d} s {\rm d} a
 $$
+
+### 占用度量（Occupancy Measure）
+进一步，为了表示动作状态 $(s,a)$ 访问的分布，定义策略 $\pi$ 的占用度量（Occupancy Measure）如下：
+$$
+\rho^\pi(s,a)=(1-\gamma)\sum_{t=0}^\infin \gamma^t P_t^\pi(s)\pi(a|s)
+$$
+两者存在以下关系：
+$$
+\rho^\pi(s,a)=\nu^\pi(s)\pi(a|s)
+$$
+
+最终，可以推导出两个定理：
+
+定理1：给定环境（MDP）的条件下，策略 $\pi_1$和策略 $\pi_2$ 得出的占用度量 $\rho^{\pi_1}$ 和 $\rho^{\pi_2}$ 满足：
+$$
+\pi_1 = \pi_2 \Longleftrightarrow \rho^{\pi_1} = \rho^{\pi_2}
+$$
+
+定理2：给定一合法的占用度量 $\rho$，生成该占用度量的唯一策略是：
+$$
+\pi_\rho(a|s)=\frac{\rho(s,a)}{\sum_{a^\prime}\rho(s,a^\prime)}
+$$
