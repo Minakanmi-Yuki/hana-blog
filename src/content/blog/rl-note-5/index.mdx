@@ -103,13 +103,22 @@ $$
 事实上，我们不需要等到 $V^\pi$ 完全收敛才进行策略提升。
 如果将策略评估的迭代次数缩减为 1次，并结合策略提升，就得到了价值迭代。
 
-#### 贝尔曼最优方程
-价值迭代直接迭代求解最优价值函数，基于贝尔曼最优算子 $\mathcal{T}^*$：
+### 贝尔曼最优迭代
+价值迭代直接迭代求解最优价值函数，基于贝尔曼最优方程进行迭代：
 $$
-V_{k+1}(s) = \max_{a\in\mathcal{A}} \left\{ r(s,a) + \gamma \sum_{s^\prime \in \mathcal{S}} P(s^\prime|s,a) V_k(s^\prime) \right\}
+V_{k+1}(s) \leftarrow \max_{a\in\mathcal{A}} \left\{ \mathcal{R}(s,a) + \gamma \sum_{s^\prime \in \mathcal{S}} \mathcal{P}(s^\prime|s,a) V_k(s^\prime) \right\}
+$$
+随机选定初始值 $V_0$ ，当 $k\rightarrow\infin$ 时，序列 $\{ V_k \}$ 会收敛到 $V^\pi$ 。为了方便证明，定义贝尔曼最优算子为 $\mathcal{T}^*$：
+$$
+\mathcal{T}^* V_{k} = \max_{a\in\mathcal{A}} \left\{ \mathcal{R}(s,a) + \gamma \sum_{s^\prime \in \mathcal{S}} \mathcal{P}(s^\prime|s,a) V_k(s^\prime) \right\}
+$$
+并将迭代过程看作算子 $\mathcal{T}^*$ 的应用：
+$$
+V_{k+1} = \mathcal{T}^* V_k
 $$
 
-#### 算法伪代码
+
+### 迭代算法
 1.  **初始化**：$V(s)$ 任意。
 2.  **迭代更新**（Loop until $\Delta < \theta$）：
     *   $\Delta \leftarrow 0$
