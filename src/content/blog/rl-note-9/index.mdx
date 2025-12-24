@@ -2,9 +2,157 @@
 title: "RL笔记（9）：REINFORCE"
 publishDate: 2025-12-18
 updatedDate: 2025-12-18
-description: "REINFORCE"
+description: "从价值到策略：详解策略梯度 (Policy Gradient) 定理的完整数学推导，并介绍最基础的策略梯度算法——REINFORCE。"
 heroImage: {src : "https://picr2.axi404.top/Paper-reading-Uni-zh.webp", color: '#8C8275'}
 category: 'daily'
 pixivLink: '127192375'
 ---
 
+## 引言（Introduction）
+
+在之前的 DQN 等算法中，我们都是先学习价值函数 $Q(s,a)$，再根据价值函数推导出策略（例如 $\epsilon$-Greedy）。这类方法称为 **Value-Based** 方法。
+
+但这类方法有一些局限：
+1.  **无法处理连续动作空间**：在连续动作中找 $\max_a Q(s,a)$ 非常困难。
+2.  **无法学习随机策略**：DQN 最终学到的是确定性策略，但在某些博弈场景（如剪刀石头布），随机策略才是最优的。
+
+因此，我们引入 **Policy-Based** 方法：直接参数化策略 $\pi_\theta(a|s)$，通过调整参数 $\theta$ 来最大化期望回报。
+
+---
+
+## 策略的表示
+
+我们需要用一个函数（通常是神经网络）来表示策略。
+
+### 随机策略 (Stochastic Policy)
+输入状态 $s$，输出动作的概率分布。
+*   **离散动作**（如 Softmax）：
+    $$ \pi(a|s;\theta)=\frac{\exp(Q_\theta(s,a))}{\sum_{a^\prime}\exp(Q_\theta(s,a^\prime))} $$
+*   **连续动作**（如高斯分布）：
+    $$ \pi(a|s;\theta) = \frac{1}{\sqrt{2\pi}\sigma} \exp\left(-\frac{(a-\mu_\theta(s))^2}{2\sigma^2}\right) $$
+    通常网络输出均值 $\mu_\theta(s)$ 和标准差 $\sigma_\theta(s)$。
+
+### 确定性策略 (Deterministic Policy)
+输入状态 $s$，直接输出动作值。
+*   **离散动作**：$$ a=\operatorname{argmax}_{a} Q_\theta(s,a) $$ （不可微，无法直接用梯度下降）
+*   **连续动作**：$$ a=\mu_\theta(s) $$ （可微，用于 DDPG 等算法）
+
+---
+
+## 策略梯度定理 (Policy Gradient Theorem)
+
+这是 Policy-Based 方法的基石。我们的目标是最大化期望回报 $J(\theta)$，通过计算梯度 $\nabla_\theta J(\theta)$ 来更新参数。
+
+###  目标函数
+$$
+J(\theta) = \mathbb{E}_{s_0}[V^{\pi_\theta}(s_0)]
+$$
+其中 $s_0$ 是初始状态。
+
+###  梯度推导 (The "Hard" Part)
+我们需要计算 $\nabla_\theta V^{\pi_\theta}(s)$。根据贝尔曼方程展开：
+
+$$
+\begin{align}
+\nabla_\theta V^{\pi_\theta}(s) 
+&= \nabla_\theta \sum_{a\in \mathcal{A}} \pi_\theta (a|s) Q^{\pi_\theta}(s,a) \notag \\
+&= \sum_{a\in\mathcal{A}}\left[\nabla_\theta \pi_\theta (a|s) Q^{\pi_\theta}(s,a) +\pi_\theta (a|s) \nabla_\theta Q^{\pi_\theta}(s,a) \right] \notag
+\end{align}
+$$
+
+这里的难点在于 $\nabla_\theta Q^{\pi_\theta}(s,a)$，因为 $Q$ 值本身也依赖于策略参数 $\theta$（未来的动作会变）。我们继续展开 $Q$：
+$$
+\begin{align}
+\nabla_\theta Q^{\pi_\theta}(s,a) &= \nabla_\theta \sum_{r,s^\prime} P(s^\prime, r| s, a) (r + \gamma V^{\pi_\theta}(s^\prime)) \notag \\
+&= \sum_{s^\prime} P(s^\prime| s, a) \gamma \nabla_\theta V^{\pi_\theta}(s^\prime) \notag
+\end{align}
+$$
+> 注意：环境的动力学 $P$ 和奖励 $r$ 与 $\theta$ 无关，所以导数为 0。
+
+代回原式，得递归形式：
+$$
+\begin{align}
+\nabla_\theta V^{\pi_\theta}(s) 
+&= \underbrace{\sum_{a\in\mathcal{A}}\nabla_\theta\pi_\theta(a|s) Q^{\pi_\theta}(s,a)}_{\phi(s)} + \gamma \sum_{a\in\mathcal{A}}\pi_\theta (a|s) \sum_{s^\prime \in \mathcal{S}} P(s^\prime| s, a) \nabla_\theta V^{\pi_\theta}(s^\prime) \notag
+\end{align}
+$$
+
+定义转移概率 $d^{\pi_\theta}(s \to s', k)$ 为策略 $\pi_\theta$ 从 $s$ 出发走 $k$ 步到达 $s'$ 的概率。反复迭代上述递归式：
+$$
+\begin{align}
+\nabla_\theta V^{\pi_\theta}(s) 
+&= \phi(s) + \gamma \sum_{s'} d(s \to s', 1) \nabla_\theta V(s') \notag \\
+&= \phi(s) + \gamma \sum_{s'} d(s \to s', 1) [\phi(s') + \gamma \sum_{s''} d(s' \to s'', 1) \nabla_\theta V(s'')] \notag \\
+&= \dots \notag \\
+&= \sum_{x \in \mathcal{S}} \sum_{k=0}^\infty \gamma^k d^{\pi_\theta}(s \to x, k) \phi(x) \notag
+\end{align}
+$$
+
+###  引入状态访问分布
+回到总目标函数 $J(\theta)$ 的梯度：
+$$
+\begin{align}
+\nabla_\theta J(\theta) &= \mathbb{E}_{s_0} [\nabla_\theta V^{\pi_\theta}(s_0)] \notag \\
+&= \sum_{s \in \mathcal{S}} \left( \sum_{k=0}^\infty \gamma^k d^{\pi_\theta}(s_0 \to s, k) \right) \phi(s) \notag
+\end{align}
+$$
+
+利用状态访问分布 $\nu^{\pi_\theta}(s)$ 的定义：
+$$ \sum_{k=0}^\infty \gamma^k d^{\pi_\theta}(s_0 \to s, k) \propto \nu^{\pi_\theta}(s) $$
+
+我们得到了极其优雅的 **策略梯度定理**：
+$$
+\begin{align}
+\nabla_\theta J(\theta) 
+&\propto \sum_{s \in \mathcal{S}} \nu^{\pi_\theta}(s) \phi(s) \notag \\
+&= \sum_{s \in \mathcal{S}} \nu^{\pi_\theta}(s) \sum_{a \in \mathcal{A}} \nabla_\theta \pi_\theta(a|s) Q^{\pi_\theta}(s,a) \notag
+\end{align}
+$$
+
+###  对数导数技巧 (Log-Derivative Trick)
+为了能在采样中计算，我们利用恒等式 $\nabla \pi = \pi \frac{\nabla \pi}{\pi} = \pi \nabla \log \pi$：
+$$
+\begin{align}
+\nabla_\theta J(\theta) 
+&= \mathbb{E}_{s \sim \nu^{\pi_\theta}} \left[ \sum_{a \in \mathcal{A}} \pi_\theta(a|s) \nabla_\theta \log \pi_\theta(a|s) Q^{\pi_\theta}(s,a) \right] \notag \\
+&= \mathbb{E}_{\pi_\theta} [\nabla_\theta \log \pi_\theta(a|s) Q^{\pi_\theta}(s,a)] \notag
+\end{align}
+$$
+> **核心结论**：我们不需要知道环境的状态转移 $P$，也不需要对状态分布 $\nu(s)$ 求导。只要让智能体在环境里玩，收集数据，就可以计算梯度！
+
+---
+
+## REINFORCE 算法
+
+REINFORCE 是最基础的策略梯度算法，它使用 **蒙特卡洛方法 (Monte-Carlo)** 来估计 $Q^{\pi_\theta}(s,a)$。
+
+对于一条完整的轨迹 $\tau = \{s_1, a_1, r_1, \dots, s_T, a_T, r_T\}$，时刻 $t$ 的真实回报 $G_t$ 是 $Q(s_t, a_t)$ 的无偏估计：
+$$ Q^{\pi_\theta}(s_t, a_t) \approx G_t = \sum_{k=t}^T \gamma^{k-t} r_k $$
+
+**参数更新公式**：
+$$ \theta \leftarrow \theta + \alpha \gamma^t G_t \nabla_\theta \log \pi_\theta(a_t|s_t) $$
+
+*   **直觉**：如果某个动作 $a_t$ 带来了高回报 $G_t$，我们就增加它的概率（$\nabla \log \pi$ 方向）；如果回报低（甚至是负的），就减少它的概率。
+
+### 算法伪代码
+$$
+\begin{aligned}
+& \bullet \; \text{Initialize policy parameters } \theta \\
+& \bullet \; \textbf{For } \text{episode } e = 1 \to E \textbf{ do}: \\
+& \bullet \qquad \text{Generate trajectory } \tau = \{s_1, a_1, r_1, \dots, s_T, a_T, r_T\} \sim \pi_\theta \\
+& \bullet \qquad \textbf{For } t = 1 \to T \textbf{ do}: \\
+& \bullet \qquad \qquad G_t \leftarrow \sum_{k=t}^T \gamma^{k-t} r_k \\
+& \bullet \qquad \qquad \theta \leftarrow \theta + \alpha \gamma^t G_t \nabla_\theta \log \pi_\theta(a_t|s_t) \\
+& \bullet \qquad \textbf{End For} \\
+& \bullet \; \textbf{End For}
+\end{aligned}
+$$
+
+### 优缺点分析
+*   **优点**：可以直接处理连续动作；学习到的随机策略可以探索；数学推导优美。
+*   **缺点**：
+    *   **方差极大**：一局游戏的结果随机性很大，导致梯度估计不稳定。
+    *   **On-Policy**：必须采集一条数据就更新一次，旧数据无法重复利用，效率低。
+    *   **回合更新**：必须等到游戏结束才能计算 $G_t$。
+
+> **💡 思考**：为了减小方差，我们通常会减去一个 **基线 (Baseline)** $b(s)$，比如状态价值 $V(s)$。这不会改变梯度的期望，但能显著降低方差。这就是 **Actor-Critic** 算法的雏形（下一章内容）。
