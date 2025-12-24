@@ -256,7 +256,7 @@ $$
     \begin{align}
     |\mathcal{T}Q_1 - \mathcal{T}Q_2| &= \gamma \left| \mathbb{E}_{s'} \left[ \alpha \log \int_{a^\prime} \exp(\frac{Q_1(s^\prime,a^\prime)}{\alpha}) \text{d}a^\prime - \alpha \log \int_{a^\prime} \exp(\frac{Q_2(s^\prime,a^\prime)}{\alpha}) \text{d}a^\prime \right] \right| \notag \\
     &\le \gamma \mathbb{E}_{s'} [\epsilon] \notag \\
-    &= \gamma \epsilon \notag
+    &= \gamma \max_{s,a} |Q_1(s,a)-Q_2(s,a)| \notag
     \end{align}
     $$
 
