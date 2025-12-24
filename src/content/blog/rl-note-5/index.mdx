@@ -118,7 +118,16 @@ $$
 $$
 V_{k+1} = \mathcal{T}^* V_k
 $$
-
+证明步骤如下：
+1.  定义范数：采用绝对值范数 $|V|$；
+2.  压缩映射性质：对于 $\forall s\in\mathcal{S}$ 以及任意两个价值函数 $U,V$，有：
+    $$
+    \begin{align}
+    |\mathcal{T}^* U(s) - \mathcal{T}^* V(s)| 
+    &=|\max_{a\in\mathcal{A}}\left\{\mathcal{R}(s,a)+\gamma\sum_{s^\prime\in\mathcal{S}}\mathcal{P}(s^\prime|s,a)U(s^\prime)\right\}-\max_{a\in\mathcal{A}}\left\{\mathcal{R}(s,a)+\gamma\sum_{s^\prime\in\mathcal{S}}\mathcal{P}(s^\prime|s,a)U(s^\prime)\right\}| \notag \\
+    &\leqslant \max_{a\in\mathcal{A}}|| \notag \\
+    \end{align}
+    $$
 
 ### 迭代算法
 1.  **初始化**：$V(s)$ 任意。
