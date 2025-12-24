@@ -57,7 +57,7 @@ $$
 ### 策略提升（Policy Improvement）
 在计算出 $V^\pi$ 后，我们需要判断当前策略是否最优。如果不是，如何改进？
 
-#### 策略提升定理（Policy Improvement Theorem）
+#### 策略提升理论（Policy Improvement Theorem）
 给定策略 $\pi$ 和其价值函数 $V^\pi$，构造新策略 $\pi^\prime$ 使得其在每个状态下都贪心地选择动作价值最大的动作：
 $$
 \pi^\prime(s) = \argmax_{a\in\mathcal{A}} Q^\pi(s,a) = \argmax_{a\in\mathcal{A}} \left( r(s,a)+\gamma\sum_{s^\prime \in\mathcal{S}}\mathcal{P}(s^\prime|s,a)V^\pi(s^\prime) \right)
@@ -66,8 +66,36 @@ $$
 1.  $V^{\pi^\prime}(s) \geqslant V^\pi(s), \forall s \in \mathcal{S}$（策略单调递增）。
 2.  如果 $V^{\pi^\prime}(s) = V^\pi(s)$，则 $\pi$ 已经是与最优策略 $V^*$ 等价的策略。
 
-证明思路（简述）：
-利用 $V^\pi(s) \leqslant \max_a Q^\pi(s,a) = Q^\pi(s, \pi^\prime(s))$，反复展开 $Q^\pi$ 即可证。
+#### 理论证明（Theorem Proof）
+证明：对于任何状态 $s$，满足$V^{\pi^\prime}(s)\geqslant V^\pi(s)$。
+证明思路：利用 $V^\pi(s) \leqslant \max_a Q^\pi(s,a) = Q^\pi(s, \pi^\prime(s))$，反复展开 $Q^\pi$ 即可证。
+
+状态价值函数和动作价值函数之间的关系：
+$$
+V^\pi(s)=\sum_{a\in\mathcal{A}}\pi(a|s)Q^\pi(s,a)
+$$
+经过推导，可以得出：
+$$
+\begin{align}
+V^\pi(s)&=\sum_{a\in\mathcal{A}}\pi(a|s)Q^\pi(s,a) \notag \\
+&\leqslant \max_{a\in\mathcal{A}} Q^\pi(s,a) \notag \\
+&=\max_{a\in\mathcal{A}} \left( r(s,a) + \gamma \sum_{s^\prime\in\mathcal{S}} P(s^\prime|s,a) V^\pi(s^\prime)\right) \notag \\
+&= Q^\pi(s,\pi^\prime(s)) \notag \\
+\end{align}
+$$
+有了 $V^\pi(s)\leqslant Q^\pi(s,\pi^\prime(s))$，可以进一步推导出：
+$$
+\begin{align}
+V^\pi(s) &\leqslant Q^\pi(s,\pi^\prime(s)) \notag \\
+&= \mathbb{E}_{\pi^\prime}[R_{t}+\gamma V^\pi(S_{t+1})|S_t=s] \notag \\ 
+&\leqslant \mathbb{E}_{\pi^\prime}[R_t+\gamma Q^\pi(S_{t+1},\pi^\prime(S_{t+1}))|S_t=s]\notag \\
+&= \mathbb{E}_{\pi^\prime}[R_t+\gamma R_{t+1}+\gamma^2V^\pi(S_{t+2})|S_t=s] \notag \\
+&\leqslant \mathbb{E}_{\pi^\prime}[R_t+\gamma R_{t+1}+\gamma^2 R_{t+2} + \gamma^3 V^\pi(S_{t+3})|S_t=s]  \notag \\
+&\cdots \notag \\
+&\leqslant \mathbb{E}_{\pi^\prime}[R_t+\gamma R_{t+1}+\gamma^2 R_{t+2} + \gamma^3 R_{t+3} + \cdots|S_t=s]  \notag \\
+&= V^{\pi^\prime}(s) \notag
+\end{align}
+$$
 
 ### 迭代算法（Iteration Algorithm）
 策略迭代交替进行“策略评估”和“策略提升”，直到策略不再变化。
