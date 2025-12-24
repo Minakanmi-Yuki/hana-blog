@@ -228,7 +228,7 @@ $$
 Q_1(s,a) \le Q_2(s,a) + \epsilon
 $$
 
-**关键推导步骤**（此处更正了原笔记中关于 $\alpha$ 的处理细节）：
+**关键推导步骤**：
 
 1.  利用指数单调性：
     $$
@@ -237,21 +237,20 @@ $$
 
 2.  积分保序性：
     $$
-    \int \exp(\frac{Q_1}{\alpha}) da' \le \exp(\frac{\epsilon}{\alpha}) \int \exp(\frac{Q_2}{\alpha}) da'
+    \int \exp(\frac{Q_1}{\alpha}) \text{d}a' \le \exp(\frac{\epsilon}{\alpha}) \int \exp(\frac{Q_2}{\alpha}) \text{d}a'
     $$
 
 3.  取 $\alpha \log$（**注意这里的常数提取**）：
     $$
     \begin{align}
-    \alpha \log \int \exp(\frac{Q_1}{\alpha}) da' &\le \alpha \log \left[ \exp(\frac{\epsilon}{\alpha}) \int \exp(\frac{Q_2}{\alpha}) da' \right] \notag \\
-    &= \alpha \left[ \log(\exp(\frac{\epsilon}{\alpha})) + \log \int \exp(\frac{Q_2}{\alpha}) da' \right] \notag \\
-    &= \alpha \left[ \frac{\epsilon}{\alpha} + \log \int \exp(\frac{Q_2}{\alpha}) da' \right] \notag \\
-    &= \epsilon + \alpha \log \int \exp(\frac{Q_2}{\alpha}) da' \notag
+    \alpha \log \int \exp(\frac{Q_1}{\alpha}) \text{d}a' 
+    &\le \alpha \log \left[ \exp(\frac{\epsilon}{\alpha}) \int \exp(\frac{Q_2}{\alpha}) \text{d}a' \right] \notag \\
+    &= \alpha \left[ \log(\exp(\frac{\epsilon}{\alpha})) + \log \int \exp(\frac{Q_2}{\alpha}) \text{d}a' \right] \notag \\
+    &= \alpha \left[ \frac{\epsilon}{\alpha} + \log \int \exp(\frac{Q_2}{\alpha}) \text{d}a' \right] \notag \\
+    &= \epsilon + \alpha \log \int \exp(\frac{Q_2}{\alpha}) \text{d}a' \notag
     \end{align}
     $$
-    > **💡 修正说明**：
-    > 注意这里 $\alpha \times \frac{\epsilon}{\alpha} = \epsilon$。原笔记推导得到的系数是 $\alpha\epsilon$，但正确数学推导后系数应为 $1\cdot\epsilon$。这很重要，因为这意味着收敛性不依赖于 $\alpha$ 的大小。
-
+    
 4.  计算算子差值：
     $$
     \begin{align}
