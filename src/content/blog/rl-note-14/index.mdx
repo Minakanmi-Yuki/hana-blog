@@ -8,3 +8,37 @@ category: 'daily'
 pixivLink: '127192375'
 ---
 
+## 引言（Introduction）
+Soft Q-Learning (SQL) 是强化学习中结合 **最大熵强化学习（Maximum Entropy Reinforcement Learning）** 思想的 Q-Learning 扩展算法。
+它的核心目标不仅仅是找到**那一条**获得最高分的路，而是要找到**所有**能获得高分的路。它在最大化累积奖励的同时，强制策略保持随机性（即最大化策略的熵），从而提升策略的探索能力、鲁棒性和泛化性。
+
+## 最大熵强化学习（Maximum Entropy RL）
+
+### 基本定义
+**熵（Entropy）** 是表示随机变量不确定性的度量。对于随机变量 $X$，如果其概率密度为 $p$，熵 $H$ 定义为：
+
+$$
+\begin{align}
+H(X)&=\mathbb{E}_{x\sim p}[-\log p(x)]\notag \\
+&=-\int_{X}p(x)\log p(x) \mathrm{d}x \notag 
+\end{align}
+$$
+
+在强化学习中，我们关注的是策略 $\pi$ 在状态 $s$ 下的随机程度，记为 $H(\pi(\cdot|s))$。
+
+### 目标函数
+最大熵强化学习的思想是：除了最大化累计奖励，还要使得策略更加随机。因此，目标函数中加入了一项**熵正则项**：
+
+$$
+\begin{align}
+\pi_{\textbf{MaxEnt}}^*=\arg\max_{\pi}\sum_{t=0}^\infty \mathbb{E}_{\pi}[ r(s_t,a_t)+\alpha H(\pi(\cdot|s_t))]\notag
+\end{align}
+$$
+
+*   $\alpha$ (Temperature)：正则项系数，用来权衡熵的重要程度。
+    *   $\alpha \to 0$：退化为标准 RL（贪婪）。
+    *   $\alpha$ 越大：越鼓励探索，策略分布越平坦。
+
+> **💡 直觉理解**：
+> 这一项 $\alpha H$ 的加入，意味着智能体如果不去探索新的动作，或者太早确定一个动作（熵变低），就会受到“惩罚”。这能有效防止智能体陷入局部最优。
+
