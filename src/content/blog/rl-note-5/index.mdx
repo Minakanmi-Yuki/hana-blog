@@ -171,7 +171,12 @@ $$
     *   $\Delta \leftarrow 0$
     *   For each $s \in \mathcal{S}$:
         *   $v \leftarrow V(s)$
-        *   $V(s) \leftarrow \max_{a} \sum_{s^\prime\in\mathcal{S}} P(s^\prime|s,a)[\mathcal{R}(s,a) + \gamma V(s^\prime)]$
+        *   $V(s) \leftarrow \max_{a} \sum_{s^\prime\in\mathcal{S}} \mathcal{P}(s^\prime|s,a)[\mathcal{R}(s,a) + \gamma V(s^\prime)]$
         *   $\Delta \leftarrow \max(\Delta, |v - V(s)|)$
 3.  **输出策略**：
-    *   $\pi^*(s) = \argmax_{a} \sum_{s^\prime\in\mathcal{S}} P(s^\prime|s,a)[\mathcal{R}(s,a) + \gamma V(s^\prime)]$
+    *   $\pi^*(s) = \argmax_{a} \sum_{s^\prime\in\mathcal{S}} \mathcal{P}(s^\prime|s,a)[\mathcal{R}(s,a) + \gamma V(s^\prime)]$
+
+## 局限性（Limitation）
+动态规划方法（如策略迭代和价值迭代）是强化学习的理论基石，其核心优势在于理论完备性，利用自举（Bootstrapping）机制能够保证在有限步内稳定收敛至全局最优策略。
+然而，其在实际应用中存在两大核心局限：一是强依赖完备的环境模型（Model-based），即必须预先知晓精确的状态转移概率和奖励函数，这在现实场景中往往难以满足；
+二是受困于维数灾难（Curse of Dimensionality），随着状态变量增加，状态空间呈指数级膨胀，导致遍历所有状态进行全宽更新（Full-width Backup）在计算资源和存储空间上变得不可行，因此无法直接应用于大规模或连续状态空间的复杂问题。
