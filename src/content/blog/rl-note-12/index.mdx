@@ -2,9 +2,136 @@
 title: "RL笔记（12）：PPO"
 publishDate: 2025-12-21
 updatedDate: 2025-12-21
-description: "PPO"
+description: "OpenAI 的默认算法：详解 PPO 如何通过 Clip 技巧简化 TRPO。涵盖 PPO-Clip 与 PPO-Penalty 两种变体、GAE 优势估计及完整的损失函数设计。圣PPO伟大无需多言！"
 heroImage: {src : "https://picr2.axi404.top/Paper-reading-Uni-zh.webp", color: '#8C8275'}
 category: 'daily'
 pixivLink: '127192375'
 ---
 
+## 引言（Introduction）
+
+上一章提到的 **TRPO** 虽然理论优美（保证单调不减），但计算太复杂了（需要共轭梯度法求解 Hessian-Vector Product）。
+OpenAI 提出的 **PPO (Proximal Policy Optimization)** 是 TRPO 的一阶近似版本。
+*   **核心思想**：TRPO 使用 KL 散度作为**硬约束 (Constraint)**，而 PPO 将约束转化为**惩罚项 (Penalty)** 或者直接通过**截断 (Clipping)** 来限制策略更新幅度。
+*   **地位**：PPO 是目前 Deep RL 的基准算法，平衡了实现复杂度、样本效率和性能。
+
+---
+
+## 变体 1：PPO-Clip (主流)
+
+这是目前最常用的 PPO 版本，它不需要计算 KL 散度，直接在目标函数里动手脚。
+
+###  重要性采样比率
+定义新旧策略的比率为 $r_t(\theta)$：
+$$
+r_t(\theta) = \frac{\pi_\theta(a_t|s_t)}{\pi_{\theta_{\text{old}}}(a_t|s_t)}
+$$
+*   当 $\theta = \theta_{\text{old}}$ 时，$r_t = 1$。
+*   我们希望 $r_t$ 不要偏离 1 太多，这意味着新策略没有发生剧烈变化。
+
+###  截断目标函数
+PPO-Clip 的核心目标函数如下：
+$$
+L^{CLIP}(\theta)=\hat{\mathbb{E}}_t \left[ \min \left( r_t(\theta)\hat{A}_t, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon)\hat{A}_t \right) \right]
+$$
+
+*   $\epsilon$ 是一个超参数（通常为 0.2），表示允许策略变化的幅度（Trust Region）。
+*   $\text{clip}(r, 1-\epsilon, 1+\epsilon)$：把比率 $r$ 强制限制在 $[0.8, 1.2]$ 之间。
+
+###  直观理解：为什么要 Min？
+我们需要分两种情况来看优势函数 $\hat{A}_t$ 的正负：
+
+*   **情况 A：动作是好的 ($\hat{A}_t > 0$)**
+    *   我们希望增加这个动作的概率，即 $r_t(\theta)$ 增大。
+    *   但不能无限增大。如果 $r_t > 1+\epsilon$，`clip` 函数会将其锁死在 $1+\epsilon$。
+    *   此时 $\min$ 操作生效，目标函数不再随 $r_t$ 增加而增加。这防止了策略更新步子太大。
+*   **情况 B：动作是坏的 ($\hat{A}_t < 0$)**
+    *   我们希望减小这个动作的概率，即 $r_t(\theta)$ 减小。
+    *   但不能无限减小。如果 $r_t < 1-\epsilon$，`clip` 函数会将其锁死在 $1-\epsilon$。
+    *   此时 $\min$ 操作生效，防止策略过度修正（以此避免策略坍塌）。
+
+> **💡 总结**：
+> 只有当策略变化在“安全区域”内时，我们才进行奖励优化；一旦超出安全区域，就不再给予额外的梯度奖励。
+
+---
+
+## 变体 2：PPO-Penalty (自适应 KL)
+
+这是另一种接近 TRPO 原义的方法，将 KL 散度作为正则项加入 Loss，并动态调整系数 $\beta$。
+
+### 目标函数
+$$
+L^{KLPEN}(\theta)=\hat{\mathbb{E}}_t \left[ r_t(\theta)\hat{A}_t - \beta D_{KL}(\pi_{\theta_{\text{old}}}(\cdot|s_t) || \pi_\theta(\cdot|s_t)) \right]
+$$
+
+### 自适应 $\beta$ 更新规则
+我们在每次更新后计算平均 KL 散度 $d = \hat{\mathbb{E}}_t [D_{KL}]$，并与目标值 $d_{\text{targ}}$ 比较：
+
+*   **如果 $d < d_{\text{targ}} / 1.5$**：说明策略变动太小，步子太保守。**减小惩罚** $\beta \leftarrow \beta / 2$。
+*   **如果 $d > d_{\text{targ}} \times 1.5$**：说明策略变动太大，步子太危险。**增大惩罚** $\beta \leftarrow \beta \times 2$。
+
+---
+
+## 广义优势估计 (GAE)
+
+在计算优势函数 $\hat{A}_t$ 时，简单的多步 TD 或蒙特卡洛都有局限。PPO 通常使用 **GAE (Generalized Advantage Estimation)** 来平衡偏差和方差。
+
+我们定义 TD Error $\delta_t = r_t + \gamma V(s_{t+1}) - V(s_t)$。
+GAE 是 $\delta$ 的加权几何平均：
+
+$$
+\hat{A}_t^{GAE} = \sum_{k=0}^{\infty} (\gamma \lambda)^k \delta_{t+k}
+$$
+
+*   $\lambda = 0$：即单步 TD（偏差大，方差小）。
+*   $\lambda = 1$：即蒙特卡洛（无偏差，方差大）。
+*   $\lambda \in (0, 1)$：通常取 0.95，在两者之间取得最佳平衡。
+
+---
+
+## 完整的 PPO 损失函数
+
+在实际代码实现（如 Actor-Critic 架构）中，PPO 的总 Loss 包含三部分：
+1.  **策略损失 (Policy Loss)**：即 $L^{CLIP}$，让策略变好。
+2.  **价值损失 (Value Loss)**：$L^{VF} = (V_\theta(s_t) - V_{target})^2$，让 Critic 估值更准。
+3.  **熵奖励 (Entropy Bonus)**：$S[\pi_\theta]$，鼓励策略保持随机性，防止过早收敛到局部最优。
+
+$$
+L^{Total}_t(\theta) = - L^{CLIP}_t(\theta) + c_1 L^{VF}_t(\theta) - c_2 S[\pi_\theta](s_t)
+$$
+*(注：通常深度学习框架是最小化 Loss，所以最大化目标前加负号)*
+
+---
+
+## PPO 算法流程
+
+$$
+\begin{aligned}
+& \bullet \; \text{Initialize policy parameters } \theta \text{ and value parameters } \phi \\
+& \bullet \; \textbf{For } \text{iteration } k = 1, 2, \dots \textbf{ do}: \\
+& \bullet \qquad \textbf{1. Data Collection:} \\
+& \bullet \qquad \text{Run policy } \pi_{\theta_{old}} \text{ in environment for } T \text{ steps} \\
+& \bullet \qquad \text{Compute advantage estimates } \hat{A}_1, \dots, \hat{A}_T \text{ using GAE} \\
+& \bullet \qquad \textbf{2. Optimization:} \\
+& \bullet \qquad \textbf{For } \text{epoch } = 1 \to K \textbf{ do}: \\
+& \bullet \qquad \qquad \text{Shuffle data and divide into mini-batches} \\
+& \bullet \qquad \qquad \textbf{For } \text{each mini-batch } B \textbf{ do}: \\
+& \bullet \qquad \qquad \qquad L = L^{CLIP}(\theta) - c_1 L^{VF}(\phi) + c_2 S[\pi_\theta] \\
+& \bullet \qquad \qquad \qquad \text{Update } \theta, \phi \text{ using Adam optimizer} \\
+& \bullet \qquad \qquad \textbf{End For} \\
+& \bullet \qquad \textbf{End For} \\
+& \bullet \qquad \theta_{old} \leftarrow \theta \\
+& \bullet \; \textbf{End For}
+\end{aligned}
+$$
+
+---
+
+## 总结
+
+PPO 之所以能成为 OpenAI 的默认算法（Default Algorithm），是因为它：
+1.  **简单**：只需要对梯度进行简单的截断（Clip），不需要复杂的二阶优化。
+2.  **稳定**：截断机制保证了策略不会因为一次糟糕的更新而崩溃。
+3.  **通用**：既适用于离散动作（Atari），也适用于连续动作（机器人控制）。
+
+至此，经典的 Policy Gradient 家族（REINFORCE $\to$ Actor-Critic $\to$ TRPO $\to$ PPO）已经梳理完毕。
