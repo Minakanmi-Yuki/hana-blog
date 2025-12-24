@@ -19,6 +19,8 @@ pixivLink: '127192375'
 
 为了描述这种“牵一发而动全身”的动态过程，我们需要引入强化学习的数学基石——**马尔可夫决策过程（MDP）**。本章将从最基础的马尔可夫过程出发，层层递进，最终推导出描述价值流转的**贝尔曼方程（Bellman Equation）**。这是理解后续所有 RL 算法（如 DQN, PPO, SAC）的绝对前提。
 
+---
+
 ## 马尔可夫过程（Markov Process）
 
 ### 随机过程（Stochastic Process）
@@ -42,6 +44,8 @@ $$
 且对于任意 $i$行，满足 $\sum_{j=1}^{n} P(s_j|s_i)=1$。
 特别的，当一个状态 $s_t$ 满足 $P(s_t|s_t)=1$，那么称 $s_t$为终止状态（Terminal State）。
 给定马尔可夫过程，从某个状态 $S_1$ 出发，根据状态转移矩阵 $\mathcal{P}$ 得出一段状态序列 $S_1 S_2...S_T$（Episode），这个过程也叫做采样（Sampling）。
+
+---
 
 ## 马尔可夫奖励过程（Markov Reward Process）
 马尔可夫奖励过程基于马尔可夫过程加入了奖励函数 $\mathcal{R}$（Reward Function）与折扣因子 $$\gamma$$（Discount Factor），通常由四元组 $<\mathcal{S},\mathcal{P},\mathcal{R},\gamma>$ 构成：
@@ -84,6 +88,8 @@ $$
 \mathcal{V}&=(I-\gamma\mathcal{P})^{-1}\mathcal{R} \notag
 \end{align}
 $$
+
+---
 
 ## 马尔可夫决策过程（Markov Decision Process）
 在马尔可夫奖励过程的基础上，加入外界的刺激，即智能体（Agent）的动作（Action），就有了马尔可夫决策过程（Markov Decision Process）。
@@ -149,6 +155,8 @@ Q^\pi(s,a)&=\mathbb{E}_{\pi}[G_t|S_t=s,A_t=a] \notag \\
 \end{align}
 $$
 
+---
+
 ## 状态访问分布（State Visitation Distribution）
 在同一个马尔可夫过程中，不同的策略，它们的价值函数是不一样的。
 因为在不同的策略，智能体能够访问的状态的概率分布是不同的。
@@ -182,6 +190,8 @@ $$
 \nu^\pi(s^\prime)=(1-\gamma)\nu_0(s^\prime)+\gamma  \int \mathcal{P}(s^\prime|s,a)\pi(a|s)\nu^\pi(s) {\rm d} s {\rm d} a
 $$
 
+---
+
 ## 占用度量（Occupancy Measure）
 进一步，为了表示动作状态 $(s,a)$ 访问的分布，定义策略 $\pi$ 的占用度量（Occupancy Measure）如下：
 $$
@@ -203,6 +213,8 @@ $$
 $$
 \pi_\rho(a|s)=\frac{\rho(s,a)}{\sum_{a^\prime}\rho(s,a^\prime)}
 $$
+
+---
 
 ## 最优策略（Optimal Policy）
 强化学习的目标：找到一个策略，使得智能体从初始状态出发获取最大的累计奖励。
