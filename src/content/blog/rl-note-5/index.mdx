@@ -62,7 +62,7 @@ $$
 #### 策略提升定理
 给定策略 $\pi$ 和其价值函数 $V^\pi$，构造新策略 $\pi^\prime$ 使得其在每个状态下都贪心地选择动作价值最大的动作：
 $$
-\pi^\prime(s) = \argmax_{a\in\mathcal{A}} Q^\pi(s,a) = \argmax_{a\in\mathcal{A}} \left( r(s,a)+\gamma\sum_{s^\prime \in\mathcal{S}\mathcal{P}(s^\prime|s,a)V^\pi(s^\prime) \right)
+\pi^\prime(s) = \argmax_{a\in\mathcal{A}} Q^\pi(s,a) = \argmax_{a\in\mathcal{A}} \left( r(s,a)+\gamma\sum_{s^\prime \in\mathcal{S}}\mathcal{P}(s^\prime|s,a)V^\pi(s^\prime) \right)
 $$
 定理保证：
 1.  $V^{\pi^\prime}(s) \geqslant V^\pi(s), \forall s \in \mathcal{S}$（策略单调递增）。
@@ -98,3 +98,24 @@ $$
 
 > 注意：由于有限状态 MDP 的策略总数是有限的（$|\mathcal{A}|^{|\mathcal{S}|}$），且每次提升策略都严格（或非严格）变好，策略迭代保证在有限步内收敛。
 
+##  价值迭代（Value Iteration）
+策略迭代的缺点是每次“策略评估”都需要迭代很多次直到完全收敛。
+事实上，我们不需要等到 $V^\pi$ 完全收敛才进行策略提升。
+如果将策略评估的迭代次数缩减为 1次，并结合策略提升，就得到了价值迭代。
+
+#### 贝尔曼最优方程
+价值迭代直接迭代求解最优价值函数，基于贝尔曼最优算子 $\mathcal{T}^*$：
+$$
+V_{k+1}(s) = \max_{a\in\mathcal{A}} \left\{ r(s,a) + \gamma \sum_{s^\prime \in \mathcal{S}} P(s^\prime|s,a) V_k(s^\prime) \right\}
+$$
+
+#### 算法伪代码
+1.  **初始化**：$V(s)$ 任意。
+2.  **迭代更新**（Loop until $\Delta < \theta$）：
+    *   $\Delta \leftarrow 0$
+    *   For each $s \in \mathcal{S}$:
+        *   $v \leftarrow V(s)$
+        *   $V(s) \leftarrow \max_{a} \sum_{s', r} P(s',r|s,a)[r + \gamma V(s')]$
+        *   $\Delta \leftarrow \max(\Delta, |v - V(s)|)$
+3.  **输出策略**：
+    *   $\pi^*(s) = \argmax_{a} \sum_{s', r} P(s',r|s,a)[r + \gamma V(s')]$
