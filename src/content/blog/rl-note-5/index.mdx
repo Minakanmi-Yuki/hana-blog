@@ -124,8 +124,9 @@ $$
     $$
     \begin{align}
     |\mathcal{T}^* U(s) - \mathcal{T}^* V(s)| 
-    &=|\max_{a\in\mathcal{A}}\left\{\mathcal{R}(s,a)+\gamma\sum_{s^\prime\in\mathcal{S}}\mathcal{P}(s^\prime|s,a)U(s^\prime)\right\}-\max_{a\in\mathcal{A}}\left\{\mathcal{R}(s,a)+\gamma\sum_{s^\prime\in\mathcal{S}}\mathcal{P}(s^\prime|s,a)U(s^\prime)\right\}| \notag \\
-    &\leqslant \max_{a\in\mathcal{A}}|| \notag \\
+    &=\left|\max_{a\in\mathcal{A}}\left\{\mathcal{R}(s,a)+\gamma\sum_{s^\prime\in\mathcal{S}}\mathcal{P}(s^\prime|s,a)U(s^\prime)\right\}-\max_{a\in\mathcal{A}}\left\{\mathcal{R}(s,a)+\gamma\sum_{s^\prime\in\mathcal{S}}\mathcal{P}(s^\prime|s,a)U(s^\prime)\right\}\right| \notag \\
+    &\leqslant \max_{a\in\mathcal{A}}\left|\gamma\sum_{s^\prime\in\mathcal{S}}\mathcal{P}(s^\prime|s,a)(U(s^\prime)-V(s^\prime))\right| \notag \\
+    &
     \end{align}
     $$
 
