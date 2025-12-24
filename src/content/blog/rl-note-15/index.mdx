@@ -2,7 +2,7 @@
 title: "RL笔记（15）：SAC"
 publishDate: 2025-12-24
 updatedDate: 2025-12-24
-description: "SAC"
+description: "深入解析 Soft Actor-Critic (SAC)：从最大熵原理出发，详细推导 Soft 策略迭代与收敛性证明，并解析重参数化技巧与自动熵调节等关键实现细节。"
 heroImage: {src : "https://picr2.axi404.top/Paper-reading-Uni-zh.webp", color: '#8C8275'}
 category: 'daily'
 pixivLink: '127192375'
@@ -168,6 +168,7 @@ $$
 Q_{\textbf{soft}}^{\pi_{\text{old}}}(s,a) &= r_0 + \gamma \mathbb{E}_{s_1\sim p(\cdot|s,a)}\left[ V_{\textbf{soft}}^{\pi_\text{old}}(s_1)\right]\notag \\
 &\le r_0 + \gamma \mathbb{E}_{s_1\sim p(\cdot|s,a)}\left[\mathbb{E}_{a_1\sim \pi_\text{new}(\cdot|s_1)}\left[Q_{\textbf{soft}}^{\pi_\text{old}}(s_1,a_1) - \alpha \log \pi_\text{new}(a_1|s_1)\right]\right] \notag \\
 &= r_0 + \gamma \mathbb{E}_{s_1\sim p(\cdot|s,a)}\left[\mathbb{E}_{a_1\sim \pi_\text{new}(\cdot|s_1)}\left[r(s_1, a_1) + \gamma \mathbb{E}_{s_2}[V_{\textbf{soft}}^{\pi_\text{old}}(s_2)] + \alpha H(\pi_\text{new}(\cdot|s_1))\right]\right] \notag \\
+&\cdots \notag \\
 &\le \sum_{t=0}^\infty \gamma^t \mathbb{E}_{(s_t,a_t)\sim \rho^{\pi_\text{new}}}\left[r(s_t,a_t)+\alpha H(\pi_\text{new}(\cdot|s_t))\right]\notag \\
 &=Q_{\textbf{soft}}^{\pi_\text{new}}(s,a) \notag
 \end{align}
@@ -211,7 +212,7 @@ $$
 
 在 SAC 算法中，我们为两个动作价值函数 $Q_\textbf{soft}$（参数分别 $\omega_1$ 为和 $\omega_2$）和一个策略函数 $\pi$（参数为 $\theta$）建模。基于 Double DQN 的思想，SAC 使用 $Q_\textbf{soft}$ 两个网络，但每次用 $Q_\textbf{soft}$ 网络时会挑选一个 $Q_\textbf{soft}$ 值小的网络，从而缓解 $Q_\textbf{soft}$ 值过高估计的问题。
 
-### 1. 动作价值函数 (Critic)
+###  动作价值函数 (Critic)
 任意一个函数 $Q_\textbf{soft}$ 的损失函数为：
 $$
 \begin{align}
@@ -226,7 +227,7 @@ $$
 \end{align}
 $$
 
-### 2. 策略函数 (Actor)
+###  策略函数 (Actor)
 接下来根据 Soft 策略提升定理中的 KL 散度来推导策略 $\pi_\theta$ 的损失函数 $L_{\pi}(\theta)$：
 $$
 \begin{align}
@@ -246,7 +247,7 @@ L_\pi(\theta)=\arg\min_\theta \mathbb{E}_{s_t\sim R, a_t\sim \pi_\theta(\cdot|s_
 \end{align}
 $$
 
-### 3. 重参数化技巧 (Reparameterization Trick)
+###  重参数化技巧 (Reparameterization Trick)
 对于连续动作空间的环境，策略输出 Gauss 分布的均值和标准差，但是 Gauss 分布采样动作的过程是不可导的。因此，我们使用了重参数化技巧。
 重参数化的做法是先从标准的 Gauss 分布 $\mathcal{N}$ 进行采样，然后再将采样值乘以标准差后加上均值，如下：
 $$
@@ -262,7 +263,7 @@ L_\pi(\theta)=\arg\min_\theta \mathbb{E}_{s_t\sim R, \epsilon_t \sim \mathcal{N}
 \end{align}
 $$
 
-### 4. 自动调整熵系数 (Automating Entropy Adjustment)
+###  自动调整熵系数 (Automating Entropy Adjustment)
 在 SAC 算法中，如何选择熵正则项的系数非常重要。在不同的状态下需要不同大小的熵：在最优动作不确定的某个状态下，熵的取值应该大一点；而在某个最优动作比较确定的状态下，熵的取值可以小一点。
 为了自动调整熵正则项，SAC 将强化学习的目标改写为一个带约束的优化问题：
 $$
