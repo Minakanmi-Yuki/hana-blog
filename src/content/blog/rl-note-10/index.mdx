@@ -92,7 +92,7 @@ $$
 
 在 Advantage Actor-Critic 中，Critic 的任务是把 $V_w(s)$ 估得越准越好，Actor 的任务是利用 Critic 提供的 TD Error 来更新策略。
 
-### 1. Critic 的更新 (Value Update)
+###  Critic 的更新 (Value Update)
 Critic 的目标是最小化 TD Error 的平方（即回归问题）：
 $$
 L_{critic}(w) = \frac{1}{2} \left( r_t + \gamma V_w(s_{t+1}) - V_w(s_t) \right)^2
@@ -100,7 +100,7 @@ $$
 梯度更新：
 $$ w \leftarrow w + \alpha_c \delta_t \nabla_w V_w(s_t) $$
 
-### 2. Actor 的更新 (Policy Update)
+###  Actor 的更新 (Policy Update)
 Actor 使用 TD Error 作为优势函数的估计值进行梯度上升：
 $$
 \nabla_\theta J(\theta) \approx \nabla_\theta \log \pi_\theta(a_t|s_t) \delta_t
