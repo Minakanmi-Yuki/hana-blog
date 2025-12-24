@@ -108,11 +108,13 @@ $$
 $$
 V_{k+1}(s) \leftarrow \max_{a\in\mathcal{A}} \left\{ \mathcal{R}(s,a) + \gamma \sum_{s^\prime \in \mathcal{S}} \mathcal{P}(s^\prime|s,a) V_k(s^\prime) \right\}
 $$
-随机选定初始值 $V_0$ ，当 $k\rightarrow\infin$ 时，序列 $\{ V_k \}$ 会收敛到 $V^\pi$ 。为了方便证明，定义贝尔曼最优算子为 $\mathcal{T}^*$：
+随机选定初始值 $V_0$ ，当 $k\rightarrow\infin$ 时，序列 $\{ V_k \}$ 会收敛到 $V^*$ 。为了方便证明收敛性，定义贝尔曼最优算子为 $\mathcal{T}^*$：
 $$
 \mathcal{T}^* V_{k} = \max_{a\in\mathcal{A}} \left\{ \mathcal{R}(s,a) + \gamma \sum_{s^\prime \in \mathcal{S}} \mathcal{P}(s^\prime|s,a) V_k(s^\prime) \right\}
 $$
-并将迭代过程看作算子 $\mathcal{T}^*$ 的应用：
+
+### 收敛性证明（Banach不动点定理）
+为了证明序列 $\{V_k\}$ 收敛于 $V^*$ ，将迭代过程看作算子 $\mathcal{T}^*$ 的应用：
 $$
 V_{k+1} = \mathcal{T}^* V_k
 $$
