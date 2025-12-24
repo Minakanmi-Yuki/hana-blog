@@ -2,9 +2,102 @@
 title: "RL笔记（7）：Dyna-Q"
 publishDate: 2025-12-16
 updatedDate: 2025-12-16
-description: "Dyna-Q"
+description: "从试错到规划：基于模型的强化学习 (Model-Based RL) 入门。详解 Dyna-Q 算法如何利用环境模型生成模拟数据，加速策略学习。"
 heroImage: {src : "https://picr2.axi404.top/Paper-reading-Uni-zh.webp", color: '#8C8275'}
 category: 'daily'
 pixivLink: '127192375'
 ---
 
+## 引言：做梦也能变强？
+
+在之前的 Q-Learning 和 SARSA 中，智能体只能通过**真实**地与环境交互（摔跟头、吃金币）来学习，这被称为 **无模型强化学习 (Model-Free RL)**。这种方式虽然稳健，但效率较低，因为真实交互往往昂贵且缓慢。
+
+**基于模型的强化学习 (Model-Based RL)** 引入了一个新的思路：如果智能体能学会环境的运行规律（建立一个模型），它就可以在脑海中“推演”未来，从而减少对真实世界的依赖。
+
+> **💡 直觉理解**：
+> *   **Model-Free (Q-Learning)**：像是在练习投篮，必须每次真把球投出去才知道进没进。
+> *   **Model-Based (Dyna-Q)**：像是下棋高手，不仅在实战中学习，还在脑海中复盘和推演（Planning），“如果我走这一步，对手可能会那样走...”。
+
+---
+
+## 核心概念
+
+### 1. 什么是模型 (Model)？
+在 RL 中，模型 $M$ 指的是对环境动态的模拟。给定状态 $s$ 和动作 $a$，模型能预测出下一个状态 $s'$ 和奖励 $r$：
+$$
+s', r \leftarrow M(s, a)
+$$
+*   **预知模型**：如下棋，规则是完全已知的。
+*   **学习模型**：如机器人走路，需要通过观测数据 $(s, a, r, s')$ 来拟合环境规律。
+
+### 2. 两个关键指标
+*   **收敛效果**：算法收敛后能够获得的期望回报。
+*   **样本复杂度 (Sample Complexity)**：达到同样的性能，需要在真实环境中交互多少次。
+    *   Model-Based 的核心优势就是**降低样本复杂度**（少走弯路）。
+
+### 3. 学习与规划
+Dyna-Q 架构将 RL 过程分为了两部分：
+1.  **直接强化学习 (Direct RL)**：利用**真实经验**更新价值函数（和 Q-Learning 一样）。
+2.  **规划 (Planning)**：利用**模拟经验**（模型生成的）更新价值函数。
+
+---
+
+## Dyna-Q 算法
+
+Dyna-Q 是将 Q-Learning 与规划结合的最简单范例。它维护一个简单的**查表式模型 (Table-based Model)**，记录在这个状态 $s$ 做动作 $a$ 曾经发生了什么。
+
+### 算法流程
+在每个时间步 $t$：
+1.  **行动**：在真实环境中执行动作，获得 $(s, a, r, s')$。
+2.  **直接学习**：用真实数据更新 $Q(s,a)$。
+3.  **模型学习**：把 $(s, a) \to (r, s')$ 记入模型（如果是确定性环境，直接覆盖；如果是随机环境，可能需要记录分布）。
+4.  **规划 (Planning)**：
+    *   重复 $N$ 次（比如 10 次）：
+    *   **做梦**：随机从记忆中挑选一个**曾经去过的**状态 $s_{sim}$ 和**曾经做过的**动作 $a_{sim}$。
+    *   **推演**：询问模型得到模拟结果 $r_{sim}, s'_{sim}$。
+    *   **间接学习**：用模拟数据更新 $Q(s_{sim}, a_{sim})$。
+
+### 算法伪代码
+$$
+\begin{aligned}
+& \bullet \; \text{Initialize } Q(s,a), \text{Model } M(s,a) \\
+& \bullet \; \textbf{For } \text{episode } e = 1 \to E \textbf{ do}: \\
+& \bullet \qquad \text{Initialize state } s \\
+& \bullet \qquad \textbf{For } \text{step } t = 1 \to T \textbf{ do}: \\
+& \bullet \qquad \qquad \text{Choose action } a \text{ using } \epsilon\text{-greedy} \\
+& \bullet \qquad \qquad \text{Execute } a, \text{ observe } r, s' \\
+& \bullet \qquad \qquad \textbf{1. Direct RL (Q-Learning update):} \\
+& \bullet \qquad \qquad Q(s,a) \leftarrow Q(s,a) + \alpha [r + \gamma \max_{a'} Q(s', a') - Q(s,a)] \\
+& \bullet \qquad \qquad \textbf{2. Model Learning:} \\
+& \bullet \qquad \qquad M(s, a) \leftarrow (r, s') \\
+& \bullet \qquad \qquad \textbf{3. Planning (Loop N times):} \\
+& \bullet \qquad \qquad \textbf{For } n = 1 \to N \textbf{ do}: \\
+& \bullet \qquad \qquad \qquad \text{Randomly select } s_{sim} \text{ previously observed} \\
+& \bullet \qquad \qquad \qquad \text{Randomly select } a_{sim} \text{ previously taken in } s_{sim} \\
+& \bullet \qquad \qquad \qquad r_{sim}, s'_{sim} \leftarrow M(s_{sim}, a_{sim}) \\
+& \bullet \qquad \qquad \qquad Q(s_{sim}, a_{sim}) \leftarrow Q(s_{sim}, a_{sim}) + \alpha [r_{sim} + \gamma \max_{a'} Q(s'_{sim}, a') - Q(s_{sim}, a_{sim})] \\
+& \bullet \qquad \qquad \textbf{End For} \\
+& \bullet \qquad \qquad s \leftarrow s' \\
+& \bullet \qquad \textbf{End For} \\
+& \bullet \; \textbf{End For}
+\end{aligned}
+$$
+
+---
+
+## 优缺点分析
+
+### 优势
+*   **样本效率极高**：在每次与环境交互后，Dyna-Q 会进行 $N$ 次规划。这意味着**一条真实经验被复用了 $N+1$ 次**。对于真实交互很昂贵的场景（如机器人实验），这非常有用。
+
+### 劣势
+*   **模型偏差 (Model Bias)**：这是 Model-Based RL 的死穴。
+    *   如果模型学错了（比如现实中走这一步会掉坑里，模型却认为会飞过去），那么规划得越多，智能体就在错误的道路上越走越远。
+    *   解决方案通常涉及**不确定性估计**（如果对模型预测不自信，就不要信它）或**探索奖励**（Dyna-Q+，鼓励去验证模型不确定的地方）。
+
+---
+
+## 总结
+
+Dyna-Q 完美展示了强化学习如何结合“行万里路”（真实交互）与“读万卷书”（模型规划）。
+在下一章，我们将正式告别“表格型 (Tabular)”强化学习，引入神经网络，进入 **深度强化学习 (Deep Reinforcement Learning)** 的时代。
