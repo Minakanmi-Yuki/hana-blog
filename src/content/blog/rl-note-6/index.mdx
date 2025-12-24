@@ -2,9 +2,159 @@
 title: "RL笔记（6）：时序差分"
 publishDate: 2025-12-15
 updatedDate: 2025-12-15
-description: "时序差分"
+description: "结合了蒙特卡洛与动态规划的精华：详解时序差分 (TD) 学习。涵盖 SARSA、Q-Learning 及其多步扩展，深入对比 On-Policy 与 Off-Policy 的本质区别。"
 heroImage: {src : "https://picr2.axi404.top/Paper-reading-Uni-zh.webp", color: '#8C8275'}
 category: 'daily'
 pixivLink: '127192375'
 ---
 
+## 引言：模型未知的挑战
+
+在大部分强化学习的现实场景中，MDP 中的状态转移概率 $\mathcal{P}$ 和奖励函数 $\mathcal{R}$ 通常是未知的。
+*   因为没有模型，我们无法直接用**动态规划 (DP)** 来算出最优解。
+*   智能体必须像**蒙特卡洛 (MC)** 那样，通过与环境交互、采样数据来学习。
+
+这类方法统称为 **无模型强化学习 (Model-Free RL)**。本章将介绍其中最重要的一类方法：**时序差分 (Temporal Difference, TD)**。
+
+---
+
+## 时序差分方法 (Temporal Difference)
+
+### 核心思想
+时序差分 (TD) 结合了蒙特卡洛 (MC) 和动态规划 (DP) 的思想：
+*   **像 MC**：直接从经验（采样数据）中学习，不需要环境模型。
+*   **像 DP**：利用**自举 (Bootstrapping)** 的思想，用后继状态的估计值来更新当前状态的估计值，而不需要等到回合结束。
+
+### 价值函数的更新
+回顾蒙特卡洛 (MC) 的增量更新公式：
+$$
+V(s_t) \leftarrow V(s_t) + \alpha [G_t - V(s_t)]
+$$
+其中 $G_t$ 是从 $t$ 时刻开始直到回合结束的真实回报。
+
+**TD 的改进**：
+TD 不想等到回合结束。它利用贝尔曼方程的性质，用 $r_t + \gamma V(s_{t+1})$ 来**替代** $G_t$：
+$$
+V(s_t) \leftarrow V(s_t) + \alpha [\underbrace{r_t + \gamma V(s_{t+1})}_{\text{TD Target}} - V(s_t)]
+$$
+
+*   **TD Target**: $r_t + \gamma V(s_{t+1})$，这是我们对真实回报 $G_t$ 的一个有偏但方差更小的估计。
+*   **TD Error**: $\delta_t = r_t + \gamma V(s_{t+1}) - V(s_t)$，表示“当下的惊喜”——实际发生的情况比预期的好了多少。
+
+### 为什么可以替代？
+根据 $V^\pi$ 的定义推导：
+$$
+\begin{align}
+V^\pi(s) &= \mathbb{E}_\pi[G_t | S_t=s] \notag \\
+&= \mathbb{E}_\pi [R_t + \gamma G_{t+1} | S_t=s] \notag \\
+&= \mathbb{E}_\pi [R_t + \gamma V^\pi(S_{t+1}) | S_t=s] \notag
+\end{align}
+$$
+可见，$R_t + \gamma V(S_{t+1})$ 是 $V(s)$ 的无偏估计（假设 $V(S_{t+1})$ 准确）。随着迭代进行，最终 $V$ 会收敛到 $V^\pi$。
+
+---
+
+## SARSA 算法
+
+SARSA 是 **S**tate-**A**ction-**R**eward-**S**tate-**A**ction 的缩写，因为它利用五元组 $(s_t, a_t, r_t, s_{t+1}, a_{t+1})$ 进行更新。
+
+### 从 V 到 Q
+在 Model-Free 场景下，我们通常直接估计 **动作价值函数 $Q(s,a)$**，而不是 $V(s)$，以便直接选取动作。
+更新公式：
+$$
+Q(s_t,a_t) \leftarrow Q(s_t,a_t) + \alpha [r_t + \gamma Q(s_{t+1},a_{t+1}) - Q(s_t,a_t)]
+$$
+
+### 探索与利用
+SARSA 需要解决两个问题：
+1.  **估计不准**：在训练初期，Q 值是不准确的。
+2.  **采样覆盖**：如果一直贪婪地选动作，可能永远无法发现更好的策略。
+
+因此，SARSA 使用 **$\epsilon$-贪婪策略 ($\epsilon$-Greedy)**：
+*   以 $1-\epsilon$ 的概率选择 $\arg\max_a Q(s,a)$。
+*   以 $\epsilon$ 的概率随机选择动作。
+
+### 算法伪代码
+$$
+\begin{aligned}
+& \bullet \; \text{Initialize } Q(s,a) \\
+& \bullet \; \textbf{For } \text{episode } = 1 \to E \textbf{ do}: \\
+& \bullet \qquad \text{Initialize state } s \\
+& \bullet \qquad \text{Choose action } a \text{ from } s \text{ using } \epsilon\text{-greedy} \\
+& \bullet \qquad \textbf{For } \text{step } = 1 \to T \textbf{ do}: \\
+& \bullet \qquad \qquad \text{Take action } a, \text{ observe } r, s' \\
+& \bullet \qquad \qquad \text{Choose action } a' \text{ from } s' \text{ using } \epsilon\text{-greedy} \\
+& \bullet \qquad \qquad Q(s,a) \leftarrow Q(s,a) + \alpha [r + \gamma Q(s',a') - Q(s,a)] \\
+& \bullet \qquad \qquad s \leftarrow s', a \leftarrow a' \\
+& \bullet \qquad \textbf{End For} \\
+& \bullet \; \textbf{End For}
+\end{aligned}
+$$
+
+---
+
+## 多步 SARSA ($n$-step SARSA)
+
+MC 是无偏但方差大（要等很久），TD(0) 是偏差大但方差小（看一步）。我们可以折中一下，看 $n$ 步。
+
+*   **单步 TD (SARSA)**:
+    $$G_t^{(1)} = r_t + \gamma Q(s_{t+1}, a_{t+1})$$
+*   **$n$ 步 TD**:
+    $$G_t^{(n)} = r_t + \gamma r_{t+1} + \dots + \gamma^n Q(s_{t+n}, a_{t+n})$$
+
+**$n$ 步 SARSA 更新规则**：
+$$
+Q(s_t,a_t) \leftarrow Q(s_t,a_t) + \alpha [G_t^{(n)} - Q(s_t,a_t)]
+$$
+
+---
+
+## Q-Learning 算法
+
+Q-Learning 是强化学习中最著名的算法之一，它与 SARSA 非常像，但有一个关键区别。
+
+### 更新规则
+$$
+Q(s_t,a_t) \leftarrow Q(s_t,a_t) + \alpha [r_t + \gamma \max_{a'} Q(s_{t+1}, a') - Q(s_t,a_t)]
+$$
+
+**关键区别**：
+*   **SARSA**：使用 $Q(s_{t+1}, a_{t+1})$。这里的 $a_{t+1}$ 是智能体**实际采取**的动作（可能包含了 $\epsilon$ 的随机探索）。
+*   **Q-Learning**：使用 $\max_{a'} Q(s_{t+1}, a')$。不管智能体下一步实际做了什么，我们在更新时都假设它会做**最好的**那个动作。
+
+### 算法伪代码
+$$
+\begin{aligned}
+& \bullet \; \text{Initialize } Q(s,a) \\
+& \bullet \; \textbf{For } \text{episode } e = 1 \to E \textbf{ do}: \\
+& \bullet \qquad \text{Initialize state } s \\
+& \bullet \qquad \textbf{For } \text{step } t = 1 \to T \textbf{ do}: \\
+& \bullet \qquad \qquad \text{Choose action } a \text{ from } s \text{ using } \epsilon\text{-greedy} \\
+& \bullet \qquad \qquad \text{Take action } a, \text{ observe } r, s' \\
+& \bullet \qquad \qquad Q(s,a) \leftarrow Q(s,a) + \alpha [r + \gamma \max_{a'} Q(s', a') - Q(s,a)] \\
+& \bullet \qquad \qquad s \leftarrow s' \\
+& \bullet \qquad \textbf{End For} \\
+& \bullet \; \textbf{End For}
+\end{aligned}
+$$
+
+---
+
+## 核心对比：在线策略 vs. 离线策略
+
+这是强化学习中最重要的分类之一。
+
+*   **行为策略 (Behavior Policy)**：智能体与环境交互、产生数据时使用的策略（通常包含随机性，如 $\epsilon$-greedy）。
+*   **目标策略 (Target Policy)**：我们想要学习和优化的策略（通常是贪婪策略，即最优策略）。
+
+| 特性 | 在线策略 (On-Policy) | 离线策略 (Off-Policy) |
+| :--- | :--- | :--- |
+| **定义** | 行为策略 **==** 目标策略 | 行为策略 **!=** 目标策略 |
+| **代表算法** | **SARSA** | **Q-Learning** |
+| **更新依据** | 使用**实际执行**的下一个动作 $a_{t+1}$ 的价值 | 使用**理论上最优**的动作 $\max Q$ 的价值 |
+| **优缺点** | 比较胆小。因为它知道自己下一步可能会乱走（随机探索），所以它会避开悬崖边缘（哪怕悬崖边有宝藏）。 | 比较大胆。它假设自己下一步一定会走最优路径，所以会勇敢地贴着悬崖走。 |
+| **数据效率** | 数据必须现采现用，不能使用旧策略产生的数据（Replay Buffer）。 | 可以使用过去的数据，或者别人玩的数据（适合结合 Experience Replay）。 |
+
+> **💡 直觉理解**：
+> *   **SARSA** 像是一个**谨慎的学生**：他在学习时会考虑到自己考试时可能会因为紧张（$\epsilon$ 随机性）而犯错，所以他平时练习时就尽量选容错率高的解法。
+> *   **Q-Learning** 像是一个**理想主义者**：他在学习时假设自己考试时绝对不会犯错（全选最优解 $\max Q$），所以他会学习那条理论上分数最高、但可能风险很大的路径。
