@@ -2,7 +2,7 @@
 title: "RL笔记（2）：多臂老虎机"
 publishDate: 2025-12-11
 updatedDate: 2025-12-11
-description: "多臂老虎机"
+description: "从赌场到推荐系统：详解多臂老虎机问题。涵盖累积懊悔、Epsilon-Greedy、UCB 以及基于贝叶斯的汤普森采样。"
 heroImage: {src : "https://picr2.axi404.top/Paper-reading-Uni-zh.webp", color: '#8C8275'}
 category: 'daily'
 pixivLink: '127192375'
@@ -109,7 +109,7 @@ $$
 
 ## 算法 3：汤普森采样 (Thompson Sampling)
 
-这是参考课件中重点介绍的算法，它基于**贝叶斯 (Bayesian)** 思想，比 UCB 更具统计学美感。
+汤普森采样 (Thompson Sampling)基于**贝叶斯 (Bayesian)** 思想，比 UCB 更具统计学美感。
 
 ### 核心思想
 我们不维护一个具体的数值 $Q(a)$，而是维护每个拉杆奖励的**概率分布**。
