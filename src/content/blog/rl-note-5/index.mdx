@@ -79,7 +79,7 @@ $$
 \begin{align}
 V^\pi(s)&=\sum_{a\in\mathcal{A}}\pi(a|s)Q^\pi(s,a) \notag \\
 &\leqslant \max_{a\in\mathcal{A}} Q^\pi(s,a) \notag \\
-&=\max_{a\in\mathcal{A}} \left( r(s,a) + \gamma \sum_{s^\prime\in\mathcal{S}} P(s^\prime|s,a) V^\pi(s^\prime)\right) \notag \\
+&=\max_{a\in\mathcal{A}} \left( r(s,a) + \gamma \sum_{s^\prime\in\mathcal{S}} \mathcal{P}(s^\prime|s,a) V^\pi(s^\prime)\right) \notag \\
 &= Q^\pi(s,\pi^\prime(s)) \notag \\
 \end{align}
 $$
