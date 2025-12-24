@@ -14,236 +14,278 @@ SAC 的前身是 Soft Q-learning (SQL)。相比于 SQL 需要复杂的采样过�
 
 ---
 
-## 1. 最大熵强化学习 (Maximum Entropy RL)
+## 最大熵强化学习 (Maximum Entropy RL)
 
-### 核心概念
-**熵 (Entropy)** 是衡量随机变量“不确定性”的指标。对于随机变量 $X$，其概率密度为 $p$，熵 $H$ 定义为：
-
+### 熵的定义
+**熵 (Entropy)** 表示对一个随机变量的随机程度的度量。如果 $X$ 是一个随机变量，它的概率密度记为 $p$，那么它的熵 $H$ 定义为：
 $$
 \begin{align}
 H(X)&=\mathbb{E}_{x\sim p}[-\log p(x)]\notag \\
 &=-\int_{x}p(x)\log p(x) \mathrm{d}x \notag 
 \end{align}
 $$
-
-在强化学习中，我们用 $H(\pi(\cdot|s))$ 表示策略 $\pi$ 在状态 $s$ 下选择动作的随机程度。
+在强化学习中，可以使用 $H(\pi(\cdot|s))$ 来表示策略 $\pi$ 在状态 $s$ 下的随机程度。
 
 ### 目标函数
-SAC 不仅仅追求奖励最大化，还希望策略尽可能随机（探索能力更强）。
-目标函数加入熵正则项：
-
+最大熵强化学习（maximum entropy RL）的思想是除了最大化累计奖励，还要使得策略更加随机。如此，强化学习的目标中加入了一项熵的正则项，定义为：
 $$
 \begin{align}
 \pi_{\textbf{MaxEnt}}^*=\arg\max_{\pi}\mathbb{E}_{\pi}\left[\sum_{t=0}^\infty r(s_t,a_t)+\alpha H(\pi(\cdot|s_t))\right]\notag
 \end{align}
 $$
-
-*   **$\alpha$ (Temperature)**：温度系数，决定了熵的重要性。
-    *   $\alpha$ 越大：智能体越“佛系”，喜欢尝试各种动作（探索）。
-    *   $\alpha$ 越小：智能体越“功利”，只选当前认为最好的动作（利用）。
+其中，$\alpha$ 是一项正则项系数，用来权衡熵的重要程度。
+SAC 算法加入熵正则项，有利于增加强化学习算法的探索，$\alpha$ 越大，探索性越强，有助于加速策略的学习，降低策略陷入局部最优的可能性。
 
 ---
 
-## 2. 基于能量的模型 (Energy-Based Model)
+## 基于能量的模型 (Energy-Based Model, EBM)
 
-为了将熵引入策略分布，SAC 沿用了 SQL 的理论基础——基于能量的模型 (EBM)。
-物理学告诉我们，能量越低的状态越稳定（概率越高）。
-
+基于能量的模型（Energy-Based Model，EBM）是一类基于统计物理学原理的概率模型，通过能量函数为每个可能的状态分配一个标量能量值，低能量区域对应高概率区域。在强化学习中，EBM 将状态-动作对 $(s,a)$ 映射到能量值 $\mathcal{E}$，从而表示策略分布，定义为：
 $$
 \begin{align}
 \pi(a|s)=\frac{\exp(-\mathcal{E}(s,a))}{Z(s)}\notag
 \end{align}
 $$
-
-其中 $Z(s)$ 是配分函数（归一化项）。在 SAC 的理论推导中，我们依然假设最优策略服从这种玻尔兹曼分布。
+其中，$Z(s)=\int_{A}\exp(-\mathcal{E}(s,a))\mathrm{d}a$ 是配分函数，负责归一化能量值以形成有效的概率分布。
 
 ---
 
-## 3. Soft 策略迭代 (Soft Policy Iteration)
+## Soft 策略迭代 (Soft Policy Iteration)
 
-SAC 的理论核心证明了：如果我们交替进行 **Soft 策略评估** 和 **Soft 策略提升**，最终能收敛到最优策略。
-
-### 3.1 定义：Soft 贝尔曼方程
-引入熵之后，价值函数的定义发生了变化：
-
-**Soft 状态价值函数 $V$：**
+### Soft 贝尔曼方程
 $$
 \begin{align}
 V_{\textbf{soft}}^\pi(s)&=\mathbb{E}_{a\sim\pi(\cdot|s)}[Q^{\pi}_{\textbf{soft}}(s,a)-\alpha\log\pi(a|s)]\notag \\
 &=\mathbb{E}_{a\sim \pi(a|s)}[Q^{\pi}_{\textbf{soft}}(s,a)]+\alpha H(\pi(\cdot|s)) \notag
 \end{align}
 $$
-> **💡 笔记**：$V$ 值等于 $Q$ 值的期望加上“熵红利”。
-
-**Soft 动作价值函数 $Q$：**
 $$
 \begin{align}
 Q^{\pi}_{\textbf{soft}}(s,a)=r(s,a)+\gamma \mathbb{E}_{s^\prime\sim p(\cdot|s,a)}[V_{\textbf{soft}}^\pi(s^\prime)]\notag \\
 \end{align}
 $$
 
-### 3.2 第一步：Soft 策略评估 (Policy Evaluation)
-我们要证明反复应用 Bellman 算子能收敛到真实的 Q 值。
-
-定义 **Soft 贝尔曼算子 $\mathcal{T}^\pi$**：
+### Soft 策略评估 (Soft Policy Evaluation)
+在 SAC 算法中，Soft 价值函数定义为：
 $$
 \begin{align}
-\mathcal{T}^\pi Q^{k}_{\textbf{soft}}(s,a) \triangleq r(s,a)+\gamma \mathbb{E}_{s^\prime\sim p(\cdot|s,a)}[\mathbb{E}_{a^\prime\sim\pi(\cdot|s^\prime)}[Q^{k}_{\textbf{soft}}(s^\prime,a^\prime)-\alpha\log\pi(a^\prime|s^\prime)]]\notag
+V_{\textbf{soft}}^\pi(s)\triangleq\mathbb{E}_{a\sim\pi(\cdot|s)}[Q^{\pi}_{\textbf{soft}}(s,a)-\alpha\log\pi(a|s)]\notag 
+\end{align}
+$$
+Soft 动作价值函数定义为：
+$$
+\begin{align}
+Q^{\pi}_{\textbf{soft}}(s,a)\triangleq r(s,a)+\gamma \mathbb{E}_{s^\prime\sim p(\cdot|s,a)}[V_{\textbf{soft}}^\pi(s^\prime)]\notag \\
+\end{align}
+$$
+动作价值函数的 Soft 贝尔曼迭代算子定义为：
+$$
+\begin{align}
+\mathcal{T}^\pi Q^{k}_{\textbf{soft}}(s,a)&\triangleq r(s,a)+\gamma \mathbb{E}_{s^\prime\sim p(\cdot|s,a)}[V_{\textbf{soft}}^{k}(s^\prime)]\notag \\
+&\triangleq  r(s,a)+\gamma \mathbb{E}_{s^\prime\sim p(\cdot|s,a)}[\mathbb{E}_{a^\prime\sim\pi(\cdot|s^\prime)}[Q^{k}_{\textbf{soft}}(s^\prime,a^\prime)-\alpha\log\pi(a^\prime|s^\prime)]]\notag
 \end{align}
 $$
 
-**收敛性证明（压缩映射）：**
-为了简化证明，我们将奖励函数重定义为包含熵的形式 $r_{\pi}(s,a) \triangleq r(s,a) + \alpha \mathbb{E}_{s'}[H(\pi(\cdot|s'))]$。
-这样算子可以写成标准形式：
-$$
-\mathcal{T}^\pi Q(s,a) = r_\pi(s,a) + \gamma \mathbb{E}_{s', a'}[Q(s', a')]
-$$
+**Soft 策略评估定理**：基于上述的算子 $\mathcal{T}^\pi$ 以及初始化的映射 $Q^0_{\textbf{soft}}:S\times A\rightarrow \mathbb{R}$，且 $|A|<\infty$，$Q^{k+1}_{\textbf{soft}}=\mathcal{T}^\pi Q^k_{\textbf{soft}}$。那么当 $k\rightarrow\infty$ 时，序列 $\{Q^k_{\textbf{soft}}\}$ 会收敛至 $Q_{\textbf{soft}}^\pi$。
 
-计算两次迭代的差值：
+接下来证明这是一个压缩映射。文章重新定义了奖励 $r_\pi(s,a)$：
+$$
+\begin{align}
+r_{\pi}(s,a)\triangleq r(s,a)+\mathbb{E}_{s^\prime\sim p(\cdot|s,a)}[H(\pi(\cdot|s^\prime))]\notag \\
+\end{align}
+$$
+迭代式可以重写为：
+$$
+\begin{align}
+\mathcal{T}^\pi Q^{k}_{\textbf{soft}}(s,a)\triangleq r_\pi(s,a)+\gamma \mathbb{E}_{s^\prime\sim p(\cdot|s,a), a^\prime \sim \pi(\cdot|s^\prime)}[Q^{k}_{\textbf{soft}}(s^\prime,a^\prime)]\notag \\
+\end{align}
+$$
+在算法中，我们假设 $|A|<\infty$，那么 $r_\pi(s,a)$ 就是有界的，那么只需要证明此不等式：
+$$
+\begin{align}
+\big|\big|\mathcal{T}^\pi Q^N_{\textbf{soft}}(s,a)-\mathcal{T}^\pi Q^M_{\textbf{soft}}(s,a)\big|\big|_\infty \le k\big|\big| Q^N_{\textbf{soft}}(s,a)-Q^M_{\textbf{soft}}(s,a)\big|\big|_\infty ,\quad\exists k\in(0,1)\notag
+\end{align}
+$$
+左式化简为：
 $$
 \begin{align}
 \big|\mathcal{T}^\pi Q^N_{\textbf{soft}}(s,a)-\mathcal{T}^\pi Q^M_{\textbf{soft}}(s,a)\big|
-&=\gamma\big|\mathbb{E}_{s^\prime, a^\prime}\left[Q^N_{\textbf{soft}}(s^\prime,a^\prime)-Q^M_{\textbf{soft}}(s^\prime,a^\prime)\right]\big|\notag \\
-&\le \gamma \max_{s^\prime,a^\prime} \big|Q^N_{\textbf{soft}}(s^\prime,a^\prime)-Q^M_{\textbf{soft}}(s^\prime,a^\prime)\big| \notag
+&=\gamma\big|\mathbb{E}_{s^\prime\sim p(\cdot|s,a), a^\prime\sim\pi(\cdot|s^\prime)}\left[Q^N_{\textbf{soft}}(s^\prime,a^\prime)-Q^M_{\textbf{soft}}(s^\prime,a^\prime)\right]\big|\notag \\
+&\le \gamma\mathbb{E}_{s^\prime\sim p(\cdot|s,a), a^\prime\sim\pi(\cdot|s^\prime)}\left[\big|Q^N_{\textbf{soft}}(s^\prime,a^\prime)-Q^M_{\textbf{soft}}(s^\prime,a^\prime)\big|\right] \notag \\
+&\le \gamma\mathbb{E}_{s^\prime\sim p(\cdot|s,a)}\left[\max_{a^\prime\in A}\big|Q^N_{\textbf{soft}}(s^\prime,a^\prime)-Q^M_{\textbf{soft}}(s^\prime,a^\prime)\big|\right] \notag \\
+&\le \gamma \max_{s^\prime\in S,a^\prime\in A} \big|Q^N_{\textbf{soft}}(s^\prime,a^\prime)-Q^M_{\textbf{soft}}(s^\prime,a^\prime)\big| \notag
 \end{align}
 $$
-
-取最大范数：
+最终可以得出：
 $$
 \begin{align}
-||\mathcal{T}^\pi Q^N - \mathcal{T}^\pi Q^M||_\infty \le \gamma ||Q^N - Q^M||_\infty
+\max_{s\in S,a\in A}\big|\mathcal{T}^\pi Q^N_{\textbf{soft}}(s,a)-\mathcal{T}^\pi Q^M_{\textbf{soft}}(s,a)\big| \le \gamma \max_{s^\prime\in S,a^\prime\in A} \big|Q^N_{\textbf{soft}}(s^\prime,a^\prime)-Q^M_{\textbf{soft}}(s^\prime,a^\prime)\big| \notag \\
 \end{align}
 $$
+其中，折扣因子 $\gamma\in(0,1)$，可以证明 $\mathcal{T}^\pi$ 是压缩映射。
 
-因为 $\gamma \in (0,1)$，所以这是一个**压缩映射 (Contraction Mapping)**。这意味着无论初始值如何，不断迭代 $Q$ 值最终一定会收敛到 $Q^\pi_{soft}$。
+---
 
-### 3.3 第二步：Soft 策略提升 (Policy Improvement)
-有了 Q 值后，我们如何更新策略让它变好？
+### Soft 策略提升 (Soft Policy Improvement)
 
-**更新规则**：
-我们将新策略 $\pi_{new}$ 设定为最小化与“指数化 Q 值”的 KL 散度：
+**Soft 策略提升定理**：对于任意 $\pi_{\text{old}} \in \Pi$，并以下式优化 $\pi_{\text{new}}$。假设 $|A|<\infty$，那么对于 $\forall (s,a) \in S \times A$，有 $Q_{\textbf{soft}}^{\pi_{\text{new}}}(s,a)\ge Q_{\textbf{soft}}^{\pi_{\text{old}}}(s,a)$。
 $$
 \begin{align}
-\pi_{\text{new}}(\cdot|s)=\arg \min_{\pi^\prime\in\Pi}D_{\textbf{KL}}\left(\pi^\prime(\cdot|s)\bigg|\bigg|\frac{\exp(\frac{1}{\alpha}Q^{\pi_{\text{old}}}_{\textbf{soft}}(s,\cdot))}{Z^{\pi_{\text{old}}}(s)}\right)\notag
+\pi_{\text{new}}(\cdot|s)=\arg \min_{\pi^\prime\in\Pi}D_{\textbf{KL}}\left(\pi^\prime(\cdot|s)\Big|\Big|\frac{\exp(\frac{1}{\alpha}Q^{\pi_{\text{old}}}_{\textbf{soft}}(s,\cdot))}{Z^{\pi_{\text{old}}}(s)}\right)\notag \\
 \end{align}
 $$
+其中 $Z^{\pi_{\text{old}}}(s)$ 是配分函数，负责归一化分布。
 
-**证明策略确实提升了 ($Q_{new} \ge Q_{old}$)**：
-定义目标函数 $J(\pi) = D_{KL}(\dots)$。
-根据 KL 散度的性质，且 $\pi_{new}$ 是最小化该目标的策略，必有：
-$$
-J(\pi_{new}) \le J(\pi_{old})
-$$
-
-展开 KL 散度并化简（$Z(s)$ 也是常数被消去），可得：
+定义 $J(\pi(\cdot|s);\pi_{\text{old}})$ 为：
 $$
 \begin{align}
-\mathbb{E}_{a\sim\pi_\text{new}}\left[Q_{\textbf{soft}}^{\pi_\text{old}}(s,a)-\alpha\log\pi_\text{new}(a|s)\right] \ge \mathbb{E}_{a\sim\pi_\text{old}}\left[Q_{\textbf{soft}}^{\pi_\text{old}}(s,a)-\alpha\log\pi_\text{old}(a|s)\right] = V_{\textbf{soft}}^{\pi_\text{old}}(s) \notag
+J(\pi(\cdot|s);\pi_{\text{old}})&= D_{\textbf{KL}}\left(\pi(\cdot|s)\Big|\Big|\frac{\exp(\frac{1}{\alpha}Q_{\textbf{soft}}^{\pi_\text{old}}(s,\cdot))}{Z^{\pi_\text{old}}(s)}\right)\notag \\
+&=\int_a \pi(a|s)\log\frac{\pi(a|s)}{\exp(\frac{1}{\alpha}Q_{\textbf{soft}}^{\pi_\text{old}}(s,a)-\log Z^{\pi_{\text{old}}}(s))}\text{d}a \notag \\
+&=\mathbb{E}_{a\sim\pi(\cdot|s)}\left[\log\pi(a|s)-\frac{1}{\alpha}Q_{\textbf{soft}}^{\pi_\text{old}}(s,a)+\log Z^{\pi_\text{old}}(s)\right] \notag
 \end{align}
 $$
-
-这意味着，**在当前状态 $s$，按照新策略 $\pi_{new}$ 行动获得的“Soft 价值”比旧策略更高**。
-利用贝尔曼方程反复迭代展开：
+那么对于 $\pi_\text{old}$ 和 $\pi_\text{new}$，满足 $J(\pi_\text{new}(\cdot|s);\pi_\text{old})\le J(\pi_\text{old}(\cdot|s);\pi_\text{old})$，即：
 $$
 \begin{align}
-Q_{\textbf{soft}}^{\pi_{\text{old}}}(s,a) &= r + \gamma \mathbb{E}[V_{\pi_{old}}] \notag \\
-&\le r + \gamma \mathbb{E}[ \text{新策略产生的价值} ] \notag \\
-&\le \dots \le Q_{\textbf{soft}}^{\pi_{\text{new}}}(s,a) \notag
+\mathbb{E}_{a\sim\pi_\text{new}(\cdot|s)}\left[\log\pi_\text{new}(a|s)-\frac{1}{\alpha}Q_{\textbf{soft}}^{\pi_\text{old}}(s,a)+\log Z^{\pi_\text{old}}(s)\right] \le \mathbb{E}_{a\sim\pi_\text{old}(\cdot|s)}\left[\log\pi_\text{old}(a|s)-\frac{1}{\alpha}Q_{\textbf{soft}}^{\pi_\text{old}}(s,a)+\log Z^{\pi_\text{old}}(s)\right]  \notag \\
+\end{align}
+$$
+$Z^{\pi_\text{old}}(s)$ 与 $a$ 无关，相约后得：
+$$
+\begin{align}
+\mathbb{E}_{a\sim\pi_\text{new}(\cdot|s)}\left[\log\pi_\text{new}(a|s)-\frac{1}{\alpha}Q_{\textbf{soft}}^{\pi_\text{old}}(s,a)\right] \le \mathbb{E}_{a\sim\pi_\text{old}(\cdot|s)}\left[\log\pi_\text{old}(a|s)-\frac{1}{\alpha}Q_{\textbf{soft}}^{\pi_\text{old}}(s,a)\right]  \notag \\
+\end{align}
+$$
+化简为：
+$$
+\begin{align}
+\mathbb{E}_{a\sim\pi_\text{new}(\cdot|s)}\left[Q_{\textbf{soft}}^{\pi_\text{old}}(s,a)-\alpha\log\pi_\text{new}(a|s)\right] \ge \mathbb{E}_{a\sim\pi_\text{old}(\cdot|s)}\left[Q_{\textbf{soft}}^{\pi_\text{old}}(s,a)-\alpha\log\pi_\text{old}(a|s)\right] = V_{\textbf{soft}}^{\pi_\text{old}}(s) \notag \\
+\end{align}
+$$
+接下来证明 $Q_{\textbf{soft}}^{\pi_{\text{new}}}(s,a)\ge Q_{\textbf{soft}}^{\pi_{\text{old}}}(s,a)$，我们利用上式进行迭代展开：
+$$
+\begin{align}
+Q_{\textbf{soft}}^{\pi_{\text{old}}}(s,a) &= r_0 + \gamma \mathbb{E}_{s_1\sim p(\cdot|s,a)}\left[ V_{\textbf{soft}}^{\pi_\text{old}}(s_1)\right]\notag \\
+&\le r_0 + \gamma \mathbb{E}_{s_1\sim p(\cdot|s,a)}\left[\mathbb{E}_{a_1\sim \pi_\text{new}(\cdot|s_1)}\left[Q_{\textbf{soft}}^{\pi_\text{old}}(s_1,a_1) - \alpha \log \pi_\text{new}(a_1|s_1)\right]\right] \notag \\
+&= r_0 + \gamma \mathbb{E}_{s_1\sim p(\cdot|s,a)}\left[\mathbb{E}_{a_1\sim \pi_\text{new}(\cdot|s_1)}\left[r(s_1, a_1) + \gamma \mathbb{E}_{s_2}[V_{\textbf{soft}}^{\pi_\text{old}}(s_2)] + \alpha H(\pi_\text{new}(\cdot|s_1))\right]\right] \notag \\
+&\le \sum_{t=0}^\infty \gamma^t \mathbb{E}_{(s_t,a_t)\sim \rho^{\pi_\text{new}}}\left[r(s_t,a_t)+\alpha H(\pi_\text{new}(\cdot|s_t))\right]\notag \\
+&=Q_{\textbf{soft}}^{\pi_\text{new}}(s,a) \notag
 \end{align}
 $$
 证明完毕。
 
-### 3.4 Soft 策略迭代定理
-结合上述两步：
-1.  评估当前策略得到 $Q^\pi$。
-2.  利用 $Q^\pi$ 优化得到更好的 $\pi'$。
-重复此过程，策略序列 $\pi_i$ 会单调提升，并最终收敛到最优策略 $\pi^*$。
+---
+
+### Soft 策略迭代定理
+假设 $|A|<\infty$，对于任意 $\pi \in \Pi$，重复应用 Soft 策略评估和 Soft 策略提升，会收敛到 $\pi^*$，使得对于任意 $\pi \in \Pi$ 以及 $(s,a)\in S\times A$，都有 $Q^{\pi^*}_\textbf{soft}(s,a)\ge Q^{\pi}_\textbf{soft}(s,a)$。
+
+**证明过程**：
+令 $\pi_i$ 为第 $i$ 轮迭代的策略，根据 Soft 策略迭代定理，序列 $\{Q^{\pi_i}_\textbf{soft}\}$ 是单调递增的。对于任意 $\pi \in \Pi$， $Q^\pi_\textbf{soft}$ 是有上界的（奖励与熵均是有界的），因此序列会收敛到某个 $\pi^*$，接下来需要证明 $\pi^*$ 是最优的。
+在收敛时，必然满足：对于任意 $\pi\in\Pi$ 且 $\pi\neq \pi^*$，都有 $J(\pi^*(\cdot|s);\pi^*) < J(\pi(\cdot|s);\pi^*)$，即：
+$$
+\begin{align}
+\mathbb{E}_{a\sim\pi^*(\cdot|s)}\left[\log\pi^*(a|s)-\frac{1}{\alpha}Q_{\textbf{soft}}^{\pi^*}(s,a)\right] < \mathbb{E}_{a\sim\pi(\cdot|s)}\left[\log\pi(a|s)-\frac{1}{\alpha}Q_{\textbf{soft}}^{\pi^*}(s,a)\right]  \notag \\
+\end{align}
+$$
+化简为：
+$$
+\begin{align}
+V_\textbf{soft}^{\pi^*}(s) > \mathbb{E}_{a\sim \pi(\cdot|s)}\left[Q_\textbf{soft}^{\pi^*}(s,a)-\alpha \log \pi(a|s)\right]\notag \\
+\end{align}
+$$
+接下来证明 $\pi^*$ 是最优的，即证明 $Q_\textbf{soft}^{\pi^* }(s,a) > Q^\pi_\textbf{soft}(s,a)$：
+$$
+\begin{align}
+Q_\textbf{soft}^{\pi^* }(s,a)&=r_0+\gamma\mathbb{E}_{s_1\sim p(\cdot|s,a)}\left[V_\textbf{soft}^{\pi^*}(s_1)\right]\notag \\
+&>r_0+\gamma\mathbb{E}_{s_1\sim p(\cdot|s,a)}\left[\mathbb{E}_{a_1\sim \pi(\cdot|s_1)}\left[Q_\textbf{soft}^{\pi^*}(s_1,a_1)-\alpha \log \pi(a_1|s_1)\right]\right] \notag \\
+&= r_0+\gamma\mathbb{E}_{s_1\sim p(\cdot|s,a)}\left[\mathbb{E}_{a_1\sim \pi(\cdot|s_1)}\left[r(s_1, a_1) + \gamma \mathbb{E}_{s_2}[V_\textbf{soft}^{\pi^*}(s_2)] + \alpha H(\pi(\cdot|s_1))\right]\right] \notag \\
+&> \sum_{t=0}^\infty \gamma^t \mathbb{E}_{(s_t,a_t)\sim\rho^\pi}\left[r(s_t,a_t)+\alpha H(\pi(\cdot|s_t))\right] \notag \\
+&=Q^\pi_\textbf{soft}(s,a)\notag
+\end{align}
+$$
+证明完毕。
 
 ---
 
-## 4. 算法实现 (SAC Algorithm)
+## 算法实现
 
-理论上我们需要不断收敛 Q 值，但在实际 Deep RL 中，我们使用神经网络来近似。
-SAC 包含三个网络：
-1.  **Actor 网络 $\pi_\theta$**：输出动作分布。
-2.  **Critic 网络 $Q_\omega$**：输出 Soft Q 值（使用双网络）。
-3.  (可选) Value 网络 $V_\psi$：在早期版本使用，现代版本通常省略，直接用 Q 表示 V。
+在 SAC 算法中，我们为两个动作价值函数 $Q_\textbf{soft}$（参数分别 $\omega_1$ 为和 $\omega_2$）和一个策略函数 $\pi$（参数为 $\theta$）建模。基于 Double DQN 的思想，SAC 使用 $Q_\textbf{soft}$ 两个网络，但每次用 $Q_\textbf{soft}$ 网络时会挑选一个 $Q_\textbf{soft}$ 值小的网络，从而缓解 $Q_\textbf{soft}$ 值过高估计的问题。
 
-### 4.1 Critic 网络更新 (Q Loss)
-为了缓解 Q 值过高估计（Overestimation）的问题，SAC 借鉴了 **Double Q-learning** 的思想，使用两个 Q 网络 $Q_{\omega_1}, Q_{\omega_2}$，计算目标值时**取最小值**。
-
-损失函数（最小化贝尔曼误差）：
+### 1. 动作价值函数 (Critic)
+任意一个函数 $Q_\textbf{soft}$ 的损失函数为：
 $$
 \begin{align}
-L_{Q}(\omega) &= \mathbb{E}_{(s,a,r,s')\sim \mathcal{D}}\left[\frac{1}{2}\left(Q_\omega(s,a) - y_{target}\right)^2\right] \notag
+L_{Q_\textbf{soft}}(\omega)&=\mathbb{E}_{(s_t,a_t,r_t,s_{t+1})\sim R}\left[\frac{1}{2}\left(Q_\textbf{soft}^\omega(s_t,a_t)-\left(r_t+\gamma V_{\textbf{soft}}^{\omega^-}(s_{t+1})\right)\right)^2\right]\notag \\
+&= \mathbb{E}_{(s_t,a_t,r_t,s_{t+1})\sim R}\left[\frac{1}{2}\left(Q_\textbf{soft}^\omega(s_t,a_t)-\left(r_t+\gamma\mathbb{E}_{a_{t+1}\sim \pi_\theta(\cdot|s_{t+1})}\left[\min_{j=1,2} Q_\textbf{soft}^{\omega_j^-}(s_{t+1},a_{t+1})-\alpha \log \pi_{\theta}(a_{t+1}|s_{t+1})\right]\right)\right)^2\right]\notag
+\end{align}
+$$
+其中，$R$ 是策略过去收集的数据，因为 SAC 是一种离线策略算法。为了让训练更加稳定，这里使用了两个目标网络 $Q_\textbf{soft}^{\omega_j^-}$。目标网络的更新方式是 Soft 更新：
+$$
+\begin{align}
+\omega_j^-\leftarrow \tau \omega_j + (1-\tau) \omega_j^-, \quad j=1,2\notag
 \end{align}
 $$
 
-目标值 $y_{target}$ 使用**目标网络 (Target Network)** 计算：
+### 2. 策略函数 (Actor)
+接下来根据 Soft 策略提升定理中的 KL 散度来推导策略 $\pi_\theta$ 的损失函数 $L_{\pi}(\theta)$：
 $$
 \begin{align}
-y_{target} = r + \gamma \left( \min_{j=1,2} Q_{\omega_j^-}(s', a') - \alpha \log \pi_\theta(a'|s') \right), \quad a' \sim \pi_\theta(\cdot|s') \notag
+\theta&=\arg \min_{\theta} L_\pi(\theta) \notag \\
+&=\arg \min_{\theta} \mathbb{E}_{s_t\sim R}\left[D_\textbf{KL}\left(\pi_\theta(\cdot|s_t)\Big|\Big|\frac{\exp(\frac{1}{\alpha }Q_\textbf{soft}^\omega(s_t,\cdot))}{Z(s_t)}\right)\right]\notag \\
+&= \arg\min_\theta \mathbb{E}_{s_t\sim R}\left[\mathbb{E}_{a_t\sim \pi_\theta(\cdot|s_t)}\left[\log\left(\frac{\pi_\theta(a_t|s_t)Z(s_t)}{\exp(\frac{1}{\alpha}Q_\textbf{soft}^\omega(s_t,a_t))}\right)\right]\right] \notag \\
+&=\arg\min_\theta \mathbb{E}_{s_t\sim R, a_t\sim \pi_\theta(\cdot|s_t)}\left[\log \pi_\theta(a_t|s_t)-\frac{1}{\alpha}Q_\textbf{soft}^\omega(s_t,a_t)+\log Z(s_t)\right] \notag \\
+&=\arg\min_\theta \mathbb{E}_{s_t\sim R, a_t\sim \pi_\theta(\cdot|s_t)}\left[\log \pi_\theta(a_t|s_t)-\frac{1}{\alpha}Q_\textbf{soft}^\omega(s_t,a_t)\right] \notag \\
+&=\arg\min_\theta \mathbb{E}_{s_t\sim R, a_t\sim \pi_\theta(\cdot|s_t)}\left[\alpha\log \pi_\theta(a_t|s_t)-Q_\textbf{soft}^\omega(s_t,a_t)\right] \notag \\
+&=\arg\max_\theta \mathbb{E}_{s_t\sim R}\left[V_\textbf{soft}^\omega (s_t)\right]\notag
 \end{align}
 $$
-> **💡 注意**：这里的 $a'$ 是从当前策略**采样**出来的，不是取最大值。这也是 Off-policy 的体现。
-
-### 4.2 Actor 网络更新 (Policy Loss)
-Actor 的目标是最大化价值 $V$，即最大化 $Q$ 且最大化 熵。
-根据策略提升定理，这等价于最小化 KL 散度。
-
+考虑到两个 $Q_\textbf{soft}^\omega$ 网络，损失函数写为：
 $$
 \begin{align}
-L_\pi(\theta) &= \mathbb{E}_{s \sim \mathcal{D}}\left[ D_{KL} \right] \notag \\
-&\approx \mathbb{E}_{s \sim \mathcal{D}, a \sim \pi_\theta} \left[ \alpha \log \pi_\theta(a|s) - Q_\omega(s,a) \right] \notag
-\end{align}
-$$
-为了稳健，这里也取两个 Q 网络的最小值：
-$$
-L_\pi(\theta) = \mathbb{E}_{s \sim \mathcal{D}, a \sim \pi_\theta} \left[ \alpha \log \pi_\theta(a|s) - \min_{j=1,2}Q_{\omega_j}(s,a) \right]
-$$
-
-### 4.3 重参数化技巧 (Reparameterization Trick)
-**困难**：$L_\pi$ 中动作 $a$ 是从 $\pi_\theta$ 采样出来的。采样操作本身不可导，无法把 Q 网络的梯度传回给策略网络 $\theta$。
-
-**解决方案**：假设策略是高斯分布 $\mathcal{N}(\mu, \sigma)$。我们将随机性从网络中剥离出来。
-先采样一个标准正态噪声 $\epsilon \sim \mathcal{N}(0, I)$，然后变换得到动作：
-$$
-\begin{align}
-a_t &= f_\theta(\epsilon_t; s_t) \notag \\
-&= \mu_\theta(s_t) + \sigma_\theta(s_t) \cdot \epsilon_t \notag
-\end{align}
-$$
-这样，$a_t$ 对于 $\theta$ 就是可导的函数了（因为 $\mu$ 和 $\sigma$ 是网络输出），梯度可以顺利反向传播。
-
-带入重参数化后的 Actor 损失：
-$$
-\begin{align}
-L_\pi(\theta)=\mathbb{E}_{s_t\sim \mathcal{D}, \epsilon_t \sim \mathcal{N}}\left[\alpha\log \pi_\theta(f_\theta(\epsilon_t;s_t)|s_t)-\min_{j=1,2}Q^{\omega_j}(s_t,f_\theta(\epsilon_t;s_t))\right] \notag
+L_\pi(\theta)=\arg\min_\theta \mathbb{E}_{s_t\sim R, a_t\sim \pi_\theta(\cdot|s_t)}\left[\alpha\log \pi_\theta(a_t|s_t)-\min_{j=1,2}Q_\textbf{soft}^{\omega_j}(s_t,a_t)\right] \notag \\
 \end{align}
 $$
 
----
-
-## 5. 进阶：自动调整熵系数 (Automating Entropy Adjustment)
-
-在 SAC 早期版本中，$\alpha$ 是固定超参数。
-但不同状态需要的探索程度不同：
-*   **不确定状态**：应该多探索，$\alpha$ 大一点。
-*   **确定状态**（如即将掉进悬崖）：应该求稳，$\alpha$ 小一点。
-
-SAC v2 提出将其转化为一个**带约束的优化问题**：最大化奖励，同时限制**平均熵大于目标值 $H_0$**。
-
-**数学推导**：
-构造拉格朗日函数：
+### 3. 重参数化技巧 (Reparameterization Trick)
+对于连续动作空间的环境，策略输出 Gauss 分布的均值和标准差，但是 Gauss 分布采样动作的过程是不可导的。因此，我们使用了重参数化技巧。
+重参数化的做法是先从标准的 Gauss 分布 $\mathcal{N}$ 进行采样，然后再将采样值乘以标准差后加上均值，如下：
 $$
 \begin{align}
-L(\alpha) = \mathbb{E}_{(s,a)\sim \pi} [-\alpha \log \pi(a|s) - \alpha H_0] \notag
+a_t&=f_\theta(\epsilon_t;s_t) \notag \\
+&= \mu_\theta(s_t)+\epsilon_t\sigma_\theta(s_t), \quad \epsilon\sim\mathcal{N}(0,I)\notag
 \end{align}
 $$
-注意：这是一个关于对偶变量 $\alpha$ 的优化目标。我们通常使用梯度下降来更新 $\log \alpha$（保证 $\alpha > 0$）。
+这样就可以认为是从策略高斯分布采样，并且这样对于策略函数是可导的，损失函数写为：
+$$
+\begin{align}
+L_\pi(\theta)=\arg\min_\theta \mathbb{E}_{s_t\sim R, \epsilon_t \sim \mathcal{N}}\left[\alpha\log \pi_\theta(f_\theta(\epsilon_t;s_t)|s_t)-\min_{j=1,2}Q_\textbf{soft}^{\omega_j}(s_t,f_\theta(\epsilon_t;s_t))\right] \notag \\
+\end{align}
+$$
 
-**直觉解释**：
-*   当实际熵 $-\log \pi < H_0$（探索不够）时，$\alpha$ 会增大，增加探索惩罚的权重。
-*   当实际熵 $-\log \pi > H_0$（探索太多）时，$\alpha$ 会减小，让智能体更专注于获得奖励。
-
-通过这个机制，SAC 能够动态调整探索与利用的平衡，这也是它极其稳定的原因之一。
+### 4. 自动调整熵系数 (Automating Entropy Adjustment)
+在 SAC 算法中，如何选择熵正则项的系数非常重要。在不同的状态下需要不同大小的熵：在最优动作不确定的某个状态下，熵的取值应该大一点；而在某个最优动作比较确定的状态下，熵的取值可以小一点。
+为了自动调整熵正则项，SAC 将强化学习的目标改写为一个带约束的优化问题：
+$$
+\begin{align}
+\arg\max_\theta\mathbb{E}_{(s_t,a_t)\sim \rho^{\pi_\theta}}\left[\sum_{t=0}^\infty r(s_t,a_t)\right] \quad \text{s.t.} \quad \mathbb{E}_{(s_t,a_t)\sim\rho^{\pi_\theta}}\left[-\log\pi_\theta(a_t|s_t)\right]\ge H_0\notag \\
+\end{align}
+$$
+将上述问题转化为 KKT（Karush-Kuhn-Tucker）条件下的约束问题：
+$$
+\begin{align}
+\arg\min_\theta\mathbb{E}_{(s_t,a_t)\sim \rho^{\pi_\theta}}\left[-\sum_{t=0}^\infty r(s_t,a_t)\right] \quad \text{s.t.} \quad H_0-\mathbb{E}_{(s_t,a_t)\sim\rho^{\pi_\theta}}\left[-\log\pi_\theta(a_t|s_t)\right]\le 0\notag \\
+\end{align}
+$$
+通过拉格朗日乘数法，转化为无约束问题，拉格朗日函数为：
+$$
+\begin{align}
+L(\theta,\alpha)=\mathbb{E}_{(s_t,a_t)\sim \rho^{\pi_\theta}}\left[-\sum_{t=0}^\infty r(s_t,a_t)\right] + \alpha\left[H_0-\mathbb{E}_{(s_t,a_t)\sim\rho^{\pi_\theta}}\left[-\log\pi_\theta(a_t|s_t)\right]\right] \notag
+\end{align}
+$$
+其中 $\alpha\ge0$ 是拉格朗日乘数，将拉格朗日函数中与 $\alpha$ 相关的提取出来：
+$$
+\begin{align}
+L(\alpha)=\mathbb{E}_{s_t\sim R,a_t\sim\pi_\theta(\cdot|s_t)}\left[-\alpha\log\pi_\theta(a_t|s_t)-\alpha H_0\right] \notag
+\end{align}
+$$
+即当策略的熵低于目标值 $H_0$ 时，训练目标 $L(\alpha)$ 会使 $\alpha$ 的值增大，进而在上述最小化损失函数 $L_\pi(\theta)$ 的过程中增加了策略熵对应项的重要性；而当策略的熵高于目标值 $H_0$ 时，训练目标 $L(\alpha)$ 会使 $\alpha$ 的值减小，进而使得策略训练时更专注于价值提升。
