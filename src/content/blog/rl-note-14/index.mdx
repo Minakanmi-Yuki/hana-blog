@@ -265,7 +265,7 @@ $$
     ||\mathcal{T}Q_1 - \mathcal{T}Q_2||_\infty \le \gamma ||Q_1 - Q_2||_\infty
     $$
 
-由于折扣因子 $\gamma \in (0,1)$，算子 $\mathcal{T}$ 是一个**压缩映射**，必然收敛到唯一的不动点 $Q^*_{soft}$。
+由于折扣因子 $\gamma \in (0,1)$，算子 $\mathcal{T}$ 是一个**压缩映射**，必然收敛到唯一的不动点 $Q^*_\text{soft}$。
 
 ---
 
@@ -274,7 +274,7 @@ $$
 理论很完美，但实际用神经网络实现时（Deep RL），有两个主要困难。
 
 ### 困难 1：处理积分 (The Integral Problem)
-在计算 $V_{soft}(s)$ 时，需要计算 $\log \int \exp(Q) da$。
+在计算 $V_\text{soft}(s)$ 时，需要计算 $\log \int \exp(Q) \text{d}a$。
 如果动作空间是连续的，这个积分通常无法解析计算。
 
 **解决方案：重要性采样 (Importance Sampling)**
