@@ -2,9 +2,148 @@
 title: "RL笔记（13）：DDPG"
 publishDate: 2025-12-22
 updatedDate: 2025-12-22
-description: "DDPG"
+description: "深度确定性策略梯度：将 DQN 扩展到连续动作空间。详解 DDPG 的软更新与噪声探索，以及 TD3 如何通过双 Q 网络和延迟更新解决过估计问题。"
 heroImage: {src : "https://picr2.axi404.top/Paper-reading-Uni-zh.webp", color: '#8C8275'}
 category: 'daily'
 pixivLink: '127192375'
 ---
 
+## 引言（Introduction）
+
+我们之前学过 **DQN**（处理离散动作的价值方法）和 **REINFORCE/PPO**（处理连续/离散动作的随机策略方法）。
+如果我们将 DQN 的思想（Off-policy, Replay Buffer）应用到连续控制任务中，会遇到什么问题？
+*   DQN 需要对动作取最大值 $\max_a Q(s,a)$。在连续空间中，这个最大化操作本身就是一个复杂的优化问题。
+
+**DDPG (Deep Deterministic Policy Gradient)** 的出现解决了这个问题。你可以简单地把它理解为 **“DQN + Actor-Critic”**。它使用一个 Actor 网络来直接输出那个“让 Q 值最大的动作”，从而避免了复杂的积分或最大化计算。
+
+---
+
+##  策略类型的本质区别
+
+在深入 DDPG 之前，我们需要明确两种策略的数学形式差异。
+
+### 随机策略 (Stochastic Policy)
+输出动作的**概率分布**（如高斯分布的均值和方差）。
+*   **离散动作**：$\pi(a|s;\theta)=\frac{\exp(Q_\theta(s,a))}{\sum_{a^\prime}\exp(Q_\theta(s,a^\prime))}$ (Softmax)
+*   **连续动作**：$\pi(a|s;\theta) \sim \mathcal{N}(\mu_\theta(s), \sigma_\theta(s))$
+
+### 确定性策略 (Deterministic Policy)
+对于同一个状态，永远输出**同一个动作**。
+*   **离散动作**：$\pi(s;\theta)=\operatorname{argmax}_{a} Q_\theta(s,a)$ (不可微，无法用梯度下降直接优化)
+*   **连续动作**：$a=\mu_\theta(s)$ (可微，这正是 DDPG 的基础)
+
+> **💡 核心区别**：
+> *   **随机策略**通过**对数似然 (Log-Likelihood)** 来更新参数：$\nabla \log \pi \cdot Q$。它试探性地增加高分动作的概率。
+> *   **确定性策略**通过**链式法则 (Chain Rule)** 来更新参数：$\nabla_a Q \cdot \nabla_\theta \mu$。它直接告诉动作“往哪个方向挪一点，Q 值会变大”。
+
+---
+
+##  确定性策略梯度定理 (DPG)
+
+这是 DDPG 的理论基石。我们希望找到策略参数 $\theta$，最大化目标函数 $J(\theta) = \mathbb{E}[Q(s, \mu_\theta(s))]$。
+
+**定理推导**：
+假设我们有一个 Critic 网络 $Q^w(s,a)$ 估得足够准。我们想调整 Actor $\mu_\theta(s)$，使得输出的动作 $a$ 能获得更大的 $Q$ 值。
+根据链式法则：
+$$
+\begin{align}
+\nabla_\theta J(\mu_\theta) &= \mathbb{E}_{s \sim \rho^\pi} [\nabla_\theta Q^w(s, \mu_\theta(s))] \notag \\
+&= \mathbb{E}_{s \sim \rho^\pi} [\underbrace{\nabla_a Q^w(s,a)|_{a=\mu_\theta(s)}}_{\text{Critic 指出的方向}} \cdot \underbrace{\nabla_\theta \mu_\theta(s)}_{\text{Actor 的梯度}}] \notag
+\end{align}
+$$
+
+*   **直觉**：Critic 告诉 Actor：“动作 $a$ 往大变一点，Q 值能增加”。Actor 就计算如何调整 $\theta$ 才能让 $a$ 变大。
+
+---
+
+##  深度确定性策略梯度 (DDPG)
+
+DDPG 是 Deep Q-Network (DQN) 在连续动作空间的自然延伸。
+
+### 核心组件
+1.  **Actor-Critic 架构**：
+    *   Actor $\mu(s; \theta)$：输出确定性动作。
+    *   Critic $Q(s, a; w)$：评估 (状态, 动作) 的价值。
+2.  **经验回放 (Replay Buffer)**：与 DQN 一样，存储 $(s, a, r, s')$，打破数据相关性，实现 Off-Policy 训练。
+3.  **目标网络 (Target Networks)**：
+    *   为了稳定训练，建立了 Target Actor $\mu'$ 和 Target Critic $Q'$。
+    *   **关键改进：软更新 (Soft Update)**。
+        DQN 是每隔 $C$ 步硬拷贝参数。DDPG 使用滑动平均：
+        $$ \theta' \leftarrow \tau \theta + (1-\tau)\theta' $$
+        其中 $\tau \ll 1$ (如 0.001)。这使得目标值变化非常平滑。
+
+4.  **探索策略 (Exploration)**：
+    *   确定性策略本身不会探索。DDPG 必须在动作上**加噪声**来进行探索：
+    $$ a_t = \mu_\theta(s_t) + \mathcal{N}_t $$
+    *   原论文使用了 **Ornstein-Uhlenbeck (OU)** 噪声（具有时间相关性，适合惯性系统）。现在的实践通常直接使用简单的**高斯噪声** $\mathcal{N}(0, \sigma)$。
+
+### DDPG 算法流程
+$$
+\begin{aligned}
+& \bullet \; \text{Initialize Actor } \mu_\theta, \text{Critic } Q_w, \text{Target nets } \mu', Q' \\
+& \bullet \; \textbf{For } \text{episode } = 1 \to E \textbf{ do}: \\
+& \bullet \qquad \text{Receive initial state } s \\
+& \bullet \qquad \textbf{For } t = 1 \to T \textbf{ do}: \\
+& \bullet \qquad \qquad \text{Select action } a = \mu_\theta(s) + \text{Noise} \\
+& \bullet \qquad \qquad \text{Execute } a, \text{ observe } r, s' \\
+& \bullet \qquad \qquad \text{Store } (s, a, r, s') \text{ in Buffer } \mathcal{R} \\
+& \bullet \qquad \qquad \text{Sample batch } N \text{ from } \mathcal{R} \\
+& \bullet \qquad \qquad \textbf{// Update Critic (minimize MSBE)} \\
+& \bullet \qquad \qquad y = r + \gamma Q'(s', \mu'(s')) \\
+& \bullet \qquad \qquad L_w = \frac{1}{N}\sum (y - Q_w(s,a))^2 \\
+& \bullet \qquad \qquad \textbf{// Update Actor (maximize Q)} \\
+& \bullet \qquad \qquad \nabla_\theta J = \frac{1}{N} \sum \nabla_a Q_w(s,a) \nabla_\theta \mu_\theta(s) \\
+& \bullet \qquad \qquad \textbf{// Soft Update Targets} \\
+& \bullet \qquad \qquad \theta' \leftarrow \tau \theta + (1-\tau)\theta' \\
+& \bullet \qquad \qquad w' \leftarrow \tau w + (1-\tau)w' \\
+& \bullet \qquad \textbf{End For} \\
+& \bullet \; \textbf{End For}
+\end{aligned}
+$$
+
+---
+
+##  双价值函数策略延时更新 (TD3)
+
+DDPG 很强，但非常**脆弱**，对超参数敏感。它继承了 DQN 的**过高估计 (Overestimation)** 问题，甚至更严重。TD3 提出了三个技巧来修正它。
+
+### 技巧 1：截断双 Q 学习 (Clipped Double Q-Learning)
+**问题**：DQN 中 $y = r + \gamma \max Q$ 会导致价值高估。DDPG 中虽然没有 max，但 Actor 也是朝着 Q 值最大的方向更新的，效果一样。
+**解决**：学习两个 Critic ($Q_1, Q_2$)，计算目标值时**取最小值**。
+$$ y = r + \gamma \min_{i=1,2} Q_{\phi_i'}(s', \tilde{a}) $$
+这体现了“悲观主义”原则，宁可低估也不要高估。
+
+### 技巧 2：策略参数延迟更新 (Delayed Policy Updates)
+**问题**：Critic 还在学习中，波动很大。如果 Actor 频繁根据错误的 Critic 调整方向，会导致策略震荡发散。
+**解决**：让 Critic 多练几次，Actor 再动。
+通常 Critic 更新 2 次（或更多），Actor 和 目标网络才更新 1 次。
+
+###  目标策略平滑 (Target Policy Smoothing)
+**问题**：Critic 可能会对某些尖峰值（错误的 Q 值峰值）过拟合。
+**解决**：在计算目标值时，给动作加一点**被截断的噪声**，让 Q 函数在动作周围更平滑。
+$$
+\tilde{a} = \mu_{\theta'}(s') + \epsilon, \quad \epsilon \sim \text{clip}(\mathcal{N}(0, \sigma), -c, c)
+$$
+$$ y = r + \gamma \min Q'(s', \tilde{a}) $$
+
+> **💡 直觉**：相似的动作应该有相似的价值。如果动作稍微变一点点，价值就剧烈变化，说明这个 Critic 是有问题的（过拟合）。
+
+---
+
+##  深度解析：DDPG/TD3 的定位
+
+我们可以将 DDPG/TD3 放在整个 RL 家族谱系中进行对比：
+
+| 维度 | DDPG / TD3 | PPO / A2C | DQN |
+| :--- | :--- | :--- | :--- |
+| **动作空间** | **连续** (Continuous) | 离散 或 连续 | 离散 (Discrete) |
+| **策略类型** | **确定性策略** ($\mu(s)$) | 随机策略 ($\pi(a|s)$) | 确定性 (argmax Q) |
+| **样本效率** | **高 (Off-Policy)** | 低 (On-Policy) | 高 (Off-Policy) |
+| **更新方式** | **链式法则** ($\nabla_a Q \nabla_\theta \mu$) | 对数似然 ($\nabla \log \pi \cdot A$) | 最小化 TD Error |
+| **稳定性** | 较低 (需精细调参) | **高** (鲁棒性强) | 中 |
+| **核心痛点** | Q 值高估、超参数敏感 | 采样慢、无法利用旧数据 | 无法处理连续动作 |
+
+**总结**：
+*   **DDPG** 是 DQN 在连续控制领域的继承者，引入了 Actor-Critic 架构。
+*   **TD3** 是 DDPG 的“补丁版”，通过双 Q 网络和延迟更新，大大提升了算法的稳定性。
+*   它们都是 **Off-Policy** 算法，适合需要极高样本效率的场景（如机器人控制）。
