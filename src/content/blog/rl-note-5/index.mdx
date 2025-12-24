@@ -8,11 +8,11 @@ category: 'daily'
 pixivLink: '127192375'
 ---
 
-# 引言（Introduction）
+## 引言（Introduction）
 动态规划（DP）在强化学习中指的是在环境模型已知（即状态转移概率 $\mathcal{P}$ 和奖励函数 $\mathcal{R}$ 已知）的情况下，计算最优策略的一类算法。
 DP 的核心思想是将复杂问题分解为子问题，通过求解子问题来求解原问题。在 MDP 中，这体现为利用贝尔曼方程进行迭代更新。
 
-# 策略迭代 (Policy Iteration)
+## 策略迭代 (Policy Iteration)
 核心思想： “先以此为据，算个清楚；再择优而行。”
 策略迭代将求解过程严格拆分为两个交替的步骤，直到策略不再改变。
 -   步骤一：策略评估 (Policy Evaluation)：在当前策略 $\pi$ 固定不变的情况下，计算出该策略下精确的状态价值函数 $V^\pi$。这意味着在这个步骤里，我们通常需要多次迭代（或者解线性方程组）直到 $V^\pi$ 完全收敛。
@@ -20,7 +20,7 @@ DP 的核心思想是将复杂问题分解为子问题，通过求解子问题�
 
 特点： 收敛所需的迭代步数少，但每一步内部的计算量大（因为策略评估需要很久）。
 
-## 策略评估（Policy Evaluation）
+### 策略评估（Policy Evaluation）
 策略评估的目标是求解给定策略 $\pi$ 的状态价值函数 $V^\pi$。
 对于策略 $\pi$，状态价值函数满足贝尔曼期望方程：
 $$
@@ -28,7 +28,7 @@ V^\pi(s)=\sum_{a\in \mathcal{A}}\pi(a|s)(\mathcal{R}(s,a)+\gamma\sum_{s^\prime\i
 $$
 这构成了一个线性方程组，但在状态空间较大时直接求解困难，因此采用迭代法。
 
-### 贝尔曼迭代（Bellman Iteration）
+#### 贝尔曼迭代（Bellman Iteration）
 将当前时刻估计的价值函数 $V_k$ 代入贝尔曼方程右侧，计算下一轮的估计 $V_{k+1}$ ：
 $$
 V_{k+1}(s)\leftarrow\sum_{a\in\mathcal{A}}\pi(a|s)(\mathcal{R}(s,a)+\gamma\sum_{s^\prime\in\mathcal{S}}\mathcal{P}(s^\prime|s,a)V_{k}(s^\prime))
@@ -39,7 +39,7 @@ $$
 \mathcal{T}^\pi V_k = \sum_{a\in\mathcal{A}}\pi(a|s)(\mathcal{R}(s,a)+\gamma\sum_{s^\prime\in\mathcal{S}}\mathcal{P}(s^\prime|s,a)V_{k}(s^\prime))
 $$
 
-### 收敛性证明（Banach不动点定理）
+#### 收敛性证明（Banach不动点定理）
 为了证明序列 $\{ V_k \}$ 收敛于 $V^\pi$，我们将迭代过程看作算子 $\mathcal{T}^\pi$ 的应用：
 $$
 V_{k+1}=\mathcal{T}^\pi V_k
@@ -58,10 +58,10 @@ $$
     $$
 3.  结论：只要折扣因子 satisfying $0 \le \gamma < 1$，算子 $\mathcal{T}^\pi$ 就是一个$\gamma$-压缩映射（Contraction Mapping）。根据 Banach 不动点定理，序列 $\{V_k\}$ 必收敛于唯一的固定点 $V^\pi$。
 
-## 策略提升（Policy Improvement）
+### 策略提升（Policy Improvement）
 在计算出 $V^\pi$ 后，我们需要判断当前策略是否最优。如果不是，如何改进？
 
-### 策略提升理论（Policy Improvement Theorem）
+#### 策略提升理论（Policy Improvement Theorem）
 给定策略 $\pi$ 和其价值函数 $V^\pi$，构造新策略 $\pi^\prime$ 使得其在每个状态下都贪心地选择动作价值最大的动作：
 $$
 \pi^\prime(s) = \argmax_{a\in\mathcal{A}} Q^\pi(s,a) = \argmax_{a\in\mathcal{A}} \left( r(s,a)+\gamma\sum_{s^\prime \in\mathcal{S}}\mathcal{P}(s^\prime|s,a)V^\pi(s^\prime) \right)
@@ -70,7 +70,7 @@ $$
 1.  $V^{\pi^\prime}(s) \geqslant V^\pi(s), \forall s \in \mathcal{S}$（策略单调递增）。
 2.  如果 $V^{\pi^\prime}(s) = V^\pi(s)$，则 $\pi$ 已经是与最优策略 $V^*$ 等价的策略。
 
-### 理论证明（Theorem Proof）
+#### 理论证明（Theorem Proof）
 证明：对于任何状态 $s$，满足$V^{\pi^\prime}(s)\geqslant V^\pi(s)$。
 证明思路：利用 $V^\pi(s) \leqslant \max_a Q^\pi(s,a) = Q^\pi(s, \pi^\prime(s))$，反复展开 $Q^\pi$ 即可证。
 
@@ -101,7 +101,7 @@ V^\pi(s) &\leqslant Q^\pi(s,\pi^\prime(s)) \notag \\
 \end{align}
 $$
 
-## 迭代算法（Iteration Algorithm）
+### 迭代算法（Iteration Algorithm）
 策略迭代交替进行“策略评估”和“策略提升”，直到策略不再变化。
 
 流程：
@@ -128,12 +128,12 @@ $$
 
 > 注意：由于有限状态 MDP 的策略总数是有限的（$|\mathcal{A}|^{|\mathcal{S}|}$），且每次提升策略都严格（或非严格）变好，策略迭代保证在有限步内收敛。
 
-#  价值迭代（Value Iteration）
+##  价值迭代（Value Iteration）
 策略迭代的缺点是每次“策略评估”都需要迭代很多次直到完全收敛。
 事实上，我们不需要等到 $V^\pi$ 完全收敛才进行策略提升。
 如果将策略评估的迭代次数缩减为 1次，并结合策略提升，就得到了价值迭代。
 
-## 贝尔曼最优迭代（Bellman Optimal Iteration）
+### 贝尔曼最优迭代（Bellman Optimal Iteration）
 价值迭代直接迭代求解最优价值函数，基于贝尔曼最优方程进行迭代：
 $$
 V_{k+1}(s) \leftarrow \max_{a\in\mathcal{A}} \left\{ \mathcal{R}(s,a) + \gamma \sum_{s^\prime \in \mathcal{S}} \mathcal{P}(s^\prime|s,a) V_k(s^\prime) \right\}
@@ -143,7 +143,7 @@ $$
 \mathcal{T}^* V_{k} = \max_{a\in\mathcal{A}} \left\{ \mathcal{R}(s,a) + \gamma \sum_{s^\prime \in \mathcal{S}} \mathcal{P}(s^\prime|s,a) V_k(s^\prime) \right\}
 $$
 
-## 收敛性证明（Banach不动点定理）
+### 收敛性证明（Banach不动点定理）
 为了证明序列 $\{V_k\}$ 收敛于 $V^*$ ，将迭代过程看作算子 $\mathcal{T}^*$ 的应用：
 $$
 V_{k+1} = \mathcal{T}^* V_k
@@ -165,7 +165,7 @@ $$
 4.  结论：只要折扣因子 satisfying $0 \le \gamma < 1$，算子 $\mathcal{T}^*$ 就是一个$\gamma$-压缩映射（Contraction Mapping）。根据 Banach 不动点定理，序列 $\{V_k\}$ 必收敛于唯一的固定点 $V^*$。
 
 
-## 迭代算法（Iteration Algorithm）
+### 迭代算法（Iteration Algorithm）
 1.  **初始化**：$V(s)$ 任意。
 2.  **迭代更新**（Loop until $\Delta < \theta$）：
     *   $\Delta \leftarrow 0$
