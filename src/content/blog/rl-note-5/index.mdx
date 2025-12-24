@@ -171,7 +171,7 @@ $$
     *   $\Delta \leftarrow 0$
     *   For each $s \in \mathcal{S}$:
         *   $v \leftarrow V(s)$
-        *   $V(s) \leftarrow \max_{a} \sum_{s', r} P(s',r|s,a)[r + \gamma V(s')]$
+        *   $V(s) \leftarrow \max_{a} \sum_{s^\prime\in\mathcal{S}} P(s^\prime|s,a)[\mathcal{R}(s,a) + \gamma V(s^\prime)]$
         *   $\Delta \leftarrow \max(\Delta, |v - V(s)|)$
 3.  **输出策略**：
-    *   $\pi^*(s) = \argmax_{a} \sum_{s', r} P(s',r|s,a)[r + \gamma V(s')]$
+    *   $\pi^*(s) = \argmax_{a} \sum_{s^\prime\in\mathcal{S}} P(s^\prime|s,a)[\mathcal{R}(s,a) + \gamma V(s^\prime)]$
