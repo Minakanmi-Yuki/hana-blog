@@ -2,9 +2,174 @@
 title: "RL笔记（11）：TRPO"
 publishDate: 2025-12-20
 updatedDate: 2025-12-20
-description: "TRPO"
+description: "深度强化学习的里程碑：详解 TRPO 如何通过信任区域约束保证策略更新的单调性。涵盖目标函数推导、二阶泰勒近似、共轭梯度法及 HVP 技巧。"
 heroImage: {src : "https://picr2.axi404.top/Paper-reading-Uni-zh.webp", color: '#8C8275'}
 category: 'daily'
 pixivLink: '127192375'
 ---
 
+## 引言（Introduction）
+
+在 REINFORCE 和 A2C 等策略梯度算法中，我们通常使用固定的学习率 $\alpha$ 来更新参数：$\theta \leftarrow \theta + \alpha \nabla J$。
+但这有一个严重问题：**策略参数的变化 $\Delta \theta$ 并不等同于策略行为的变化**。
+*   有时候参数改一点点，策略分布变动巨大（导致性能崩塌）。
+*   有时候参数改很多，策略分布几乎没变（训练效率低）。
+
+**TRPO (Trust Region Policy Optimization)** 的核心思想是：我们不直接控制参数的变化量，而是控制**策略分布的变化量**（用 KL 散度衡量）。我们在一个“信任区域”内进行优化，确保每一步更新后，策略的表现都是**单调不减**的。
+
+---
+
+##  策略优化的单调性证明
+
+我们的目标是找到一个新策略 $\pi_{\theta'}$，使得它的期望回报 $J(\theta')$ 比旧策略 $J(\theta)$ 高。
+
+### 性能差异引理 (Performance Difference Lemma)
+首先推导新旧策略的目标函数之差：
+
+$$
+\begin{align}
+J(\theta^\prime)-J(\theta)
+&= \mathbb{E}_{s_0}[V^{\pi_{\theta^\prime}}(s_0)]-\mathbb{E}_{s_0}[V^{\pi_{\theta}}(s_0)]\notag\\
+&=\mathbb{E}_{\pi_{\theta^\prime}}[\sum_{t=0}^\infty \gamma^t r(s_t,a_t)] - \mathbb{E}_{s_0}[\sum_{t=0}^\infty \gamma^t V^{\pi_\theta}(s_t)-\sum_{t=1}^\infty \gamma^t V^{\pi_\theta}(s_t)] \notag \\
+&=\mathbb{E}_{\pi_{\theta^\prime}}[\sum_{t=0}^\infty \gamma^t r(s_t,a_t)] - \mathbb{E}_{\pi_{\theta^\prime}}[\sum_{t=0}^\infty \gamma^t (V^{\pi_\theta}(s_t)-\gamma V^{\pi_\theta}(s_{t+1}))] \notag \\
+&= \mathbb{E}_{\pi_{\theta^\prime}}[\sum_{t=0}^\infty \gamma^t (r(s_t,a_t)+\gamma V^{\pi_\theta}(s_{t+1})-V^{\pi_\theta}(s_t))] \notag \\
+&=\mathbb{E}_{\pi_{\theta^\prime}}[\sum_{t=0}^\infty \gamma^t A^{\pi_\theta}(s_t,a_t )] \notag
+\end{align}
+$$
+
+将期望展开为状态访问分布 $\nu^{\pi_{\theta'}}$ 的形式：
+$$
+J(\theta^\prime)-J(\theta) = \sum_{t=0}^\infty \gamma^t \mathbb{E}_{s_t\sim p^{\pi_{\theta^\prime}} \\, \; a_t\sim\pi_{\theta^\prime}(\cdot|s_t)}[ A^{\pi_\theta}(s_t,a_t)]
+= \frac{1}{1-\gamma} \mathbb{E}_{s\sim\nu^{\pi_{\theta^\prime}}\\, \;a\sim\pi_{\theta^\prime}(\cdot|s)}[A^{\pi_\theta}(s,a)]
+$$
+
+### 状态分布近似
+上式很难计算，因为 $\nu^{\pi_{\theta'}}$ 依赖于新策略（而新策略还没求出来）。
+TRPO 做了一个关键假设：**当新旧策略差距很小时，状态访问分布变化不大**，即 $\nu^{\pi_{\theta'}} \approx \nu^{\pi_\theta}$。
+
+目标函数近似为：
+$$
+\begin{align}
+J(\theta^\prime)-J(\theta) &\approx \frac{1}{1-\gamma}\mathbb{E}_{s\sim\nu^{\pi_\theta}\\,\; a\sim\pi_{\theta^\prime}(\cdot|s)}[A^{\pi_\theta}(s,a)] \notag \\
+&= \frac{1}{1-\gamma}\mathbb{E}_{s\sim\nu^{\pi_\theta}\\,\; a\sim\pi_{\theta}(\cdot|s)}\left[\frac{\pi_{\theta^\prime}(a|s)}{\pi_\theta(a|s)}A^{\pi_\theta}(s,a)\right] \quad \text{(重要性采样)} \notag
+\end{align}
+$$
+
+---
+
+##  信任区域约束
+
+为了让上述近似成立，必须限制 $\pi_{\theta'}$ 和 $\pi_\theta$ 不能差太多。我们使用 **KL 散度** 作为约束条件。
+
+优化目标：
+$$
+\begin{align}
+\max_{\theta^\prime} \quad & \mathbb{E}_{s\sim\nu^{\pi_\theta}\\,\; a\sim\pi_{\theta}(\cdot|s)}\left[\frac{\pi_{\theta^\prime}(a|s)}{\pi_\theta(a|s)}A^{\pi_\theta}(s,a)\right] \notag \\
+\text{s.t.} \quad & \bar{D}_{KL}(\theta || \theta') = \mathbb{E}_{s\sim\nu^{\pi_\theta}}[D_{KL}(\pi_{\theta}(\cdot|s) || \pi_{\theta'}(\cdot|s))] \leqslant \delta \notag
+\end{align}
+$$
+(注：忽略了常数系数 $\frac{1}{1-\gamma}$，因为它不影响梯度方向)
+
+---
+
+##  数学近似求解
+
+为了求解这个带约束的优化问题，我们对其进行泰勒展开。
+
+### 目标函数的一阶近似
+令 $L(\theta') = \mathbb{E}[\frac{\pi_{\theta'}}{\pi_\theta} A^{\pi_\theta}]$。在 $\theta' = \theta$ 处展开：
+$$
+L(\theta') \approx L(\theta) + \nabla_{\theta'} L(\theta')|_{\theta'=\theta}^T (\theta' - \theta)
+$$
+由于 $L(\theta) = \mathbb{E}[1 \cdot A^{\pi_\theta}] = 0$ (优势函数的期望为0)，且 $\nabla_{\theta'} L(\theta')|_{\theta} = \nabla_\theta J(\theta)$ (策略梯度)。
+记梯度为 $g$：
+$$ L(\theta') \approx g^T (\theta' - \theta) $$
+
+### 约束条件的二阶近似
+KL 散度在 $\theta'=\theta$ 处的一阶导数为 0（因为是极小值点），所以必须展开到二阶。
+$$
+\bar{D}_{KL}(\theta || \theta') \approx \frac{1}{2} (\theta' - \theta)^T \mathbf{H} (\theta' - \theta)
+$$
+其中 $\mathbf{H}$ 是 KL 散度的 **黑塞矩阵 (Hessian Matrix)**（也是 Fisher Information Matrix）。
+
+### 近似后的优化问题
+令更新步长 $\Delta \theta = \theta' - \theta$，问题转化为：
+$$
+\begin{align}
+\max_{\Delta \theta} \quad & g^T \Delta \theta \notag \\
+\text{s.t.} \quad & \frac{1}{2} \Delta \theta^T \mathbf{H} \Delta \theta \leqslant \delta \notag
+\end{align}
+$$
+
+### 解析解
+利用拉格朗日乘数法（推导见你原笔记），解得：
+$$
+\Delta \theta = \sqrt{\frac{2\delta}{g^T \mathbf{H}^{-1} g}} \mathbf{H}^{-1} g
+$$
+
+---
+
+##  共轭梯度法 (Conjugate Gradient)
+
+公式里需要计算 $\mathbf{H}^{-1} g$。
+*   **问题**：$\mathbf{H}$ 是神经网络参数的 Hessian 矩阵。如果参数有 100万个，$\mathbf{H}$ 就是 $100w \times 100w$ 的矩阵，显式计算它的逆是不可能的。
+*   **思路**：我们不需要算 $\mathbf{H}^{-1}$，我们只需要算向量 $x = \mathbf{H}^{-1} g$。这等价于求解线性方程组 $\mathbf{H}x = g$。
+
+**共轭梯度法 (CG)** 是一种迭代算法，它可以只通过计算矩阵-向量乘积 ($\mathbf{H}v$)，在 $k$ 步内（$k \ll \text{参数维度}$）找到 $x$ 的近似解。
+
+### Hessian-Vector Product (HVP)
+CG 算法需要计算 $\mathbf{H}v$。虽然我们算不起 $\mathbf{H}$，但可以利用反向传播算 $\mathbf{H}v$。
+$$
+\mathbf{H}v = \nabla_\theta (\nabla_\theta \bar{D}_{KL} \cdot v)
+$$
+**代码实现技巧**：
+1.  先算 KL 散度的梯度 $\nabla \bar{D}_{KL}$。
+2.  算梯度和向量 $v$ 的点积：$scalar = \nabla \bar{D}_{KL}^T v$。
+3.  对这个标量再求一次梯度：$\nabla_\theta (scalar)$。
+这样只需要两次反向传播，就能算出 $\mathbf{H}v$，完全避免了存储巨大的 Hessian 矩阵。
+
+---
+
+##  线搜索 (Line Search)
+
+虽然我们算出了更新方向 $\Delta \theta$ 和最大步长 $\beta = \sqrt{\frac{2\delta}{g^T \mathbf{H}^{-1} g}}$，但由于泰勒展开只是**局部近似**，直接走这么远可能会导致策略性能下降（KL 散度超标或目标函数下降）。
+
+TRPO 采用 **回溯线搜索 (Backtracking Line Search)** 来确定最终步长：
+设 $\theta_{new} = \theta + \alpha^j \beta \Delta \theta$，其中 $\alpha \in (0, 1)$ 是衰减系数（如 0.5）。
+从 $j=0, 1, 2, \dots$ 开始尝试，直到满足以下两个条件：
+1.  **KL 约束满足**：$\bar{D}_{KL}(\theta || \theta_{new}) \leqslant \delta$
+2.  **目标函数提升**：$L(\theta_{new}) \geqslant 0$ (即性能确实提升了)
+
+---
+
+##  TRPO 算法流程总结
+
+$$
+\begin{aligned}
+& \bullet \; \text{Initialize policy parameters } \theta_0 \\
+& \bullet \; \textbf{For } k = 0, 1, 2, \dots \textbf{ do}: \\
+& \bullet \qquad \text{Collect trajectories } \tau \text{ using } \pi_{\theta_k} \\
+& \bullet \qquad \text{Estimate advantages } A^{\pi_{\theta_k}} \text{ (using GAE)} \\
+& \bullet \qquad \text{Compute policy gradient } g = \nabla_\theta L(\theta)|_{\theta_k} \\
+& \bullet \qquad \text{Use CG to compute } x \approx \mathbf{H}^{-1} g \text{ with HVP} \\
+& \bullet \qquad \text{Compute max step length } \beta = \sqrt{\frac{2\delta}{x^T \mathbf{H} x}} \\
+& \bullet \qquad \text{Perform Line Search to find best step size } \eta \in \{\beta, 0.5\beta, 0.25\beta \dots\} \\
+& \bullet \qquad \text{Update } \theta_{k+1} = \theta_k + \eta x \\
+& \bullet \; \textbf{End For}
+\end{aligned}
+$$
+
+---
+
+## 优缺点分析
+
+*   **优点**：
+    *   **理论保证**：单调提升，不再担心学习率太大导致训练崩溃。
+    *   **数据效率**：比 REINFORCE 高，因为利用了二阶信息（自然梯度）。
+*   **缺点**：
+    *   **计算复杂**：CG 和 HVP 实现复杂，且计算量大。
+    *   **约束太硬**：KL 散度是硬约束，处理起来不够灵活。
+
+> **💡 预告**：
+> TRPO 虽然好，但太复杂了。有没有一种方法，既能保留 TRPO 的“信任区域”思想（稳定），又能像 SGD 一样简单（一阶优化）？
+> 这就是 **PPO (Proximal Policy Optimization)** 的由来（下一章内容）。
