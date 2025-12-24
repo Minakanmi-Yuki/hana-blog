@@ -119,7 +119,7 @@ $$
 V_{k+1} = \mathcal{T}^* V_k
 $$
 证明步骤如下：
-1.  定义范数：采用绝对值范数 $|V|$；
+1.  定义范数：采用无穷范数 $||V||_{\infty}=\max_{s\in\mathcal{S}}|V(s)|$；
 2.  压缩映射性质：对于 $\forall s\in\mathcal{S}$ 以及任意两个价值函数 $U,V$，有：
     $$
     \begin{align}
@@ -128,8 +128,12 @@ $$
     &\leqslant \max_{a\in\mathcal{A}}\left|\gamma\sum_{s^\prime\in\mathcal{S}}\mathcal{P}(s^\prime|s,a)(U(s^\prime)-V(s^\prime))\right| \notag \\
     &= \gamma\max_{a\in\mathcal{A}}\sum_{s^\prime\in\mathcal{S}}\mathcal{P}(s^\prime|s,a)\left|U(s)-V(s)\right| \notag \\
     &\leqslant \gamma\max_{a\in\mathcal{A}}\sum_{s^\prime\in\mathcal{S}}\mathcal{P}(s^\prime|s,a)||U-V||_{\infty} \notag \\
+    &= \gamma ||U-V||_{\infty} \notag
     \end{align}
     $$
+3.  对左式取最大值： $||\mathcal{T}^*U-\mathcal{T}^*V||_{\infty}\leqslant\gamma ||U-V||_{\infty}$
+4.  结论：只要折扣因子 satisfying $0 \le \gamma < 1$，算子 $\mathcal{T}^*$ 就是一个$\gamma$-压缩映射（Contraction Mapping）。根据 Banach 不动点定理，序列 $\{V_k\}$ 必收敛于唯一的固定点 $V^*$。
+
 
 ### 迭代算法
 1.  **初始化**：$V(s)$ 任意。
