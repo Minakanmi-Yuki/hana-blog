@@ -88,8 +88,8 @@ $$
 ### 定义：Soft 贝尔曼方程
 在最大熵框架下，价值函数的定义发生了变化。
 
-**Soft 状态价值函数 $V_{soft}$ 推导：**
-$V_{soft}$ 不仅包含未来的奖励，还包含未来的熵。
+**Soft 状态价值函数 $V_\text{soft}$ 推导：**
+$V_\text{soft}$ 不仅包含未来的奖励，还包含未来的熵。
 
 $$
 \begin{align}
@@ -110,7 +110,7 @@ V_{\textbf{soft}}^\pi(s)
 \end{align}
 $$
 
-**Soft 动作价值函数 $Q_{soft}$ 推导：**
+**Soft 动作价值函数 $Q_\text{soft}$ 推导：**
 与 $V$ 类似，展开递归形式：
 
 $$
@@ -147,7 +147,7 @@ $$
 **定理**：对于任意状态 $s$，如果我们按照以下规则更新策略：
 $$
 \begin{align}
-\tilde{\pi}(\cdot|s) \propto \exp(\frac{1}{\alpha}Q^{\pi}_{\textbf{soft}}(s,\cdot)), \quad \forall s \notag \\
+\tilde{\pi}(\cdot|s) \propto \exp(\frac{1}{\alpha}Q^{\pi}_{\textbf{soft}}(s,\cdot)), \quad \forall s \in \mathcal{S} \notag \\
 \end{align}
 $$
 那么新策略 $\tilde{\pi}$ 的 Soft Q 值一定优于旧策略 $\pi$。
