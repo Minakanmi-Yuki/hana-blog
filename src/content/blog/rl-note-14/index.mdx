@@ -42,3 +42,277 @@ $$
 > **💡 直觉理解**：
 > 这一项 $\alpha H$ 的加入，意味着智能体如果不去探索新的动作，或者太早确定一个动作（熵变低），就会受到“惩罚”。这能有效防止智能体陷入局部最优。
 
+## 2. 基于能量的模型 (Energy-Based Model, EBM)
+
+SQL 使用基于能量的模型来建模策略。这源于统计物理学：能量越低的状态，出现的概率越高。
+
+在强化学习中，我们将状态-动作对 $(s,a)$ 映射到能量值 $\mathcal{E}$。策略分布定义为：
+
+$$
+\begin{align}
+\pi(a|s)=\frac{\exp(-\mathcal{E}(s,a))}{Z(s)}\notag
+\end{align}
+$$
+
+其中，$Z(s)$ 是**配分函数（Partition Function）**，用于归一化，确保概率之和为 1：
+$$
+Z(s)=\int_{\mathcal{A}}\exp(-\mathcal{E}(s,a))\mathrm{d}a
+$$
+
+在 Soft Q-Learning 中，我们通常用 Soft Q 值来代替负能量 $-\mathcal{E}(s,a)$，即 $Q_{soft}(s,a)$ 越大，选择该动作的概率越大。
+
+---
+
+## 3. Soft 贝尔曼方程 (Soft Bellman Equation)
+
+为了推导 SQL，我们需要重新定义价值函数 $V$ 和 $Q$，将熵包含进去。
+
+### 3.1 回顾：普通贝尔曼方程
+普通 $Q$ 值：
+$$
+\begin{align}
+Q^\pi(s,a) &= r(s,a)+\gamma\mathbb{E}_{s^\prime \sim p(\cdot|s,a)}[V^\pi(s^\prime)] \notag
+\end{align}
+$$
+普通 $V$ 值：
+$$
+\begin{align}
+V^\pi(s) &=\mathbb{E}_{a\sim \pi(\cdot|s)}[Q^\pi(s,a)] \notag
+\end{align}
+$$
+
+### 3.2 定义：Soft 贝尔曼方程
+在最大熵框架下，价值函数的定义发生了变化。
+
+**Soft 状态价值函数 $V_{soft}$ 推导：**
+$V_{soft}$ 不仅包含未来的奖励，还包含未来的熵。
+
+$$
+\begin{align}
+V_{\textbf{soft}}^\pi(s)
+&=\mathbb{E}_{\pi}[\sum_{l=0}^\infty \gamma^l(R_{t+l}+\alpha H(\pi(\cdot|S_{t+l})))|S_t=s] \notag \\
+&=\mathbb{E}_{\pi}[R_t+\alpha H(\pi(\cdot|S_t))|S_t=s]+\gamma \mathbb{E}_{\pi}[\sum_{l=0}^\infty \gamma^l(R_{t+1+l}+\alpha H(\pi(\cdot|S_{t+1+l})))] \notag \\
+&=\mathbb{E}_{a\sim\pi(\cdot|s)}[r(s,a)]+\alpha H(\pi(\cdot|s))+\gamma \mathbb{E}_{a\sim\pi(\cdot|s),s^\prime\sim p(\cdot|s,a)}[V^{\pi}_{\textbf{soft}}(s^\prime)] \notag
+\end{align}
+$$
+
+将 $H(\pi)$ 展开为期望形式 $\mathbb{E}[-\log \pi]$，可以合并项：
+
+$$
+\begin{align}
+V_{\textbf{soft}}^\pi(s)
+&=\mathbb{E}_{a\sim\pi(\cdot|s)}[r(s,a)-\alpha\log\pi(a|s)+\gamma\mathbb{E}_{s^\prime\sim p(\cdot|s,a)}[V^{\pi}_{\textbf{soft}}(s^\prime)]] \notag \\
+&=\mathbb{E}_{a\sim\pi(\cdot|s)}[r(s,a)+\gamma \mathbb{E}_{s^\prime\sim p(\cdot|s,a)}[V^{\pi}_{\textbf{soft}}(s^\prime)]]+\alpha H(\pi(\cdot|s)) \notag
+\end{align}
+$$
+
+**Soft 动作价值函数 $Q_{soft}$ 推导：**
+与 $V$ 类似，展开递归形式：
+
+$$
+\begin{align}
+Q_{\textbf{soft}}^\pi(s,a)
+&=r(s,a)+\gamma \mathbb{E}_{s^\prime\sim p(\cdot|s,a),a^\prime\sim\pi(\cdot|s^\prime)}[Q^{\pi}_{\textbf{soft}}(s^\prime,a^\prime)-\alpha\log\pi(a^\prime|s^\prime)] \notag
+\end{align}
+$$
+
+**两者关系总结：**
+
+1.  **V 与 Q 的关系**：
+    $$
+    \begin{align}
+    V_{\textbf{soft}}^\pi(s)&=\mathbb{E}_{a\sim\pi(\cdot|s)}[Q^{\pi}_{\textbf{soft}}(s,a)-\alpha\log\pi(a|s)]\notag \\
+    &=\mathbb{E}_{a\sim \pi(a|s)}[Q^{\pi}_{\textbf{soft}}(s,a)]+\alpha H(\pi(\cdot|s)) \notag
+    \end{align}
+    $$
+    > **💡 笔记**：这说明 $V$ 值等于 $Q$ 值的期望加上当前的熵红利。
+
+2.  **Q 与 V 的关系**（Soft Bellman）：
+    $$
+    \begin{align}
+    Q^{\pi}_{\textbf{soft}}(s,a)=r(s,a)+\gamma \mathbb{E}_{s^\prime\sim p(\cdot|s,a)}[V_{\textbf{soft}}^\pi(s^\prime)]\notag \\
+    \end{align}
+    $$
+
+---
+
+## 4. Soft 策略提升定理 (Soft Policy Improvement)
+
+我们如何保证更新策略后，效果一定会变好？这里给出了详细证明。
+
+**定理**：对于任意状态 $s$，如果我们按照以下规则更新策略：
+$$
+\begin{align}
+\tilde{\pi}(\cdot|s) \propto \exp(\frac{1}{\alpha}Q^{\pi}_{\textbf{soft}}(s,\cdot)), \quad \forall s \notag \\
+\end{align}
+$$
+那么新策略 $\tilde{\pi}$ 的 Soft Q 值一定优于旧策略 $\pi$。
+
+### 证明过程
+首先，我们计算旧策略 $\pi$ 下的 $V$ 值，并尝试引入新策略 $\tilde{\pi}$ 的形式。
+
+$$
+\begin{align}
+V_{\textbf{soft}}^\pi(s)&=\mathbb{E}_{a\sim \pi(\cdot|s)}[Q_{\textbf{soft}}^\pi(s,a)]+\alpha H(\pi(\cdot|s)) \notag \\
+&=\int_a\pi(a|s)Q_{\textbf{soft}}^\pi(s,a)\text{d}a-\alpha\int_a\pi(a|s)\log\pi(a|s)\text{d}a\notag
+\end{align}
+$$
+
+这里利用一个恒等变换。因为更新规则 $\tilde{\pi}(a|s) = \frac{\exp(\frac{1}{\alpha}Q(s,a))}{Z(s)}$，所以 $Q(s,a) = \alpha \log \tilde{\pi}(a|s) + \alpha \log Z(s)$。
+代入积分中：
+
+$$
+\begin{align}
+V_{\textbf{soft}}^\pi(s) &= \alpha\int_a \pi(a|s) \left[ \log \tilde{\pi}(a|s) + \log \int_{a^\prime}\exp(\frac{1}{\alpha}Q_{\textbf{soft}}^\pi(s,a^\prime))\text{d}a^\prime \right] \text{d}a - \alpha\int_a\pi(a|s)\log\pi(a|s)\text{d}a \notag \\
+&= \alpha \log \left[ \int_{a^\prime}\exp(\frac{1}{\alpha}Q_{\textbf{soft}}^\pi(s,a^\prime))\text{d}a^\prime \right] + \alpha \int_a \pi(a|s) \log \frac{\tilde{\pi}(a|s)}{\pi(a|s)} \text{d}a \notag \\
+&= \alpha \log \int_a\exp(\frac{1}{\alpha}Q_{\textbf{soft}}^\pi(s,a))\text{d}a - \alpha D_{\textbf{KL}}(\pi(\cdot|s)||\tilde{\pi}(\cdot|s)) \notag
+\end{align}
+$$
+
+当 $\pi = \tilde{\pi}$ 时，KL 散度为 0，我们得到**Soft Value Function 的解析解（LogSumExp 形式）**：
+$$
+V_{\textbf{soft}}^{\tilde{\pi}}(s) = \alpha \log \int_a \exp(\frac{1}{\alpha}Q_{\textbf{soft}}^\pi(s,a))\text{d}a
+$$
+
+因为 KL 散度非负（$D_{KL} \ge 0$），且 $\alpha > 0$，所以去掉 KL 项后，不等式成立：
+$$
+\begin{align}
+\alpha \log \int_a \exp(\frac{1}{\alpha}Q)\text{d}a \ge V_{\textbf{soft}}^\pi(s) + \alpha D_{\textbf{KL}} \ge V_{\textbf{soft}}^\pi(s) \notag
+\end{align}
+$$
+这导出了关键不等式：
+$$
+\begin{align}
+\mathbb{E}_{a\sim\tilde{\pi}(\cdot|s)}[Q_{\textbf{soft}}^\pi(s,a)]+ \alpha H(\tilde{\pi}(\cdot|s))\ge 
+\mathbb{E}_{a\sim\pi(\cdot|s)}[Q_{\textbf{soft}}^\pi(s,a)]+ \alpha H(\pi(\cdot|s)) \notag
+\end{align}
+$$
+
+接下来的迭代推导证明了 $Q$ 值的单调递增性（通过不断展开贝尔曼算子）：
+
+$$
+\begin{align}
+Q_{\textbf{soft}}^\pi(s,a) &= r_0 + \gamma V_{soft}^\pi(s_1) \notag \\
+&\le r_0 + \gamma (\mathbb{E}_{a_1 \sim \tilde{\pi}}[Q^\pi(s_1, a_1)] + \alpha H(\tilde{\pi})) \quad \text{(根据上述不等式)} \notag \\
+&\le \dots \notag \\
+&\le Q_{\textbf{soft}}^{\tilde{\pi}}(s,a) \notag
+\end{align}
+$$
+
+> **💡 结论**：
+> 只要我们将策略更新为正比于 $\exp(Q/\alpha)$，新的策略在 Soft Q 值的评估下一定比旧策略更好（或持平）。
+
+---
+
+## 5. Soft 策略评估定理与收敛性证明
+
+我们定义**Soft 贝尔曼算子 $\mathcal{T}$**，并证明反复应用它会收敛到最优值。
+
+定义算子操作：
+$$
+\begin{align}
+\mathcal{T} Q_{\textbf{soft}}^\pi(s,a) \triangleq r(s,a)+\gamma \mathbb{E}_{s^\prime\sim p(\cdot|s,a)}\left[\alpha\log\int_{a^\prime}\exp (\frac{1}{\alpha}Q_{\textbf{soft}}^\pi(s^\prime,a^\prime))\text{d}a^\prime\right]\notag
+\end{align}
+$$
+
+### 压缩映射证明 (Contraction Mapping)
+我们要证明 $||\mathcal{T}Q_1 - \mathcal{T}Q_2|| \le k ||Q_1 - Q_2||$，其中 $k < 1$。
+
+定义度量距离 $\epsilon = \max_{s,a}|Q_1(s,a) - Q_2(s,a)|$。
+这意味对于任意 $(s,a)$：
+$$
+Q_1(s,a) \le Q_2(s,a) + \epsilon
+$$
+
+**关键推导步骤**（此处更正了原笔记中关于 $\alpha$ 的处理细节）：
+
+1.  利用指数单调性：
+    $$
+    \exp(\frac{1}{\alpha}Q_1) \le \exp(\frac{1}{\alpha}(Q_2 + \epsilon)) = \exp(\frac{Q_2}{\alpha}) \cdot \exp(\frac{\epsilon}{\alpha})
+    $$
+
+2.  积分保序性：
+    $$
+    \int \exp(\frac{Q_1}{\alpha}) da' \le \exp(\frac{\epsilon}{\alpha}) \int \exp(\frac{Q_2}{\alpha}) da'
+    $$
+
+3.  取 $\alpha \log$（**注意这里的常数提取**）：
+    $$
+    \begin{align}
+    \alpha \log \int \exp(\frac{Q_1}{\alpha}) da' &\le \alpha \log \left[ \exp(\frac{\epsilon}{\alpha}) \int \exp(\frac{Q_2}{\alpha}) da' \right] \notag \\
+    &= \alpha \left[ \log(\exp(\frac{\epsilon}{\alpha})) + \log \int \exp(\frac{Q_2}{\alpha}) da' \right] \notag \\
+    &= \alpha \left[ \frac{\epsilon}{\alpha} + \log \int \exp(\frac{Q_2}{\alpha}) da' \right] \notag \\
+    &= \epsilon + \alpha \log \int \exp(\frac{Q_2}{\alpha}) da' \notag
+    \end{align}
+    $$
+    > **💡 修正说明**：
+    > 注意这里 $\alpha \times \frac{\epsilon}{\alpha} = \epsilon$。原笔记推导得到的系数是 $\alpha\epsilon$，但正确数学推导后系数应为 $1\cdot\epsilon$。这很重要，因为这意味着收敛性不依赖于 $\alpha$ 的大小。
+
+4.  计算算子差值：
+    $$
+    \begin{align}
+    |\mathcal{T}Q_1 - \mathcal{T}Q_2| &= \gamma \left| \mathbb{E}_{s'} \left[ \alpha \log \int \dots (Q_1) - \alpha \log \int \dots (Q_2) \right] \right| \notag \\
+    &\le \gamma \mathbb{E}_{s'} [\epsilon] \notag \\
+    &= \gamma \epsilon \notag
+    \end{align}
+    $$
+
+5.  结论：
+    $$
+    ||\mathcal{T}Q_1 - \mathcal{T}Q_2||_\infty \le \gamma ||Q_1 - Q_2||_\infty
+    $$
+
+由于折扣因子 $\gamma \in (0,1)$，算子 $\mathcal{T}$ 是一个**压缩映射**，必然收敛到唯一的不动点 $Q^*_{soft}$。
+
+---
+
+## 6. 实现困难与解决方案
+
+理论很完美，但实际用神经网络实现时（Deep RL），有两个主要困难。
+
+### 困难 1：处理积分 (The Integral Problem)
+在计算 $V_{soft}(s)$ 时，需要计算 $\log \int \exp(Q) da$。
+如果动作空间是连续的，这个积分通常无法解析计算。
+
+**解决方案：重要性采样 (Importance Sampling)**
+我们把积分转化为期望，通过采样来近似。
+引入一个采样分布 $q_a(a)$（通常可以是当前的策略网络）：
+
+$$
+\begin{align}
+V_{\textbf{soft}}^{\theta}(s)&= \alpha \log \int_a \exp(\frac{1}{\alpha}Q_{\textbf{soft}}^{\theta}(s,a))\text{d}a\notag \\
+&=\alpha\log\int_a q_a(a)\frac{\exp(\frac{1}{\alpha}Q_{\textbf{soft}}^{\theta}(s,a))}{q_a(a)} \text{d}a \notag \\
+&\approx \alpha \log \mathbb{E}_{a\sim q_a(\cdot)}\left[\frac{\exp(\frac{1}{\alpha}Q_{\textbf{soft}}^{\theta}(s,a))}{q_a(a)}\right] \notag
+\end{align}
+$$
+
+于是，Soft Q-Learning 的目标函数（Bellman Error）变为：
+
+$$
+\begin{align}
+J_Q(\theta)&=\mathbb{E}_{\mathcal{D}}\left[\frac{1}{2}\left(\hat{Q}_{\textbf{soft}}(s_t,a_t)-Q_{\textbf{soft}}^\theta(s_t,a_t)\right)^2\right]\notag
+\end{align}
+$$
+其中目标值 $\hat{Q}$ 使用上述的重要性采样估计来计算 $V$。
+
+### 困难 2：策略采样 (Sampling from Energy-Based Policy)
+理论上的最优策略是基于能量的：$\pi(a|s) \propto \exp(\frac{1}{\alpha}Q(s,a))$。
+这是一种复杂的分布，我们无法直接从 Q 网络中高效采样动作。
+
+**解决方案：Amortized Inference (近似推断)**
+我们训练一个显式的策略网络（Actor）$\pi_\phi(a|s)$（通常是高斯分布或由神经网络生成的分布），让它去逼近那个能量分布。
+
+目标是最小化两者之间的 KL 散度：
+$$
+\begin{align}
+J_\pi(\phi;s_t)=D_{\textbf{KL}}\left(\pi_\phi(\cdot|s_t)\Big|\Big|\exp\left(\frac{1}{\alpha}(Q_{\textbf{soft}}^\theta(s_t,\cdot)-V_{\textbf{soft}}^\theta(s_t))\right)\right)\notag
+\end{align}
+$$
+
+将 KL 散度展开并忽略常数项，等价于最大化：
+$$
+\mathbb{E}_{a \sim \pi_\phi}[Q^\theta(s,a) - \alpha \log \pi_\phi(a|s)]
+$$
+
+> **💡 实现细节**：
+> 在 SQL 原文中，作者使用了 **SVGD (Stein Variational Gradient Descent)** 方法来更新这个策略网络，这允许策略生成非常复杂的多模态分布。后续的 SAC 算法则使用了重参数化技巧（Reparameterization Trick）来简化这一步。
