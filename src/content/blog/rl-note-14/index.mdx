@@ -254,7 +254,7 @@ $$
 4.  计算算子差值：
     $$
     \begin{align}
-    |\mathcal{T}Q_1 - \mathcal{T}Q_2| &= \gamma \left| \mathbb{E}_{s'} \left[ \alpha \log \int \dots (Q_1) - \alpha \log \int \dots (Q_2) \right] \right| \notag \\
+    |\mathcal{T}Q_1 - \mathcal{T}Q_2| &= \gamma \left| \mathbb{E}_{s'} \left[ \alpha \log \int_{a^\prime} \exp(\frac{Q_1(s^\prime,a^\prime)}{\alpha}) \text{d}a^\prime - \alpha \log \int_{a^\prime} \exp(\frac{Q_2(s^\prime,a^\prime)}{\alpha}) \text{d}a^\prime \right] \right| \notag \\
     &\le \gamma \mathbb{E}_{s'} [\epsilon] \notag \\
     &= \gamma \epsilon \notag
     \end{align}
