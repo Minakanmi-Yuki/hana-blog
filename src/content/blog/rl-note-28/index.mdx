@@ -1,0 +1,121 @@
+---
+title: "RL笔记（28）：大语言模型与强化学习 (LLM + RLHF)"
+publishDate: 2026-01-06
+updatedDate: 2026-01-06
+description: "大模型的最后一块拼图：详解基于人类反馈的强化学习 (RLHF)。涵盖从 SFT 到奖励模型，以及利用 PPO 算法进行策略对齐的完整流程。"
+heroImage: {src : "https://picr2.axi404.top/Paper-reading-Uni-zh.webp", color: '#8C8275'}
+category: 'daily'
+pixivLink: '127192375'
+---
+
+## 引言（Introduction）
+
+在之前的笔记中，我们一直在研究如何让智能体在物理环境或博弈环境（如 Atari, MuJoCo, SMAC）中拿高分。而现在，我们要处理的对象是 **大语言模型 (LLM)**。
+
+**大模型的训练通常分为三个阶段：**
+1.  **预训练 (Pre-training)**：在海量文本上通过自监督学习“知识”。
+2.  **指令微调 (SFT, Supervised Fine-Tuning)**：在高质量问答对上学习“对话格式”。
+3.  **人类对齐 (Alignment)**：通过强化学习，让模型生成符合人类价值观（有用、诚实、无害）的内容。
+
+**为什么要用 RL 而不是 SFT？**
+*   **难以写出标准答案**：对于“写一首诗”这种开放性问题，不存在唯一的正解（Label）。人类可以很容易判断谁写得更好，但很难写出完美的示范。
+*   **分布偏移问题**：SFT 属于行为克隆（BC），如果模型在生成时产生了一个没见过的词，误差会迅速累积。RL 则让模型在“试错”中学会从各种回复中找到最优路径。
+
+---
+
+##  核心映射：将 LLM 建模为 RL 问题
+
+要用强化学习训练 LLM，我们首先需要将文本生成过程对应到 MDP 五元组中：
+
+*   **状态 (State, $s$)**：当前输入的提示词（Prompt）以及模型已经生成的 Token 序列。
+*   **动作 (Action, $a$)**：模型预测的下一个 Token。动作空间就是词表（Vocab Size，通常为 3w ~ 10w）。
+*   **策略 (Policy, $\pi$)**：大语言模型本身，输入提示词，输出下一个词的概率分布。
+*   **奖励 (Reward, $R$)**：反映生成的一整段话好不好。这个奖励不是环境给的，而是由 **奖励模型 (Reward Model)** 评分。
+
+---
+
+##  RLHF 的三大步骤
+
+RLHF (Reinforcement Learning from Human Feedback) 通常包含以下经典流程：
+
+### 阶段一：监督微调 (SFT)
+在预训练模型的基础上，使用人类编写的高质量 (Prompt, Answer) 数据集进行微调。此时模型学会了基本的指令遵循能力。
+
+### 阶段二：奖励模型训练 (Reward Modeling)
+1.  给同一个 Prompt，让 SFT 后的模型生成多个不同的回复 $\{y^1, y^2, y^3, y^4\}$。
+2.  让人类对这些回复进行排序（例如 $y^2 > y^1 > y^4 > y^3$）。
+3.  训练一个标量奖励模型 $r_\theta(x, y)$，使其输出的分数符合人类的排序规律。损失函数通常采用 **Pairwise Ranking Loss**：
+    $$ L(\theta) = - \mathbb{E}_{(x, y_w, y_l) \sim \mathcal{D}} \left[ \log \sigma \left( r_\theta(x, y_w) - r_\theta(x, y_l) \right) \right] $$
+    其中 $y_w$ 是胜出的回复，$y_l$ 是失败的回复。
+
+### 阶段三：强化学习对齐 (PPO)
+利用奖励模型给出的分数，通过 PPO 算法调整 LLM 的参数。
+
+---
+
+##  RLHF 中的 PPO 目标函数
+
+在对齐阶段，我们的目标是最大化奖励模型的分数。但如果只考虑奖励，模型可能会学会“钻空子”（Reward Hacking），生成一些人类看不懂但奖励模型给高分的乱码。
+
+因此，我们需要约束模型，使其不要偏离原始模型太远。目标函数定义为：
+
+$$
+J(\phi) = \mathbb{E}_{x \sim \mathcal{D}, y \sim \pi_\phi(y|x)} \left[ r_\theta(x, y) - \beta \log \left( \frac{\pi_\phi(y|x)}{\pi_{\text{ref}}(y|x)} \right) \right]
+$$
+
+### 公式拆解：
+1.  **$r_\theta(x, y)$**：奖励模型对生成的完整句子 $y$ 给出的预测分数。
+2.  **$\log \left( \frac{\pi_\phi(y|x)}{\pi_{\text{ref}}(y|x)} \right)$**：这是新策略 $\pi_\phi$ 与参考模型（通常是 SFT 后的模型）$\pi_{\text{ref}}$ 之间的 **KL 散度**（准确说是 KL 惩罚项）。
+3.  **$\beta$**：KL 惩罚系数。$\beta$ 越大，模型越保守，越像原始模型。
+
+> **💡 直觉理解**：
+> 这一项的作用是：**“你可以尽量讨好人类，但不能忘了怎么说话。”**
+
+---
+
+##  LLM-PPO 的训练架构
+
+在这一阶段，显存中通常需要同时加载四个模型（通常采用参数共享或层冻结来优化）：
+
+1.  **Actor (Policy Network)**：当前正在训练的 LLM，参数为 $\phi$。
+2.  **Reference Model**：冻结的 SFT 模型，用于计算 KL 惩罚。
+3.  **Critic (Value Network)**：一个额外的头部，输入 Token 序列，预测从当前位置开始能获得的未来总奖励（即 $V(s)$）。
+4.  **Reward Model**：冻结的评分模型。
+
+### 训练循环：
+1.  **采样 (Rollout)**：输入 Prompt $x$，Actor 生成回复 $y$。
+2.  **评分 (Evaluation)**：Reward Model 对 $(x, y)$ 打分。
+3.  **计算优势 (Advantage)**：
+    利用序列中的每一个 Token 的 TD Error 来计算优势 $\hat{A}$。
+    注意：在 LLM 中，奖励通常是在**最后一个 Token** 给出的，而前面的 Token 奖励为 0（除了 KL 惩罚）。
+4.  **更新 (Update)**：
+    利用 PPO 的 Clip 损失函数更新 Actor，利用 MSE 损失更新 Critic。
+
+---
+
+##  进阶：DPO (Direct Preference Optimization)
+
+> **论文**：[Direct Preference Optimization: Your Language Model is Secretly a Reward Model](https://arxiv.org/abs/2305.18290)
+
+PPO 虽然经典，但非常复杂（需要 4 个模型，显存开销巨大，训练极不稳定）。
+2023 年提出的 **DPO** 彻底简化了这个过程。
+
+**DPO 的核心发现**：
+我们可以通过数学变换，直接将奖励函数 $r$ 表达为最优策略 $\pi^*$ 的函数。这意味着我们**不需要训练奖励模型**，也不需要强化学习，直接在偏好数据 $(y_w, y_l)$ 上进行**监督式学习**即可。
+
+DPO 损失函数：
+$$
+L_{DPO}(\pi_\phi; \pi_{\text{ref}}) = - \mathbb{E}_{(x, y_w, y_l) \sim \mathcal{D}} \left[ \log \sigma \left( \beta \log \frac{\pi_\phi(y_w|x)}{\pi_{\text{ref}}(y_w|x)} - \beta \log \frac{\pi_\phi(y_l|x)}{\pi_{\text{ref}}(y_l|x)} \right) \right]
+$$
+
+*   **直觉**：如果模型在好回复 $y_w$ 上的概率提升比在坏回复 $y_l$ 上快，Loss 就变小。
+
+---
+
+## 总结
+
+LLM + RL 的结合标志着强化学习从“解决玩具问题”走向了“赋能通用人工智能”。
+
+1.  **RLHF** 建立了模型行为与人类偏好的桥梁。
+2.  **PPO** 提供了稳定的优化框架，通过 KL 惩罚保证了语言的自然性。
+3.  **DPO** 等后续算法进一步降低了对齐的门槛，使得中小型团队也能进行模型对齐。
