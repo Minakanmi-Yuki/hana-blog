@@ -1,0 +1,123 @@
+---
+title: "RL笔记（23）：多智能体值分解 (VDN & QMIX)"
+publishDate: 2026-1-1
+updatedDate: 2026-1-1
+description: "如何在不牺牲独立决策能力的前提下，实现复杂的协作？详解多智能体强化学习中的值分解流派。涵盖 IGM 原则、VDN 的线性分解与 QMIX 的单调性约束设计。"
+heroImage: {src : "https://picr2.axi404.top/Paper-reading-Uni-zh.webp", color: '#8C8275'}
+category: 'daily'
+pixivLink: '127192375'
+---
+
+## 引言（Introduction）
+
+在上一篇笔记中，我们讨论了 MARL 的两种极端：**JAL（完全中心化）** 理论完美但不可计算，**IPPO（完全独立）** 计算简单但理论有毒。
+
+我们需要一种折中方案：**CTDE（中心化训练，分布式执行）**。
+对于 Value-Based 方法来说，CTDE 的核心挑战在于：**如何利用全局 $Q_{tot}$ 来指导局部 $Q_i$ 的更新，同时确保局部贪婪决策能导致全局最优？**
+
+这就是 **值分解 (Value Decomposition)** 算法的核心使命。本章将介绍这一流派的开山之作 **VDN** 和经典之作 **QMIX**。
+
+---
+
+##  理论基石：Dec-POMDP 与 IGM
+
+### 问题形式化：Dec-POMDP
+我们将多智能体协作任务建模为 **去中心化部分可观测马尔可夫决策过程 (Dec-POMDP)**。
+元组定义为 $G = \langle \mathcal{S}, N, U, P, R, Z, O, \gamma \rangle$：
+*   $s \in \mathcal{S}$：全局状态。
+*   $u_i \in U$：智能体 $i$ 的动作，联合动作 $\mathbf{u} \in U^n$。
+*   $z_i \in Z$：智能体 $i$ 的局部观测。
+*   $\tau_i$：动作-观测历史（因为是部分可观测，智能体需要记住历史）。
+*   $Q_{tot}(s, \mathbf{u})$：全局联合价值函数，代表集体的利益。
+
+### 核心原则：IGM (Individual-Global-Max)
+为了保证“分布式执行”的有效性，我们必须确保：**当每个智能体都最大化自己的局部利益 $Q_i$ 时，集体的利益 $Q_{tot}$ 也同时被最大化。**
+
+这被称为 **IGM 原则**，数学表达为：
+$$
+\arg\max_{\mathbf{u}} Q_{tot}(\boldsymbol{\tau}, \mathbf{u}) =
+\begin{pmatrix}
+\arg\max_{u_1} Q_1(\tau_1, u_1) \\
+\vdots \\
+\arg\max_{u_n} Q_n(\tau_n, u_n)
+\end{pmatrix}
+$$
+
+*   **直觉**：就像一支理想的足球队，如果前锋拼命进球（局部最优），后卫拼命防守（局部最优），那么整支球队的胜率（全局最优）也应该是最高的。如果满足 IGM，我们就不需要复杂的协调通信，各自为战即可。
+
+---
+
+##  VDN (Value-Decomposition Networks)
+
+> **论文**：[Value-Decomposition Networks For Cooperative Multi-Agent Learning](https://arxiv.org/abs/1706.05296)
+
+**VDN** 是值分解领域的奠基之作。它的思路非常简单粗暴：假设全局价值就是局部价值的**直接加和**。
+
+### 核心假设
+$$
+Q_{tot}(\boldsymbol{\tau}, \mathbf{u}) = \sum_{i=1}^n Q_i(\tau_i, u_i; \theta_i)
+$$
+
+### 训练与执行
+*   **训练时**：我们最小化 $Q_{tot}$ 与真实回报的 TD 误差：
+    $$ \mathcal{L}(\theta) = \left( r + \gamma \max_{\mathbf{u}'} Q_{tot}(\boldsymbol{\tau}', \mathbf{u}'; \theta^-) - Q_{tot}(\boldsymbol{\tau}, \mathbf{u}; \theta) \right)^2 $$
+    注意：这里的 $\max_{\mathbf{u}'} Q_{tot}$ 可以很容易计算，因为 $\max \sum Q_i = \sum \max Q_i$。
+*   **执行时**：每个智能体只需选择 $u_i^* = \arg\max_{u_i} Q_i$，即可保证选择了全局最优动作。
+
+### 局限性
+VDN 满足 IGM 原则，但**求和**的假设太强了。它限制了 $Q_{tot}$ 只能表示局部价值的线性组合，无法处理复杂的非线性协作（例如：只有当 A 和 B 同时做某事时，奖励才会暴增）。
+
+---
+
+##  QMIX
+
+> **论文**：[QMIX: Monotonic Value Function Factorisation for Deep Multi-Agent Reinforcement Learning](https://arxiv.org/abs/1803.11485)
+
+**QMIX** 放宽了 VDN 的限制。它指出，要满足 IGM 原则，并不需要严格的线性求和，只需要满足 **单调性约束 (Monotonicity Constraint)** 即可。
+
+### 核心假设
+$$
+\frac{\partial Q_{tot}}{\partial Q_i} \ge 0, \quad \forall i \in \{1, \dots, n\}
+$$
+即：**局部价值 $Q_i$ 越高，全局价值 $Q_{tot}$ 也就越高。**
+只要满足这个条件，$\arg\max Q_{tot}$ 就一定等价于 $\arg\max Q_i$ 的组合。
+
+### 网络架构
+QMIX 使用一个 **混合网络 (Mixing Network)** 来拟合 $Q_{tot}$，它以所有 $Q_i$ 为输入，以 $Q_{tot}$ 为输出。
+为了保证单调性（权重非负），QMIX 引入了一个 **超网络 (Hypernetwork)**。
+
+1.  **Agent Network**: 输入局部观测 $\tau_i$，输出 $Q_i$。
+2.  **Mixing Network**:
+    *   这是一个前馈神经网络，输入是 $\{Q_1, \dots, Q_n\}$，输出是 $Q_{tot}$。
+    *   **关键点**：这个网络的**权重 (Weights)** 是由 Hypernetwork 生成的，且被强制取绝对值（保证非负）。
+3.  **Hypernetwork**:
+    *   输入是全局状态 $s$。
+    *   输出是 Mixing Network 的权重 $W$ 和偏置 $b$。
+    *   公式：$W_{mix} = | \text{Hyper}(s) |$。
+
+通过这种设计，QMIX 实现了：
+*   **非线性能力**：Mixing Network 可以是复杂的非线性函数。
+*   **状态依赖**：全局状态 $s$ 决定了混合的方式（例如在某些状态下，$Q_1$ 更重要；在另一些状态下，$Q_2$ 更重要）。
+*   **单调性保证**：由于权重恒为正，混合网络对输入 $Q_i$ 保持单调递增。
+
+### 损失函数
+QMIX 的训练也是标准的 DQN 风格：
+$$
+\mathcal{L}(\theta) = \left( r + \gamma Q_{tot}(\boldsymbol{\tau}', s', \mathbf{u}_{max}'; \theta^-) - Q_{tot}(\boldsymbol{\tau}, s, \mathbf{u}; \theta) \right)^2
+$$
+其中 $\mathbf{u}_{max}'$ 是通过各个 $Q_i$ 贪婪选出的动作组合。
+
+---
+
+##  总结与对比
+
+| 维度 | VDN | QMIX |
+| :--- | :--- | :--- |
+| **分解方式** | 线性求和 | 非线性混合 |
+| **IGM 保证** | 是 (Sum) | 是 (Monotonicity) |
+| **全局信息利用** | 无 (仅通过反向传播隐式利用) | **有 (Hypernetwork 输入 $s$)** |
+| **表达能力** | 弱 (仅限线性关系) | **强 (单调非线性关系)** |
+| **适用场景** | 简单协作 | 复杂非线性协作 (如集火攻击) |
+
+**QMIX 的地位**：
+它是 MARL 领域最经典的算法之一。虽然它只能处理满足单调性假设的任务（有些任务可能局部最优不等于全局最优），但在《星际争霸》(SMAC) 等主流测试平台上，QMIX 及其变体长期占据统治地位。
