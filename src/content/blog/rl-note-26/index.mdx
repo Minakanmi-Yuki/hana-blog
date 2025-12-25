@@ -22,20 +22,20 @@ pixivLink: '127192375'
 
 ##  理论基石：多智能体优势分解引理
 
-我们希望优化联合策略 $\boldsymbol{\pi} = (\pi^1, \dots, \pi^n)$ 以最大化联合回报 $J(\boldsymbol{\pi})$。
-类似于 TRPO，我们关注新旧策略的回报差 $J(\boldsymbol{\pi}_{new}) - J(\boldsymbol{\pi}_{old})$。
+我们希望优化联合策略 $\boldsymbol{\pi} = (\pi^1, \pi^2, ..., \pi^n)$ 以最大化联合回报 $J(\boldsymbol{\pi})$。
+类似于 TRPO，我们关注新旧策略的回报差 $J(\boldsymbol{\pi}_{\text{new}}) - J(\boldsymbol{\pi}_{\text{old}})$。
 
 ### 优势分解引理 (Multi-Agent Advantage Decomposition Lemma)
-HAPPO 证明了，联合策略的优势函数（Joint Advantage）可以分解为每个智能体局部优势函数的**累加**，前提是这些优势是**按顺序**计算的。
+HAPPO 证明了，联合策略的优势函数（Joint Advantage）可以精确分解为每个智能体局部优势函数的**累加**，前提是这些优势是**按顺序**计算的。
 
 $$
-A_{\boldsymbol{\pi}}^{\text{joint}}(s, \mathbf{a}) = \sum_{i=1}^n A_{\pi}^{i}(s, a^i, \mathbf{a}^{1:i-1})
+A_{\boldsymbol{\pi}}^{\text{joint}}(s, \mathbf{a}) = \sum_{i=1}^n A_{\pi}^{i}(s, a^i, a^1, a^2, ..., a^{i-1})
 $$
 
 这里的 $A_{\pi}^{i}$ 是第 $i$ 个智能体的优势函数，但有一个关键细节：
-它不仅依赖于当前状态 $s$ 和动作 $a^i$，还依赖于**排在他前面的智能体 $\mathbf{a}^{1:i-1}$ 的动作**。
+它不仅依赖于当前状态 $s$ 和动作 $a^i$，还依赖于**排在他前面的智能体 $(a^1, a^2, ..., a^{i-1})$ 的动作**。
 
-这意味着：如果我们按照某种顺序 $1, 2, \dots, n$ 依次更新智能体，那么整体性能的提升等于每个人贡献的提升之和。
+这意味着：如果我们按照某种顺序 $1, 2, ..., n$ 依次更新智能体，那么整体性能的提升等于每个人贡献的提升之和。
 
 ---
 
@@ -47,9 +47,9 @@ $$
 在每一次训练迭代中：
 1.  **随机排列**：随机生成一个智能体的更新顺序（例如：Agent 3 -> Agent 1 -> Agent 2）。
 2.  **依次更新**：
-    *   **Agent 3**：基于旧策略 $\boldsymbol{\pi}_{old}$ 计算自己的优势，更新策略，变为 $\pi^3_{new}$。
-    *   **Agent 1**：看到 Agent 3 已经更新了（环境变了），基于 $(\pi^3_{new}, \pi^1_{old}, \pi^2_{old})$ 计算自己的优势，更新为 $\pi^1_{new}$。
-    *   **Agent 2**：看到 3 和 1 都变了，基于 $(\pi^3_{new}, \pi^1_{new}, \pi^2_{old})$ 更新自己。
+    *   **Agent 3**：基于旧策略 $\boldsymbol{\pi}_{\text{old}}$ 计算自己的优势，更新策略，变为 $\pi^3_{\text{new}}$。
+    *   **Agent 1**：看到 Agent 3 已经更新了（环境变了），基于 $(\pi^3_{\text{new}}, \pi^1_{\text{old}}, \pi^2_{\text{old}})$ 计算自己的优势，更新为 $\pi^1_{\text{new}}$。
+    *   **Agent 2**：看到 3 和 1 都变了，基于 $(\pi^3_{\text{new}}, \pi^1_{\text{new}}, \pi^2_{\text{old}})$ 更新自己。
 3.  **循环结束**：所有智能体更新完毕，进入下一轮采样。
 
 ### 为什么这样就稳了？
@@ -68,17 +68,18 @@ $$
 这是 TRPO 的多智能体版本。
 *   **目标**：最大化局部优势期望。
 *   **约束**：严格限制每个智能体更新前后的 KL 散度：
-    $$ \mathbb{E}[D_{KL}(\pi^i_{old} || \pi^i_{new})] \le \delta $$
+    $$ \mathbb{E}[D_{KL}(\pi^i_{\text{old}} || \pi^i_{\text{new}})] \le \delta $$
 *   **求解**：同样需要使用共轭梯度法（CG），计算量较大，但理论性质最强。
 
 ### HAPPO (Proximal Policy)
 这是 PPO 的多智能体版本，更实用。
 *   **目标**：使用 Clip 技巧来替代 KL 约束。
+    定义比率 $r_t^i(\theta) = \frac{\pi^i(a^i|s)}{\pi^i_{\text{old}}(a^i|s)}$，损失函数为：
     $$
-    L^{HAPPO}(\theta^i) = \mathbb{E} \left[ \min \left( \frac{\pi^i(a^i|s)}{\pi^i_{old}(a^i|s)} \hat{M}^i, \text{clip}(\dots) \hat{M}^i \right) \right]
+    L^{HAPPO}(\theta^i) = \mathbb{E} \left[ \min \left( r_t^i(\theta) \hat{M}^i, \text{clip}\left(r_t^i(\theta), 1-\epsilon, 1+\epsilon\right) \hat{M}^i \right) \right]
     $$
 *   **关键点 $\hat{M}^i$**：这是**修正后的优势函数**。
-    在计算 Agent $i$ 的优势时，必须扣除排在它前面的队友 $1:i-1$ 已经拿走的优势，确保不重复计算功劳。
+    在计算 Agent $i$ 的优势时，必须扣除排在它前面的队友 $1, ..., i-1$ 已经拿走的优势，确保不重复计算功劳。
 
 ---
 
@@ -91,7 +92,7 @@ $$
 | **更新方式** | **同步更新 (Simultaneous)** | **序列更新 (Sequential)** |
 | **理论保证** | 无单调提升保证 (可能震荡) | **有单调提升保证** |
 | **参数共享** | 强烈依赖 (Parameter Sharing) | **不需要** (天生支持异构) |
-| **优势计算** | $A(s, a^i)$ (假设队友不变) | $A(s, a^i, \mathbf{a}^{1:i-1})$ (考虑队友更新) |
+| **优势计算** | $A(s, a^i)$ (假设队友不变) | $A(s, a^i, a^1, ..., a^{i-1})$ (考虑队友更新) |
 | **适用场景** | 同质智能体 (如星际争霸小狗海) | **异构智能体** (如牧羊犬与羊、不同类型的机器人) |
 | **计算量** | 较小 | 稍大 (因为要串行计算) |
 
