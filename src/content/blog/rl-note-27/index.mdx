@@ -1,0 +1,115 @@
+---
+title: "RL笔记（27）：MARL 最后的波纹 (MAT & HASAC)"
+publishDate: 2026-01-05
+updatedDate: 2026-01-05
+description: "多智能体领域的 SOTA 之作：详解 Multi-Agent Transformer (MAT) 如何将博弈转化为序列建模，以及 HASAC 如何结合异构理论与 SAC 的样本效率。"
+heroImage: {src : "https://picr2.axi404.top/Paper-reading-Uni-zh.webp", color: '#8C8275'}
+category: 'daily'
+pixivLink: '127192375'
+---
+
+## 引言（Introduction）
+
+在之前的笔记中，我们看到了 MARL 的发展脉络：
+*   **MAPPO**：On-Policy，稳定但样本效率低。
+*   **HAPPO**：引入序列更新，解决了异构和单调性问题，但仍是 On-Policy。
+*   **Decision Transformer**：将单智能体 RL 变成了序列预测。
+
+本章将介绍两个集大成者：
+1.  **MAT (Multi-Agent Transformer)**：将 "Transformer" 和 "序列决策" 引入 MARL，把多智能体博弈变成了一个自回归（Auto-Regressive）的序列生成问题。
+2.  **HASAC (Heterogeneous-Agent SAC)**：将 HAPPO 的 "序列更新理论" 应用于 SAC，打造出兼具理论保证和极高样本效率的 Off-Policy 算法。
+
+---
+
+##  Multi-Agent Transformer (MAT)
+
+> **论文**：[Multi-Agent Reinforcement Learning is a Sequence Modeling Problem](https://arxiv.org/abs/2205.14953) (NeurIPS 2022)
+
+### 核心思想：把“并发”变成“串行”
+传统 MARL（如 QMIX, MAPPO）假设所有智能体在同一时刻**同时**采取行动，联合动作分布为 $\pi(\mathbf{a}|s) = \prod \pi(a^i|s)$（假设独立）。
+
+MAT 提出了一种颠覆性的视角：**联合策略可以分解为序列预测**。
+利用概率链式法则，联合动作的概率可以写成：
+$$
+\pi(\mathbf{a}|s) = \prod_{i=1}^n \pi(a^i | s, a^1, a^2, ..., a^{i-1})
+$$
+
+这意味着：Agent 1 先动；Agent 2 看到 Agent 1 的动作后再动；Agent 3 看到 1 和 2 的动作后再动……
+这与 **Transformer** 的自回归生成（预测下一个单词）完全一致！
+
+### 架构设计：Encoder-Decoder
+MAT 使用了标准的 Transformer 架构：
+
+1.  **Encoder（处理观测）**：
+    *   输入：所有智能体的局部观测序列 $(o^1, o^2, ..., o^n)$。
+    *   作用：利用 Self-Attention 提取智能体之间的交互特征，生成联合状态表征。
+
+2.  **Decoder（生成动作）**：
+    *   输入：Encoder 的输出 + 之前的智能体动作序列 $(a^1, ..., a^{i-1})$。
+    *   输出：当前智能体 $i$ 的动作概率分布 $\pi(a^i | \dots)$。
+    *   **机制**：类似于 GPT，通过 Masked Attention 确保智能体 $i$ 只能看到它之前的队友动作，看不到未来的。
+
+### 训练目标
+MAT 使用 PPO 的目标函数进行端到端训练。
+$$
+L(\theta) = \min(r_t(\theta) \hat{A}_t, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon)\hat{A}_t)
+$$
+*   **优势**：这种序列化建模天然地解决了**非平稳性**问题。对于 Agent $i$ 来说，它做决策时，队友 $1 \sim i-1$ 的动作已经是**已知**的（Fixed），环境不再是“薛定谔”的。
+*   **性能**：MAT 在 SMAC 等基准测试中展现了惊人的性能，尤其是在需要复杂协调的任务中，且具有极强的 Zero-Shot 泛化能力。
+
+---
+
+##  Heterogeneous-Agent SAC (HASAC)
+
+> **论文**：[Trust Region Policy Optimization in Multi-Agent Reinforcement Learning](https://arxiv.org/abs/2109.11251) (ICLR 2022)
+> *注：HASAC 是该论文提出的 HARL (Heterogeneous-Agent RL) 框架下的 Off-Policy 变体。*
+
+### 核心动机：效率至上
+HAPPO 虽然理论完美（保证单调提升），但它是 On-Policy 的，数据利用率低，训练慢。
+SAC 是单智能体中样本效率最高的 Off-Policy 算法。
+**HASAC = HAPPO 的序列更新理论 + SAC 的最大熵 Off-Policy 机制。**
+
+### 算法原理
+HASAC 继承了 HAPPO 的 **多智能体优势分解引理**：
+$$
+A_{\boldsymbol{\pi}}^{\text{joint}}(s, \mathbf{a}) = \sum_{i=1}^n A_{\pi}^{i}(s, a^i, a^1, ..., a^{i-1})
+$$
+
+### 训练流程
+1.  **随机排列**：每一轮训练，随机打乱智能体更新顺序（例如 $1 \to 2 \to \dots \to n$）。
+2.  **序列更新**：
+    *   对于智能体 $i$，它的 Critic $Q_i$ 需要评估的是：在队友 $1 \sim i-1$ 已经更新了新策略，而队友 $i+1 \sim n$ 还在用旧策略的情况下的价值。
+    *   目标函数结合了 SAC 的熵正则化：
+        $$
+        J(\pi^i) = \mathbb{E}_{\mathcal{D}} \left[ Q^{\pi_{\text{old}}}(s, a^1, ..., a^i, ..., a^n) - \alpha \log \pi^i(a^i|s) \right]
+        $$
+    *   **关键点**：在计算 $Q$ 值时，输入的动作向量 $\mathbf{a}$ 是混合的：
+        *   $a^{1:i-1}$ 来自**当前最新**的策略。
+        *   $a^{i}$ 是当前正在优化的。
+        *   $a^{i+1:n}$ 来自**旧**策略（Replay Buffer 中的动作或旧策略采样）。
+
+### 优缺点
+*   **优点**：
+    *   **极高的样本效率**：Off-Policy 机制让它可以利用历史数据。
+    *   **异构友好**：不需要参数共享，适合不同类型的智能体协作。
+    *   **收敛保证**：继承了 HARL 的单调性证明。
+*   **缺点**：计算复杂度较高，因为需要串行更新每个智能体，且 Critic 需要处理混合动作输入。
+
+---
+
+##  深度对比：四大天王
+
+至此，我们已经集齐了 MARL 领域的四大顶级算法。
+
+| 维度 | MAPPO | HAPPO | MAT | HASAC |
+| :--- | :--- | :--- | :--- | :--- |
+| **核心机制** | PPO + CTDE | 序列更新 + PPO | **Transformer + 自回归** | **序列更新 + SAC** |
+| **策略类型** | On-Policy | On-Policy | On-Policy | **Off-Policy** |
+| **决策方式** | 独立 (同步) | 独立 (执行时) | **序列 (串行执行)** | 独立 (执行时) |
+| **同构/异构** | 强依赖同构 (参数共享) | **异构友好** | 同构/异构皆可 | **异构友好** |
+| **样本效率** | 低 | 低 | 中 | **高** |
+| **适用场景** | 大规模同质集群 | 复杂异构协作 | 极复杂序列决策 | 需要快速收敛的任务 |
+
+### 总结
+*   如果你追求**极致的性能**和对复杂策略的建模能力，**MAT** 是首选，它代表了 RL 与 LLM 结合的趋势。
+*   如果你追求**训练速度**和**样本利用率**，或者你的智能体是**异构**的（比如一个无人机配合一个机械臂），**HASAC** 是目前的最强选择。
