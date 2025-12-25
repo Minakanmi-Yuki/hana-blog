@@ -1,0 +1,130 @@
+---
+title: "RL笔记（19）：离线强化学习 (Offline RL)"
+publishDate: 2025-12-26
+updatedDate: 2025-12-26
+description: "数据驱动的强化学习：当不能与环境交互时，如何从静态数据集中学习？深度解析分布偏移 (Distribution Shift) 问题，以及 BCQ 和 CQL 算法的理论推导。"
+heroImage: {src : "https://picr2.axi404.top/Paper-reading-Uni-zh.webp", color: '#8C8275'}
+category: 'daily'
+pixivLink: '127192375'
+---
+
+## 引言（Introduction）
+
+在之前的章节（DQN, SAC, DDPG）中，我们讨论的都是 **在线 (Online)** 或 **离线策略 (Off-Policy)** 算法。
+*   **Online**: 边玩边学。
+*   **Off-Policy**: 可以利用之前的经验回放池（Replay Buffer），但仍然需要不断与环境交互来补充新数据，纠正价值估计。
+
+**离线强化学习 (Offline RL)**，又称 Batch RL，面临的是一个更严苛的场景：
+**智能体完全不能与环境交互，只能从一个固定的、历史的数据集 $\mathcal{D}$ 中学习策略。**
+
+这就像是“仅仅通过看别人下棋的棋谱（而且可能含有臭棋），就要学会成为棋圣”。
+
+---
+
+## 核心挑战：分布偏移 (Distribution Shift)
+
+既然 Off-Policy 算法（如 SAC）可以使用 Replay Buffer，为什么不能直接把静态数据集 $\mathcal{D}$ 当作 Buffer 跑 SAC 呢？
+
+答案是：**外推误差 (Extrapolation Error)**。
+
+###  贝尔曼更新的陷阱
+回顾 Q-Learning 的贝尔曼更新目标：
+$$
+\mathcal{T}Q(s, a) = r + \gamma \max_{a'} Q(s', a')
+$$
+或者 Actor-Critic 中的：
+$$
+y = r + \gamma Q(s', \pi(s'))
+$$
+
+这里存在一个致命的 **反事实查询 (Counterfactual Query)** 问题：
+1.  数据集 $\mathcal{D}$ 是由行为策略 $\pi_\beta$ 产生的。
+2.  我们学习的新策略 $\pi$ 通常会与 $\pi_\beta$ 不同（为了变得更好）。
+3.  在计算目标值时，我们需要查询 $Q(s', \pi(s'))$。
+4.  如果 $\pi(s')$ 选出的动作 $a'$ **从未在数据集 $\mathcal{D}$ 中出现过**（OOD, Out-of-Distribution），Q 网络对这个从未见过的 $(s', a')$ 会输出什么？
+    *   根据神经网络的特性，它会输出一个随机的、无意义的值。
+5.  **最大化的诅咒**：由于 $\max$ 操作的存在，优化器会倾向于选择那些被**错误高估**的 OOD 动作。
+6.  **误差传播**：这个高估的误差会通过贝尔曼方程回传，导致整个 Q 函数崩溃。
+
+这就是 **分布偏移**：训练数据的分布 $(s, a) \sim \pi_\beta$ 与学习策略的分布 $(s, a) \sim \pi$ 不一致，导致 Q 值在未知区域严重高估。
+
+---
+
+## 解决方案一：基于约束的方法 (BCQ)
+
+**BCQ (Batch-Constrained deep Q-learning)** 的思路非常直观：
+既然 OOD 动作会导致 Q 值高估，那我就**禁止智能体选择那些在数据集中没出现过的动作**。
+
+### 理论推导
+我们希望优化策略 $\pi$，使其在最大化 $Q$ 值的动作，同时满足它生成的动作分布接近行为策略 $\pi_\beta$：
+$$
+\pi(s) = \arg\max_{a} Q(s,a) \quad \text{s.t.} \quad P(a|s, \mathcal{D}) > \tau
+$$
+
+### 算法实现逻辑
+由于 $\pi_\beta$ 未知，BCQ 训练一个 **生成模型 (VAE)** 来拟合数据集中的状态-动作分布。
+
+1.  **生成 (Generation)**：使用 CVAE 根据状态 $s$ 生成一组“在该状态下可能出现过的”候选动作 $\{a_1, \dots, a_n\}$。
+2.  **扰动 (Perturbation)**：训练一个扰动网络 $\xi_\phi(s,a)$，对生成的动作进行微调（在小范围内寻找更优解），得到 $\{a_1+\xi_1, \dots, a_n+\xi_n\}$。
+3.  **选择 (Selection)**：在这些动作中，选择 Q 值最大的那个作为最终输出。
+
+> **💡 评价**：BCQ 是一种保守策略，它消除了外推误差，但也限制了策略的泛化能力（只能在见过的数据附近微调）。
+
+---
+
+## 解决方案二：基于价值的保守方法 (CQL)
+
+**CQL (Conservative Q-Learning)** 是目前理论最完备的 Offline RL 算法之一。
+它的思路是：**修改贝尔曼更新的目标函数，显式地惩罚 OOD 动作的 Q 值。**
+
+###  目标函数设计
+标准的贝尔曼误差是最小化 $\mathbb{E}_{(s,a)\sim\mathcal{D}} [(Q - \mathcal{T}Q)^2]$。
+CQL 增加了一个正则项，用于**最小化**策略 $\mu$（新策略）产生的动作的 Q 值，同时**最大化**数据集 $\mathcal{D}$ 中动作的 Q 值：
+
+$$
+\min_Q \alpha \left( \underbrace{\mathbb{E}_{s\sim\mathcal{D}, a\sim\mu(a|s)} [Q(s,a)]}_{\text{压低 OOD 动作的 Q 值}} - \underbrace{\mathbb{E}_{s\sim\mathcal{D}, a\sim\pi_\beta(a|s)} [Q(s,a)]}_{\text{拉高数据中动作的 Q 值}} \right) + \frac{1}{2} \mathbb{E}_{\mathcal{D}} [(Q - \mathcal{B}^{\pi}Q)^2]
+$$
+
+*   $\mu(a|s)$：可以是当前学习的策略，也可以是随机分布。
+*   通过这种“压低未知，拉高已知”，CQL 迫使 Q 函数在 OOD 区域产生低估。
+
+###  理论推导：Q 值下界 (Lower Bound)
+CQL 的核心理论贡献在于证明了上述目标函数学习到的 Q 值 $\hat{Q}$ 是真实 Q 值 $Q^\pi$ 的**下界**。
+
+令 $\mathcal{B}^\pi$ 为贝尔曼算子。CQL 的不动点迭代可以近似写作：
+$$
+\hat{Q}_{k+1} \leftarrow \mathcal{B}^\pi \hat{Q}_k - \alpha (\mu - \pi_\beta)
+$$
+(这里省略了复杂的采样误差项，仅关注期望行为)
+
+当 $\alpha$ 足够大时，可以证明：
+$$
+\mathbb{E}_{\pi(a|s)} [\hat{Q}(s,a)] \le \mathbb{E}_{\pi(a|s)} [Q^\pi(s,a)]
+$$
+
+这意味着 CQL 学习到的 Q 值是**保守的 (Conservative)**。
+*   如果策略想去一个未知区域，CQL 会告诉它：“那个地方 Q 值很低（哪怕实际上可能很高）”。
+*   因此，策略会倾向于留在数据覆盖的“安全区域”内。
+
+###  广义 CQL (Generalization)
+对于连续动作空间，CQL 将第一项正则化改为 $\log\sum\exp$ 形式（Soft-max），以覆盖所有可能的动作：
+
+$$
+\min_Q \alpha \mathbb{E}_{s \sim \mathcal{D}} \left[ \log \sum_a \exp(Q(s,a)) - \mathbb{E}_{a \sim \pi_\beta}[Q(s,a)] \right] + \text{Bellman Error}
+$$
+
+这等价于压低整个 Q 值函数的配分函数，确保没有任何一个 OOD 动作能由于外推误差而获得异常高的 Q 值。
+
+---
+
+## 总结：从乐观到悲观
+
+| 维度 | 在线/离线策略 RL (DQN/SAC) | 离线 RL (Offline RL) |
+| :--- | :--- | :--- |
+| **心态** | **乐观 (Optimistic)** | **悲观 (Pessimistic) / 保守** |
+| **对待未知** | 未知动作 = 潜在的高回报 (探索红利) | 未知动作 = 潜在的风险 (外推误差) |
+| **核心算法** | $\max Q$ | $\max Q$ s.t. $a \in \mathcal{D}$ (BCQ) <br> $\min Q_{OOD}$ (CQL) |
+| **适用场景** | 模拟器、低成本试错环境 | 医疗、工业控制、自动驾驶 (试错成本极高) |
+
+**离线强化学习的本质**：
+在无法验证真伪的情况下，**宁可错过（低估），不可做错（高估）。** 只有当数据充分证明某个策略好时，我们才敢信任它。
