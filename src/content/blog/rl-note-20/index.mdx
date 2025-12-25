@@ -112,7 +112,7 @@ $$
 | 维度 | Conservative Q-Learning (CQL) | Decision Transformer (DT) |
 | :--- | :--- | :--- |
 | **核心范式** | **动态规划 (DP)** | **序列建模 (SL)** |
-| **学习目标** | 逼近最优价值函数 $Q^*(s,a)$ | 拟合条件分布 $P(a|\hat{R}, s)$ |
+| **学习目标** | 逼近最优价值函数 $Q^*(s,a)$ | 拟合条件分布 $P(a\|\hat{R}, s)$ |
 | **训练方式** | 最小化贝尔曼误差 (TD Error) | 最大化动作似然 (Supervised) |
 | **OOD 处理** | 显式惩罚未知动作的 Q 值 (悲观主义) | 依靠 Transformer 的泛化能力 (无显式约束) |
 | **长时序信用分配** | 依靠 $Q$ 值的自举传播 (Bootstrapping) | 依靠 Attention 机制直接关联过去与未来 |
