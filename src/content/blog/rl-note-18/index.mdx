@@ -1,0 +1,126 @@
+---
+title: "RL笔记（18）：基于模型的策略优化 (MBPO)"
+publishDate: 2025-12-27
+updatedDate: 2025-12-27
+description: "Model-Based RL 的集大成者：深度解析 MBPO 的理论边界。从单调性保证到分支推演 (Branched Rollout)，论证如何通过控制推演步长来解决模型偏差带来的二次误差累积问题。"
+heroImage: {src : "https://picr2.axi404.top/Paper-reading-Uni-zh.webp", color: '#8C8275'}
+category: 'daily'
+pixivLink: '127192375'
+---
+
+## 引言（Introduction）
+
+在强化学习的谱系中，存在一对矛盾：
+*   **Model-Free (如 SAC)**：渐进性能好（能收敛到很高的分数），但样本效率极低（需要几百万次交互）。
+*   **Model-Based (如 Dyna)**：样本效率高（利用模型生成数据），但往往受限于**模型偏差 (Model Bias)**，导致渐进性能较差。
+
+**模型偏差的诅咒**在于：模型也是从数据中拟合出来的，它必然存在误差。当智能体在模型中进行长距离推演时，微小的误差会像滚雪球一样迅速放大（Compound Error），导致智能体在“虚构的完美世界”里表现很好，但在“残酷的现实世界”里一塌糊涂。
+
+**MBPO (Model-Based Policy Optimization)** 的核心贡献在于它通过严格的理论推导，定量地分析了模型误差与策略性能的关系，并提出了一种**分支推演 (Branched Rollout)** 机制，在保证单调提升的前提下，最大化地利用模型。
+
+---
+
+## 理论推导：回报差的上界
+
+我们希望找到一个策略 $\pi$，最大化真实环境中的期望回报 $\eta[\pi]$。
+但我们只能优化模型环境中的期望回报 $\hat{\eta}[\pi]$。
+我们需要推导两者之间的误差上界，从而找到一个安全优化的 **下界 (Lower Bound)**。
+
+###  定义与假设
+*   真实环境的状态转移分布：$p(s'|s,a)$
+*   学习模型的状态转移分布：$\hat{p}(s'|s,a)$
+*   **模型误差 $\epsilon_m$**：假设模型在分布上的最大误差是有界的（TV 散度）：
+    $$ \max_{s,a} D_{TV}(p(\cdot|s,a) || \hat{p}(\cdot|s,a)) \le \epsilon_m $$
+
+###  状态分布的差异
+策略 $\pi$ 在真实动力学下的状态访问分布为 $\rho_\pi$，在模型动力学下的状态访问分布为 $\hat{\rho}_\pi$。
+根据 *Simulation Lemma*，两者之间的差异上界为：
+$$
+D_{TV}(\rho_\pi || \hat{\rho}_\pi) \le \frac{\gamma \epsilon_m}{(1-\gamma)^2}
+$$
+> **⚠️ 警示**：注意这里的 $(1-\gamma)^2$。这意味着状态分布的误差是随着时间视界（Horizon）**二次方**增长的。这就是为什么在传统 Model-Based RL 中，长距离推演会导致极其严重的偏差。
+
+###  真实回报与模型回报的差异
+基于上述状态分布差异，我们可以推导出真实回报 $\eta[\pi]$ 与模型回报 $\hat{\eta}[\pi]$ 的差值上界：
+$$
+\left| \eta[\pi] - \hat{\eta}[\pi] \right| \le 2 r_{\max} \frac{\gamma \epsilon_m}{(1-\gamma)^2}
+$$
+
+这个上界告诉我们：如果我们只是简单地训练一个模型，然后在模型里从头跑到尾（Full Rollout）来训练策略，那么真实性能和模型性能的差距可能会非常大，优化 $\hat{\eta}$ 并不代表能提升 $\eta$。
+
+---
+
+## 核心突破：分支推演 (Branched Rollout)
+
+为了打破上述的“二次方误差诅咒”，MBPO 提出改变推演的方式。
+
+###  什么是分支推演？
+传统的 Dyna 风格是从初始状态 $s_0$ 开始，一直推演到 $s_T$。
+MBPO 的 **$k$-步分支推演** 是：
+从策略在**真实环境**中访问过的状态分布 $\mathcal{D}_{\text{env}}$ 中采样一个状态 $s$，作为推演的起点，然后仅在模型中推演 $k$ 步。
+
+###  修正后的误差边界
+在 $k$-步分支推演下，回报差的上界被显著收紧了：
+$$
+\left| \eta[\pi] - \hat{\eta}_k[\pi] \right| \le 2 r_{\max} \left[ \frac{\gamma^{k+1} \epsilon_\pi}{(1-\gamma)^2} + \frac{\gamma^k \epsilon_m}{1-\gamma} + \frac{k}{1-\gamma}\epsilon_m \right]
+$$
+*(注：公式略作简化以直观展示核心项)*
+
+关键在于最后一项 $\frac{k}{1-\gamma}\epsilon_m$。
+这表明：**在分支推演下，模型误差 $\epsilon_m$ 对总回报误差的贡献是随 $k$ 线性增长的，而不是二次方增长。**
+
+###  $k$ 的权衡 (Trade-off)
+这个理论边界揭示了超参数 $k$ 的物理意义：
+*   **当 $k$ 很小时**：误差界很紧（线性），我们可以放心地信任模型数据。但是模型能提供的“远见”有限。
+*   **当 $k$ 很大时**：误差界变松（趋向二次方），模型偏差开始主导，导致策略性能下降。
+
+因此，MBPO 动态调整 $k$：在训练初期模型不准时，$k=1$；随着模型精度提高，逐渐增加 $k$（通常从 1 增加到 15 左右），在保证偏差可控的前提下最大化利用模型。
+
+---
+
+## 算法架构设计
+
+MBPO 的实现是围绕上述理论构建的，由三个核心模块组成。
+
+###  概率模型集成 (Ensemble of Probabilistic Models)
+为了准确估计模型误差并防止过拟合，MBPO 训练一组（如 7 个）高斯概率网络。
+$$ \hat{p}_\theta(s'|s,a) = \mathcal{N}(\mu_\theta(s,a), \Sigma_\theta(s,a)) $$
+*   **不确定性感知**：预测时随机从集成模型中选择一个成员，这模拟了贝叶斯后验采样，能够捕捉**认知不确定性 (Epistemic Uncertainty)**。
+
+###  混合策略优化 (Model-Based Policy Optimization)
+MBPO 使用 **SAC (Soft Actor-Critic)** 作为底层的策略优化器。
+为了克服模型偏差，SAC 的训练数据由两部分组成：
+*   **真实数据 $\mathcal{D}_{\text{env}}$**：占比很小（如 5%）。
+*   **模型数据 $\mathcal{D}_{\text{model}}$**：由分支推演产生的海量数据，占比很大（如 95%）。
+
+###  算法流程 (伪代码)
+$$
+\begin{aligned}
+& \bullet \; \text{Initialize policy } \pi_\phi, \text{ ensemble models } \{p_{\theta_1}, \dots, p_{\theta_B}\} \\
+& \bullet \; \text{Initialize empty buffers } \mathcal{D}_{\text{env}}, \mathcal{D}_{\text{model}} \\
+& \bullet \; \textbf{For } N \text{ epochs} \textbf{ do}: \\
+& \bullet \qquad \textbf{1. Collect Real Data (Exploration)} \\
+& \bullet \qquad \text{Rollout policy in real environment, add transitions to } \mathcal{D}_{\text{env}} \\
+& \bullet \qquad \textbf{2. Train Models (Supervised Learning)} \\
+& \bullet \qquad \text{Train ensemble } \{p_\theta\} \text{ on } \mathcal{D}_{\text{env}} \text{ via Max Likelihood} \\
+& \bullet \qquad \textbf{3. Branched Rollout (Data Augmentation)} \\
+& \bullet \qquad \text{Sample states } s \sim \mathcal{D}_{\text{env}} \\
+& \bullet \qquad \text{Rollout } k \text{ steps using models, add to } \mathcal{D}_{\text{model}} \\
+& \bullet \qquad \textbf{4. Policy Optimization (SAC)} \\
+& \bullet \qquad \textbf{For } G \text{ gradient steps} \textbf{ do}: \\
+& \bullet \qquad \qquad \text{Sample batch } B \text{ from } \mathcal{D}_{\text{env}} \cup \mathcal{D}_{\text{model}} \text{ (e.g., 95\% model data)} \\
+& \bullet \qquad \qquad \text{Update } \pi_\phi, Q_\psi \text{ using SAC loss} \\
+& \bullet \qquad \textbf{End For} \\
+& \bullet \; \textbf{End For}
+\end{aligned}
+$$
+
+---
+
+## 总结：MBPO 的启示
+
+MBPO 是 Model-Based RL 的一个转折点，它通过理论证明回答了**“我们该多大程度信任模型？”**这个问题。
+
+1.  **单调性保证**：通过限制推演步长 $k$，MBPO 将模型误差控制在线性增长范围内，从而保证了策略改进的单调性（类似 TRPO 的 Trust Region 思想，但应用在 Rollout Length 上）。
+2.  **数据增强**：MBPO 本质上是把学到的模型当作一个**超级数据增强器**。它从有限的真实数据出发，通过短步推演，扩散出海量的虚拟数据供 SAC 训练。
+3.  **结果**：MBPO 在 MuJoCo 等基准测试中，以 1/10 甚至更少的样本量，达到了与 SAC 相当的渐进性能，打破了“Model-Based 也就是学得快但分不高”的刻板印象。
