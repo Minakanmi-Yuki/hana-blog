@@ -34,7 +34,7 @@ QTRAN 认为，直接学习一个满足 IGM 的 $Q_{tot}$ 太难了。
 $$
 Q_{tot}(s, \mathbf{u}) \approx Q'_{tot}(s, \mathbf{u}) + V_{tot}(s, \mathbf{u})
 $$
-其中 $Q'_{tot}(s, \mathbf{u}) = \sum Q_i(u_i)$ 是我们实际用来选动作的函数。
+其中 $Q'_{tot}(s, \mathbf{u}) = \sum_{i=1}^n Q_i(u_i)$ 是我们实际用来选动作的函数。
 
 为了保证 $\arg\max Q'_{tot} = \arg\max Q_{tot}$（IGM 原则），QTRAN 推导出了一组充分条件：
 1.  **最优动作一致性**：在最优动作 $\bar{\mathbf{u}}$ 处，两者相等。
@@ -45,7 +45,7 @@ $$
 ### 损失函数设计
 QTRAN 将上述硬约束转化为软损耗（Soft Constraints）加入训练：
 $$
-L_{opt} = (Q'_{tot}(\bar{\mathbf{u}}) - y_{target})^2 + \lambda \sum_{\mathbf{u} \ne \bar{\mathbf{u}}} (\dots)^2
+L_{opt} = (Q'_{tot}(\bar{\mathbf{u}}) - y_{target})^2 + \lambda \sum_{\mathbf{u} \in \mathcal{U}, \mathbf{u} \ne \bar{\mathbf{u}}} (Q'_{tot}(\mathbf{u}) - Q_{tot}(\mathbf{u}) + V_{tot}(\mathbf{u}))^2
 $$
 
 ### 总结
@@ -71,7 +71,7 @@ WQMIX 提出：**我们其实不在乎非最优动作的 Q 值准不准，我们
 
 ### 损失函数
 $$
-\mathcal{L} = \sum w(s, \mathbf{u}) \left( \hat{Q}^*(s, \mathbf{u}) - Q_{tot}(s, \mathbf{u}) \right)^2
+\mathcal{L} = \sum_{i=1}^b w(s, \mathbf{u}) \left( \hat{Q}^*(s, \mathbf{u}) - Q_{tot}(s, \mathbf{u}) \right)^2
 $$
 权重函数 $w$ 的设计体现了**乐观主义**：
 *   如果 $\hat{Q}^*$ 认为当前动作很好的（可能是潜在的最优解），给大权重 $w=1$。

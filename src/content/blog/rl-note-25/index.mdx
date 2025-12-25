@@ -1,0 +1,114 @@
+---
+title: "RL笔记（25）：多智能体策略梯度 (MADDPG & MAPPO)"
+publishDate: 2026-1-3
+updatedDate: 2026-1-3
+description: "从连续控制到离散博弈：详解 CTDE 架构在 Actor-Critic 中的应用。涵盖 MADDPG 的多面手 Critic 设计与 MAPPO 的工程化胜利。"
+heroImage: {src : "https://picr2.axi404.top/Paper-reading-Uni-zh.webp", color: '#8C8275'}
+category: 'daily'
+pixivLink: '127192375'
+---
+
+## 引言：Actor-Critic 的群体进化
+
+我们在之前的笔记中学习了 **CTDE (中心化训练，分布式执行)** 的思想。在 Value-Based 方法（如 QMIX）中，CTDE 体现在将 $Q_{tot}$ 分解为 $Q_i$。
+
+而在 **Actor-Critic** 架构中，CTDE 的实现更加直观且灵活：
+*   **Actor (策略)**：必须是**局部**的 ($\pi(a_i|o_i)$)，因为执行时只能靠自己。
+*   **Critic (价值)**：必须是**全局**的 ($Q(s, \mathbf{a})$ 或 $V(s)$)，因为训练时我们可以利用上帝视角来更准地评估局势，从而指导 Actor。
+
+本章将介绍这一范式下的两个里程碑算法：针对连续动作的 **MADDPG** 和目前最强的 Baseline **MAPPO**。
+
+---
+
+##  MADDPG (Multi-Agent DDPG)
+
+> **论文**：[Multi-Agent Actor-Critic for Mixed Cooperative-Competitive Environments](https://arxiv.org/abs/1706.02275)
+
+MADDPG 是 DDPG 算法在多智能体环境下的自然延伸，由 OpenAI 在 2017 年提出。它主要解决了**非平稳性**问题。
+
+### 核心思想：Critic 知道一切
+在独立学习（Independent DDPG）中，Critic 只输入 $(o_i, a_i)$。当队友 $j$ 的策略 $\pi_j$ 改变时，环境对 $i$ 来说就变了，导致 Critic 震荡。
+
+MADDPG 提出：**Critic 应该输入所有人的动作**。
+$$ Q_i^{\boldsymbol{\pi}}(s, a_1, \dots, a_N) $$
+只要输入了联合动作 $\mathbf{a} = (a_1, \dots, a_N)$，环境的状态转移 $P(s'|s, \mathbf{a})$ 就是由物理规律决定的，是**平稳 (Stationary)** 的。
+
+### 架构设计
+对于 $N$ 个智能体，每个智能体 $i$ 维护两个网络：
+1.  **Actor $\mu_{\theta_i}(o_i)$**：
+    *   **输入**：仅局部观测 $o_i$。
+    *   **输出**：确定性动作 $a_i$。
+    *   **特点**：执行时完全独立。
+2.  **Critic $Q_{\phi_i}(s, a_1, \dots, a_N)$**：
+    *   **输入**：全局状态 $s$（或所有人的观测） + **所有人的动作**。
+    *   **输出**：标量 Q 值。
+    *   **特点**：仅在训练时使用。
+
+### 训练流程
+1.  **Critic 更新**：最小化贝尔曼误差。
+    $$ y = r_i + \gamma Q_i'(s', a'_1, \dots, a'_N)|_{a'_j = \mu'_j(o'_j)} $$
+    注意：计算目标值时，需要用到**每个智能体的 Target Actor** 来预测下一步动作。
+2.  **Actor 更新**：确定性策略梯度。
+    $$ \nabla_{\theta_i} J = \mathbb{E} [\nabla_{a_i} Q_i(s, a_1, \dots, a_N)|_{a_i=\mu_i(o_i)} \cdot \nabla_{\theta_i} \mu_i(o_i)] $$
+    注意：Critic 对 $a_i$ 求导，告诉 Actor $i$ 如何调整动作能提高集体（或个人）收益。
+
+### 优缺点
+*   **优点**：可以处理连续动作；适用于合作、竞争或混合任务（每个 Critic 可以最大化不同的奖励 $r_i$）。
+*   **缺点**：Critic 的输入维度随人数线性增长，难以扩展到大规模集群。
+
+---
+
+##  MAPPO (Multi-Agent PPO)
+
+> **论文**：[The Surprising Effectiveness of PPO in Cooperative Multi-Agent Games](https://arxiv.org/abs/2103.01955)
+
+长期以来，人们认为 Off-Policy（如 MADDPG/QMIX）在 MARL 中更高效。但 MAPPO (2021) 证明：**只要调参得当，简单的 On-Policy PPO 也能吊打复杂的 Off-Policy 算法。**
+
+### 核心思想：Centralized Value Function
+MAPPO 的结构极其简单，就是 PPO + CTDE。
+它与 IPPO（独立 PPO）唯一的区别在于 **Critic**。
+
+*   **IPPO Critic**: $V(o_i)$ —— 只看自己，不仅视野窄，而且受队友策略变化干扰严重。
+*   **MAPPO Critic**: $V(s)$ —— **看全局**。Critic 学习的是全局状态价值函数。
+
+### 为什么 $V(s)$ 比 $Q(s, \mathbf{a})$ 好？
+MADDPG 使用 $Q(s, \mathbf{a})$，这需要输入巨大的联合动作空间。
+MAPPO 使用 $V(s)$ 来计算优势函数：
+$$ \hat{A}_i(t) = \sum (\gamma \lambda)^l (r_{i, t+l} + \gamma V(s_{t+1+l}) - V(s_{t+l})) $$
+$V(s)$ 不需要输入动作，维度低，训练更容易收敛。
+
+### 成功的关键：工程技巧 (Implementation Matters)
+MAPPO 的成功不仅仅在于算法，更在于 5 个关键的工程实践：
+1.  **输入特征处理**：将 Agent ID 作为 One-hot 向量拼接到状态中（在参数共享时区分不同个体）。
+2.  **参数共享 (Parameter Sharing)**：所有智能体共用一个 Actor 和一个 Critic 网络（适用于同质智能体），极大加速收敛。
+3.  **PopArt**：对 Critic 的目标值（Value Target）进行**归一化**，处理奖励尺度差异大的问题。
+4.  **数据并行**：使用多个并行环境收集数据。
+5.  **裁剪 (Clipping)**：PPO 本身的 Clip 机制有效防止了非平稳环境下的策略崩塌。
+
+---
+
+##  深度对比：MADDPG vs. MAPPO
+
+| 维度 | MADDPG | MAPPO |
+| :--- | :--- | :--- |
+| **基础算法** | DDPG (Off-Policy) | PPO (On-Policy) |
+| **策略类型** | 确定性 ($\mu(o)$) | 随机性 ($\pi(a|o)$) |
+| **动作空间** | **连续** (擅长) | 连续 & 离散 (都擅长) |
+| **Critic 形式** | $Q(s, a_1, \dots, a_N)$ | $V(s)$ |
+| **通信需求** | 训练时需知晓他人动作 | 训练时需知晓全局状态 |
+| **样本效率** | 较高 (Replay Buffer) | 较低 (需大量采样) |
+| **稳定性** | 较差 (超参数敏感) | **极高** (鲁棒性强) |
+| **SOTA 表现** | 早期基准 | 目前 SMAC 等环境的主流强基准 |
+
+---
+
+##  总结
+
+多智能体策略方法的发展经历了从“各自为战”到“全局协同”的过程。
+
+*   **MADDPG** 解决了连续动作下的多智能体博弈问题，通过将“队友的动作”显式输入 Critic，在数学上恢复了平稳性。
+*   **MAPPO** 则展示了“大道至简”的力量，证明了通过引入全局价值函数 $V(s)$ 并配合优秀的工程实现，On-Policy 算法也能在复杂的协作任务中达到 SOTA 水平。
+
+至此，我们已经涵盖了 MARL 的两大主流流派：
+1.  **Value-Based**: QMIX, QPLEX (适合离散动作，强显式协作)。
+2.  **Policy-Based**: MADDPG, MAPPO (适合连续动作，通用性强)。
