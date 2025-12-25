@@ -74,7 +74,7 @@ MAPPO 的结构极其简单，就是 PPO + CTDE。
 ### 为什么 $V(s)$ 比 $Q(s, \mathbf{a})$ 好？
 MADDPG 使用 $Q(s, \mathbf{a})$，这需要输入巨大的联合动作空间。
 MAPPO 使用 $V(s)$ 来计算优势函数：
-$$ \hat{A}_i(t) = \sum (\gamma \lambda)^l (r_{i, t+l} + \gamma V(s_{t+1+l}) - V(s_{t+l})) $$
+$$ \hat{A}_i(t) = \sum (\gamma \lambda)^l (r_{i, t+l} + \gamma V(s_{t+1+l}) - V(s_{t+l})) $$。
 $V(s)$ 不需要输入动作，维度低，训练更容易收敛。
 
 ### 成功的关键：工程技巧 (Implementation Matters)
