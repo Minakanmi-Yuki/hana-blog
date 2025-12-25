@@ -1,0 +1,121 @@
+---
+title: "RL笔记（24）：超越单调性 (QTRAN, WQMIX, QPLEX)"
+publishDate: 2026-1-2
+updatedDate: 2026-1-2
+description: "打破 QMIX 的枷锁：详解 QTRAN、Weighted QMIX 和 QPLEX 如何突破单调性约束。涵盖软约束松弛、非对称加权投影及对偶对决架构的完全表达能力证明。"
+heroImage: {src : "https://picr2.axi404.top/Paper-reading-Uni-zh.webp", color: '#8C8275'}
+category: 'daily'
+pixivLink: '127192375'
+---
+
+## 引言（Introduction）
+
+在上一章中，我们介绍了 **QMIX**，它通过强制混合网络的权重非负，实现了对 IGM 原则的单调性近似。
+然而，单调性是一个**充分非必要条件**。
+*   **局限性**：QMIX 无法表示非单调的协作任务（例如：智能体 A 和 B 必须同时做动作 X 才能得分，单独做反而扣分。这种“异或”逻辑违反了单调性）。
+*   **挑战**：我们需要一种方法，既能满足 IGM 原则（保证分布式执行），又能覆盖**所有**可能的联合价值函数空间。
+
+本章将介绍三种试图突破 QMIX 天花板的进阶算法：**QTRAN**（基于变换）、**WQMIX**（基于加权）和 **QPLEX**（基于优势函数）。
+
+---
+
+##  QTRAN: Learning to Factorize with Transformation
+
+> **论文**：[QTRAN: Learning to Factorize with Transformation for Cooperative MARL](https://arxiv.org/abs/1905.05408)
+
+### 核心思想：变换与松弛
+QTRAN 认为，直接学习一个满足 IGM 的 $Q_{tot}$ 太难了。
+不如我们将 $Q_{tot}$ 拆解为两部分：
+1.  **$Q'_{tot}$**：一个易于分解的部分（如 VDN 的求和形式），用于指导动作选择。
+2.  **$V_{tot}$**：一个状态价值修正项，用于补足残差，确保逼近真实的 $Q^*$。
+
+### 数学构造
+我们定义变换后的目标函数：
+$$
+Q_{tot}(s, \mathbf{u}) \approx Q'_{tot}(s, \mathbf{u}) + V_{tot}(s, \mathbf{u})
+$$
+其中 $Q'_{tot}(s, \mathbf{u}) = \sum Q_i(u_i)$ 是我们实际用来选动作的函数。
+
+为了保证 $\arg\max Q'_{tot} = \arg\max Q_{tot}$（IGM 原则），QTRAN 推导出了一组充分条件：
+1.  **最优动作一致性**：在最优动作 $\bar{\mathbf{u}}$ 处，两者相等。
+    $$ Q'_{tot}(\bar{\mathbf{u}}) - Q_{tot}(\bar{\mathbf{u}}) + V_{tot}(\bar{\mathbf{u}}) = 0 $$
+2.  **非最优动作界限**：在非最优动作 $\mathbf{u}$ 处，$Q'_{tot}$ 不会“篡位”。
+    $$ Q'_{tot}(\mathbf{u}) - Q_{tot}(\mathbf{u}) + V_{tot}(\mathbf{u}) \ge 0 $$
+
+### 损失函数设计
+QTRAN 将上述硬约束转化为软损耗（Soft Constraints）加入训练：
+$$
+L_{opt} = (Q'_{tot}(\bar{\mathbf{u}}) - y_{target})^2 + \lambda \sum_{\mathbf{u} \ne \bar{\mathbf{u}}} (\dots)^2
+$$
+
+### 总结
+*   **优点**：理论上具有完全的表达能力 (Full Expressiveness)。
+*   **缺点**：实际训练中，软约束很难被完美满足，且计算量巨大（涉及所有动作空间的求和）。在复杂任务上表现往往不如 QMIX。
+
+---
+
+##  Weighted QMIX (WQMIX)
+
+> **论文**：[Weighted QMIX: Expanding Monotonic Value Function Factorisation](https://arxiv.org/abs/2006.10800)
+
+### 核心思想：非对称加权
+WQMIX 指出 QMIX 的核心问题是 **相对过泛化 (Relative Overgeneralization)**：为了拟合某些非最优的低分动作，模型被迫拉低了最优动作的 Q 值。
+
+WQMIX 提出：**我们其实不在乎非最优动作的 Q 值准不准，我们只在乎最优动作的 Q 值准不准。**
+因此，我们可以给最优样本赋予极高的权重。
+
+### 算法架构
+1.  **无限制网络 $\hat{Q}^*$**：使用一个普通的前馈网络（不加绝对值约束）来估计真实的联合 Q 值。这保证了表达能力，但不满足 IGM。
+2.  **单调网络 $Q_{tot}$**：使用标准的 QMIX 结构（满足 IGM），用来做策略执行。
+3.  **加权投影**：通过加权 Loss 强行让 $Q_{tot}$ 去逼近 $\hat{Q}^*$。
+
+### 损失函数
+$$
+\mathcal{L} = \sum w(s, \mathbf{u}) \left( \hat{Q}^*(s, \mathbf{u}) - Q_{tot}(s, \mathbf{u}) \right)^2
+$$
+权重函数 $w$ 的设计体现了**乐观主义**：
+*   如果 $\hat{Q}^*$ 认为当前动作很好的（可能是潜在的最优解），给大权重 $w=1$。
+*   如果 $\hat{Q}^*$ 认为当前动作很差，给小权重 $w=\alpha \ll 1$。
+
+这使得 $Q_{tot}$ 即使受限于单调性，也会优先保证在最优动作附近的形状是正确的，从而突破了结构瓶颈。
+
+---
+
+##  QPLEX: Duplex Dueling Multi-Agent Q-Learning
+
+> **论文**：[QPLEX: Duplex Dueling Multi-Agent Q-Learning](https://arxiv.org/abs/2008.01062)
+
+### 核心思想：基于优势的 IGM
+QPLEX 是目前的 SOTA 方法之一。它借鉴了 Dueling DQN 的思想，指出 IGM 原则其实只关乎 **优势函数 (Advantage)**，与状态价值 $V(s)$ 无关。
+
+$$ Q_{tot}(s, \mathbf{u}) = V_{tot}(s) + A_{tot}(s, \mathbf{u}) $$
+
+只要保证 $A_{tot}$ 和局部 $A_i$ 在“正负号”上的一致性，就能满足 IGM，而不需要限制权重的正负。
+
+### 数学构造
+QPLEX 构造了如下形式的联合优势函数：
+$$
+A_{tot}(s, \mathbf{u}) = \sum_{i=1}^n \lambda_i(s, \mathbf{u}) A_i(s, u_i)
+$$
+*   关键点：只要系数 $\lambda_i(s, \mathbf{u}) > 0$，那么 $A_{tot}$ 的符号就由 $A_i$ 决定。
+    *   如果所有 $u_i$ 都是局部最优（$A_i=0$），那么 $A_{tot}=0$（全局最优）。
+    *   如果有任何一个 $u_i$ 不是最优（$A_i < 0$），那么 $A_{tot} < 0$（全局非最优）。
+
+### 网络架构
+QPLEX 使用 **多头注意力机制 (Multi-Head Attention)** 来动态生成权重 $\lambda_i$。
+*   这不仅保证了 $\lambda_i > 0$，还赋予了模型根据当前状态动态调整每个智能体权重的能力。
+*   通过这种严格的数学构造，QPLEX 在理论上实现了**完全表达能力**，同时保留了 VDN 般高效的计算效率。
+
+---
+
+##  总结与对比
+
+| 算法 | 核心机制 | 表达能力 | IGM 保证 | 计算复杂度 |
+| :--- | :--- | :--- | :--- | :--- |
+| **QMIX** | 单调性约束 (权重 $>0$) | 受限 (单调类) | 严格 | 低 |
+| **QTRAN** | 软约束松弛 + 罚项 | 完全 | 近似 (软约束) | 极高 |
+| **WQMIX** | 双网络 + 非对称加权 | 近似完全 | 严格 (投影后) | 中 |
+| **QPLEX** | 优势分解 + 注意力权重 | **完全** | **严格 (数学构造)** | 中 |
+
+**演进脉络**：
+从 QMIX 的“削足适履”（为了 IGM 牺牲表达能力），到 QPLEX 的“量体裁衣”（通过精巧的数学构造同时实现 IGM 和完全表达能力），值分解算法在 MARL 领域已经发展得相当成熟。
