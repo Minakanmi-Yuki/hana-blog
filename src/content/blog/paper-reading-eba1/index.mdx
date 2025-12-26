@@ -74,7 +74,23 @@ RT-1早期的贡献还是值得肯定的，并且在后续的工作RT-2中解决
 
 ## RT-2
 
-<ArxivRating id='2307.15818' tldr='' rank={0}>
+<ArxivRating id='2307.15818' tldr='RT-2加入了VLM进行Fusion，是现有比较规范的VLA架构。' rank={3}>
+![](https://pic.hana0721.top/RT-2.8l0k484kpi.webp)
+RT-2是Google继RT-1后于2023年提出的一种VLA模型。
+RT-2抛弃了RT-1的FiLM结构，使用了预训练的VLM来处理Image观测与Language指令（本质是Image经过ViT映射为Language Token并与指令Token一同输入到LLM中）。
+RT-2采用了PaLI-X  和 PaLM-E 作为主干，这两个模型都进行了大规模VQA预训练。
+和RT-1一样，RT-2也对连续动作进行了离散化处理（256个区间），但RT-2将离散动作映射到了LLM Token中，因此需要保留256个词元作为动作词元。
+对PaLI-X，将动作词元对应到整数词元。对PaLM-E，则采用频率最低的256词元作为动作词元。
+同时，RT-2对训练数据进行了处理，转为了适合VLM训练的VQA格式。
+RT-2使用了协同微调，也就是将网络数据与机器人数据混合起来微调，这样可以提高泛化能力。
+因为使用LLM进行Action的输出，所以需要限制其输出动作词元，RT-2使用了Prompt进行限制。
+RT-2发布了不同参数规模的模型，如5B和55B。5B可以部署在本地，55B需要使用云服务进行部署。
+RT-2还可以结合CoT的架构进行推理，如SayCan这类方法，以处理更加复杂的指令。
+![](https://pic.hana0721.top/RT-2-performance.3uvb5ucnb1.webp)
+RT-2在Unseen限制下表现出一定的泛化能力，但还是具有局限性。
+比如，它不能处理一些没有经验的新动作，且无法完成一些Unseen Object的动力学任务（如移动马克笔到指定位置）。
+它使用离散化的动作，可能难以处理一些高精度的任务。
+而且使用低频词元去学习高频输出的动作词元，会出现双峰学习的问题。
 
 </ArxivRating>
 
