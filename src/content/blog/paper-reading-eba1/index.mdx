@@ -25,7 +25,7 @@ RL菜鸡开始进军Embodied AI，慢慢积累，提升自己。
 ![](https://pic.hana0721.top/act-easy.92qlspndp7.webp)
 ACT是一种经典的机器人Manipulation方法，采用了CVAE架构，上图展示了ACT的模型架构。
 ACT的输入是机器人Joint position以及多视角下的观测图像，输出是未来一系列的Action。
-CVAE-Encoder采用了BERT-like的结构，以机器人Joint position和专家Action chunking（加上了position embedding）为输入，并将[CLS]经过投影后得出隐向量$z$。
+CVAE-Encoder采用了BERT-like的结构，以机器人Joint position和专家Action chunking（加上了position embedding）为输入，并将'['CLS']'经过投影后得出隐向量$z$。
 CVAE-Decoder采用Transformer-like的结构，输入是经过特征提取后的多视角Image token、机器人Joint position以及经过CVAE-Encoder编码后的隐向量 $z$（在测试阶段， $z$是0），输出是Action chunking。
 在训练过程中，使用了L1损失而非L2损失，这里文章里有详细的解释。
 ![](https://pic.hana0721.top/temperal-ensembling.51emebjacb.webp)
