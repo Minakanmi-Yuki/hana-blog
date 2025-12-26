@@ -50,7 +50,25 @@ DP直接输出Action Chunk，加快推理速度的同时也提高了Action的一
 
 ## RT-1
 
-<ArxivRating id='2212.06817' tldr='' rank={0}>
+<ArxivRating id='2212.06817' tldr='' rank={3}>
+![](https://pic.hana0721.top/RT-1-easy.7axmxvm4yg.webp)
+RT-1是Google于22年提出的工作，是一种王源（传统）VLA模型。
+VLA模型其实就以视觉图像、语言指令等为输入，输出智能体的Action。
+为什么这么说它是王源（传统）呢？因为它没有使用经过大规模预训练的LLM或是VLM作为Fusion模型。
+RT-1旨在实现泛化性能，使用了大规模的Multi-task Dataset进行训练，能够完成少量的Unseen Task。
+![](https://pic.hana0721.top/RT-1-all.3uvb5scf72.webp)
+文中给出了详细的架构图，下面我来分块讲解。
+从整体上来看RT-1，它以历史图像（文中是6个图像）和语言指令为输入，以Action为输出。
+首先，它使用了FiLM架构来融合Image和Language的信息。
+视觉主干网络是EfficientNet-3B（经过ImageNet预训练），语言特征提取使用了Universal Sentence Encoder，这些网络的参数能从网上下载。
+然后，得出了Image Token，并进一步使用TokenLearner进行降维处理。
+最后，将Token拼接起来，并使用位置编码，经过一个Transformer-Decoder风格的解码器，最终得出Action。
+值得注意的是，RT-1将连续动作进行了离散化，文中具体离散为256个区间。
+在结构上可以看到，RT-1采用了许多推理加速的方法，比如减少输入的Token或是采用高效的模型（EfficientNet-3B）。
+RT-1虽然能够做到一定程度的泛化，但是也有一定的局限性。
+为什么说具有局限性？首先，RT-1只使用了具身Dataset直接拟合Action，优质的具身Dataset本来就少，而且难以获取。
+再来就是，RT-1也很容易摆烂，也是因为Dataset不够全面，遇到一些没有见过的物体，可能就无法work了。
+RT-1早期的贡献还是值得肯定的，并且在后续的工作RT-2中解决了这些问题。
 
 </ArxivRating>
 
