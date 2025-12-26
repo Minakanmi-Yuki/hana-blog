@@ -37,7 +37,14 @@ ACT在文章的最后给出了详细的流程图，非常清晰，这点很值�
 
 ## DP
 
-<ArxivRating id='2303.04137' tldr='' rank={0}>
+<ArxivRating id='2303.04137' tldr='DP使用历史观测作为Condition的Diffusion模型来生成Action Chunk。具有更快的推理速度以及更多的动作模态' rank={3}>
+![](https://pic.hana0721.top/diffusion-policy.3d59h5tcqw.webp)
+Diffusion Policy是非常经典的工作。
+简单来说，就是使用Diffusion模型来进行Action的预测，输入是Noise，输出是Action Chunk。文中给出了CNN-based和Transformer-based的两种变体。
+不同于DDPM，除了去噪step $k$，DP还将历史观测 $o_t,o_{t-1},o_{t-2}$ 作为Condition。
+![](https://pic.hana0721.top/multimodal-action.51emecjmx5.webp)
+DP直接输出Action Chunk，加快推理速度的同时也提高了Action的一致性和多样性。
+在实际执行过程中，采用了保守策略，只执行Action Chunk的前几步Action，这样会更加稳定。
 
 </ArxivRating>
 
