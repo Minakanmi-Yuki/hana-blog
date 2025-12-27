@@ -170,7 +170,14 @@ TinyVLA应该是最早提出PI-like架构的工作，算是祖师爷。
 
 ## CogACT
 
-<ArxivRating id='2411.19650' tldr='' rank={0}>
+<ArxivRating id='2411.19650' tldr='CogACT使用BERT-like的VLM进行Fusion，使用DP输出Action Chunk' rank={3}>
+
+![](https://pic.hana0721.top/CogACT.67xxokoxle.webp)
+CogACT也是一种PI-like的VLA，分为VLM Fusion和Action Expert模块。
+在VLM Fusion模块中，CogACT采用了一种BERT-like的方式进行Fusion，输入Image观测以及Language指令，输出类似于\[CLS\]的Cognition Feature。
+在Action Expert模块中，以Cognition Feature为Condition，经过一个DiT得出Action Chunk。
+![](https://pic.hana0721.top/CogACT-ensembling.8s3s17oxad.webp)
+CogACT和ACT一样，使用了类似的Action Ensembling，但CogACT中的权重是自适应的，避免了不同模式中不合理地聚合Action。
 
 </ArxivRating>
 
