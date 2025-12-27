@@ -128,7 +128,21 @@ Open X-Embodiment数据集包含超过100万个真实机器人轨迹，涵盖22�
 
 ## Unified Video Action Model
 
-<ArxivRating id='2503.00200' tldr='' rank={0}>
+<ArxivRating id='2503.00200' tldr='UVA使用掩码学习了通用的多任务模型' rank={3}>
+
+![](https://pic.hana0721.top/UVA-easy.465lu585n.webp)
+从数据流上看，UVA首先学习了Image与Action Chunk的Joint Latent，然后使用Diffusion模型解码出未来的Action Chunk以及观测Image。
+为了兼容多种类型的输入，并解耦出对应的Action Chunk以及Image，UVA采用了掩码学习。
+![](https://pic.hana0721.top/UVA-all.2h8s31j1cb.webp)
+下面讲解学习Joint Latent的流程。
+对于每张历史Image使用预训练的VAE编码器进行编码，得出$N$个$d$维的Image Token。
+对于每个历史Action Chunk，为了对齐Image Token的维度，采用重复$M$次拼接的方式对齐到$N$维度，并经过一个MLP投影到$N\times d$。
+对于要预测的Image，处理方式与历史Image一样，但加上了定义好的掩码。
+最终，将三类Token拼接在一起，输入到Transformer中进行编码，得出Joint Latent。
+接下来讲解预测流程。
+对于预测Image，将每个Token作为Image Diffusion的Condition，经过去噪还原出局部的VAE的Latent，最后拼接经过VAE的解码器还原出Image。
+对于预测Action Chunk，则将所有的Token作为Action Diffusion的Condition，经过去噪得出Future Action Chunk。
+UVA使用了灵活目标的掩码训练方法，有助于防止模型对特定任务产生过拟合，从而提升模型的整体通用性和鲁棒性。
 
 </ArxivRating>
 
