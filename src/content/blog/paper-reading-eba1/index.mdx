@@ -96,7 +96,20 @@ RT-2在Unseen限制下表现出一定的泛化能力，但还是具有局限性�
 
 ## OpenVLA
 
-<ArxivRating id='2406.09246' tldr='' rank={4}>
+<ArxivRating id='2406.09246' tldr='OpenVLA-like的奠基工作' rank={4}>
+
+![](https://pic.hana0721.top/openvla.iclclg6tx.webp)
+OpenVLA基本继承了RT-2的思想，形成了OpenVLA-like的VLA范式。
+简单来说，就是使用LLM对Image观测以及Language指令进行Fusion，输出Action Token，最后再Detokenizer成机器人可执行的Action。
+OpenVLA使用Prismatic-7B VLM作为主干，文中详细解释了为什么采用Prismatic-7B VLM。
+和RT-2一样，使用256个频率最低的词元作为Action Token。
+训练数据主要使用了OXE Dataset，并对数据进行了处理，以便于训练。
+最终，OpenVLA展示了在不同消费级和服务级的GPU上的运行效果。
+然而，OpenVLA也有着诸多Limitation。
+首先，它只接受单图像预测，无法处理异构的机器人设置。
+其次，它的吞吐量不够，无法实现高频率的控制。
+最后，同时也是最大的硬伤，和RT-2一样，在面对Co-Training时，选择频率最低的256个Token作为Action Token，会出现双峰学习问题。
+但不可否认的是，OpenVLA还是一份伟大的工作，开创了OpenVLA-like的VLA学习范式。
 
 </ArxivRating>
 
