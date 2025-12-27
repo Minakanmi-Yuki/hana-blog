@@ -154,7 +154,17 @@ UVA使用了灵活目标的掩码训练方法，有助于防止模型对特定�
 
 ## TinyVLA
 
-<ArxivRating id='2409.12514' tldr='' rank={0}>
+<ArxivRating id='2409.12514' tldr='TinyVLA是一种早期的PI-like VLA' rank={0}>
+
+![](https://pic.hana0721.top/TinyVLA.64ebqsl3yh.webp)
+TinyVLA首次提出了VLM+DP的VLA范式，这个范式后续被应用到了 $\pi$ 系列。
+在这个范式下，Action不再由LLM的Token Detokenize出来，而是直接由一个Action Expert（DP或是ACT）输出。
+这样做，可以避免RT-2以及OpenVLA中的双峰学习问题，能够避免灾难性遗忘，使得VLM和Action Expert各司其职。
+在TinyVLA中，选用了Pythia作为VLM主干，选用DP作为Action Expert。
+Action Expert以VLM主干输出的信息为Condition，输出Action Chunk。
+在训练过程中，使用LoRA微调VLM，防止了VLM的灾难性遗忘，且可以进行高效的微调。
+在实验部分，TinyVLA超越了OpenVLA，且可以在OOD的场景下完成一些任务。
+TinyVLA应该是最早提出PI-like架构的工作，算是祖师爷。
 
 </ArxivRating>
 
