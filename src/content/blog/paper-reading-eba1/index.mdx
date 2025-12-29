@@ -207,6 +207,9 @@ CogACT和ACT一样，使用了类似的Action Ensembling，但CogACT中的权重
 ## PI-0
 
 <ArxivRating id='2410.24164' tldr='PI-like系列奠基之作' rank={4}>
+![](https://pic.hana0721.top/pi0.eszi6dq8l.webp)
+简单说一下 $\pi_0$ 的两个结构，对Image观测与Language指令进行Fusion的VLM以及基于FLow Matching的Action Expert。在Fusion模块，考虑到实时控制的需求，采用了规模小便利性高的 PaliGemma。Image观测被ViT映射到语义空间，与Language指令一同进入PaliGemma，得出上下文Token。Action Expert采用Flow Matching结构建模Action连续分布。其输入为随机化的Action Chunk，以上下文Token的cross attention以及机器人的Joint Position作为Condition，使用Flow Matching Loss进行训练，输出真实的Action Chunk。
+在训练数据上，$\pi_0$ 使用了长达10000小时的真机数据，以及开源数据OXE等。在多种任务上表现出强大的性能，非常牛逼。
 
 </ArxivRating>
 
