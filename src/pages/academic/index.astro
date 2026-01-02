@@ -11,6 +11,9 @@ import config from '@/site-config'
 
 const headings = [
   { depth: 2, slug: 'about-me', text: 'About Me' },
+  { depth: 2, slug: 'research-pivot', text: 'Research Pivot' },
+  { depth: 2, slug: 'current-status', text: 'Current Status' },
+  { depth: 2, slug: 'connect', text: 'Connect' },
   { depth: 2, slug: 'research-interests', text: 'Research Interests' },
   { depth: 2, slug: 'publications', text: 'Publications' },
   { depth: 2, slug: 'open-source-projects', text: 'Open-source Projects' }
@@ -20,34 +23,24 @@ const headings = [
 <PageLayout title='Academic' {headings} info={{ slug: '/academic', hideComment: true }}>
   <h2 id='about-me'>About Me<a class='anchor' href='#about-me'>#</a></h2>
   <p>
-    I am a third-year undergraduate student in the
-    <a href='http://www.aiar.xjtu.edu.cn/' target='_blank'>School of Artificial Intelligence</a> /
-    <a href='https://bjb.xjtu.edu.cn/' target='_blank'>Qian Xuesen Honors College</a> at
-    <a href='https://www.xjtu.edu.cn/' target='_blank'>Xi’an Jiaotong University</a>. I am currently
-    interning at the
-    <a href='https://www.shlab.org.cn/' target='_blank'
-      >Shanghai Artificial Intelligence Laboratory</a
-    >, working closely with
-    <a href='https://yilunchen.com/about/' target='_blank'>Researcher Yilun Chen</a>, and will be
-    joining the lab under the supervision of
-    <a href='https://oceanpang.github.io/' target='_blank'>Research Scientist Jiangmiao Pang</a>.
+    我是国防科技大学（NUDT）智能科学学院硕士生，本科毕业于华南师范大学人工智能学院。
+    I am a Master's student at the College of Intelligence Science, National University of Defense Technology (NUDT). I earned my B.Eng. in Artificial Intelligence from South China Normal University (SCNU).
   </p>
-
-  <p>My research philosophy is simple: I build things because it’s fun.</p>
+  <h2 id='research-pivot'>Research Pivot / 研究转型<a class='anchor' href='#research-pivot'>#</a></h2>
   <p>
-    I’m not chasing lofty slogans — I just genuinely enjoy making robots move, do things, and
-    occasionally accomplish something useful. If a project eventually turns into a paper, great; if
-    it only ends up as a GIF of a robot knocking over a mug, that’s fine too.
+    我此前的研究集中在 多智能体强化学习 (MARL)。然而，考虑到 MARL 在实际落地中的巨大局限性及其在工业界应用前景的匮乏，我目前已全面转向 具身智能 (Embodied AI)。我致力于探索能够打破仿真屏障、具有真实物理落地潜力的智能架构。
+    My previous research focused on Multi-Agent Reinforcement Learning (MARL). Recognizing the inherent challenges in its real-world deployment and the limited practical prospects of current MARL frameworks, I have shifted my focus toward Embodied AI. I am now dedicated to exploring intelligent architectures that can bridge the Sim-to-Real gap and achieve tangible physical impact.
   </p>
+  <h2 id='current-status'>Current Status / 当前状态<a class='anchor' href='#current-status'>#</a></h2>
   <p>
-    Right now, I’m focused on large-scale synthetic data generation, aiming to use it to connect
-    Vision-Language Models with real-world actions. I see simulation as a critical stage in this
-    process: it allows ideas to be tested, refined, and expanded before being deployed in the real
-    world. Then, by incorporating massive amounts of real-world data, the system can become truly
-    grounded. At the same time, I aim to build a systematic engineering setup that runs smoothly and
-    reliably, and to keep the distance from an idea to a working prototype as short as possible.
+    目前我正在进行密集的学术调研与文献阅读，旨在具身智能领域寻找具有高价值的研究命题。
+    I am currently immersed in extensive literature review to identify high-impact research problems within the field of Embodied AI.
   </p>
-
+  <h2 id='connect'>Connect / 交流<a class='anchor' href='#connect'>#</a></h2>
+  <p>
+    Open to discussions on DL / RL / Embodied AI. 欢迎通过博客或邮件与我交流学术心得。
+  </p>
+  
   <p>Here is my academic CV, feel free to download it.</p>
   <Button title='Download CV' class='w-fit' href='/cv.pdf' target='_blank'>
     <Icon class='size-5' name='download' slot='before' />
