@@ -29,60 +29,66 @@ const headings = [
   <ProjectSection
     project={[
       {
-        name: 'Lumina Embodied Community',
-        description: 'A community focused on embodied intelligence.',
-        image: 'lumina.webp',
-        links: [{ type: 'site', href: 'https://lumina-embodied.ai/' }]
+        name: 'sac-on-mujoco',
+        description: 'This project implements the Soft Actor-Critic (SAC) algorithm and tests it in MuJoCo environments.',
+        image: '',
+        links: [{type: 'github', href: 'https://github.com/Minakanmi-Yuki/sac-on-mujoco'}]
       },
-      {
-        name: 'CS-BAOYAN-DDL',
-        description:
-          'A schedule summary of summer camps/pre-admission deadlines similar to CCF-DDL.',
-        image: 'byddl.webp',
-        links: [
-          { type: 'site', href: 'https://ddl.csbaoyan.top/' },
-          { type: 'github', href: 'https://github.com/CS-BAOYAN/CS-BAOYAN-DDL' }
-        ]
-      },
-      {
-        name: 'Minimalist Text Framework',
-        description:
-          'A minimalist text-based game framework built with Astro, game content defined purely by JSON.',
-        image: 'mtf.webp',
-        links: [
-          { type: 'site', href: 'https://mtf.axi404.top/' },
-          { type: 'github', href: 'https://github.com/Axi404/MinimalistTextFramework' }
-        ]
-      },
-      {
-        name: 'Survival Guide for XJTU',
-        description:
-          'A comprehensive survival guide for studying and living at Xi’an Jiaotong University.',
-        image: 'survivexjtu.webp',
-        links: [
-          { type: 'site', href: 'https://survivexjtu.github.io/' },
-          { type: 'github', href: 'https://github.com/survivexjtu/survivexjtu.github.io' }
-        ]
-      },
-      {
-        name: 'CSWiki',
-        description:
-          'An encyclopedia on topics related to graduate recommendation in computer science.',
-        image: 'cswiki.webp',
-        links: [
-          { type: 'site', href: 'https://csbaoyan.top/' },
-          { type: 'github', href: 'https://github.com/CS-BAOYAN/CS-BAOYAN-Wiki' }
-        ]
+      // {
+      //   name: 'Lumina Embodied Community',
+      //   description: 'A community focused on embodied intelligence.',
+      //   image: 'lumina.webp',
+      //   links: [{ type: 'site', href: 'https://lumina-embodied.ai/' }]
       // },
       // {
-      //   name: 'Dress-Collection',
-      //   description: 'My cute dress-up gallery.',
-      //   image: 'dress.webp',
+      //   name: 'CS-BAOYAN-DDL',
+      //   description:
+      //     'A schedule summary of summer camps/pre-admission deadlines similar to CCF-DDL.',
+      //   image: 'byddl.webp',
       //   links: [
-      //     { type: 'site', href: 'https://dress.axi404.top/' },
-      //     { type: 'github', href: 'https://github.com/Axi404/Dress-Collection' }
+      //     { type: 'site', href: 'https://ddl.csbaoyan.top/' },
+      //     { type: 'github', href: 'https://github.com/CS-BAOYAN/CS-BAOYAN-DDL' }
       //   ]
-      }
+      // },
+      // {
+      //   name: 'Minimalist Text Framework',
+      //   description:
+      //     'A minimalist text-based game framework built with Astro, game content defined purely by JSON.',
+      //   image: 'mtf.webp',
+      //   links: [
+      //     { type: 'site', href: 'https://mtf.axi404.top/' },
+      //     { type: 'github', href: 'https://github.com/Axi404/MinimalistTextFramework' }
+      //   ]
+      // },
+      // {
+      //   name: 'Survival Guide for XJTU',
+      //   description:
+      //     'A comprehensive survival guide for studying and living at Xi’an Jiaotong University.',
+      //   image: 'survivexjtu.webp',
+      //   links: [
+      //     { type: 'site', href: 'https://survivexjtu.github.io/' },
+      //     { type: 'github', href: 'https://github.com/survivexjtu/survivexjtu.github.io' }
+      //   ]
+      // },
+      // {
+      //   name: 'CSWiki',
+      //   description:
+      //     'An encyclopedia on topics related to graduate recommendation in computer science.',
+      //   image: 'cswiki.webp',
+      //   links: [
+      //     { type: 'site', href: 'https://csbaoyan.top/' },
+      //     { type: 'github', href: 'https://github.com/CS-BAOYAN/CS-BAOYAN-Wiki' }
+      //   ]
+      // // },
+      // // {
+      // //   name: 'Dress-Collection',
+      // //   description: 'My cute dress-up gallery.',
+      // //   image: 'dress.webp',
+      // //   links: [
+      // //     { type: 'site', href: 'https://dress.axi404.top/' },
+      // //     { type: 'github', href: 'https://github.com/Axi404/Dress-Collection' }
+      // //   ]
+      // }
     ]}
   />
 
@@ -112,18 +118,13 @@ const headings = [
       ))
     }
   </div>
-  <p>Thanks to the following people for providing cat food:</p>
+  <p>
+    Thanks to the following people for providing cat food, Ciallo{'～'}(∠・ω{'<'} )⌒★::
+  </p>
   <Sponsors
     sponsors={[
-      { name: 'yjk', amount: '100.0', date: '2025-11-13' },
-      { name: 'Ray Wu', amount: '9.9', date: '2025-05-03' },
-      { name: '0x33B', amount: '5.2', date: '2025-05-03' },
-      { name: '匿名 Sponsor', amount: '20.0', date: '2025-04-15' },
-      { name: 'SOTA', amount: '50.0', date: '2025-03-17' },
-      { name: '匿名 Sponsor', amount: '10.0', date: '2025-03-05' },
-      { name: '匿名 Sponsor', amount: '5.2', date: '2025-03-01' },
-      { name: '匿名 Sponsor', amount: '0.2', date: '2025-02-19' },
-      { name: '匿名 Sponsor', amount: '16.8', date: '2025-01-24' }
+        { name: '牢自', amount: '100.0', date: '2026-01-01'},
+        { name: '牢己', amount: '100.0', date: '2026-01-01'},
     ]}
   />
 </PageLayout>
