@@ -280,7 +280,20 @@ VIMA 控制器以 History 为输入，输出 Action。
 
 ## SayCan
 
-<ArxivRating id='2204.01691' tldr='' rank={0}>
+<ArxivRating id='2204.01691' tldr='SayCan 引入 RL 中的 Value Function 来纠正 LLM 的幻觉问题' rank={2}>
+
+![](https://pic.hana0721.top/SayCan.86u4ow4enj.webp)
+SayCan 是任务规划的早期工作。任务规划就是给一个高级任务指令，分解为一系列机器人可执行的下游任务。
+很显然，具有强泛化能力的 LLM 非常适合做这个任务，但也有一些问题。
+最主要的问题就是 LLM 无法识别到物理世界，从而产生一些机器人无法执行的任务，也就是幻觉问题。
+
+![](https://pic.hana0721.top/SayCan-method.4ubeuinub1.webp)
+为了解决这个问题，SayCan 引入了 RL 中的 Value Function，表示为在当前状态下执行成功某个 skill 的成功率。
+在 SayCan设置的场景中，机器人有固定的 skill 集合，每次从里面选择一个 skill 执行。
+直接让 LLM 输出需要执行的 skill 是不保险的，因为可能输出 skill 集合中没有的 skill。
+所以，SayCan 不再让 LLM 去输出下一步执行的 skill，而是让 LLM 给所有的 skill 进行评分。
+同时，SayCan 会给 LLM 一些 Example Prompt，让 LLM 能够更加有效地提取知识。
+最后将两者结合，去选择机器人应该执行的 skill。
 
 </ArxivRating>
 
