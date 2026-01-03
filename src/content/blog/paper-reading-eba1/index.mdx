@@ -255,7 +255,24 @@ CogACT和ACT一样，使用了类似的Action Ensembling，但CogACT中的权重
 
 ## VIMA
 
-<ArxivRating id='2210.03094' tldr='' rank={0}>
+<ArxivRating id='2210.03094' tldr='VIMA 采用 Multi-Modal Prompt 来完成一系列的 Robotic Manipulation 任务' rank={0}>
+
+VIMA 的具体做法就是将 Robotic Manipulation 任务规范为 Multi-Modal Prompt。
+Multi-Modal Prompt 具体实现为 Vision 与 Text 的排列组合，文中考虑了6种任务类别。
+由于时代的局限，当时没有 Multi-Modal 的 Robotic Task 的 Benchmark。
+于是，该团队提出了VIMA-Bench，可以通过脚本化的 Oracle 智能体生成大量的模仿学习数据。
+
+VIMA 这个工作比较早期，所以只使用了 T5 进行 Vision 与 Text 的 Fusion。
+对于 Text，采用预训练的 T5 词嵌入获取 Text Token。
+对于 Scene Vision，首先使用领域微调的 Mask R-CNN 来提取物体，然后经过 ViT 编码成 Scene Token。
+对于 Object Vision，和 Scene Vision一样的方式，编码为 Object Token。
+经过 T5 模型，可以得出 Prompt Tokens。
+
+VIMA 控制器采用了 Decoder-Only 的架构，于 Decision Transformer 类似，采用序列建模的方式。
+VIMA 控制器以 History 为输入，输出 Action。
+这部分与 Fusion 相似，被处理成了若干的 Vision Token，然后与机器人的 Joint Position 以及 Action 拼接，形成 History Token。
+在推理过程中，经过了多层的 Self-Attention 与 Cross-Attention 结构，自回归产生下一步的 Action。
+在 Cross-Attention 模块中，Prompt Tokens 被投影至 $K_{\mathcal{P}}$ 和 $V_{\mathcal{P}}$，并使用 History 投影的 $Q_{\mathcal{H}}$查询。
 
 </ArxivRating>
 
