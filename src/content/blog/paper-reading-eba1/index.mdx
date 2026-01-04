@@ -348,7 +348,14 @@ CoPa 将大多数操作任务分为任务导向抓取和运动规划两个阶段
 
 ## PointLLM
 
-<ArxivRating id='2308.16911' tldr='' rank={0}>
+<ArxivRating id='2308.16911' tldr='3D 点云版本的 VLM' rank={3}>
+
+PointLLM 主要有两个贡献，第一个是提出了基于 Prompt 的 3D LLM 问答数据标注方法，第二点是训练一个 3D 点云版本的 VLM。
+![](https://pic.hana0721.top/PointLLM-data.1vz4sgdvpn.webp)
+由于时代的局限性，当时没有用于 3D 点云用于 LLM 问答的数据集。
+于是，这篇工作基于 Cap3D 数据集，基于 Prompt 使用 VLM 对数据进行标注。
+![](https://pic.hana0721.top/PointLLM-model.6pnzokytyj.webp)
+随后，PointLLM 使用这份数据训练了一个 3D 点云版本的 VLM，如框架图所示。
 
 </ArxivRating>
 
