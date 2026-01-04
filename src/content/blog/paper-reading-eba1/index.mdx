@@ -325,7 +325,24 @@ ViLA 的思路虽然简单，但是有用且本质，非常具有启发性。
 
 ## CoPa
 
-<ArxivRating id='2403.08248' tldr='' rank={0}>
+<ArxivRating id='2403.08248' tldr='结合 VLM、SoM、GraspNet、SE(3)等方法形成完整的操作流程' rank={2}>
+
+![](https://pic.hana0721.top/CoPa-overview.6m4dqmphlv.webp)
+CoPa 结合了许多种方法，让机器人直接输出 Action 去完成 high-level 任务。
+CoPa 将大多数操作任务分为任务导向抓取和运动规划两个阶段。
+
+![](https://pic.hana0721.top/CoPa-grounding.7axnand0m8.webp)
+在"任务导向抓取"中，分为粗粒度 Object 锚定和细粒度 Grasp 锚定。
+在粗粒度 Object 锚定中，先使用 SoM 去分割出 Obs 中的可抓取 Object，然后再使用 GPT-4V 去筛选最终抓取 Object。
+在细粒度 Grasp 锚定中，使用同样的方式去筛选最终 Grasp 的位置。
+
+![](https://pic.hana0721.top/CoPa-grasp.8dxclj8uhq.webp)
+进一步，CoPa 使用 GraspNet 去生成机器人的候选抓取姿态，并使用 Grasp 锚定进行筛选。
+
+![](https://pic.hana0721.top/CoPa-planning.3govrov2ot.webp)
+在"任务运动规划"中，首先采用同样的锚定方式识别多个任务相关的部件。
+然后，使用 GPT-4V 生成操作约束限制。
+最后，可以得出一系列的 SE(3) 的矩阵，求可以得出抓取姿态。
 
 </ArxivRating>
 
