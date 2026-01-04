@@ -299,7 +299,15 @@ SayCan 是任务规划的早期工作。任务规划就是给一个高级任务�
 
 ## PaLM-E
 
-<ArxivRating id='2303.03378' tldr='' rank={0}>
+<ArxivRating id='2303.03378' tldr='基于 PaLM 训练的通用机器人场景 VLM' rank={3}>
+
+![](https://pic.hana0721.top/PaLM-E.45i5blou92.webp)
+PaLM-E 做的事情很简单，就是在 PaLM 的基础上添加若干的视觉编码组件，如 ViT、OSRT等。
+然后，使用 VQA 与机器人场景数据进行 Co-Training，这样就得到了一个通用的 VLM，可以处理多种任务。
+在机器人场景下，PaLM-E 可以发挥 Planning 的作用。
+
+PaLM-E 其实没有多少的 insight，主要是在输入上做处理，具体可以去看原文。
+但 PaLM-E 的效果很好，在 Planning 任务中薄纱了当时的 SayCan，且有跨任务的能力。
 
 </ArxivRating>
 
