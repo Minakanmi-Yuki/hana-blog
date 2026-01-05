@@ -361,13 +361,36 @@ PointLLM 主要有两个贡献，第一个是提出了基于 Prompt 的 3D LLM �
 
 ## EmbodiedGPT
 
-<ArxivRating id='2305.15021' tldr='' rank={0}>
+<ArxivRating id='2305.15021' tldr='借助 Q-Former 将 Planning 引入到 Action 决策中' rank={2}>
+
+EmbodiedGPT 是一个端到端的决策模型，并且具有跨任务的能力，如 TAMP、VQA 等。
+![](https://pic.hana0721.top/EmbodiedGPT.eszs0eugq.webp)
+下面简单描述一下 EmbodiedGPT 的工作流，可以分为 Planning 和 low-level 决策执行阶段。
+
+对于 Planning 阶段，EmbodiedGPT 首先使用 ViT 对图像信息进行编码得出 Vision Token。
+然后，Vision Token 与可学习的 Embodied Token 经过 Q-Former 进行 Fusion。
+最后，Fusion 后的信息与 Text Prompt 一同输入到 LLaMA3 中得出 Planning Text。
+
+对于 low-level 决策执行阶段，Planning Token、Embodied Token 以及 Vision Token 再次在 Q-Former 进行 Fusion，得出 Instance Information。
+同时，为了捕获全局信息，图像信息经过 ImageNet 预训练的 ResNet50 进行全局平均池化特征提取，得出 Global Information。
+最后，这两个 Information 拼接在一起，并输入到 low-level 的决策网络中，以输出 low-level action。
+
+EmbodiedGPT 的亮点是借助 Q-Former 将 Planning 的信息融入了 low-level 的决策中。
 
 </ArxivRating>
 
 ## RT-Trajectory
 
-<ArxivRating id='2311.01977' tldr='' rank={0}>
+<ArxivRating id='2311.01977' tldr='使用 Trajectory 代替 Instruction 的 RT-1' rank={2}>
+
+![](https://pic.hana0721.top/RT-Trajectory.491razmvk0.webp)
+RT-Trajectory 做的事情很简单，就是使用运动 Trajectory 去代替了 RT-1 中的 Text Instruction。
+在具体实现中，Trajectory 被表示为一张 轨迹图像。
+在训练过程中，使用从数据集中标注的 Trajectory 图像，文中给出了详细的标注方法。
+而在推理过程中，提供了三种方式去得出 Trajectory 图像，详细见图。
+
+RT-Trajectory 这篇工作证明了，在 low-level 控制中使用 Text 进行引导可能不是最优的选择，这种 Trajectory 引导能够处理更加细粒度的控制。
+同时，RT-Trajectory 缺点也很明显，在推理过程中，无法保证 Trajectory 是合理的，特别是将 3D Trajectory 映射为 2D 图像，会存在失真的现象。
 
 </ArxivRating>
 
