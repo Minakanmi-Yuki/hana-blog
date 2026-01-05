@@ -396,6 +396,16 @@ RT-Trajectory 这篇工作证明了，在 low-level 控制中使用 Text 进行�
 
 ## Im2Flow2Act
 
-<ArxivRating id='2407.15208' tldr='' rank={0}>
+<ArxivRating id='2407.15208' tldr='首先基于 Object 生成 Flow，然后用于生成 low-level policy' rank={3}>
 
+Im2Flow2Act 是一个 End-to-End 的模型，其核心思想是基于 Object Flow 去生成 low-level policy。
+
+![](https://pic.hana0721.top/Im2Flow2Act-flow.1hsp38n80q.webp)
+Im2Flow2Act 首先基于 Task Description 以及
+初始 Frame 去生成 Object Flow。对于初始 Frame，使用 DINO 去检测出 Object 的框图，然后在框图中均匀采样 Points ，作为 Object Flow 的初始 Points。之后，以初始 Frame、初始 Points 以及 Task Description 为 Condition，使用视频生成模型 AnimateDiff 去生成 Object Flow。
+
+![](https://pic.hana0721.top/im2flow2act.491rba042s.webp)
+为了确保实时感知，Im2Flow2Act 首先根据初始 Frame 以及当前 Frame 使用点追踪算法 TAPIR 去捕获 Object 的当前的 Keypoints。随后，使用 BERT-like 的状态编码器将 Keypoints 压缩为 \[CLS\]。同时，为了进行时间对齐，也就是让机器人自己做到哪里了，Im2Flow2Act 使用了一个 Transformer 将 Object Flow、\[CLS\]以及机器人 Joint Position 编码成 Latent。最后，以 Latent、\[CLS\]以及 Joint Position 为 Condition，使用 DP 去生成 Action Chunk。
+
+这篇工作比 RT-Trajectory 更加有细粒度，但还是存在 3D 歧义的问题。
 </ArxivRating>
