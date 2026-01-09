@@ -68,7 +68,29 @@ LLM 的主干为 LLaMA2 7B，并使用 LoRA 进行微调。
 
 ## ATM
 
-<ArxivRating id='2401.00025' tldr='' rank={0}>
+<ArxivRating id='2401.00025' tldr='使用 Label-free 的视频去训练以当前观察 Obs 和指令 Instruction 为 Condition 的 Points-Tracker，并使用 Points-Track 去引导 Action 生成。' rank={4}>
+
+![](https://pic.hana0721.top/ATM.83aizqrop9.webp)
+ATM 的亮点在于仅可以使用 Action-free 的数据去训练机器人操作策略。
+ATM 是一种 Pipeline 方法，分为任意点轨迹建模与轨迹引导策略学习两个部分。
+在任意点轨迹建模部分，ATM 利用了大量 Label-free 的视频训练了一个 Points-Tracker，输入是当前观察 Obs、任务 Instruction 以及初始 Points，输出是未来的 Points-Trajectory。
+在轨迹引导策略学习部分，策略网络以上个步骤预测的 Points-Trajectory 以及当前 Obs 为输入，输出机器人的 Action。
+
+任意点轨迹建模：
+在数据处理部分，ATM 使用了离线的 Points-Tracker 模型去得出的 Label。
+同时，过滤掉了大部分静止的 Points，只保留了 32 个高频活动的 Points。
+对于当前 Obs，使用 ViT 将图像切分为 Patches，并随机 Mask 掉 50% 的 Patches，得出 Image Token。
+对于任务 Instruction，使用 BERT 进行信息提取 Language Token。
+对于初始 Points，在文中是有32个，编码为 Track Token。
+以 Obs 以及 Instruction 为 Base 的 Points-Tracker 被定义为一个 Transformer，输入为 Image Token、Language Token 以及 Track Token，输出为未来的 Points-Trajectory。
+按照题主的理解，输出的 Points-Trajectory 其实就是任务导向的 Vision-Language Fusion。
+
+![](https://pic.hana0721.top/ATM-policy.9kgo1hvysf.webp)
+轨迹引导策略学习：
+首先，使用了 BERT-like 的 Transformer 对 Image Token 以及 Track Token 进行 Fusion，得出特征 \[CLS\]。
+然后，策略网络设定为 MLP，以 \[CLS\] 以及 Track Token 为输入，输出机器人的 Action。
+在策略学习的过程中，并没有引入 Instruction 的信息，因为在轨迹建模阶段已经引入了。
+同时，对 Track Token 进行了两次 Fusion，这样会有更好的效果，详细见原文。
 
 </ArxivRating>
 
