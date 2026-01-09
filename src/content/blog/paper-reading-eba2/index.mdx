@@ -54,7 +54,15 @@ RL菜鸡开始进军Embodied AI，慢慢积累，提升自己。
 
 ## LLARVA
 
-<ArxivRating id='2406.11815' tldr='' rank={0}>
+<ArxivRating id='2406.11815' tldr='OpenVLA-like 的 VLA，使用 2D轨迹 预测去引导动作生成。' rank={2}>
+
+![](https://pic.hana0721.top/LLARVA.8z70f5s0j6.webp)
+LLARVA 是一种 OpenVLA-like 的 VLA，使用 Instruction Tuning 进行微调，并通过输出 2D Visual Trace 去引导 Action 生成。
+
+![](https://pic.hana0721.top/LLARVA-prompt.7axnhz1uu9.webp)
+LLARVA 的输入指令被规范化为 Prompt，详细见图。
+LLM 的主干为 LLaMA2 7B，并使用 LoRA 进行微调。
+先预测 2D Visual Trace 再生成 Action Chunk，本质上是基于 CoT 的思想。
 
 </ArxivRating>
 
