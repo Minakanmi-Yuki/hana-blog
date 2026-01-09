@@ -96,7 +96,25 @@ ATM 是一种 Pipeline 方法，分为任意点轨迹建模与轨迹引导策略
 
 ## Track2Act
 
-<ArxivRating id='2405.01527' tldr='' rank={0}>
+<ArxivRating id='2405.01527' tldr='使用 Points-Trajectory 去生成动作，并使用残差策略修正动作。' rank={2}>
+
+Track2Act 本质上和 ATM 是一样的，都是以 Points-Trajectory 去引导动作的生成。
+Track2Act 主要分为三个阶段：Points-Trajectory 预测、Open-loop 动作求解以及 Residual Policy 闭环修正。
+
+![](https://pic.hana0721.top/Track2Act-pt.13m9i5xvjf.webp)
+在 Points-Trajectory 预测阶段，Track2Act 使用了 DiT 生成模型。
+DiT 的 Condition 被设置为初始图像 $I_0$ 以及目标图像 $\mathcal{G}$ 的表征，给定随机采样的查询点集 $P_0$，生成 Points-Trajectory。
+
+在 Open-loop 动作求解阶段，Track2Act 使用了一个确定性的算法进行刚性动作的求解，不涉及神经网络训练。
+这个算法的输入是 Points-Trajectory，输出一系列的刚性变换 $[\textbf{T}_t]_{t=1}^H$。
+具体求解算法见原文，这里不详细展开。
+最后，基于刚性变换，可以求解出机器人的 Open-loop 动作序列 $[\bar{a}_t]_{t=1}^H$。
+
+![](https://pic.hana0721.top/Track2Act-rp.4n877z0ttz.webp)
+在 Residual Policy 闭环修正阶段，Track2Act 使用一个 Residual Policy 去修正 Open-loop 动作。其实就是使用一个 Transformer-Encoder 去预测误差，最后加在一起。
+
+最后简单瑞萍一下，其实博主觉得后面两个阶段完成可以使用神经网络进行表征，有点多余，虽然残差修正动作这个思想是好的。
+
 
 </ArxivRating>
 
