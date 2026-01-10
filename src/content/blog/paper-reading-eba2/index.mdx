@@ -153,7 +153,20 @@ VoxPoser 是一种 Code for Robotic 的方法。
 
 ## PIVOT
 
-<ArxivRating id='2402.07872' tldr='' rank={0}>
+<ArxivRating id='2402.07872' tldr='将低级 Action 投影到图像中，并采用 VQA 的任务形式去让 VLM 选择 Action。' rank={3}>
+
+![](https://pic.hana0721.top/PIVOT-example.2rvmgdu2g2.webp)
+PIVOT 的思想很简单，就是把机器人的低级 Action 投影到图像中，并采用 VQA 的形式让 VLM 去选择 Action 集合。
+
+![](https://pic.hana0721.top/PIVOT.szfq1osvp.webp)
+PIVOT 维护一个 Action 的分布，初始化为均匀分布，有点像 MPC 中的交叉熵方法。
+PIVOT 使用的是 Zero-Shot 的迭代算法，不断去优化 Action 的分布，直到收敛。
+首先，PIVOT 从分布中采样一系列的 Action，然后将 Action 投影到 2D 图像上，详细见图，每个 Action 都对应了序号。
+然后，给定任务描述文本以及 2D 图像，编写合适的 Prompt 让 VLM 去选择最优 Action 集合。
+接着，根据选取的 Action 集合去维护 Action 分布，类似于 MPC 中的交叉熵方法。
+经过不断迭代，可以得出较好的 Action 候选集合。
+
+PIVOT 的思路很有启发性，但缺陷也是明显的。比如，3D 歧义理解、细粒度控制以及 VLM 的幻觉问题。
 
 </ArxivRating>
 
