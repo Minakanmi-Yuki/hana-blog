@@ -138,7 +138,16 @@ ECoT 还提出了一套使用机器人数据产生 CoT 训练数据的 Pipeline�
 
 ## VoxPoser
 
-<ArxivRating id='2307.05973' tldr='' rank={0}>
+<ArxivRating id='2307.05973' tldr='使用 LLM 生成 Python 代码去调用 VLM 的 API 计算 3D Value Map，并作为价值引导进行 MPC。' rank={0}>
+
+VoxPoser 是一种 Code for Robotic 的方法。
+简单的来说，VoxPoser 使用 LLM 去生成 Python 代码，这里的代码会调用 VLM 的 API 生成 3D Value Map，然后进行 MPC。
+
+![](https://pic.hana0721.top/VoxPoser.1vz50wovrd.webp)
+首先，VoxPoser 会告诉 LLM 任务的文本描述以及一些 VLM 具有的 API函数，让它去产生能够基于 RGB-D 图像计算 3D Value Map 的 Python 代码。
+然后，使用 Python 执行器去执行代码，过程中会调用 VLM 的 API，其实就是 OWL-ViT 获取边框还有 SAM 获取 Mask，然后重建 3D Points Cloud，计算得出 3D Value Map。
+最后，有了 3D Value Map 作为价值引导，就可以使用 MPC 的方法合成轨迹，进行规划。
+在文中，提供了在线训练 MPC 以及 启发式 MPC 两种方式，前者需要环境交互，后者则无需训练。
 
 </ArxivRating>
 
