@@ -115,12 +115,24 @@ DiT 的 Condition 被设置为初始图像 $I_0$ 以及目标图像 $\mathcal{G}
 
 最后简单瑞萍一下，其实博主觉得后面两个阶段完成可以使用神经网络进行表征，有点多余，虽然残差修正动作这个思想是好的。
 
-
 </ArxivRating>
 
 ## ECoT
 
-<ArxivRating id='2407.08693' tldr='' rank={0}>
+<ArxivRating id='2407.08693' tldr='具有 Embodied 性质的 CoT。' rank={3}>
+
+![](https://pic.hana0721.top/ECoT.73ufntxfff.webp)
+ECoT 这篇工作指出 LLM 那边的 CoT 是无法直接迁移到 Embodied 任务环境中的。
+若只是简单的语义推理，那么就会出现大量不符合实际物理环境的幻觉。
+因此，ECoT 在 CoT 的基础上添加了智能体对环境的感知，从而使得 CoT 具有 Embodied 性质。
+ECoT 的具体设置见上图，和 CoT 类似，只是加入了 Embodied 的感知。
+ECoT 使用的模型基座是 OpenVLA，使用 ECoT 后效果得到了很好的改善。
+
+![](https://pic.hana0721.top/ECoT-data.1vz50u4k0o.webp)
+ECoT 还提出了一套使用机器人数据产生 CoT 训练数据的 Pipeline。
+具体就不多说了，图里面说的很清楚。
+
+这种推理过程是显式的，具有一定的解释性，缺点就是这样会降低推理的速度，文中也给了一些解决方案。
 
 </ArxivRating>
 
