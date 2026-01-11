@@ -208,7 +208,24 @@ RoboPoint 其实也是一种高层决策的规划，也是一种 System 2 的方
 
 ## GR-1
 
-<ArxivRating id='2312.13139' tldr='' rank={0}>
+<ArxivRating id='2312.13139' tldr='在视频数据上进行预训练，然后在机器人数据上微调，从而建立 World Model。' rank={0}>
+
+GR-1 证明了视频生成是策略学习的高效代理任务，它通过大规模视频生成式预训练迫使 GPT 模型内化环境动态与物理先验，从而在下游机器人任务中实现了卓越的小样本学习与零样本泛化能力。
+
+![](https://pic.hana0721.top/GR-1-all.1sfj4q0vsm.webp)
+GR-1 采用 GPT-style Causal Transformer 架构处理多模态交织序列，先通过大规模视频生成预训练学习环境动态，再经由动作与未来帧联合预测任务进行微调，实现端到端的自回归策略学习。
+
+![](https://pic.hana0721.top/GR-1-input.2vf8flx9ka.webp)
+在预训练阶段，GR-1 利用大规模人类第一视角视频数据集（Ego4D）执行语言条件下的视频预测任务，旨在无需动作标注即可习得通用物理动态。
+模型架构上冻结了 CLIP 文本编码器与 MAE-ViT 视觉编码器（辅以 Perceiver Resampler 压缩特征），将语言指令、历史图像帧与可学习的 \[OBS\] Token 交织输入至 GPT 主干网络。
+训练过程中，模型屏蔽 \[ACT\] Token，仅通过因果掩码注意力机制利用 \[OBS\] Token 驱动视觉解码器（Vision Decoder）重建未来帧像素，从而迫使模型内化视觉演变规律与视语对齐关系，为下游机器人操作任务提供具备强泛化能力的 World Model 初始化权重。
+
+在微调阶段，GR-1 加载预训练权重并扩展输入序列，将机器人本体状态（Proprioceptive State）与语言、图像交织输入，引入 \[ACT\] Token 用于回归 7-DoF 机械臂动作与夹爪状态。
+训练采用多任务联合优化策略，在执行行为克隆（Behavior Cloning）学习策略分布的同时，保留未来帧预测（Video Prediction）作为辅助任务，通过联合最小化动作回归损失与图像重建损失，迫使策略在决策时显式利用预训练阶段习得的物理世界动态（World Model），从而实现感知到动作的高效迁移与对齐。
+
+GR-1 的 Limitation 也是明显的。
+因为要处理高维图像，所以导致推理延迟较高。
+同时预训练的人类视频与机械臂控制之间存在形态鸿沟（Embodiment Gap），目前仅依靠微调隐式对齐而缺乏显式的动作重定向机制。
 
 </ArxivRating>
 
