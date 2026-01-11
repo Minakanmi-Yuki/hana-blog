@@ -190,7 +190,19 @@ CaP 的工作虽然简单，但它将高层规划和底层执行联系在了一�
 
 ## RoboPoint
 
-<ArxivRating id='2406.10721' tldr='' rank={0}>
+<ArxivRating id='2406.10721' tldr='使用 VLM 获取 Point Grounding，用于引导下游任务。' rank={2}>
+
+RoboPoint 通过构建一套程序化合成数据生成流水线，将通用视觉语言模型（VLM）微调为能根据自然语言指令预测精确 2D 空间操作点（Spatial Affordance）的模型，从而实现了无需真实世界数据训练的机器人零样本（Zero-shot）操控与导航。
+
+![](https://pic.hana0721.top/RoboPoint.lw7w2yur8.webp)
+在数据生成阶段，RoboPoint 利用程序化生成技术构建多样化的 3D 仿真场景，通过利用模拟器中的精确几何信息自动计算物体间的空间关系，并创造性地采用“移除目标物体再采样”的策略来自动标注自由空间（Free Space），从而低成本地生成了海量包含“图像-指令-像素坐标点”的高质量合成训练数据。
+
+在指令微调阶段，RoboPoint 套用 LLaVA 的架构，冻住视觉层只练语言模型，把“找坐标”直接转化成“文本生成”任务，让模型直接输出坐标数字
+同时，为了防止了 VLM 的遗忘，加入了 VQA 数据进行 Co-Training。
+
+在真实执行阶段，先使用 RoboPoint 计算出 RGB 图像上的 2D 坐标，然后结合深度图转换为 3D 坐标，最后直接套用一个预设好的抓取姿态，把目标传给传统的运动规划算法去解算路径，机械臂照做就行了。
+
+RoboPoint 其实也是一种高层决策的规划，也是一种 System 2 的方法。
 
 </ArxivRating>
 
