@@ -172,7 +172,19 @@ PIVOT 的思路很有启发性，但缺陷也是明显的。比如，3D 歧义�
 
 ## Code As Policies
 
-<ArxivRating id='2209.07753' tldr='' rank={0}>
+<ArxivRating id='2209.07753' tldr='让 LLM 输出 Python 代码，并进行完成机器人任务。' rank={3}>
+
+CaP 核心思想不是训练策略网络，而是通过 Prompt 让 LLM 去调用机器人 API，从而完成任务。
+
+![](https://pic.hana0721.top/CaP.77e1n0y43g.webp)
+首先，CaP 进行了 LMP 形式化，其实就是让策略利用 Python 语言的一些特性。
+然后，为了处理复杂任务代码过长或者逻辑复杂的问题，CaP 使用了层次化代码生成的方法，其实就是自下而上分而治之的思想。
+最后，CaP 进行了感知与动作的对齐。
+LLM 会基于 Prompt 得出一些预定义的感知 API 以及 控制 API。
+LLM 可以通过感知 API 去获取视觉信息的变量。
+LLM 会计算控制 API 的参数，并执行。
+
+CaP 的工作虽然简单，但它将高层规划和底层执行联系在了一起。
 
 </ArxivRating>
 
