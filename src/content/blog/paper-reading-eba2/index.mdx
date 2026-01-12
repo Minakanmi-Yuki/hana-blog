@@ -231,7 +231,26 @@ GR-1 的 Limitation 也是明显的。
 
 ## HPT
 
-<ArxivRating id='2409.20537' tldr='' rank={0}>
+<ArxivRating id='2409.20537' tldr='对齐到 Cross-Embodied 的预训练 Transformer。' rank={3}>
+
+HPT 使用一种模块化 Token 对齐机制将异构机器人的 Proprioception 与 Vision 映射到共享潜空间到通用策略架构，并在大规模 Cross-Embodied 数据上验证了机器人策略学习的 Scaling Laws 以及迁移能力。
+
+HPT 采用了一种高度模块化的 Stem-Trunk-Head 设计范式来解决 Cross-Embodied 难题。
+
+![](https://pic.hana0721.top/picx-images-hosting/HPT-Stem.8z70jpnbae.webp)
+在 Stem 模块中，利用 Cross-Attention 将异构的 Proprioception 与 Vision 对齐到统一的 Embodied 潜在表征。首先，机器人的 Vision 信息被编码成 Cross-Attention 中的 K 与 V，并与一组可学习的 Q 进行聚合得出 Vision Token。同样，机器人的 Proprioception 也经过相同的操作，得出 Proprio. Token。不同的 Embodied 对应了不同 Stem，是分别进行学习的。
+
+![](https://pic.hana0721.top/HPT.2yyuezdjdc.webp)
+在 Trunk 模块中，所有 Embodied 任务共享一个 Transformer，负责将 Stem 对齐后的多模态 Token 进行深度融合和推理。最终，经过池化后得出最终 Latent。
+
+在 Head 模块中，负责将 Trunk 得出 Latent 进行解码，这里的解码器可以是 MLP、DP 以及 ACT，得出机器人的 Action。请注意，异构的机器人分别对应了不同的 Head。
+
+在训练数据上，HPT 使用 OXE、Simulation 以及 Human Videos 等。
+HPT 使用了最暴力的 BC 方法，证明了其 Scaling Law 的存在。
+
+
+
+
 
 </ArxivRating>
 
