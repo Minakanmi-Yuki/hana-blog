@@ -237,7 +237,7 @@ HPT 使用一种模块化 Token 对齐机制将异构机器人的 Proprioception
 
 HPT 采用了一种高度模块化的 Stem-Trunk-Head 设计范式来解决 Cross-Embodied 难题。
 
-![](https://pic.hana0721.top/picx-images-hosting/HPT-Stem.8z70jpnbae.webp)
+![](https://pic.hana0721.top/HPT-Stem.8z70jpnbae.webp)
 在 Stem 模块中，利用 Cross-Attention 将异构的 Proprioception 与 Vision 对齐到统一的 Embodied 潜在表征。首先，机器人的 Vision 信息被编码成 Cross-Attention 中的 K 与 V，并与一组可学习的 Q 进行聚合得出 Vision Token。同样，机器人的 Proprioception 也经过相同的操作，得出 Proprio. Token。不同的 Embodied 对应了不同 Stem，是分别进行学习的。
 
 ![](https://pic.hana0721.top/HPT.2yyuezdjdc.webp)
