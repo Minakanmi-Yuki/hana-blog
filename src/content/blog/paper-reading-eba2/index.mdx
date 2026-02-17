@@ -260,6 +260,11 @@ RoboDual 的整体架构由负责 High-level 决策的 Generalist 与负责 Low-
 而 Specialist 是一种类似于 ACT 或是 DiT 的决策模型，在特定领域上有比较好的效果，且推理效率高，但难以适应新的任务环境。
 RoboDual 做的事情就是将两者结合在一起，Generalist 负责 High-level 的任务规划，而 Specialist 进行 Low-level 的实时决策。
 
+![](https://pic.hana0721.top/RoboDual.et1hb05w6.webp)
+RoboDual 的具体实现很简单，就是将 Generalist 归纳出的 Task Latent 与 Action Latnet 作为 Specialist 的 Condition，然后让 Specialist 输出 Action Chunk。
+在文章中，Generalist 是 OpenVLA 架构，Specialist 是 DiT 架构。
+由于 Generalist 和 Specialist 的推理效率不同，RoboDual 在推理过程中使用双线程的方式，即 Generalist 和 Specialist 分别使用独立的线程。
+在实际的使用中，Specialist 拿到的 Generalist 的提示总是有延迟的。因此，RoboDual 在实际训练中采用了延迟感知训练的 Trick。
 
 </ArxivRating>
 
