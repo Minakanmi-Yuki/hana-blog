@@ -248,15 +248,18 @@ HPT 采用了一种高度模块化的 Stem-Trunk-Head 设计范式来解决 Cros
 在训练数据上，HPT 使用 OXE、Simulation 以及 Human Videos 等。
 HPT 使用了最暴力的 BC 方法，证明了其 Scaling Law 的存在。
 
-
-
-
-
 </ArxivRating>
 
 ## RoboDual
 
-<ArxivRating id='2410.08001' tldr='' rank={0}>
+<ArxivRating id='2410.08001' tldr='一种 Generalist 与 Specialist 相结合的 Double System 机器人操作系统' rank={2}>
+
+![](https://pic.hana0721.top/RoboDual-Overview.86u6gy6bzq.webp)
+RoboDual 的整体架构由负责 High-level 决策的 Generalist 与负责 Low-level 决策的 Speicalist 组成。
+其中，Generalist 是类似于 OpenVLA 的 VLA 模型，虽然具有一定的泛化能力，但推理效率比较低。
+而 Specialist 是一种类似于 ACT 或是 DiT 的决策模型，在特定领域上有比较好的效果，且推理效率高，但难以适应新的任务环境。
+RoboDual 做的事情就是将两者结合在一起，Generalist 负责 High-level 的任务规划，而 Specialist 进行 Low-level 的实时决策。
+
 
 </ArxivRating>
 
