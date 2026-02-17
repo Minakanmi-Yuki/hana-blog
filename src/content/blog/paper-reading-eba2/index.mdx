@@ -266,6 +266,8 @@ RoboDual 的具体实现很简单，就是将 Generalist 归纳出的 Task Laten
 由于 Generalist 和 Specialist 的推理效率不同，RoboDual 在推理过程中使用双线程的方式，即 Generalist 和 Specialist 分别使用独立的线程。
 在实际的使用中，Specialist 拿到的 Generalist 的提示总是有延迟的。因此，RoboDual 在实际训练中采用了延迟感知训练的 Trick。
 
+实际上，RoboDual 在对 OpenVLA 进行了一定修改，让其输出 Action Chunk。因此，Specialist 是有一段比较粗略的动作轨迹作为指导的，它只是进一步地细化这段动作轨迹，相当于 Specialist 对 Generalist 的输出结果进行插值。
+
 </ArxivRating>
 
 ## GR-2
