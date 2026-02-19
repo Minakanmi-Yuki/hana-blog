@@ -306,7 +306,19 @@ GR-2 的思路和 GR-1 的一样，只是扩展了更多的优质数据集。
 
 ## Surfer
 
-<ArxivRating id='2306.11335' tldr='' rank={0}>
+<ArxivRating id='2306.11335' tldr='基于 World Model 的 VLA 模型。' rank={2}>
+
+![](https://pic.hana0721.top/Surfer.175x1vj6ob.webp)
+Surfer 构建了一个 World Model，以历史 Frame、语言 Instruction 以及机器人感知 Proprio 为输入，输出下一步的 Action 以及 Frame。
+在 Vision 处理方面，Surfer 使用用冻结的 CLIP 将 Frame 处理成 Tokens，并使用 TokenLearner 对这些 Tokens，以提高推理效率。
+在 Text 处理方面，Surfer 使用冻结的 Text Encoder 处理成 Text Latent。
+在 Proprio 处理方面，Surfer 使用 MLP 去学习得出 Proprio Latent。
+
+Surfer 的 World Model 分为两个部分，分别负责预测当前时间步的 Action 以及执行后的 Frame。
+这两个部分都是由多层的 Transformer 模块组成。
+在 Action 预测模块，使用经过 CLIP 处理的历史 Frame Tokens 作为 Query，[Text Latent, Proprio Latent]] 作为 Key 和 Value，经过 Cross-Attention 得出 Action。
+在 Frame 预测模块，使用经过 CLIP 处理的历史 Frame Tokens 作为 Query，预测的 Action 作为 Key 和 Value，经过 Cross-Attention 得出执行 Action 后的 Frame Tokens，并使用 L2 Loss 来进行训练。
+
 
 </ArxivRating>
 
