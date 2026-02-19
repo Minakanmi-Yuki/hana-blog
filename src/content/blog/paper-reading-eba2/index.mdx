@@ -323,10 +323,10 @@ Surfer 的世界模型主体由两个基于多层 Transformer 的模块构成，
 {/*  */}
 {/* Surfer 的 World Model 分为两个部分，分别负责预测当前时间步的 Action 以及执行后的 Frame。 */}
 {/* 这两个部分都是由多层的 Transformer 模块组成。 */}
-{/* {/* 在 Action 预测模块，使用经过 CLIP 处理的历史 Frame Tokens 作为 Query，[Text Latent, Proprio Latent] 作为 Key 和 Value，经过 Cross-Attention 得出 Action。 */} */}
-{/* {/* 在 Frame 预测模块，使用经过 CLIP 处理的历史 Frame Tokens 作为 Query，预测的 Action 作为 Key 和 Value，经过 Cross-Attention 得出执行 Action 后的 Frame Tokens，并使用 L2 Loss 来进行训练。 */} */}
+{/*  在 Action 预测模块，使用经过 CLIP 处理的历史 Frame Tokens 作为 Query，[Text Latent, Proprio Latent] 作为 Key 和 Value，经过 Cross-Attention 得出 Action。 */} 
+{/*  在 Frame 预测模块，使用经过 CLIP 处理的历史 Frame Tokens 作为 Query，预测的 Action 作为 Key 和 Value，经过 Cross-Attention 得出执行 Action 后的 Frame Tokens，并使用 L2 Loss 来进行训练。 */} 
 {/*  */}
-{/* {/* {/* 小结一下，Surfer 的亮点在于使用未来的 Frame 作为训练 Action 决策的监督信号，这相当于就是说如果执行这个 Action 能够预测出未来的 Frame，那么我的预测就是合理的，相当的符合直觉。缺点也是明显的，如果 Frame 预测得不准，那么这种监督反而还是一种负面的，且 Surfer 并没有验证 Scaling up 后的效果。 */} */} */}
+{/*  小结一下，Surfer 的亮点在于使用未来的 Frame 作为训练 Action 决策的监督信号，这相当于就是说如果执行这个 Action 能够预测出未来的 Frame，那么我的预测就是合理的，相当的符合直觉。缺点也是明显的，如果 Frame 预测得不准，那么这种监督反而还是一种负面的，且 Surfer 并没有验证 Scaling up 后的效果。 */}
 
 
 </ArxivRating>
