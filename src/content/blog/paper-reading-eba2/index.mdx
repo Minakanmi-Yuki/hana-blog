@@ -309,15 +309,24 @@ GR-2 的思路和 GR-1 的一样，只是扩展了更多的优质数据集。
 <ArxivRating id='2306.11335' tldr='基于 World Model 的 VLA 模型。' rank={2}>
 
 ![](https://pic.hana0721.top/Surfer.175x1vj6ob.webp)
-Surfer 构建了一个 World Model，以历史 Frame、语言 Instruction 以及机器人感知 Proprio 为输入，输出下一步的 Action 以及 Frame。
-在 Vision 处理方面，Surfer 使用用冻结的 CLIP 将 Frame 处理成 Tokens，并使用 TokenLearner 对这些 Tokens，以提高推理效率。
-在 Text 处理方面，Surfer 使用冻结的 Text Encoder 处理成 Text Latent。
-在 Proprio 处理方面，Surfer 使用 MLP 去学习得出 Proprio Latent。
+Surfer 提出了一个基于世界模型（World Model）的架构，旨在通过接收历史图像帧（History Frames）、语言指令（Instruction）以及机器人的本体感知信息（Proprioception）来预测下一步的动作（Action）及执行后的未来帧。在多模态特征编码方面，Surfer 采用了高效的处理策略：对于视觉输入，利用冻结的 CLIP 编码器将图像帧转化为 Tokens，并引入 TokenLearner 进行压缩以提升推理效率；对于文本输入，使用冻结的 Text Encoder 提取 Text Latent；对于本体感知信息，则通过 MLP 编码得到 Proprio Latent。
 
-Surfer 的 World Model 分为两个部分，分别负责预测当前时间步的 Action 以及执行后的 Frame。
-这两个部分都是由多层的 Transformer 模块组成。
-在 Action 预测模块，使用经过 CLIP 处理的历史 Frame Tokens 作为 Query，[Text Latent, Proprio Latent]] 作为 Key 和 Value，经过 Cross-Attention 得出 Action。
-在 Frame 预测模块，使用经过 CLIP 处理的历史 Frame Tokens 作为 Query，预测的 Action 作为 Key 和 Value，经过 Cross-Attention 得出执行 Action 后的 Frame Tokens，并使用 L2 Loss 来进行训练。
+Surfer 的世界模型主体由两个基于多层 Transformer 的模块构成，分别负责动作预测与场景预测。在动作预测模块中，模型以历史帧的 Visual Tokens 作为 Query，将拼接后的 Text Latent 和 Proprio Latent 作为 Key 和 Value，通过 Cross-Attention 机制生成当前时间步的 Action。随后，帧预测模块复用历史帧 Tokens 作为 Query，并将刚刚预测出的 Action 作为 Key 和 Value，同样利用 Cross-Attention 推导出执行动作后的未来帧 Tokens，并采用 L2 Loss 进行监督训练。
+
+总结来看，Surfer 的核心亮点在于引入了未来帧预测作为动作决策的辅助监督信号。这种设计符合直觉：如果模型生成的动作能够准确预测出环境的未来状态，说明该动作决策本身是符合物理逻辑的。然而，这种方法的局限性也显而易见：一旦帧预测模块不够准确，错误的预测反而会引入噪声，形成负面监督。此外，该工作尚未验证模型在 Scaling up（扩大规模）后的表现，其在大规模数据下的潜力仍有待探索。
+
+
+{/* Surfer 构建了一个 World Model，以历史 Frame、语言 Instruction 以及机器人感知 Proprio 为输入，输出下一步的 Action 以及 Frame。 */}
+{/* 在 Vision 处理方面，Surfer 使用用冻结的 CLIP 将 Frame 处理成 Tokens，并使用 TokenLearner 对这些 Tokens，以提高推理效率。 */}
+{/* 在 Text 处理方面，Surfer 使用冻结的 Text Encoder 处理成 Text Latent。 */}
+{/* 在 Proprio 处理方面，Surfer 使用 MLP 去学习得出 Proprio Latent。 */}
+{/*  */}
+{/* Surfer 的 World Model 分为两个部分，分别负责预测当前时间步的 Action 以及执行后的 Frame。 */}
+{/* 这两个部分都是由多层的 Transformer 模块组成。 */}
+{/* {/* 在 Action 预测模块，使用经过 CLIP 处理的历史 Frame Tokens 作为 Query，[Text Latent, Proprio Latent] 作为 Key 和 Value，经过 Cross-Attention 得出 Action。 */} */}
+{/* {/* 在 Frame 预测模块，使用经过 CLIP 处理的历史 Frame Tokens 作为 Query，预测的 Action 作为 Key 和 Value，经过 Cross-Attention 得出执行 Action 后的 Frame Tokens，并使用 L2 Loss 来进行训练。 */} */}
+{/*  */}
+{/* {/* {/* 小结一下，Surfer 的亮点在于使用未来的 Frame 作为训练 Action 决策的监督信号，这相当于就是说如果执行这个 Action 能够预测出未来的 Frame，那么我的预测就是合理的，相当的符合直觉。缺点也是明显的，如果 Frame 预测得不准，那么这种监督反而还是一种负面的，且 Surfer 并没有验证 Scaling up 后的效果。 */} */} */}
 
 
 </ArxivRating>
