@@ -336,9 +336,15 @@ Surfer 的世界模型主体由两个基于多层 Transformer 的模块构成，
 <ArxivRating id='2401.09340' tldr='' rank={0}>
 
 SceneVerse 是一个大型的 3D-VL 数据集，总共包含 2.5M 个场景-语言对，由 ScanNet、ARKitScenes、HM3D、3RScan、MultiScan、Structured3D、ProcTHOR 等多个 3D 数据集集合而成。
+
+![](https://pic.hana0721.top/SceneVerse-data.41ylez0j3l.webp)
 为了确保不同数据源之间的一致性，每个 Scan 处理成了 $\mathbb{R}^{N \times 8}$ 的维度，分别为 3D 坐标、RGB 颜色、实例 ID 和语义标签定义。
+首先，SceneVerse 将 3D 场景建模为 Graph，Object 为 Node，Object 之间的空间关系被建模为 Edge。
+接着，SceneVerse 使用一种基于 Prompt 的 Pipeline 方法去生成不同纬度的 Caption，详细见图。
 
-
+![](https://pic.hana0721.top/SceneVerse-GPS.70avihp8so.webp)
+最后，SceneVerse 训练了一个叫 GPS 的 Transformer，用于对齐 3D 场景和文本信息，类似于 3D 领域中的 CLIP。
+SceneVerse 的工作量还是很足的，值得肯定。
 
 </ArxivRating>
 
