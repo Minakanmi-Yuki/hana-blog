@@ -498,6 +498,13 @@ Low-level Policy 则负责预测「如何使用末端执行器去解决任务」
 
 LAPA 是一种基于 Latent Action 的 VLA 预训练方法，旨在通过引入一个中间的 Latent Action 表征来指导 VLA 模型的学习，从而提升其在复杂任务中的表现和泛化能力。 
 ![](https://pic.hana0721.top/LAPA.b9h3eovoi.webp)
+首先，LAPA 采用大量无动作标签的视频数据进行预训练，使用一个专门设计的 VQVAE 模型来学习从视觉输入到 Latent Action 的映射关系。
+Latent Action 被设计为多个离散的变量序列，和 Dreamer 一样类似。
+接着，很容易将 data 处理为 [Frame, Instruction, Latent Action] 的形式，用于去训练 VLLA 模型，其实就是在 VLM 的基础接上一层 MLP 去预测 Latent Action。
+具体训练细节为，冻结视觉编码器，只微调主干和后续的 MLP 层。
+最终，LAPA 使用机器人数据进行微调，将 Latent Action 的 MLP 层替换为直接预测机器人 Action 的 MLP 层。
+同样，也是冻结视觉编码器，只微调主干和后续的 MLP 层。
+后续的 GR00T 工作就是在 LAPA 的基础上，扩展了更多的优质数据集。
 
 
 </ArxivRating>
