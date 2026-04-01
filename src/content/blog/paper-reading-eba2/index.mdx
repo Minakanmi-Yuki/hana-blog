@@ -511,6 +511,23 @@ Latent Action 被设计为多个离散的变量序列，和 Dreamer 一样类似
 
 ## GR00T
 
-<ArxivRating id='2503.14734' tldr='' rank={0}>
+<ArxivRating id='2503.14734' tldr='高效利用异构数据集训练端到端 VLA。' rank={4}>
+
+GROOT N1 是继承了 LAPA 思想的工作。
+该研究将异构训练语料库构建为一个金字塔结构，特点是从底层到顶层，数据量逐渐减少，但针对性逐渐增强。
+在数据金字塔最底层，这些数据包含了基础常识与视觉先验。
+例如，包括了 Reddit、Wikipedia、Common Crawl 等的互联网规模 Web 数据，以及包括了 Ego4D、EPIC-KITCHENS、HOI4D 等的人类视角视频。
+在数据金字塔中层，主要是一些多样性增强与合成轨迹的数据。
+例如，GROOT 使用 DexMimicGen 系统，在 RoboCasa 等物理引擎中生成的合成轨迹，以及使用视频生成模型（如 WAN2.1）扩充的 Counterfactual 视频数据。
+在数据金字塔顶层，则是一些真实的机器人数据。例如，GROOT 使用了 OXE 以及 AgiBot-Alpha 数据，这些都是源自真实机器人操作的高质量数据集。
+
+![](https://pic.hana0721.top/GROOT.45i8p9rxr9.webp)
+
+GROOT N1 采用 PI-like 架构，虽然文中说是 Double System，但实际上只是个快慢 System，和 RoboDual 的双线程有点类似。
+在预训练阶段，GROOT N1 实现了异构数据对齐。
+针对无标签数据，GROOT N1 采用了 LAPA 的思想，使用 VQ-VAE 去编码 Latent Action，并作为监督信号。
+同时，对于视频生成模型产生的神经轨迹，GROOT N1 采用逆动力学模型去还原 Action。
+而对于那些带有动作标签的数据，则直接使用动作标签作为监督信号。
+
 
 </ArxivRating>
