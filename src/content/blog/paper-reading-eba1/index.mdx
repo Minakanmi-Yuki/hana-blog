@@ -250,12 +250,25 @@ GR-3 的 VLM 使用的是 Qwen2.5-VL-3B-Instruct。
 对于有 Action 标签的机器人数据，采用 Flow Matching 损失进行训练。
 这样使用 Co-Training 的方式，可以让 VLM 在训练过程中同时学习 Web 数据和机器人数据的知识，同时能避免破坏 VLM 的知识。
 
-
 </ArxivRating>
 
-## InstrucVLA
+## InstructVLA
 
-<ArxivRating id='2507.17520' tldr='' rank={0}>
+<ArxivRating id='2507.17520' tldr='使用 Instruction Tuning 的 VLA。' rank={3}>
+
+![](https://pic.hana0721.top/InstructVLA.8dxg3hq98d.webp)
+InstructVLA 采用了 PI-like 架构，也就是 VLM + Action Expert 的结构。
+如图，InstructVLA 采用了 Eagle2-2B 作为 VLM 主干，使用 SigLIP 将图像信息映射到语言空间。
+为了使得 VLM 能同时进行多模态推理和语言引导的 Latent Action 规划，InstructVLA 引入了一组可学习的 Action Query，这样就可以提取 Latent Action。
+同时，为了使得 VLM 能够在推理与操作之间切换，InstructVLA 引入了 MoE 设计的 LoRA 模块，来适应不同的输入模式。
+接着，Latent Action 被用于下游的 Flow Matching 进行 Action Chunk 的预测。
+具体做法就是，将 Latent Action 以 FiLM 的方式注入到 DinoV2 中，同时作为 Flow Matching 的 Condition，以预测 Action Chunk。
+
+InstructVLA 的训练分为两个阶段，第一个阶段是动作预训练，第二个阶段是 VLA-IT。
+在动作预训练阶段，InstructVLA 使用异构机器人数据集，例如 OXE、Bridge等。
+训练时联合交叉熵与流匹配损失，冻结 VLM 主干的参数，只更新 MoE 设计的 LoRA 模型参数。
+在 VLA-IT 阶段，InstructVLA 冻结了 Flow Matching 模块的参数，新增了语言 LoRA 适配器和 MoE 适应缩放头。
+其中，MoE 模块是唯一可训练参数，并使用了 VLA-IT 数据集进行训练，详细可以见原文。
 
 </ArxivRating>
 
