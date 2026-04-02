@@ -240,7 +240,16 @@ PI-0.5 对 VLM 进行了大量的 Co-Training,包括使用了 VQA、Discretized 
 
 ## GR-3
 
-<ArxivRating id='2507.15493' tldr='' rank={0}>
+<ArxivRating id='2507.15493' tldr='字节 GR 系列的后续工作，采用了 PI-like 架构。' rank={3}>
+
+![](https://pic.hana0721.top/GR-3.4qrwfuzlkf.webp)
+GR-3 是字节继 GR-2 后的工作，整体采用了 PI-like 的架构，也就是使用 VLM 进行 Fusion，并使用 Flow Matching 的 Action Expert 去输出 Action Chunk。
+GR-3 的 VLM 使用的是 Qwen2.5-VL-3B-Instruct。
+在训练上，GR-3 采用了 Co-Training 的方式。
+对于无 Action 标签的 Web 数据，采用 VQA 的方式进行训练。
+对于有 Action 标签的机器人数据，采用 Flow Matching 损失进行训练。
+这样使用 Co-Training 的方式，可以让 VLM 在训练过程中同时学习 Web 数据和机器人数据的知识，同时能避免破坏 VLM 的知识。
+
 
 </ArxivRating>
 
