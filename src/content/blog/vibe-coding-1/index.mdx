@@ -65,8 +65,8 @@ opencode
 IkunCode 是一个提供 AI 模型中转服务的平台，支持多种 AI 供应商，价格合理，使用方便。
 首先，需要在 [Ikuncode](https://api.ikuncode.cc/) 官网注册一个账号，完成注册后登录。
 [Ikuncode](https://api.ikuncode.cc/) 涵盖了多个 AI 供应商的模型，例如 `Anthropic`、`OpenAI`、`Google` 等。
-这里以 `OpenAI` 的 `Codex-5.3` 模型为例，演示如何配置 `OpenCode` 使用 `Ikuncode` 的中转服务。
-当然，天下没有免费的午餐，想要使用这些模型，是需要烧钱的，这里选择 `Codex-5.3` 也是因为比较实惠。
+这里以 `OpenAI` 的 `Codex-5.1` 模型为例，演示如何配置 `OpenCode` 使用 `Ikuncode` 的中转服务。
+当然，天下没有免费的午餐，想要使用这些模型，是需要烧钱的，这里选择 `Codex-5.1` 也是因为比较实惠。
 接下来，点击上方的 `控制台`，可以看到自己的账户余额，点击 `钱包管理`，即可进行充值。
 充值完毕后，点击左侧的 `令牌管理`，再点击 `添加令牌`，即可创建一个新的 API 令牌。按照下图选择，即可配置出 `OpenAI` 的密钥。
 
@@ -76,3 +76,19 @@ IkunCode 是一个提供 AI 模型中转服务的平台，支持多种 AI 供应
 
 `CC-Switch` 是一个开源的密钥管理工具，可以帮助开发者安全地存储和管理 API 密钥。
 首先啦，就是要安装 `CC-Switch`，进入 [CC-Switch 发布页面](https://github.com/farion1231/cc-switch/releases)，选择安装 `msi` 版本，下载并安装。
+接下来打开 `CC-Switch`，点击上方的 `OpenCode`，再点击 `添加密钥`，按照咱的配置方案，输入以下信息，然后保存就好啦。
+
+![](https://pic.hana0721.top//CC-Switch.pfx4ff7hb.webp)
+
+## OpenCode 配置验证
+
+配置完成后，就可以开始使用 `OpenCode` 进行 Vibe Coding 了。
+进入你的项目文件夹，运行 `opencode` 命令启动 `OpenCode` 啦。
+首先，可以使用 `/models` 命令查看当前可用的 AI 模型，确认 `OpenAI` 的 `Codex-5.1` 模型已经成功配置，然后选择切换。
+
+![](https://pic.hana0721.top//opencode-models.2h8vzc36jt.webp)
+
+`OpenCode` 提供了两种模型，分别是 `Build` 和 `Plan`，其中 `Build` 模型适合生成代码，而 `Plan` 模型适合生成开发计划和任务分解，使用 `Tab` 键进行切换。
+接下来，向 Agent 打个招呼，如果有回应，那么就配置成功啦！恭喜你进入 Vibe Coding 的世界了！
+
+![](https://pic.hana0721.top//opencode-hello.8adu8mx2iz.webp)
