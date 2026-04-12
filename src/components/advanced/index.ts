@@ -11,6 +11,8 @@ export { default as MediumZoom } from './MediumZoom.astro'
 export { default as Comment } from './Comment.astro'
 export { default as ArxivRating } from './ArxivRating.astro'
 export { default as RatingCriteria } from './RatingCriteria.astro'
+export { default as GameRating } from './GameRating.astro'
+export { default as GameRatingCriteria } from './GameRatingCriteria.astro'
 export { default as WebVideo } from './WebVideo.astro'
 
 export { default as ManualTOC } from './ManualTOC.astro'

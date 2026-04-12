@@ -1,0 +1,49 @@
+---
+const { lang = 'zh' } = Astro.props as { lang?: 'zh' | 'en' }
+
+const criteria = {
+  zh: {
+    title: 'Galgame 评分标准（10分制）',
+    levels: [
+      { range: '9-10', desc: '强烈推荐：综合体验优秀，后劲很强。' },
+      { range: '7-8', desc: '推荐：有明显亮点，整体质量稳定。' },
+      { range: '5-6', desc: '可玩：有优点但短板较明显。' },
+      { range: '3-4', desc: '一般：完成度或体验不足。' },
+      { range: '0-2', desc: '不推荐：问题较多，难以投入。' }
+    ]
+  },
+  en: {
+    title: 'Galgame Rating Criteria (out of 10)',
+    levels: [
+      { range: '9-10', desc: 'Highly recommended: excellent and memorable.' },
+      { range: '7-8', desc: 'Recommended: clear strengths, steady quality.' },
+      { range: '5-6', desc: 'Playable: mixed quality with visible flaws.' },
+      { range: '3-4', desc: 'Average: weak execution or poor experience.' },
+      { range: '0-2', desc: 'Not recommended: too many critical issues.' }
+    ]
+  }
+} as const
+
+const current = criteria[lang] || criteria.zh
+---
+
+<div class='rounded-xl border p-4'>
+  <div class='mb-4 inline-flex items-stretch gap-2 rounded-full border'>
+    <span class='flex shrink-0 items-center rounded-full bg-primary-foreground px-2.5 text-sm text-primary'>
+      {current.title}
+    </span>
+  </div>
+
+  <div class='space-y-2'>
+    {
+      current.levels.map((level) => (
+        <div class='flex items-center gap-x-3 rounded-lg p-2 transition-colors hover:bg-muted/50'>
+          <span class='inline-flex min-w-16 items-center justify-center rounded-full border bg-muted px-2 py-1 text-xs font-medium text-foreground'>
+            {level.range}
+          </span>
+          <span class='text-sm text-foreground'>{level.desc}</span>
+        </div>
+      ))
+    }
+  </div>
+</div>

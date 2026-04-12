@@ -1,0 +1,134 @@
+---
+import { Icon } from '@/components/user'
+
+interface Props {
+  title: string
+  score: number
+  tldr?: string
+  bangumi?: string
+  bangumiId?: string | number
+  tags?: string[]
+  lang?: 'zh' | 'en'
+}
+
+const {
+  title,
+  score,
+  tldr,
+  bangumi,
+  bangumiId,
+  tags = [],
+  lang = 'zh'
+} = Astro.props as Props
+
+const normalizedScore = Math.max(0, Math.min(10, Number(score) || 0))
+const scoreText = Number.isInteger(normalizedScore) ? `${normalizedScore}` : normalizedScore.toFixed(1)
+const whole = Math.floor(normalizedScore)
+const fraction = normalizedScore - whole
+
+const blocks = Array.from({ length: 10 }, (_, index) => {
+  const step = index + 1
+  if (step <= whole) return 1
+  if (step === whole + 1 && fraction > 0) return fraction
+  return 0
+})
+
+const bangumiSource = bangumi ?? (bangumiId ? `https://bgm.tv/subject/${bangumiId}` : undefined)
+const bangumiUrl = bangumiSource
+  ? /^https?:\/\//.test(bangumiSource)
+    ? bangumiSource
+    : /^\d+$/.test(bangumiSource)
+      ? `https://bgm.tv/subject/${bangumiSource}`
+      : undefined
+  : undefined
+const bangumiDisplayId = bangumiId
+  ? String(bangumiId)
+  : bangumiUrl?.match(/\/subject\/(\d+)/)?.[1]
+
+const bangumiLabel = lang === 'en' ? 'Bangumi' : 'Bangumi'
+const scoreLabel = lang === 'en' ? 'Score' : '总评'
+---
+
+<div class='rounded-xl border p-4'>
+  <div class='mb-3 flex flex-wrap items-center gap-2'>
+    <div class='inline-flex items-stretch gap-2 rounded-full border pe-3'>
+      <span class='flex shrink-0 items-center rounded-full bg-primary-foreground px-2.5 text-sm text-primary'>
+        Galgame
+      </span>
+      <samp class='break-all text-foreground'>{title}</samp>
+    </div>
+
+    {
+      bangumiUrl && (
+        <a
+          class='inline-flex items-stretch gap-2 rounded-full border pe-3 transition-colors hover:border-primary/40'
+          href={bangumiUrl}
+          target='_blank'
+          rel='noopener noreferrer'
+          aria-label={`Open ${title} on Bangumi`}
+        >
+          <span class='flex shrink-0 items-center rounded-full bg-blue-100 px-2.5 text-sm text-blue-700 dark:bg-blue-500/20 dark:text-blue-300'>
+            {bangumiLabel}
+          </span>
+          <span class='flex items-center gap-1 text-foreground'>
+            <Icon name='link' class='size-4' />
+            <span>{bangumiDisplayId || 'Subject'}</span>
+          </span>
+        </a>
+      )
+    }
+  </div>
+
+  {
+    tldr && (
+      <p class='mb-3 flex items-center gap-x-2 text-sm text-muted-foreground'>
+        <Icon name='bulb' class='size-5 shrink-0' />
+        {tldr}
+      </p>
+    )
+  }
+
+  {!!tags.length && (
+    <div class='mb-3 flex flex-wrap items-center gap-2'>
+      {tags.map((tag) => (
+        <span class='inline-flex items-center rounded-full border bg-muted px-2.5 py-1 text-xs text-muted-foreground'>
+          #{tag}
+        </span>
+      ))}
+    </div>
+  )}
+
+  <div class='function-table-content'>
+    <slot />
+  </div>
+
+  <div class='mt-3 rounded-xl border bg-muted/70 px-3 py-2'>
+    <div class='mb-2 flex items-center justify-between text-sm'>
+      <span class='text-muted-foreground'>{scoreLabel}</span>
+      <span class='font-medium text-foreground'>{scoreText} / 10</span>
+    </div>
+    <div class='grid grid-cols-10 gap-1'>
+      {
+        blocks.map((fill, index) => (
+          <span
+            class='score-block h-2.5 rounded-full border border-border/80'
+            style={`--fill:${Math.round(fill * 100)}%`}
+            aria-label={`score block ${index + 1}`}
+          />
+        ))
+      }
+    </div>
+  </div>
+</div>
+
+<style>
+  .score-block {
+    background: linear-gradient(
+      to right,
+      hsl(var(--primary)) 0%,
+      hsl(var(--primary)) var(--fill),
+      hsl(var(--background)) var(--fill),
+      hsl(var(--background)) 100%
+    );
+  }
+</style>

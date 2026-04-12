@@ -17,7 +17,13 @@ const { as: Tag = 'div', post, detailed = false, class: className } = Astro.prop
 
 const { id, data } = post
 
-const { remarkPluginFrontmatter } = await render(post)
+let minutesRead: string | undefined
+try {
+  const { remarkPluginFrontmatter } = await render(post)
+  minutesRead = remarkPluginFrontmatter?.minutesRead as string | undefined
+} catch {
+  minutesRead = undefined
+}
 const postDate = data.updatedDate ?? data.publishDate
 
 const heroImageProps = data.heroImage ? {
@@ -116,10 +122,12 @@ function getLocalizedUrl(locale: string | undefined, path: string) {
             </p>
             <div class='flex items-center gap-2 py-1.5 text-sm italic leading-4 text-muted-foreground sm:py-3'>
               {/* reading time */}
-              <span class='flex items-center gap-1'>
-                <Icon name='time' class='size-4' />
-                {remarkPluginFrontmatter.minutesRead}
-              </span>
+              {minutesRead && (
+                <span class='flex items-center gap-1'>
+                  <Icon name='time' class='size-4' />
+                  {minutesRead}
+                </span>
+              )}
               {/* language */}
               {data.language && (
                 <span class='flex items-center gap-1'>
