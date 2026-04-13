@@ -1,9 +1,13 @@
 ---
-title: "RL笔记（8）：DQN"
+title: 'RL笔记（8）：DQN'
 publishDate: 2025-12-17
 updatedDate: 2025-12-17
-description: "深度强化学习的开山之作。详解 DQN 如何利用神经网络拟合 Q 值，以及两大核心创新：经验回放与目标网络。进阶涵盖 Double DQN 与 Dueling DQN。"
-heroImage: {src : "https://pic.hana0721.top/rl-note-2.8vndvqvn7c.webp", color: '#8C8275'}
+description: '深度强化学习的开山之作。详解 DQN 如何利用神经网络拟合 Q 值，以及两大核心创新：经验回放与目标网络。进阶涵盖 Double DQN 与 Dueling DQN。'
+heroImage: { src: 'https://pic.hana0721.top/rl-note-2.8vndvqvn7c.webp', color: '#8C8275' }
+tags:
+  - '强化学习'
+  - 'RL笔记'
+  - 'DQN'
 category: 'daily'
 pixivLink: '127192375'
 ---
@@ -12,6 +16,7 @@ pixivLink: '127192375'
 
 在之前的 Q-Learning 算法中，我们使用一个矩阵（Q-Table）来记录每个状态动作对 $(s,a)$ 的价值。
 这种方法有两个致命局限：
+
 1.  **内存限制**：如果状态空间很大（例如围棋 $10^{170}$），表格根本存不下。这被称为**维度灾难 (Curse of Dimensionality)**。
 2.  **泛化能力差**：对于没见过的状态，表格无法给出估计，而在连续状态空间中，几乎很难遇到完全一样的状态。
 
@@ -22,11 +27,14 @@ pixivLink: '127192375'
 ## 深度 Q 网络 (DQN)
 
 ### 核心定义
+
 在 DQN 中，我们使用参数为 $\omega$ 的神经网络来拟合动作价值函数。
-*   **输入**：状态 $s$（例如游戏的屏幕像素）。
-*   **输出**：每个动作 $a \in \mathcal{A}$ 对应的价值 $Q(s,a)$。
+
+- **输入**：状态 $s$（例如游戏的屏幕像素）。
+- **输出**：每个动作 $a \in \mathcal{A}$ 对应的价值 $Q(s,a)$。
 
 ### 损失函数
+
 类似于 Q-Learning，我们希望神经网络的输出逼近 TD Target。
 对于一条数据 $(s_i, a_i, r_i, s_i^\prime)$，目标是最小化均方误差：
 
@@ -44,10 +52,12 @@ $$
 
 **做法**：
 维护一个**回放缓冲区 (Replay Buffer)** $\mathcal{R}$。
+
 1.  智能体与环境交互，将产生的数据 $(s_t, a_t, r_t, s_{t+1})$ 存入缓冲区。
 2.  训练时，从缓冲区中**随机采样**一个批次 (Batch) 的数据进行梯度下降。
 
 **作用**：
+
 1.  **打破相关性**：随机采样消除了数据之间的时间相关性，满足独立同分布假设，稳定网络训练。
 2.  **提高样本效率**：一条经验数据可以被多次采样利用，而不是用完即弃。
 
@@ -56,9 +66,11 @@ $$
 ## 创新二：目标网络 (Target Network)
 
 在原版 Q-Learning 中，TD Target 的计算也依赖于当前网络参数 $\omega$：
+
 $$
 y_i = r_i + \gamma \max_{a'} Q_\omega(s'_i, a')
 $$
+
 这就好比“在射箭的同时，靶子也在动”。更新 $\omega$ 会同时改变预测值和目标值，容易导致震荡发散。
 
 **做法**：
@@ -70,8 +82,9 @@ y_i = r_i + \gamma \max_{a'} Q_{\omega^-}(s'_i, a')
 $$
 
 **更新规则**：
-*   **训练网络 $\omega$**：每个 step 都进行梯度下降更新。
-*   **目标网络 $\omega^-$**：每隔 $C$ 步（例如 1000 步），将 $\omega$ 的值复制给 $\omega^-$ ($\omega^- \leftarrow \omega$)。
+
+- **训练网络 $\omega$**：每个 step 都进行梯度下降更新。
+- **目标网络 $\omega^-$**：每隔 $C$ 步（例如 1000 步），将 $\omega$ 的值复制给 $\omega^-$ ($\omega^- \leftarrow \omega$)。
 
 > **💡 直觉**：固定住靶子一会儿，让射手（训练网络）安心瞄准，等射手练好了，再把靶子挪到新的位置。
 
@@ -105,15 +118,19 @@ $$
 ## 进阶 1：Double DQN
 
 ### 问题：过高估计 (Overestimation)
+
 DQN 在计算目标值时使用了 $\max$ 操作：$y_i = r + \gamma \max_{a'} Q(s', a')$。
 由于神经网络本身存在估计误差，$\max$ 操作倾向于选择那些被**高估**的值。这种**最大化偏差 (Maximization Bias)** 会导致 Q 值普遍偏大，影响策略学习。
 
 ### 解决方案
+
 **解耦选择与评估**。
-*   **选择动作**：使用当前网络 $Q_\omega$ 来决定哪个动作最好（即 argmax）。
-*   **评估价值**：使用目标网络 $Q_{\omega^-}$ 来计算那个动作的价值。
+
+- **选择动作**：使用当前网络 $Q_\omega$ 来决定哪个动作最好（即 argmax）。
+- **评估价值**：使用目标网络 $Q_{\omega^-}$ 来计算那个动作的价值。
 
 **Double DQN 目标公式**：
+
 $$
 y_i = r_i + \gamma Q_{\omega^-}(s'_i, \underset{a'}{\operatorname{argmax}} Q_\omega(s'_i, a'))
 $$
@@ -123,9 +140,11 @@ $$
 ## 进阶 2：Dueling DQN
 
 ### 核心思想
+
 在很多状态下，**状态本身的价值**比**选择什么动作**更重要。
 例如：在赛车游戏中，如果前面是死胡同（状态差），无论你向左转还是向右转（动作），价值都很低。
 Dueling DQN 改变了网络结构，将 Q 值分解为两部分：
+
 1.  **状态价值函数 (Value Function)** $V(s)$：仅与状态有关。
 2.  **优势函数 (Advantage Function)** $A(s,a)$：与动作有关，表示动作 $a$ 相比平均情况好多少。
 
@@ -134,18 +153,23 @@ Q(s, a) = V(s) + A(s, a)
 $$
 
 ### 可辨识性问题 (Identifiability)
+
 如果直接用 $V+A$，网络会出现唯一性问题（$V$ 加 10，$A$ 减 10，总和 $Q$ 不变）。为了让 $V$ 和 $A$ 能被唯一确定，我们需要强行约束 $A$ 的某种性质。
 
 **聚合公式 (Aggregation)**：
 通常让优势函数 $A$ 对于某个状态的均值为 0，或者最大值为 0。
+
 $$
 Q(s,a;\theta,\alpha,\beta)=V(s;\theta,\beta) + \left( A(s,a;\theta,\alpha) - \frac{1}{|\mathcal{A}|}\sum_{a^\prime}A(s,a^\prime;\theta,\alpha) \right)
 $$
+
 或者：
+
 $$
 Q(s,a;\theta,\alpha,\beta)=V(s;\theta,\beta) + \left( A(s,a;\theta,\alpha) - \max_{a^\prime}A(s,a^\prime;\theta,\alpha) \right)
 $$
 
 **优点**：
-*   在动作对环境影响不大的状态下，能更快地学习状态价值 $V$。
-*   极大地提高了训练效率和稳定性。
+
+- 在动作对环境影响不大的状态下，能更快地学习状态价值 $V$。
+- 极大地提高了训练效率和稳定性。

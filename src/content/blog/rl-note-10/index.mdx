@@ -1,9 +1,13 @@
 ---
-title: "RL笔记（10）：Actor-Critic"
+title: 'RL笔记（10）：Actor-Critic'
 publishDate: 2025-12-19
 updatedDate: 2025-12-19
-description: "策略梯度与价值函数的完美结合：详解 Actor-Critic 架构。从 Baseline 减小方差的数学证明，到优势函数 (Advantage) 的推导及 A2C 算法流程。"
-heroImage: {src : "https://pic.hana0721.top/rl-note-2.8vndvqvn7c.webp", color: '#8C8275'}
+description: '策略梯度与价值函数的完美结合：详解 Actor-Critic 架构。从 Baseline 减小方差的数学证明，到优势函数 (Advantage) 的推导及 A2C 算法流程。'
+heroImage: { src: 'https://pic.hana0721.top/rl-note-2.8vndvqvn7c.webp', color: '#8C8275' }
+tags:
+  - '强化学习'
+  - 'RL笔记'
+  - 'Actor-Critic'
 category: 'daily'
 pixivLink: '127192375'
 ---
@@ -11,39 +15,47 @@ pixivLink: '127192375'
 ## 引言（Introduction）
 
 在之前的笔记中，我们学习了两种截然不同的强化学习路径：
+
 1.  **Value-Based (如 Q-Learning)**：通过学习价值函数 $Q(s,a)$ 来间接导出策略。优点是方差小（利用了 TD 的一步更新），缺点是无法处理连续动作。
 2.  **Policy-Based (如 REINFORCE)**：直接学习策略 $\pi_\theta$。优点是可以处理连续动作，缺点是方差极大（因为使用了蒙特卡洛回报 $G_t$），且只能在回合结束后更新。
 
 **Actor-Critic (AC)** 架构旨在结合两者的优点：
-*   **Actor (演员)**：即策略网络 $\pi_\theta(a|s)$，负责由状态输出动作。
-*   **Critic (评论家)**：即价值网络 $V_w(s)$ 或 $Q_w(s,a)$，负责评估 Actor 的动作好不好，帮助 Actor 减小方差加速学习。
+
+- **Actor (演员)**：即策略网络 $\pi_\theta(a|s)$，负责由状态输出动作。
+- **Critic (评论家)**：即价值网络 $V_w(s)$ 或 $Q_w(s,a)$，负责评估 Actor 的动作好不好，帮助 Actor 减小方差加速学习。
 
 ---
 
 ## 降低方差的技巧：基线 (Baseline)
 
 回顾 REINFORCE 的梯度公式：
+
 $$
 \nabla_\theta J(\theta) = \mathbb{E}_{\tau \sim \pi_\theta} \left[ \sum_{t=0}^T \nabla_\theta \log \pi_\theta(a_t|s_t) G_t \right]
 $$
+
 这里的 $G_t$ 是从 $t$ 时刻开始的累积回报。由于环境随机性和策略随机性，$G_t$ 的波动非常大，导致梯度估计不稳定。
 
 为了减小方差，我们引入一个 **基线函数 (Baseline) $b(s)$**。基线函数只与状态有关，与动作无关。
 我们把梯度修改为：
+
 $$
 \nabla_\theta J(\theta) = \mathbb{E} \left[ \sum_{t=0}^T \nabla_\theta \log \pi_\theta(a_t|s_t) (G_t - b(s_t)) \right]
 $$
 
 ### 数学证明：引入基线不改变梯度期望
+
 我们需要证明减去一项 $b(s_t)$ 后，梯度的期望值不变。即证明：
+
 $$
 \mathbb{E}_{a_t \sim \pi_\theta} [\nabla_\theta \log \pi_\theta(a_t|s_t) \cdot b(s_t)] = 0
 $$
 
 证明如下：
+
 $$
 \begin{align}
-\mathbb{E}_{a \sim \pi} [\nabla_\theta \log \pi(a|s) \cdot b(s)] 
+\mathbb{E}_{a \sim \pi} [\nabla_\theta \log \pi(a|s) \cdot b(s)]
 &= \sum_{a} \pi(a|s) \frac{\nabla_\theta \pi(a|s)}{\pi(a|s)} b(s) \notag \\
 &= b(s) \sum_{a} \nabla_\theta \pi(a|s) \notag \\
 &= b(s) \nabla_\theta \sum_{a} \pi(a|s) \notag \\
@@ -51,37 +63,46 @@ $$
 &= 0 \notag
 \end{align}
 $$
+
 结论：只要 $b(s)$ 不依赖于动作 $a$，我们可以随意减去它而不改变梯度的方向，但能显著改变梯度的方差。通常，我们选择状态价值函数 $V(s)$ 作为基线。
 
 ---
 
 ## Actor-Critic 架构演变
 
-###  Q Actor-Critic
+### Q Actor-Critic
+
 如果我们用一个神经网络 $Q_w(s,a)$ 来近似 REINFORCE 中的 $G_t$，梯度变为：
+
 $$
 \nabla_\theta J(\theta) \approx \mathbb{E} [\nabla_\theta \log \pi_\theta(a|s) Q_w(s,a)]
 $$
+
 但这并没有解决问题，因为单纯拟合 $Q$ 值还是很难。
 
-###  Advantage Actor-Critic (A2C)
+### Advantage Actor-Critic (A2C)
+
 为了利用 Baseline 减小方差，我们希望梯度形式为：
+
 $$
 \nabla_\theta J(\theta) \approx \mathbb{E} [\nabla_\theta \log \pi_\theta(a|s) (Q_w(s,a) - V_v(s))]
 $$
+
 其中 $Q(s,a) - V(s)$ 被称为 **优势函数 (Advantage Function)**，记为 $A(s,a)$。它表示“在状态 $s$ 下，动作 $a$ 比平均情况好了多少”。
 
 但是，如果我们需要同时维护两个网络（一个算 $Q$，一个算 $V$），训练会很麻烦。我们可以利用 **TD Error** 来近似优势函数。
 
 根据贝尔曼方程：
-$$ Q(s_t, a_t) \approx r_t + \gamma V(s_{t+1}) $$
+$$ Q(s*t, a_t) \approx r_t + \gamma V(s*{t+1}) $$
 因此，优势函数可以写为：
+
 $$
 \begin{align}
 A(s_t, a_t) &= Q(s_t, a_t) - V(s_t) \notag \\
 &\approx r_t + \gamma V(s_{t+1}) - V(s_t) \notag
 \end{align}
 $$
+
 这恰好就是 **TD Error ($\delta_t$)**！
 
 因此，我们只需要维护一个 **Actor 网络 $\pi_\theta(a|s)$** 和一个 **Critic 网络 $V_w(s)$** 即可。
@@ -92,28 +113,36 @@ $$
 
 在 Advantage Actor-Critic 中，Critic 的任务是把 $V_w(s)$ 估得越准越好，Actor 的任务是利用 Critic 提供的 TD Error 来更新策略。
 
-###  Critic 的更新 (Value Update)
+### Critic 的更新 (Value Update)
+
 Critic 的目标是最小化 TD Error 的平方（即回归问题）：
+
 $$
 L_{critic}(w) = \frac{1}{2} \left( r_t + \gamma V_w(s_{t+1}) - V_w(s_t) \right)^2
 $$
+
 梯度更新：
 $$ w \leftarrow w + \alpha_c \delta_t \nabla_w V_w(s_t) $$
 
-###  Actor 的更新 (Policy Update)
+### Actor 的更新 (Policy Update)
+
 Actor 使用 TD Error 作为优势函数的估计值进行梯度上升：
+
 $$
 \nabla_\theta J(\theta) \approx \nabla_\theta \log \pi_\theta(a_t|s_t) \delta_t
 $$
+
 梯度更新：
-$$ \theta \leftarrow \theta + \alpha_a \delta_t \nabla_\theta \log \pi_\theta(a_t|s_t) $$
+$$ \theta \leftarrow \theta + \alpha*a \delta_t \nabla*\theta \log \pi\_\theta(a_t|s_t) $$
 
 > **💡 直觉理解**：
-> *   如果 $\delta_t > 0$（惊喜，结果比预期好）：增加动作 $a_t$ 的概率。
-> *   如果 $\delta_t < 0$（失望，结果比预期差）：减小动作 $a_t$ 的概率。
-> *   这里的“预期”就是 Critic 提供的 $V(s_t)$。
+>
+> - 如果 $\delta_t > 0$（惊喜，结果比预期好）：增加动作 $a_t$ 的概率。
+> - 如果 $\delta_t < 0$（失望，结果比预期差）：减小动作 $a_t$ 的概率。
+> - 这里的“预期”就是 Critic 提供的 $V(s_t)$。
 
-###  A2C 伪代码
+### A2C 伪代码
+
 $$
 \begin{aligned}
 & \bullet \; \text{Initialize Actor } \pi_\theta \text{ and Critic } V_w \\
@@ -141,13 +170,13 @@ $$
 我们可以总结一下不同计算 Advantage 的方法，它们体现了 RL 中核心的权衡：
 
 1.  **蒙特卡洛 (REINFORCE)**：
-    *   $A_t \approx G_t - V(s_t)$
-    *   **无偏差**：$G_t$ 是真实回报。
-    *   **高方差**：受整个序列随机性影响。
+    - $A_t \approx G_t - V(s_t)$
+    - **无偏差**：$G_t$ 是真实回报。
+    - **高方差**：受整个序列随机性影响。
 2.  **Actor-Critic (TD)**：
-    *   $A_t \approx r_t + \gamma V(s_{t+1}) - V(s_t)$
-    *   **低方差**：只受一步随机性影响。
-    *   **有偏差**：依赖于 Critic 的估计 $V(s_{t+1})$，如果 Critic 还没练好，Actor 就会被带偏。
+    - $A_t \approx r_t + \gamma V(s_{t+1}) - V(s_t)$
+    - **低方差**：只受一步随机性影响。
+    - **有偏差**：依赖于 Critic 的估计 $V(s_{t+1})$，如果 Critic 还没练好，Actor 就会被带偏。
 
 为了平衡两者，我们可以使用 **多步 TD** 或者 **GAE (Generalized Advantage Estimation)**，这是 PPO 等进阶算法的核心技巧。
 
@@ -156,6 +185,7 @@ $$
 ## 总结
 
 Actor-Critic 架构是现代深度强化学习的主流架构。
-*   它解决了 REINFORCE 方差大、更新慢的问题。
-*   它解决了 DQN 无法处理连续动作的问题。
-*   它是后续 **A3C, DDPG, TRPO, PPO, SAC** 等高级算法的共同祖先。
+
+- 它解决了 REINFORCE 方差大、更新慢的问题。
+- 它解决了 DQN 无法处理连续动作的问题。
+- 它是后续 **A3C, DDPG, TRPO, PPO, SAC** 等高级算法的共同祖先。

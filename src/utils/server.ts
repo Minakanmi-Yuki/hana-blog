@@ -2,6 +2,14 @@ import { getCollection, type CollectionEntry, type CollectionKey } from 'astro:c
 
 type Collections = CollectionEntry<CollectionKey>[]
 
+export interface SidebarCollection {
+  key: string
+  title: string
+  description: string
+  href: string
+  count: number
+}
+
 export const prod = import.meta.env.PROD
 
 /** Note: this function filters out draft posts based on the environment */
@@ -12,44 +20,47 @@ export async function getBlogCollection(contentType: CollectionKey = 'blog') {
   })
 }
 
-/** 
+/**
  * Get English blog collection with fallback to Chinese version
  * If an English version (index-en.md) doesn't exist, use the Chinese version (index.md)
  */
 export async function getBlogCollectionEn(contentType: CollectionKey = 'blogEn') {
   // Get all English versions
-  const englishPosts = await getCollection(contentType, ({ data }: CollectionEntry<typeof contentType>) => {
-    return prod ? !data.draft : true
-  })
-  
+  const englishPosts = await getCollection(
+    contentType,
+    ({ data }: CollectionEntry<typeof contentType>) => {
+      return prod ? !data.draft : true
+    }
+  )
+
   // Transform English post IDs from "anygrasp/index-en" to "anygrasp"
-  const transformedEnglishPosts = englishPosts.map(post => ({
+  const transformedEnglishPosts = englishPosts.map((post) => ({
     ...post,
     id: post.id.replace(/\/index-en$/, '')
   }))
-  
+
   // Get all Chinese versions
   const chinesePosts = await getBlogCollection('blog')
-  
+
   // Create a map of English posts by their slug (folder name)
   const englishPostSlugs = new Set(
-    transformedEnglishPosts.map(post => {
+    transformedEnglishPosts.map((post) => {
       // Extract folder name from id: "anygrasp/index.md" -> "anygrasp"
       const match = post.id.match(/^(.+?)\/index\.(md|mdx)$/)
       return match ? match[1] : post.id
     })
   )
-  
+
   // Add Chinese posts that don't have English versions
   const fallbackPosts = chinesePosts
-    .filter(post => {
+    .filter((post) => {
       // Extract folder name from id: "anygrasp/index.md" -> "anygrasp"
       const match = post.id.match(/^(.+?)\/index\.(md|mdx)$/)
       const slug = match ? match[1] : post.id
       return !englishPostSlugs.has(slug)
     })
-    .map(post => post as CollectionEntry<'blogEn'>)
-  
+    .map((post) => post as CollectionEntry<'blogEn'>)
+
   // Combine English posts and fallback Chinese posts
   return [...transformedEnglishPosts, ...fallbackPosts]
 }
@@ -79,7 +90,6 @@ export function groupCollectionsByYear<T extends CollectionKey>(
   ).sort((a, b) => b[0] - a[0])
 }
 
-
 export function sortMDByDate(collections: Collections): Collections {
   return collections.sort((a, b) => {
     const aUpdatedDate = a.data.updatedDate ? new Date(a.data.updatedDate).valueOf() : 0
@@ -90,6 +100,19 @@ export function sortMDByDate(collections: Collections): Collections {
     const aPublishDate = a.data.publishDate ? new Date(a.data.publishDate).valueOf() : 0
     const bPublishDate = b.data.publishDate ? new Date(b.data.publishDate).valueOf() : 0
     return bPublishDate - aPublishDate
+  })
+}
+
+export function sortMDByDateAsc(collections: Collections): Collections {
+  return collections.sort((a, b) => {
+    const aUpdatedDate = a.data.updatedDate ? new Date(a.data.updatedDate).valueOf() : 0
+    const bUpdatedDate = b.data.updatedDate ? new Date(b.data.updatedDate).valueOf() : 0
+    if (aUpdatedDate !== bUpdatedDate) {
+      return aUpdatedDate - bUpdatedDate
+    }
+    const aPublishDate = a.data.publishDate ? new Date(a.data.publishDate).valueOf() : 0
+    const bPublishDate = b.data.publishDate ? new Date(b.data.publishDate).valueOf() : 0
+    return aPublishDate - bPublishDate
   })
 }
 
@@ -138,4 +161,104 @@ export function getUniqueCategoriesWithCount(collections: Collections): [string,
 /** Filter collections by category */
 export function getCollectionsByCategory(collections: Collections, category: string) {
   return collections.filter((collection) => collection.data.category === category)
+}
+
+const sidebarCollectionRules = [
+  {
+    key: 'rl-notes',
+    title: {
+      zh: 'RL 笔记系列',
+      en: 'RL Notes Series'
+    },
+    description: {
+      zh: '强化学习学习笔记与专题整理',
+      en: 'Reinforcement learning study notes and topics'
+    },
+    slugPrefix: 'rl-note-',
+    entryHref: '/blog/rl-note-1'
+  },
+  {
+    key: 'embodied-paper-reading',
+    title: {
+      zh: 'Embodied AI Paper Reading',
+      en: 'Embodied AI Paper Reading'
+    },
+    description: {
+      zh: 'Embodied AI 论文阅读合集',
+      en: 'Embodied AI paper reading collection'
+    },
+    slugPrefix: 'paper-reading-eba',
+    entryHref: '/blog/paper-reading-eba1'
+  },
+  {
+    key: 'vibe-coding',
+    title: {
+      zh: 'Vibe Coding Series',
+      en: 'Vibe Coding Series'
+    },
+    description: {
+      zh: 'Vibe Coding 系列文章',
+      en: 'Posts in the Vibe Coding series'
+    },
+    slugPrefix: 'vibe-coding-',
+    entryHref: '/blog/vibe-coding-1'
+  },
+  {
+    key: 'galgame-rating',
+    title: {
+      zh: 'Galgame 简评系列',
+      en: 'Galgame Rating Series'
+    },
+    description: {
+      zh: 'Galgame 简评与补丁页合集',
+      en: 'Galgame reviews and patch pages'
+    },
+    slugPrefix: 'galgame-',
+    entryHref: '/blog/galgame-1'
+  }
+] as const
+
+type SidebarRule = (typeof sidebarCollectionRules)[number]
+
+function normalizePostId(id: string) {
+  return id.replace(/\/index(?:-en)?\.(md|mdx)$/u, '')
+}
+
+export function getSidebarCollections(
+  collections: Collections,
+  locale: 'zh' | 'en' = 'zh'
+): SidebarCollection[] {
+  const localePrefix = locale === 'en' ? '/en' : ''
+
+  return sidebarCollectionRules
+    .map((rule) => {
+      const count = collections.filter((collection) =>
+        normalizePostId(collection.id).startsWith(rule.slugPrefix)
+      ).length
+
+      return {
+        key: rule.key,
+        title: rule.title[locale],
+        description: rule.description[locale],
+        href: `${localePrefix}/collection/${rule.key}`,
+        count
+      }
+    })
+    .filter((item) => item.count > 0)
+}
+
+export function getSidebarCollectionRule(key: string): SidebarRule | undefined {
+  return sidebarCollectionRules.find((rule) => rule.key === key)
+}
+
+export function getCollectionPostsByKey<T extends CollectionKey>(
+  collections: CollectionEntry<T>[],
+  key: string
+) {
+  const rule = getSidebarCollectionRule(key)
+  if (!rule) return []
+
+  return collections.filter((collection) =>
+    normalizePostId(collection.id).startsWith(rule.slugPrefix)
+  )
 }

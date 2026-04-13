@@ -1,9 +1,13 @@
 ---
-title: "RL笔记（3）：马尔可夫决策过程"
+title: 'RL笔记（3）：马尔可夫决策过程'
 publishDate: 2025-12-12
 updatedDate: 2025-12-12
-description: "梳理从马尔可夫过程(MP)、奖励过程(MRP)到决策过程(MDP)的演变，详解价值函数、贝尔曼方程推导、占用度量及最优策略定义。"
-heroImage: {src : "https://pic.hana0721.top//rl-note.3yex1wenfg.webp", color: '#8C8275'}
+description: '梳理从马尔可夫过程(MP)、奖励过程(MRP)到决策过程(MDP)的演变，详解价值函数、贝尔曼方程推导、占用度量及最优策略定义。'
+heroImage: { src: 'https://pic.hana0721.top//rl-note.3yex1wenfg.webp', color: '#8C8275' }
+tags:
+  - '强化学习'
+  - 'RL笔记'
+  - 'MDP'
 category: 'daily'
 pixivLink: '127192375'
 ---
@@ -24,20 +28,23 @@ pixivLink: '127192375'
 ## 马尔可夫过程（Markov Process）
 
 ### 随机过程（Stochastic Process）
+
 随机过程是研究随时间演变的随机现象。
 在随机过程中，随机现象在$$t$$时刻的取值为$S_t$，并且$S_t$通常会取决于之前的状态 $(S_1,...,S_{t-1})$。
 在已知 $(S_1,...,S_{t-1})$的情况下，下一个时刻 $t$的状态为 $S_t$的概率可以表示为$P(S_t | S_1,...,S_{t-1})$。
 
 ### 马尔可夫性质（Markov Property）
+
 当且仅当某个时刻的状态只取决于上个时刻的状态时，这个随机过程满足马尔可夫性质，即$P(S_t | S_{t-1}) = P(S_t | S_1, ..., S_{t-1})$。
 
 ### 马尔可夫过程（Markov Process）
+
 马尔可夫过程就是满足了马尔可夫性质的随机过程，也叫马尔可夫链（Markov Chain）。
 通常使用一个二元组 $<\mathcal{S}, \mathcal{P}>$ 来描述马尔可夫过程，其中 $\mathcal{S}$是有限数量的状态集合， $\mathcal{P}$是状态转移矩阵（State Transition Matrix）。
 假设 $|\mathcal{S}|=n$，那么有：
 
 $$
-\mathcal{P}=\begin{bmatrix} P(s_1|s_1) & \cdots & P(s_n|s_1) 
+\mathcal{P}=\begin{bmatrix} P(s_1|s_1) & \cdots & P(s_n|s_1)
 \cr \vdots & \ddots & \vdots \cr P(s_n|s_1) & \cdots & P(s_n|s_n) \end{bmatrix}
 $$
 
@@ -48,21 +55,28 @@ $$
 ---
 
 ## 马尔可夫奖励过程（Markov Reward Process）
+
 马尔可夫奖励过程基于马尔可夫过程加入了奖励函数 $\mathcal{R}$（Reward Function）与折扣因子 $$\gamma$$（Discount Factor），通常由四元组 $<\mathcal{S},\mathcal{P},\mathcal{R},\gamma>$ 构成：
+
 - $\mathcal{S}$ 是有限状态集；
 - $\mathcal{P}$ 是状态转移矩阵；
 - $\mathcal{R}$ 是奖励函数，$\mathcal{R}(s)$ 表示达到状态 $s$ 可以获得的奖励；
 - $\gamma$ 是折扣因子，取值为 $[0,1)$。 $\gamma$ 的越小，对于未来的利益折扣越大；
 
 ### 回报（Return）
+
 在一个马尔可夫奖励过程中，在某个时刻 $t$，其回报 $G_t$ 的定义如下：
+
 $$
 G_t=R_t+\gamma R_{t+1}+\gamma^2 R_{t+2}+...=\sum_{k=0}^\infin \gamma^k R_{t+k}
 $$
+
 其中， $R_t$ 表示 $t$ 时刻获得的奖励。
 
 ### 价值函数（Value Function）
+
 某个状态 $s$的期望回报 $\mathbb{E}[G_t|S_t=s]$，被称为这个状态的价值（Value）。那么所有状态的价值组成了价值函数（Value Function），展开如下：
+
 $$
 \begin{align}
 V(s)&=\mathbb{E}[G_t|S_t=s] \notag \\
@@ -72,7 +86,9 @@ V(s)&=\mathbb{E}[G_t|S_t=s] \notag \\
 &= \mathbb{E}[R_t+\gamma V(S_{t+1})|S_t=s] \notag \\
 \end{align}
 $$
+
 经过几步简单的推导，可以得出贝尔曼方程（Bellman Equation）：
+
 $$
 \begin{align}
 V(s)&= \mathbb{E}[R_t+\gamma V(S_{t+1})|S_t=s] \notag \\
@@ -80,7 +96,9 @@ V(s)&= \mathbb{E}[R_t+\gamma V(S_{t+1})|S_t=s] \notag \\
 &= \mathcal{R}(s)+\gamma\sum_{s^\prime \in \mathcal{S}} P(s^\prime|s) V(s^\prime) \notag
 \end{align}
 $$
+
 可以写成矩阵形式：
+
 $$
 \begin{align}
 \mathcal{V}&=\mathcal{R}+\gamma\mathcal{P}\mathcal{V} \notag \\
@@ -92,32 +110,40 @@ $$
 ---
 
 ## 马尔可夫决策过程（Markov Decision Process）
+
 在马尔可夫奖励过程的基础上，加入外界的刺激，即智能体（Agent）的动作（Action），就有了马尔可夫决策过程（Markov Decision Process）。
 马尔可夫决策由五元组 $<\mathcal{S},\mathcal{A},\mathcal{P},\mathcal{R},\gamma>$构成，分别是：
--  $\mathcal{S}$ 是有限状态集；
--  $\mathcal{A}$ 是动作的集合；
--  $\gamma$ 是折扣因子；
--  $\mathcal{R}(s,a)$ 是奖励函数；
--  $\mathcal{P}(s^\prime|s,a)$ 是状态转移函数；
+
+- $\mathcal{S}$ 是有限状态集；
+- $\mathcal{A}$ 是动作的集合；
+- $\gamma$ 是折扣因子；
+- $\mathcal{R}(s,a)$ 是奖励函数；
+- $\mathcal{P}(s^\prime|s,a)$ 是状态转移函数；
 
 ### 策略（Policy）
+
 策略的定义：智能体根据当前的状态 $S_t$，并从动作集合 $\mathcal{A}$中选取一个 $A_t$ 的函数，一般记为 $\pi$。
 $\pi(a|s)=P(A_t=a|S_t=s)$ 表示状态 $s$ 下，选择动作 $a$ 的概率。
 
 #### 确定性策略（Deterministic Policy）
+
 如果一个策略 $\pi$ ，对于每一个状态 $s\in\mathcal{S}$ ，有且仅有唯一动作 $a\in\mathcal{A}$ ，使得 $\pi(a|s)=1$ ，那么这个策略就是一个确定性策略。
 
 #### 随机性策略（Stochastic Policy）
-随机性策略和确定性策略相反，它输出的各个动作的概率分布（Probability  Distribution），每次采取动作时会从分布中进行采样。
+
+随机性策略和确定性策略相反，它输出的各个动作的概率分布（Probability Distribution），每次采取动作时会从分布中进行采样。
 
 ### 状态价值函数（State-Value Function）
+
 基于策略 $\pi$ 的状态价值函数被记为 $V^\pi(s)=\mathbb{E}_\pi[G_t|S_t=s]$ 。
 注意：若 $\pi \ne \pi^\prime$ ，则 $V^\pi \ne V^{\pi^\prime}$ 。
 
 ### 动作价值函数（Action-Value Function）
+
 马尔可夫决策过程引入了动作，我们额外定义了一个动作价值函数（Action-Value Function）。
 基于策略 $\pi$ 的动作价值函数被记为 $Q^\pi(s,a)$ ，表达式为 $Q^\pi(s,a)=\mathbb{E}_{\pi}[G_t|S_t=s,A_t=a]$ 。
 经过简单的推导，可以得出如下公式：
+
 $$
 \begin{align}
 Q^\pi(s,a)&=\mathbb{E}_\pi[G_t|S_t=s,A_t=a] \notag \\
@@ -128,17 +154,22 @@ Q^\pi(s,a)&=\mathbb{E}_\pi[G_t|S_t=s,A_t=a] \notag \\
 &= \mathcal{R}(s,a)+\gamma \sum_{s^\prime \in \mathcal{S}}\mathcal{P}(s^\prime|s,a)V^\pi(s^\prime) \notag
 \end{align}
 $$
+
 状态价值函数和动作价值函数之间的关系：
+
 $$
 \begin{align}
 V^\pi(s)&= \mathbb{E}_{a\sim \pi( \cdot | s)}[Q^\pi(s,a)] \notag \\
 &=\sum_{a\in \mathcal{A}}\pi(a|s)Q^\pi(s,a) \notag
 \end{align}
 $$
+
 注意：若 $\pi \ne \pi^\prime$ ，则 $Q^\pi \ne Q^{\pi^\prime}$ 。
 
 ### 贝尔曼期望方程（Bellman Expectation Equation）
+
 对状态价值函数进行边缘化（Marginalization），可以得出 $V^\pi(s)$ 的贝尔曼期望方程：
+
 $$
 \begin{align}
 V^\pi(s)&=\mathbb{E}_\pi[R_t+\gamma V^\pi(S_{t+1})|S_t=s] \notag \\
@@ -146,7 +177,9 @@ V^\pi(s)&=\mathbb{E}_\pi[R_t+\gamma V^\pi(S_{t+1})|S_t=s] \notag \\
 &=\sum_{a\in \mathcal{A}}\pi(a|s)(\mathcal{R}(s,a)+\gamma\sum_{s^\prime\in \mathcal{S}}\mathcal{P}(s^\prime|s,a)V^\pi(s^\prime)) \notag
 \end{align}
 $$
+
 将 $V^\pi(s)=\sum_{a\in\mathcal{A}}\pi(a|s)Q^\pi(s,a)$ 代入，可以得出 $Q^\pi(s,a)$ 的贝尔曼期望方程：
+
 $$
 \begin{align}
 Q^\pi(s,a)&=\mathbb{E}_{\pi}[G_t|S_t=s,A_t=a] \notag \\
@@ -158,15 +191,18 @@ $$
 ---
 
 ## 状态访问分布（State Visitation Distribution）
+
 在同一个马尔可夫过程中，不同的策略，它们的价值函数是不一样的。
 因为在不同的策略，智能体能够访问的状态的概率分布是不同的。
 我们使用 $P_t^\pi(s)$ 来表示智能体使用策略 $\pi$ 在 $t$ 时刻访问状态 $s$ 的概率。
 策略 $\pi$ 的状态访问分布（State Visitation Distribution）定义如下：
+
 $$
 \nu^\pi(s)=(1-\gamma)\sum_{t=0}^{\infin}\gamma^t P_t^\pi(s)
 $$
 
 $1-\gamma$ 是归一化因子，它保证 $\nu^\pi(s)$ 是一个有效的概率分布，即 $\sum_s \nu^\pi(s)=1$，推导如下：
+
 $$
 \begin{align}
 \sum_s \nu^\pi(s)&=\sum_s (1-\gamma) \sum_{t=0}^\infin \gamma^t P_t^\pi(s) \notag \\
@@ -175,10 +211,13 @@ $$
 $$
 
 在任意时刻 $t$，满足 $\sum_s P_t^\pi(s)=1$，可以推导出：
+
 $$
 \sum_s \nu^\pi(s)=(1-\gamma) \sum_{t=0}^\infin \gamma^t
 $$
+
 这里有个几何级数，满足 $\sum_{t=0}^\infin\gamma^t=\frac{1}{1-\gamma}$，可以推导出：
+
 $$
 \sum_s \nu^\pi(s)=(1-\gamma) \frac{1}{1-\gamma}=1
 $$
@@ -186,6 +225,7 @@ $$
 特别地，定义初始状态分布为 $\nu_0(s)$，且 $P_0^\pi(s)=\nu_0(s)$。
 
 使用上述公式计算该分布涉及到了无穷步的交互，但是实际上的交互数量是有限的。同时，状态访问分布满足以下性质：
+
 $$
 \nu^\pi(s^\prime)=(1-\gamma)\nu_0(s^\prime)+\gamma  \int \mathcal{P}(s^\prime|s,a)\pi(a|s)\nu^\pi(s) {\rm d} s {\rm d} a
 $$
@@ -193,11 +233,15 @@ $$
 ---
 
 ## 占用度量（Occupancy Measure）
+
 进一步，为了表示动作状态 $(s,a)$ 访问的分布，定义策略 $\pi$ 的占用度量（Occupancy Measure）如下：
+
 $$
 \rho^\pi(s,a)=(1-\gamma)\sum_{t=0}^\infin \gamma^t P_t^\pi(s)\pi(a|s)
 $$
+
 两者存在以下关系：
+
 $$
 \rho^\pi(s,a)=\nu^\pi(s)\pi(a|s)
 $$
@@ -205,11 +249,13 @@ $$
 最终，可以推导出两个定理：
 
 定理1：给定环境（MDP）的条件下，策略 $\pi_1$和策略 $\pi_2$ 得出的占用度量 $\rho^{\pi_1}$ 和 $\rho^{\pi_2}$ 满足：
+
 $$
 \pi_1 = \pi_2 \Longleftrightarrow \rho^{\pi_1} = \rho^{\pi_2}
 $$
 
 定理2：给定一合法的占用度量 $\rho$，生成该占用度量的唯一策略是：
+
 $$
 \pi_\rho(a|s)=\frac{\rho(s,a)}{\sum_{a^\prime}\rho(s,a^\prime)}
 $$
@@ -217,32 +263,39 @@ $$
 ---
 
 ## 最优策略（Optimal Policy）
+
 强化学习的目标：找到一个策略，使得智能体从初始状态出发获取最大的累计奖励。
 首先定义策略之间的偏序关系：当且仅当对于任何状态 $s$ 都满足 $V^\pi(s) \ge V^{\pi^\prime}(s)$，则 $\pi > \pi^\prime$。
 最优策略（Optimal Policy）：在一个MDP中，至少存在一个策略优于其他策略或者至少存在一个策略不差于其他策略，这个策略就是最优策略。
 
 最优策略都有相同的状态价值函数，被称为最优状态价值函数：
+
 $$
 V^*(s)=\max_\pi V^\pi(s),\; \forall s \in \mathcal{S}
 $$
 
 同理，定义最优动作价值函数：
+
 $$
 Q^*(s,a)=\max_\pi Q^\pi(s,a), \; \forall s\in\mathcal{S},a\in\mathcal{A}
 $$
 
 最优状态价值函数和最优动作价值函数之间的关系：
+
 $$
 Q^*(s,a)=\mathcal{R}(s,a)+\gamma\sum_{s^\prime\in\mathcal{S}} \mathcal{P}(s^\prime|s,a)V^*(s^\prime)
 $$
+
 $$
 V^*(s)=\max_{a\in\mathcal{A}}Q^*(s,a)
 $$
 
 贝尔曼最优方程（Bellman optimality equation）：
+
 $$
 V^*(s)=\max_{a\in\mathcal{A}} \{ \mathcal{R}(s,a)+\gamma\sum_{s^\prime\in\mathcal{S}}\mathcal{P}(s^\prime|s,a)V^*(s^\prime)\}
 $$
+
 $$
 Q^*(s,a)=\mathcal{R}(s,a)+\gamma\sum_{s^\prime\in\mathcal{S}}\mathcal{P}(s^\prime|s,a) \max_{a^\prime\in\mathcal{A}} Q^*(s^\prime,a^\prime)
 $$

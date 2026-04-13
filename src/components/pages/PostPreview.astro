@@ -45,6 +45,7 @@ function getLocalizedUrl(locale: string | undefined, path: string) {
 ---
 
 <li
+  data-sort-date={new Date(postDate).valueOf()}
   class={cn(
     'post-preview group/card flex flex-col relative rounded-2xl border border-border bg-background transition-colors ease-in-out px-5 py-2.5 hover:bg-muted',
     detailed && 'max-sm:px-4 sm:py-5',
