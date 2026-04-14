@@ -41,6 +41,8 @@ const anchorId = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g
         alt={`${name} card image placeholder`}
         class='aspect-[5/7] w-full rounded-lg object-contain'
         loading='lazy'
+        decoding='async'
+        fetchpriority='low'
       />
     </div>
 

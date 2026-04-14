@@ -101,9 +101,12 @@ function slugify(name: string) {
           {tier.cards.map((card) => (
             <a href={`#${slugify(card)}`} title={card} class='group block'>
               <img
-                src={imageMap[card]}
+                src='data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
+                data-src={imageMap[card]}
                 alt={card}
                 loading='lazy'
+                decoding='async'
+                fetchpriority='low'
                 class='h-16 w-auto object-cover transition-transform duration-150 group-hover:-translate-y-0.5 sm:h-20'
               />
             </a>
@@ -113,3 +116,31 @@ function slugify(name: string) {
     ))}
   </div>
 </section>
+
+<script>
+  const lazyImgs = Array.from(document.querySelectorAll<HTMLImageElement>('img[data-src]'))
+  const load = (img: HTMLImageElement) => {
+    const realSrc = img.getAttribute('data-src')
+    if (!realSrc) return
+    img.setAttribute('src', realSrc)
+    img.removeAttribute('data-src')
+  }
+
+  if ('IntersectionObserver' in window) {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return
+          const img = entry.target as HTMLImageElement
+          load(img)
+          observer.unobserve(img)
+        })
+      },
+      { rootMargin: '200px 0px' }
+    )
+
+    lazyImgs.forEach((img) => observer.observe(img))
+  } else {
+    lazyImgs.forEach(load)
+  }
+</script>
