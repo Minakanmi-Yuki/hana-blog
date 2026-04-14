@@ -1,0 +1,115 @@
+---
+const imageMap: Record<string, string> = {
+  'A Thousand Cuts': 'https://pic.hana0721.top//AThousandCuts.5trm7s8ngx.webp',
+  'Accuracy': 'https://pic.hana0721.top//Accuracy.1hst08pbyf.webp',
+  'Acrobatics': 'https://pic.hana0721.top//Acrobatics.39lrv58oug.webp',
+  'Adrenaline': 'https://pic.hana0721.top//Adrenaline.2h8wdes349.webp',
+  'After Image': 'https://pic.hana0721.top//AfterImage.7p470el32j.webp',
+  'Alchemize': 'https://pic.hana0721.top//Alchemize.4n8az6jqvg.webp',
+  'All-Out Attack': 'https://pic.hana0721.top//All-OutAttack.4clh614iq7.webp',
+  'Backflip': 'https://pic.hana0721.top//Backflip.2dpafoz0eq.webp',
+  'Backstab': 'https://pic.hana0721.top//Backstab.102rbnnydv.webp',
+  'Bane': 'https://pic.hana0721.top//Bane.6wrbio4hck.webp',
+  'Blade Dance': 'https://pic.hana0721.top//BladeDance.102rbnnydx.webp',
+  'Blur': 'https://pic.hana0721.top//Blur.9rjzogjo46.webp',
+  'Bouncing Flask': 'https://pic.hana0721.top//BouncingFlask.7w7evu78if.webp',
+  'Bullet Time': 'https://pic.hana0721.top//BulletTime.5q80a2fkrc.webp',
+  'Burst': 'https://pic.hana0721.top//Burst.491v8bbg0p.webp',
+  'Calculated Gamble': 'https://pic.hana0721.top//CalculatedGamble.b9hrn0fdm.webp',
+  'Caltrops': 'https://pic.hana0721.top//Caltrops.3d5dsv1rkr.webp',
+  'Catalyst': 'https://pic.hana0721.top//Catalyst.5j4semtfbv.webp',
+  'Choke': 'https://pic.hana0721.top//Choke.3625xffm58.webp',
+  'Cloak And Dagger': 'https://pic.hana0721.top//CloakAndDagger.92qq4fw53w.webp',
+  'Concentrate': 'https://pic.hana0721.top//Concentrate.60uu37uswt.webp',
+  'Corpse Explosion': 'https://pic.hana0721.top//CorpseExplosion.2a5ohz5xpa.webp',
+  'Crippling Cloud': 'https://pic.hana0721.top//CripplingCloud.3gozqkuuan.webp',
+  'Dagger Spray': 'https://pic.hana0721.top//DaggerSpray.1apl4t36jj.webp',
+  'Dagger Throw': 'https://pic.hana0721.top//R_dagger-throw.1apl4t36k5.webp',
+  'Dash': 'https://pic.hana0721.top//Dash.9ddjxlbd9c.webp',
+  'Deadly Poison': 'https://pic.hana0721.top//DeadlyPoison.60uu37uswx.webp',
+  'Defend': 'https://pic.hana0721.top//Defend_G.8vni909zoh.webp',
+  'Deflect': 'https://pic.hana0721.top//Deflect.9o0dqqqleq.webp',
+  'Die Die Die': 'https://pic.hana0721.top//DieDieDie.232gmjjs9u.webp',
+  'Distraction': 'https://pic.hana0721.top//Distraction.4g533qxlgi.webp',
+  'Dodge and Roll': 'https://pic.hana0721.top//DodgeandRoll.102rbnnyea.webp',
+  'Doppelganger': 'https://pic.hana0721.top//Doppelganger.175z73a3tv.webp',
+  'Endless Agony': 'https://pic.hana0721.top//EndlessAgony.2rvq6k7bab.webp',
+  'Envenom': 'https://pic.hana0721.top//Envenom.1ziuotqpk3.webp',
+  'Escape Plan': 'https://pic.hana0721.top//EscapePlan.232gmjjs9w.webp',
+  'Eviscerate': 'https://pic.hana0721.top//Eviscerate.96ac25p7tw.webp',
+  'Expertise': 'https://pic.hana0721.top//Expertise.3ns7m0gzqc.webp',
+  'Finisher': 'https://pic.hana0721.top//Finisher.5fl6gx0cmc.webp',
+  'Flechettes': 'https://pic.hana0721.top//Flechettes.175z73a3tx.webp',
+  'Flying Knee': 'https://pic.hana0721.top//FlyingKnee.3rbtjqa2g5.webp',
+  'Footwork': 'https://pic.hana0721.top//Footwork.3yf1f5w7vp.webp',
+  'Glass Knife': 'https://pic.hana0721.top//GlassKnife.4jop1gqo6e.webp',
+  'Grand Finale': 'https://pic.hana0721.top//GrandFinale.2yyy1ztgpy.webp',
+  'Heel Hook': 'https://pic.hana0721.top//HeelHook.2a5ohz5xpi.webp',
+  'Infinite Blades': 'https://pic.hana0721.top//InfiniteBlades.67y1yngycn.webp',
+  'Leg Sweep': 'https://pic.hana0721.top//LegSweep.83amr9tdyf.webp',
+  'Malaise': 'https://pic.hana0721.top//Malaise.2yyy1ztgpz.webp',
+  'Masterful Stab': 'https://pic.hana0721.top//MasterfulStab.39lrv58ovb.webp',
+  'Neutralize': 'https://pic.hana0721.top//Neutralize.67y1yngycu.webp',
+  'Nightmare': 'https://pic.hana0721.top//Nightmare.1hst08pbzl.webp',
+  'Noxious Fumes': 'https://pic.hana0721.top//NoxiousFumes.41yncvpalu.webp',
+  'Outmaneuver': 'https://pic.hana0721.top//Outmaneuver.26m2k9cv02.webp',
+  'Phantasmal Killer': 'https://pic.hana0721.top//PhantasmalKiller.3ns7m0gzqr.webp',
+  'Piercing Wail': 'https://pic.hana0721.top//PiercingWail.7pvtx7coj.webp',
+  'Poisoned Stab': 'https://pic.hana0721.top//PoisonedStab.3625xffm5v.webp',
+  'Predator': 'https://pic.hana0721.top//Predator.2a5ohz5xpw.webp',
+  'Prepared': 'https://pic.hana0721.top//Prepared.1ziuotqpkk.webp',
+  'Quick Slash': 'https://pic.hana0721.top//QuickSlash.70axgdxk38.webp',
+  'Reflex': 'https://pic.hana0721.top//Reflex.lwbksfnjp.webp',
+  'Riddle With Holes': 'https://pic.hana0721.top//RiddleWithHoles.73uje3qmt1.webp',
+  'Setup': 'https://pic.hana0721.top//Setup.5moeccmi2d.webp',
+  'Skewer': 'https://pic.hana0721.top//Skewer.1hst08pbzp.webp',
+  'Slice': 'https://pic.hana0721.top//Slice.3ns7m0gzqt.webp',
+  'Sneaky Strike': 'https://pic.hana0721.top//SneakyStrike.13md9dh14m.webp',
+  'Storm of Steel': 'https://pic.hana0721.top//StormofSteel.8s3wbagwza.webp',
+  'Strike': 'https://pic.hana0721.top//Strike_G.5trm7s8nhy.webp',
+  'Sucker Punch': 'https://pic.hana0721.top//SuckerPunch.szjg81sza.webp',
+  'Survivor': 'https://pic.hana0721.top//Survivor.6m4hpip987.webp',
+  'Tactician': 'https://pic.hana0721.top//Tactician.pfxii8q9j.webp',
+  'Terror': 'https://pic.hana0721.top//Terror.5fl6gx0cmv.webp',
+  'Tools of the Trade': 'https://pic.hana0721.top//ToolsoftheTrade.1lcexyiepj.webp',
+  'Unload': 'https://pic.hana0721.top//Unload.45i9alidbr.webp',
+  'Well-Laid Plans': 'https://pic.hana0721.top//Well-LaidPlans.3d5dsv1rlk.webp',
+  'Wraith Form': 'https://pic.hana0721.top//WraithForm.2rvq6k7baw.webp',
+}
+
+const tiers = [
+  { label: 'SSS', color: 'bg-[#f4f27a] text-[#111827]', cards: ['Alchemize', 'After Image', 'Well-Laid Plans', 'Footwork'] },
+  { label: 'SS', color: 'bg-[#ef7b7b] text-white', cards: ['Malaise', 'Wraith Form', 'Adrenaline', 'Calculated Gamble', 'Piercing Wail'] },
+  { label: 'S', color: 'bg-[#f0b779] text-[#111827]', cards: ['Corpse Explosion', 'Tools of the Trade', 'Glass Knife', 'Die Die Die', 'Doppelganger', 'Burst', 'Bullet Time', 'Terror', 'Noxious Fumes', 'All-Out Attack', 'Backstab', 'Leg Sweep', 'Blur', 'Backflip', 'Neutralize'] },
+  { label: 'A', color: 'bg-[#f4d77e] text-[#111827]', cards: ['Phantasmal Killer', 'Unload', 'Bouncing Flask', 'Masterful Stab', 'Predator', 'Dash', 'Skewer', 'Endless Agony', 'Tactician', 'Escape Plan', 'Blade Dance', 'Dagger Throw', 'Acrobatics', 'Dagger Spray', 'Poisoned Stab', 'Deflect', 'Survivor'] },
+  { label: 'B', color: 'bg-[#e9f07c] text-[#111827]', cards: ['A Thousand Cuts', 'Nightmare', 'Crippling Cloud', 'Flechettes', 'Eviscerate', 'Catalyst', 'Accuracy', 'Setup', 'Reflex', 'Deadly Poison', 'Cloak And Dagger', 'Sucker Punch', 'Slice', 'Flying Knee', 'Quick Slash', 'Sneaky Strike', 'Outmaneuver', 'Dodge and Roll', 'Prepared', 'Defend'] },
+  { label: 'C', color: 'bg-[#b9ef7a] text-[#111827]', cards: ['Envenom', 'Storm of Steel', 'Grand Finale', 'Infinite Blades', 'Caltrops', 'Finisher', 'Choke', 'Expertise', 'Concentrate'] },
+  { label: 'D', color: 'bg-[#e5ec7c] text-[#111827]', cards: ['Heel Hook', 'Riddle With Holes', 'Distraction', 'Bane', 'Strike'] },
+] as const
+
+function slugify(name: string) {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+}
+---
+
+<section>
+  <div class='space-y-2 rounded-xl border bg-card p-2 sm:p-3'>
+    {tiers.map((tier) => (
+      <div class='flex gap-2'>
+        <div class={`flex w-14 shrink-0 items-center justify-center rounded-lg text-lg font-bold sm:w-16 ${tier.color}`}>{tier.label}</div>
+        <div class='flex min-h-20 flex-1 flex-wrap gap-1 rounded-lg bg-muted/35 p-1.5 sm:gap-2'>
+          {tier.cards.map((card) => (
+            <a href={`#${slugify(card)}`} title={card} class='group block'>
+              <img
+                src={imageMap[card]}
+                alt={card}
+                loading='lazy'
+                class='h-16 w-auto object-cover transition-transform duration-150 group-hover:-translate-y-0.5 sm:h-20'
+              />
+            </a>
+          ))}
+        </div>
+      </div>
+    ))}
+  </div>
+</section>

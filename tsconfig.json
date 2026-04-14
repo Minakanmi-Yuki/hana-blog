@@ -24,6 +24,7 @@
       "@/types/*": ["src/types/*"],
       "@/site-config": ["src/site.config.ts"],
       "@/libs/*": ["src/libs/*"],
+      "@/data/*": ["src/data/*"],
       "@/schemas/*": ["src/schemas/*"],
       "@/server": ["src/server.ts"],
       "@/public/*": ["public/*"]
