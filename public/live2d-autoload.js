@@ -72,6 +72,72 @@ async function loadWidgetBundleWithFallback() {
 const minWidth = Number(window.__LIVE2D_MIN_WIDTH__ || 768)
 const LIVE2D_ACTIVE_KEY = '__live2d_widget_active__'
 
+function triggerEntranceAnimation() {
+  const reducedMotion =
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+  if (reducedMotion) return
+
+  const applyEntrance = () => {
+    const waifuEl = document.getElementById('waifu')
+    if (!waifuEl) return false
+    if (waifuEl.dataset.live2dEntered === '1') return true
+
+    waifuEl.dataset.live2dEntered = '1'
+    waifuEl.style.willChange = 'transform, opacity'
+    waifuEl.style.transition = 'none'
+    waifuEl.style.opacity = '0'
+    waifuEl.style.transform = 'translate3d(0, 72px, 0)'
+
+    waifuEl.getBoundingClientRect()
+
+    const startAnimation = () => {
+      waifuEl.style.transition =
+        'transform 760ms cubic-bezier(0.16, 0.84, 0.24, 1), opacity 560ms ease'
+      waifuEl.style.opacity = '1'
+      waifuEl.style.transform = 'translate3d(0, 0, 0)'
+
+      const clearWillChange = () => {
+        waifuEl.style.willChange = ''
+      }
+
+      waifuEl.addEventListener('transitionend', clearWillChange, { once: true })
+      setTimeout(clearWillChange, 1200)
+    }
+
+    setTimeout(() => {
+      requestAnimationFrame(startAnimation)
+    }, 36)
+
+    return true
+  }
+
+  if (applyEntrance()) return
+
+  const observer = new MutationObserver(() => {
+    if (applyEntrance()) {
+      observer.disconnect()
+      clearTimeout(disconnectTimer)
+    }
+  })
+
+  observer.observe(document.body, { childList: true, subtree: true })
+
+  const disconnectTimer = setTimeout(() => {
+    observer.disconnect()
+  }, 3000)
+
+  window.addEventListener(
+    'pagehide',
+    () => {
+      observer.disconnect()
+      clearTimeout(disconnectTimer)
+    },
+    { once: true }
+  )
+}
+
 function cleanupLive2DWidget() {
   const waifuEl = document.getElementById('waifu')
   const toggleEl = document.getElementById('waifu-toggle')
@@ -105,6 +171,8 @@ if (window.innerWidth >= minWidth && !window[LIVE2D_ACTIVE_KEY]) {
         cdnPath: localCdnPath,
         tools: ['hitokoto', 'photo', 'info', 'quit']
       })
+
+      triggerEntranceAnimation()
 
       window.addEventListener('pagehide', cleanupLive2DWidget, { once: true })
       window.addEventListener('beforeunload', cleanupLive2DWidget, { once: true })
