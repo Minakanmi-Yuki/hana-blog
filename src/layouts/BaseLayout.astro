@@ -155,17 +155,7 @@ const live2dCdnPath = `${baseUrl}live2d-api/`
         left: auto !important;
         right: 0 !important;
         z-index: 9998 !important;
-        opacity: 0;
-        transform: translateY(80px) !important;
-        transition:
-          transform 0.7s cubic-bezier(0.22, 0.61, 0.36, 1),
-          opacity 0.55s ease,
-          bottom 3s ease-in-out !important;
-      }
-
-      :global(#waifu.waifu-entered) {
-        opacity: 1;
-        transform: translateY(0) !important;
+        transition: bottom 3s ease-in-out !important;
       }
 
       :global(#waifu-toggle) {

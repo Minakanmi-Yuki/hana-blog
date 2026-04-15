@@ -106,36 +106,6 @@ if (window.innerWidth >= minWidth && !window[LIVE2D_ACTIVE_KEY]) {
         tools: ['hitokoto', 'photo', 'info', 'quit']
       })
 
-      // Smooth entrance: wait for widget mount, then slide in from bottom.
-      const startEntrance = () => {
-        const waifuEl = document.getElementById('waifu')
-        if (!waifuEl) return false
-        if (waifuEl.classList.contains('waifu-entered')) return true
-
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            waifuEl.classList.add('waifu-entered')
-          })
-        })
-        return true
-      }
-
-      if (!startEntrance()) {
-        const entranceTimer = setInterval(() => {
-          if (startEntrance()) clearInterval(entranceTimer)
-        }, 60)
-        const entranceTimeout = setTimeout(() => clearInterval(entranceTimer), 5000)
-
-        window.addEventListener(
-          'pagehide',
-          () => {
-            clearInterval(entranceTimer)
-            clearTimeout(entranceTimeout)
-          },
-          { once: true }
-        )
-      }
-
       window.addEventListener('pagehide', cleanupLive2DWidget, { once: true })
       window.addEventListener('beforeunload', cleanupLive2DWidget, { once: true })
     } catch (error) {
