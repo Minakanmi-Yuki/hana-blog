@@ -93,6 +93,42 @@ const langAttr = currentLocale === 'en' ? 'en' : 'zh'
       <Footer />
     </div>
 
+    <script is:inline>
+      (() => {
+        const LIVE2D_AUTOLOAD_SRC =
+          'https://fastly.jsdelivr.net/gh/stevenjoezhang/live2d-widget@latest/autoload.js'
+        const LIVE2D_FLAG_KEY = '__live2d_autoload_injected__'
+
+        function injectLive2D() {
+          if (window[LIVE2D_FLAG_KEY]) return
+          window[LIVE2D_FLAG_KEY] = true
+
+          const script = document.createElement('script')
+          script.src = LIVE2D_AUTOLOAD_SRC
+          script.async = true
+          script.defer = true
+          script.crossOrigin = 'anonymous'
+          document.body.appendChild(script)
+        }
+
+        function scheduleLive2DLoad() {
+          if ('requestIdleCallback' in window) {
+            window.requestIdleCallback(() => injectLive2D(), { timeout: 3000 })
+          } else {
+            setTimeout(injectLive2D, 1200)
+          }
+        }
+
+        if (document.readyState === 'complete') {
+          scheduleLive2DLoad()
+        } else {
+          window.addEventListener('load', scheduleLive2DLoad, { once: true })
+        }
+
+        document.addEventListener('astro:page-load', scheduleLive2DLoad)
+      })()
+    </script>
+
     {/* Set highlight color */}
     <style define:vars={{ highlightColor }}>
       :global(.highlight) {
@@ -103,6 +139,27 @@ const langAttr = currentLocale === 'en' ? 'en' : 'zh'
           --highlightColor,
           hsl(var(--primary) / var(--tw-text-opacity))
         ) !important;
+      }
+
+      /* Live2D widget position override: bottom-right */
+      :global(#waifu) {
+        left: auto !important;
+        right: 0 !important;
+      }
+
+      :global(#waifu-toggle) {
+        left: auto !important;
+        right: 0 !important;
+        margin-left: 0 !important;
+        margin-right: -100px !important;
+      }
+
+      :global(#waifu-toggle.waifu-toggle-active) {
+        margin-right: -50px !important;
+      }
+
+      :global(#waifu-toggle.waifu-toggle-active:hover) {
+        margin-right: -30px !important;
       }
 
       /* 点击粒子效果样式 */
