@@ -44,19 +44,29 @@ function loadExternalResource(url, type) {
   })
 }
 
-async function loadFromBaseCandidates(file, type) {
+async function loadWidgetBundleFromBase(base) {
+  const normalizedBase = base.endsWith('/') ? base : `${base}/`
+  await loadExternalResource(`${normalizedBase}waifu.css`, 'css')
+  await loadExternalResource(`${normalizedBase}live2d.min.js`, 'js')
+  await loadExternalResource(`${normalizedBase}waifu-tips.js`, 'js')
+
+  if (typeof window.initWidget !== 'function') {
+    throw new Error(`initWidget is not available from ${normalizedBase}`)
+  }
+
+  return normalizedBase
+}
+
+async function loadWidgetBundleWithFallback() {
   let lastError
   for (const base of widgetBaseCandidates) {
-    const normalizedBase = base.endsWith('/') ? base : `${base}/`
-    const url = `${normalizedBase}${file}`
     try {
-      await loadExternalResource(url, type)
-      return normalizedBase
+      return await loadWidgetBundleFromBase(base)
     } catch (error) {
       lastError = error
     }
   }
-  throw lastError || new Error(`Failed to load ${file}`)
+  throw lastError || new Error('Failed to load live2d widget bundle')
 }
 
 const minWidth = Number(window.__LIVE2D_MIN_WIDTH__ || 768)
@@ -64,13 +74,7 @@ const minWidth = Number(window.__LIVE2D_MIN_WIDTH__ || 768)
 if (window.innerWidth >= minWidth) {
   ;(async () => {
     try {
-      const activeBase = await loadFromBaseCandidates('waifu.css', 'css')
-      await loadExternalResource(`${activeBase}live2d.min.js`, 'js')
-      await loadExternalResource(`${activeBase}waifu-tips.js`, 'js')
-
-      if (typeof window.initWidget !== 'function') {
-        throw new Error('initWidget is not available after waifu-tips.js loaded')
-      }
+      const activeBase = await loadWidgetBundleWithFallback()
 
       // force default model to index 0 (our local miku)
       localStorage.setItem('modelId', '0')
