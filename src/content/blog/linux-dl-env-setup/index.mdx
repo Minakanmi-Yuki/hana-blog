@@ -1,0 +1,273 @@
+---
+title: 'A800 服务器深度学习环境标准配置教程'
+publishDate: 2026-04-15
+updatedDate: 2026-04-15
+description: '按统一标准配置 A800 研究环境：Driver 570+、CUDA Toolkit 12.8、cuDNN 9、PyTorch cu128，并附版本不一致排查。'
+category: 'tech'
+tags:
+  - 'linux'
+  - 'a800'
+  - 'pytorch'
+  - 'cuda'
+  - 'cudnn'
+  - 'conda'
+---
+
+这篇教程按一套固定标准来配 A800 服务器，目标是“可复现、可维护、少踩坑”。
+
+## 标准配置（本文统一口径）
+
+- GPU: NVIDIA A800
+- Driver: `570+`
+- CUDA Toolkit: `12.8`
+- cuDNN: `9.x (for CUDA 12)`
+- PyTorch: `cu128`
+
+## 1. 基础系统初始化
+
+```bash
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y git curl wget vim tmux htop btop unzip zip build-essential dkms linux-headers-$(uname -r)
+```
+
+## 2. 驱动检查（A800）
+
+```bash
+nvidia-smi
+```
+
+重点看两项：
+
+- Driver Version
+- GPU 是否识别到 A800
+
+只要驱动正常，后续 PyTorch GPU 通常就能跑起来。
+
+## 2.1 已安装过旧驱动时：卸载并重装（推荐流程）
+
+如果你之前装过其他版本驱动，建议按下面流程“先卸载，再安装目标版本”。
+
+> 下面命令会卸载现有 NVIDIA 驱动并重启，建议在有控制台（云厂商 VNC/管理终端）保障的前提下执行。
+
+### 第一步：卸载旧驱动
+
+```bash
+sudo systemctl stop nvidia-persistenced || true
+sudo apt remove --purge -y '^nvidia-.*' '^libnvidia-.*'
+sudo apt autoremove -y
+sudo apt autoclean
+```
+
+可选：重启一次，确保旧模块完全退出。
+
+```bash
+sudo reboot
+```
+
+### 第二步：安装目标驱动（A800 推荐 570）
+
+先看系统推荐：
+
+```bash
+sudo ubuntu-drivers devices
+```
+
+然后二选一：
+
+1. 自动安装推荐版本（最稳）：
+
+```bash
+sudo ubuntu-drivers autoinstall
+```
+
+2. 手动指定 570（你当前目标）：
+
+```bash
+sudo apt install -y nvidia-driver-570-server
+```
+
+如果 `nvidia-driver-570-server` 不存在，可改用：
+
+```bash
+sudo apt install -y nvidia-driver-570
+```
+
+安装后重启：
+
+```bash
+sudo reboot
+```
+
+### 第三步：验收
+
+```bash
+nvidia-smi
+```
+
+确认点：
+
+- 能识别 A800
+- Driver Version 为目标版本（如 570.x）
+
+通过后再继续下面 CUDA Toolkit 与 cuDNN 的安装步骤。
+
+## 3. 清理旧 CUDA Toolkit
+
+先检查当前 `nvcc`：
+
+```bash
+nvcc --version
+which nvcc
+```
+
+如果是旧版本，先清理旧工具链：
+
+```bash
+sudo apt remove --purge -y "cuda*" "nvidia-cuda-toolkit" "libcudnn*"
+sudo apt autoremove -y
+sudo apt autoclean
+```
+
+## 4. 安装 CUDA Toolkit 12.8
+
+```bash
+wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb
+sudo dpkg -i cuda-keyring_1.1-1_all.deb
+sudo apt update
+sudo apt install -y cuda-toolkit-12-8
+```
+
+写入环境变量（非常关键）：
+
+```bash
+echo 'export PATH=/usr/local/cuda-12.8/bin:$PATH' >> ~/.bashrc
+echo 'export LD_LIBRARY_PATH=/usr/local/cuda-12.8/lib64:$LD_LIBRARY_PATH' >> ~/.bashrc
+source ~/.bashrc
+```
+
+验证：
+
+```bash
+nvcc --version
+```
+
+应该看到 `release 12.8`。
+
+## 5. 安装 cuDNN 9（CUDA 12 系）
+
+```bash
+sudo apt install -y libcudnn9-cuda-12 libcudnn9-dev-cuda-12
+```
+
+### 5.1 验证 cuDNN 是否安装成功
+
+先看系统层是否有 cuDNN 动态库：
+
+```bash
+sudo ldconfig
+ldconfig -p | grep cudnn
+```
+
+预期输出应该至少包含类似下面的行（版本号可能不同）：
+
+```text
+libcudnn.so.9 (libc6,x86-64) => /usr/lib/x86_64-linux-gnu/libcudnn.so.9
+libcudnn_ops.so.9 (libc6,x86-64) => /usr/lib/x86_64-linux-gnu/libcudnn_ops.so.9
+libcudnn_cnn.so.9 (libc6,x86-64) => /usr/lib/x86_64-linux-gnu/libcudnn_cnn.so.9
+```
+
+如果没有任何输出，通常说明 cuDNN 没装好，或者库路径没被系统识别。
+
+再看包管理器是否安装到位：
+
+```bash
+dpkg -l | grep -E "libcudnn9|libcudnn9-dev"
+```
+
+## 6. 安装 Miniconda 与终端初始化
+
+```bash
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+bash Miniconda3-latest-Linux-x86_64.sh
+rm -f Miniconda3-latest-Linux-x86_64.sh
+```
+
+安装完成后，做终端初始化并使其生效：
+
+```bash
+~/miniconda3/bin/conda init bash
+source ~/.bashrc
+conda --version
+```
+
+> 如果你用的是 `zsh`，把 `bash` 换成 `zsh`：`conda init zsh`。
+
+后续环境创建与包安装放在下一节进行。
+
+## 7. 安装 PyTorch（cu128）
+
+```bash
+pip install --upgrade pip
+pip install torch torchvision torchaudio \
+  --index-url https://download.pytorch.org/whl/cu128 \
+  --extra-index-url https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+如果你网络到官方源很慢，可以先临时设置国内镜像，再执行安装：
+
+```bash
+pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
+pip config set global.extra-index-url https://download.pytorch.org/whl/cu128
+```
+
+常用国内镜像（任选其一）：
+
+- 清华：`https://pypi.tuna.tsinghua.edu.cn/simple`
+- 中科大：`https://pypi.mirrors.ustc.edu.cn/simple`
+- 阿里云：`https://mirrors.aliyun.com/pypi/simple`
+- 腾讯云：`https://mirrors.cloud.tencent.com/pypi/simple`
+- 华为云：`https://repo.huaweicloud.com/repository/pypi/simple`
+
+例如改成中科大：
+
+```bash
+pip config set global.index-url https://pypi.mirrors.ustc.edu.cn/simple
+pip config set global.extra-index-url https://download.pytorch.org/whl/cu128
+```
+
+安装完成后，如需恢复默认：
+
+```bash
+pip config unset global.index-url
+pip config unset global.extra-index-url
+```
+
+验证 GPU：
+
+```bash
+python - <<'PY'
+import torch
+print('torch:', torch.__version__)
+print('cuda available:', torch.cuda.is_available())
+if torch.cuda.is_available():
+    print('device:', torch.cuda.get_device_name(0))
+PY
+```
+
+## 8. 常用科研包（按需）
+
+```bash
+pip install numpy scipy pandas matplotlib seaborn scikit-learn
+pip install jupyterlab ipykernel tqdm pyyaml rich einops opencv-python
+pip install tensorboard wandb
+```
+
+
+
+
+
+
+
+
+
+
