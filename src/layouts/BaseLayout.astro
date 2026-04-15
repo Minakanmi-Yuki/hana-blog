@@ -20,6 +20,9 @@ const {
 
 const currentLocale = Astro.currentLocale || 'zh'
 const langAttr = currentLocale === 'en' ? 'en' : 'zh'
+const baseUrl = import.meta.env.BASE_URL || '/'
+const live2dAutoloadSrc = `${baseUrl}live2d-autoload.js`
+const live2dCdnPath = `${baseUrl}live2d-api/`
 ---
 
 <html lang={langAttr}>
@@ -93,11 +96,12 @@ const langAttr = currentLocale === 'en' ? 'en' : 'zh'
       <Footer />
     </div>
 
-    <script is:inline>
+    <script is:inline define:vars={{ live2dAutoloadSrc, live2dCdnPath }}>
       (() => {
-        const LIVE2D_AUTOLOAD_SRC =
-          '/live2d-autoload.js'
+        const LIVE2D_AUTOLOAD_SRC = live2dAutoloadSrc
         const LIVE2D_FLAG_KEY = '__live2d_autoload_injected__'
+
+        window.__LIVE2D_CDN_PATH__ = live2dCdnPath
 
         function injectLive2D() {
           if (window[LIVE2D_FLAG_KEY]) return

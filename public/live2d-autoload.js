@@ -1,5 +1,9 @@
 // Live2D async autoload (customized for local Miku model)
 const live2d_path = 'https://fastly.jsdelivr.net/gh/stevenjoezhang/live2d-widget@latest/'
+const localCdnPath = (() => {
+  const path = window.__LIVE2D_CDN_PATH__ || '/live2d-api/'
+  return path.endsWith('/') ? path : `${path}/`
+})()
 
 function loadExternalResource(url, type) {
   return new Promise((resolve, reject) => {
@@ -35,7 +39,7 @@ if (screen.width >= 768) {
 
     initWidget({
       waifuPath: live2d_path + 'waifu-tips.json',
-      cdnPath: '/live2d-api/',
+      cdnPath: localCdnPath,
       tools: ['hitokoto', 'photo', 'info', 'quit']
     })
 
