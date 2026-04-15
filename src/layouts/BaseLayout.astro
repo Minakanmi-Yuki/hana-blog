@@ -100,6 +100,7 @@ const live2dCdnPath = `${baseUrl}live2d-api/`
       (() => {
         const LIVE2D_AUTOLOAD_SRC = live2dAutoloadSrc
         const LIVE2D_FLAG_KEY = '__live2d_autoload_injected__'
+        const LIVE2D_SCHEDULED_KEY = '__live2d_autoload_scheduled__'
 
         window.__LIVE2D_CDN_PATH__ = live2dCdnPath
 
@@ -116,6 +117,9 @@ const live2dCdnPath = `${baseUrl}live2d-api/`
         }
 
         function scheduleLive2DLoad() {
+          if (window[LIVE2D_SCHEDULED_KEY]) return
+          window[LIVE2D_SCHEDULED_KEY] = true
+
           if ('requestIdleCallback' in window) {
             window.requestIdleCallback(() => injectLive2D(), { timeout: 3000 })
           } else {
@@ -123,9 +127,10 @@ const live2dCdnPath = `${baseUrl}live2d-api/`
           }
         }
 
-        if (document.readyState === 'complete') {
+        if (document.readyState !== 'loading') {
           scheduleLive2DLoad()
         } else {
+          document.addEventListener('DOMContentLoaded', scheduleLive2DLoad, { once: true })
           window.addEventListener('load', scheduleLive2DLoad, { once: true })
         }
 

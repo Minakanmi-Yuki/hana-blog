@@ -1,8 +1,25 @@
-// Live2D async autoload (customized for local Miku model)
-const live2d_path = 'https://fastly.jsdelivr.net/gh/stevenjoezhang/live2d-widget@latest/'
+// Live2D async autoload with multi-CDN fallback
+const widgetBaseCandidates = [
+  window.__LIVE2D_WIDGET_BASE__,
+  'https://fastly.jsdelivr.net/gh/stevenjoezhang/live2d-widget@latest/',
+  'https://cdn.jsdelivr.net/gh/stevenjoezhang/live2d-widget@latest/'
+].filter(Boolean)
+
 const localCdnPath = (() => {
-  const path = window.__LIVE2D_CDN_PATH__ || '/live2d-api/'
-  return path.endsWith('/') ? path : `${path}/`
+  const fromWindow = window.__LIVE2D_CDN_PATH__
+  if (typeof fromWindow === 'string' && fromWindow.length > 0) {
+    return fromWindow.endsWith('/') ? fromWindow : `${fromWindow}/`
+  }
+
+  const script = document.currentScript
+  if (script && typeof script.src === 'string' && script.src.length > 0) {
+    const scriptUrl = new URL(script.src, window.location.href)
+    const base = scriptUrl.pathname.replace(/live2d-autoload\.js(?:\?.*)?$/, '')
+    const normalizedBase = base.endsWith('/') ? base : `${base}/`
+    return `${normalizedBase}live2d-api/`
+  }
+
+  return '/live2d-api/'
 })()
 
 function loadExternalResource(url, type) {
@@ -27,41 +44,66 @@ function loadExternalResource(url, type) {
   })
 }
 
-if (screen.width >= 768) {
-  Promise.all([
-    loadExternalResource(live2d_path + 'waifu.css', 'css'),
-    loadExternalResource(live2d_path + 'live2d.min.js', 'js'),
-    loadExternalResource(live2d_path + 'waifu-tips.js', 'js')
-  ]).then(() => {
-    // force default model to index 0 (our local miku)
-    localStorage.setItem('modelId', '0')
-    localStorage.setItem('modelTexturesId', '0')
+async function loadFromBaseCandidates(file, type) {
+  let lastError
+  for (const base of widgetBaseCandidates) {
+    const normalizedBase = base.endsWith('/') ? base : `${base}/`
+    const url = `${normalizedBase}${file}`
+    try {
+      await loadExternalResource(url, type)
+      return normalizedBase
+    } catch (error) {
+      lastError = error
+    }
+  }
+  throw lastError || new Error(`Failed to load ${file}`)
+}
 
-    initWidget({
-      waifuPath: live2d_path + 'waifu-tips.json',
-      cdnPath: localCdnPath,
-      tools: ['hitokoto', 'photo', 'info', 'quit']
-    })
+const minWidth = Number(window.__LIVE2D_MIN_WIDTH__ || 768)
 
-    // Smooth entrance: wait for widget mount, then slide in from bottom.
-    const startEntrance = () => {
-      const waifuEl = document.getElementById('waifu')
-      if (!waifuEl) return false
-      if (waifuEl.classList.contains('waifu-entered')) return true
+if (window.innerWidth >= minWidth) {
+  ;(async () => {
+    try {
+      const activeBase = await loadFromBaseCandidates('waifu.css', 'css')
+      await loadExternalResource(`${activeBase}live2d.min.js`, 'js')
+      await loadExternalResource(`${activeBase}waifu-tips.js`, 'js')
 
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          waifuEl.classList.add('waifu-entered')
-        })
+      if (typeof window.initWidget !== 'function') {
+        throw new Error('initWidget is not available after waifu-tips.js loaded')
+      }
+
+      // force default model to index 0 (our local miku)
+      localStorage.setItem('modelId', '0')
+      localStorage.setItem('modelTexturesId', '0')
+
+      initWidget({
+        waifuPath: `${activeBase}waifu-tips.json`,
+        cdnPath: localCdnPath,
+        tools: ['hitokoto', 'photo', 'info', 'quit']
       })
-      return true
-    }
 
-    if (!startEntrance()) {
-      const timer = setInterval(() => {
-        if (startEntrance()) clearInterval(timer)
-      }, 60)
-      setTimeout(() => clearInterval(timer), 5000)
+      // Smooth entrance: wait for widget mount, then slide in from bottom.
+      const startEntrance = () => {
+        const waifuEl = document.getElementById('waifu')
+        if (!waifuEl) return false
+        if (waifuEl.classList.contains('waifu-entered')) return true
+
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            waifuEl.classList.add('waifu-entered')
+          })
+        })
+        return true
+      }
+
+      if (!startEntrance()) {
+        const timer = setInterval(() => {
+          if (startEntrance()) clearInterval(timer)
+        }, 60)
+        setTimeout(() => clearInterval(timer), 5000)
+      }
+    } catch (error) {
+      console.error('[live2d] widget failed to load', error)
     }
-  })
+  })()
 }
