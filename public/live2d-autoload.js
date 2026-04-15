@@ -70,8 +70,28 @@ async function loadWidgetBundleWithFallback() {
 }
 
 const minWidth = Number(window.__LIVE2D_MIN_WIDTH__ || 768)
+const LIVE2D_ACTIVE_KEY = '__live2d_widget_active__'
 
-if (window.innerWidth >= minWidth) {
+function cleanupLive2DWidget() {
+  const waifuEl = document.getElementById('waifu')
+  const toggleEl = document.getElementById('waifu-toggle')
+  const live2dCanvas = document.getElementById('live2d')
+
+  if (live2dCanvas instanceof HTMLCanvasElement) {
+    const gl = live2dCanvas.getContext('webgl') || live2dCanvas.getContext('experimental-webgl')
+    if (gl) {
+      const ext = gl.getExtension('WEBGL_lose_context')
+      if (ext) ext.loseContext()
+    }
+  }
+
+  if (waifuEl) waifuEl.remove()
+  if (toggleEl) toggleEl.remove()
+  window[LIVE2D_ACTIVE_KEY] = false
+}
+
+if (window.innerWidth >= minWidth && !window[LIVE2D_ACTIVE_KEY]) {
+  window[LIVE2D_ACTIVE_KEY] = true
   ;(async () => {
     try {
       const activeBase = await loadWidgetBundleWithFallback()
@@ -101,12 +121,25 @@ if (window.innerWidth >= minWidth) {
       }
 
       if (!startEntrance()) {
-        const timer = setInterval(() => {
-          if (startEntrance()) clearInterval(timer)
+        const entranceTimer = setInterval(() => {
+          if (startEntrance()) clearInterval(entranceTimer)
         }, 60)
-        setTimeout(() => clearInterval(timer), 5000)
+        const entranceTimeout = setTimeout(() => clearInterval(entranceTimer), 5000)
+
+        window.addEventListener(
+          'pagehide',
+          () => {
+            clearInterval(entranceTimer)
+            clearTimeout(entranceTimeout)
+          },
+          { once: true }
+        )
       }
+
+      window.addEventListener('pagehide', cleanupLive2DWidget, { once: true })
+      window.addEventListener('beforeunload', cleanupLive2DWidget, { once: true })
     } catch (error) {
+      window[LIVE2D_ACTIVE_KEY] = false
       console.error('[live2d] widget failed to load', error)
     }
   })()
