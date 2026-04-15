@@ -92,6 +92,10 @@ function triggerEntranceAnimation() {
 
     waifuEl.getBoundingClientRect()
 
+    // Give Live2D a short settle window so the first pose transition
+    // (e.g. hand near mouth -> idle) happens offscreen.
+    const settleDelayMs = 680
+
     const startAnimation = () => {
       waifuEl.style.transition =
         'transform 760ms cubic-bezier(0.16, 0.84, 0.24, 1), opacity 560ms ease'
@@ -108,7 +112,7 @@ function triggerEntranceAnimation() {
 
     setTimeout(() => {
       requestAnimationFrame(startAnimation)
-    }, 36)
+    }, settleDelayMs)
 
     return true
   }
