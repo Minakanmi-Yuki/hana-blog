@@ -38,5 +38,26 @@ if (screen.width >= 768) {
       cdnPath: '/live2d-api/',
       tools: ['hitokoto', 'photo', 'info', 'quit']
     })
+
+    // Smooth entrance: wait for widget mount, then slide in from bottom.
+    const startEntrance = () => {
+      const waifuEl = document.getElementById('waifu')
+      if (!waifuEl) return false
+      if (waifuEl.classList.contains('waifu-entered')) return true
+
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          waifuEl.classList.add('waifu-entered')
+        })
+      })
+      return true
+    }
+
+    if (!startEntrance()) {
+      const timer = setInterval(() => {
+        if (startEntrance()) clearInterval(timer)
+      }, 60)
+      setTimeout(() => clearInterval(timer), 5000)
+    }
   })
 }
