@@ -78,48 +78,26 @@ const meta = {
       <p class='text-sm text-muted-foreground'>{collection.description}</p>
       <p class='mt-2 text-sm text-muted-foreground'>Total posts: {collection.count}</p>
       <div class='mt-4 flex gap-2 text-sm'>
-        <button type='button' data-order='asc' class='sort-btn rounded-full border px-3 py-1'>
+        <span class='rounded-full border bg-muted px-3 py-1'>
           Oldest first
-        </button>
-        <button type='button' data-order='desc' class='sort-btn rounded-full border px-3 py-1'>
+        </span>
+        <a
+          href={page.currentPage === 1
+            ? `/collection/${collection.key}/newest`
+            : `/collection/${collection.key}/newest/${page.currentPage}`}
+          class='rounded-full border px-3 py-1 transition-colors hover:bg-muted'
+          data-astro-prefetch
+        >
           Newest first
-        </button>
+        </a>
       </div>
     </div>
 
     <section id='content' class='animate mt-8' aria-label='Collection post list'>
-      <ul id='collection-list' class='flex flex-col gap-y-3 text-start'>
+      <ul class='flex flex-col gap-y-3 text-start'>
         {page.data.map((post) => <PostPreview as='h2' {post} detailed />)}
       </ul>
       <Paginator currentPage={page.currentPage} lastPage={page.lastPage} url={page.url} />
     </section>
   </main>
 </PageLayout>
-
-<script>
-  const list = document.getElementById('collection-list')
-  const buttons = Array.from(document.querySelectorAll('.sort-btn'))
-
-  function sortCollection(order: 'asc' | 'desc') {
-    if (!list) return
-    const items = Array.from(list.children)
-    items.sort((a, b) => {
-      const da = Number((a).getAttribute('data-sort-date') || 0)
-      const db = Number((b).getAttribute('data-sort-date') || 0)
-      return order === 'desc' ? db - da : da - db
-    })
-    items.forEach((item) => list.appendChild(item))
-    buttons.forEach((btn) => {
-      btn.classList.toggle('bg-muted', btn.getAttribute('data-order') === order)
-    })
-  }
-
-  buttons.forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const order = (btn.getAttribute('data-order') === 'desc' ? 'desc' : 'asc') as 'asc' | 'desc'
-      sortCollection(order)
-    })
-  })
-
-  sortCollection('asc')
-</script>

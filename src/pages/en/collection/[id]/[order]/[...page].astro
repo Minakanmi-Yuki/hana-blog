@@ -8,7 +8,7 @@ import {
   getBlogCollectionEn,
   getSidebarCollections,
   getCollectionPostsByKey,
-  sortMDByDateAsc,
+  sortMDByDate,
   type SidebarCollection
 } from '@/server'
 import { Button, Icon } from '@/components/user'
@@ -22,10 +22,10 @@ export const getStaticPaths: GetStaticPaths = async ({ paginate }) => {
   const allCollections = getSidebarCollections(allPosts, 'en')
 
   return allCollections.flatMap((collection) => {
-    const posts = sortMDByDateAsc(getCollectionPostsByKey(allPosts, collection.key))
+    const posts = sortMDByDate(getCollectionPostsByKey(allPosts, collection.key))
     return paginate(posts, {
       pageSize: config.content?.blogPageSize || 8,
-      params: { id: collection.key },
+      params: { id: collection.key, order: 'newest' },
       props: { collection, firstPost: posts[0] }
     })
   })
@@ -78,18 +78,18 @@ const meta = {
       <p class='text-sm text-muted-foreground'>{collection.description}</p>
       <p class='mt-2 text-sm text-muted-foreground'>Total posts: {collection.count}</p>
       <div class='mt-4 flex gap-2 text-sm'>
-        <span class='rounded-full border bg-muted px-3 py-1'>
-          Oldest first
-        </span>
         <a
           href={page.currentPage === 1
-            ? `/en/collection/${collection.key}/newest`
-            : `/en/collection/${collection.key}/newest/${page.currentPage}`}
+            ? `/en/collection/${collection.key}`
+            : `/en/collection/${collection.key}/${page.currentPage}`}
           class='rounded-full border px-3 py-1 transition-colors hover:bg-muted'
           data-astro-prefetch
         >
-          Newest first
+          Oldest first
         </a>
+        <span class='rounded-full border bg-muted px-3 py-1'>
+          Newest first
+        </span>
       </div>
     </div>
 
