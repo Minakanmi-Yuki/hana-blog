@@ -1,0 +1,184 @@
+---
+title: 'SSH 断连不掉任务：tmux 入门教程'
+publishDate: 2026-04-17
+updatedDate: 2026-04-17
+description: '针对 SSH 网络不稳定场景的 tmux 快速教程：会话创建、分离重连、窗口分屏与常用快捷键。'
+heroImage: { src: 'https://pic.hana0721.top/126903857_p0_master1200.2dpaix2l3u.webp', color: '#8C8275' }
+pixivLink: '126903857'
+category: 'tech'
+tags:
+  - 'ssh'
+  - 'tmux'
+  - 'linux'
+  - 'remote development'
+---
+
+远程开发最常见的痛点之一：
+
+- 本地网络波动
+- SSH 会话断开
+- 正在跑的脚本一起中断
+
+如果你经常在服务器上跑训练、部署或长时间任务，`tmux` 基本是必备工具。
+
+## 1. tmux 能解决什么
+
+`tmux` 是终端复用器。你可以把它理解成“可恢复的终端容器”：
+
+- 任务跑在 tmux 会话里，不依赖当前 SSH 连接
+- 你断网、关电脑、重连后都能继续接上原来的终端状态
+- 一个 SSH 连接里还能开多个窗口和分屏
+
+一句话：**把任务和网络连接解耦**。
+
+## 2. 安装 tmux
+
+Ubuntu / Debian:
+
+```bash
+sudo apt update
+sudo apt install -y tmux
+```
+
+CentOS / RHEL:
+
+```bash
+sudo yum install -y tmux
+```
+
+macOS (Homebrew):
+
+```bash
+brew install tmux
+```
+
+检查版本：
+
+```bash
+tmux -V
+```
+
+## 3. 第一次使用（最小闭环）
+
+下面这套流程，够你马上上手：
+
+1. 登录服务器后创建会话
+
+```bash
+tmux new -s work
+```
+
+2. 在会话里启动任务（例如训练脚本）
+
+```bash
+python train.py
+```
+
+3. 需要离开时，分离会话（任务继续跑）
+
+- 按 `Ctrl+b`，松开后再按 `d`
+
+4. 以后重连服务器，恢复会话
+
+```bash
+tmux attach -t work
+```
+
+## 4. 你会用到的核心命令
+
+列出所有会话：
+
+```bash
+tmux ls
+```
+
+新建会话：
+
+```bash
+tmux new -s session_name
+```
+
+连接会话：
+
+```bash
+tmux attach -t session_name
+```
+
+分离当前会话：
+
+```bash
+tmux detach
+```
+
+关闭会话：
+
+```bash
+tmux kill-session -t session_name
+```
+
+## 5. 常用快捷键（先记这几个）
+
+`tmux` 默认前缀键是 `Ctrl+b`，后面所有快捷键都以它开头。
+
+- `Ctrl+b` 然后 `d`：分离会话
+- `Ctrl+b` 然后 `c`：新建窗口
+- `Ctrl+b` 然后 `n` / `p`：切换下一个 / 上一个窗口
+- `Ctrl+b` 然后 `%`：左右分屏
+- `Ctrl+b` 然后 `"`：上下分屏
+- `Ctrl+b` 然后 `x`：关闭当前 pane
+
+## 6. SSH 场景下的推荐习惯
+
+### 习惯 A：任务一律在 tmux 里启动
+
+不要直接在普通 SSH shell 里跑长任务。先 `tmux new -s xxx`，再启动脚本。
+
+### 习惯 B：会话命名有语义
+
+例如：`train`, `deploy`, `debug`，方便你 `tmux ls` 后快速找到目标。
+
+### 习惯 C：用日志文件做双保险
+
+```bash
+python train.py 2>&1 | tee train.log
+```
+
+即使你暂时没 attach，也能通过日志确认任务状态。
+
+## 7. 常见问题
+
+### Q1: `tmux attach` 提示找不到会话
+
+先看会话列表：
+
+```bash
+tmux ls
+```
+
+如果确实不存在，说明之前的会话已经退出，需要重新创建。
+
+### Q2: 连接时提示 `sessions should be nested with care`
+
+你可能在一个 tmux 里又 attach 了另一个 tmux。通常先分离当前层，回到普通 shell 再 attach 目标会话。
+
+### Q3: 如何退出 tmux 并结束任务
+
+在 tmux 的 shell 中执行 `exit`（或终止前台任务），该 pane 关闭；会话所有 pane 都退出后，会话会自动结束。
+
+## 8. 一条推荐工作流
+
+```bash
+ssh your_server
+tmux new -s train
+python train.py 2>&1 | tee train.log
+# 按 Ctrl+b, d 分离
+```
+
+之后任意时间：
+
+```bash
+ssh your_server
+tmux attach -t train
+```
+
+这样即使 SSH 中断，你的任务也不会跟着掉。
