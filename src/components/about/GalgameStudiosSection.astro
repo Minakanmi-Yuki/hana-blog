@@ -1,0 +1,82 @@
+---
+import { cn } from '@/utils'
+
+interface GalgameTitle {
+  name: string
+  cover: string
+  officialUrl: string
+}
+
+interface StudioCell {
+  studio: string
+  studioLogo: string
+  officialUrl?: string
+  games: GalgameTitle[]
+}
+
+interface Props {
+  class?: string
+  title?: string
+  studios: StudioCell[]
+}
+
+const { class: className, title = 'Favorite Studios', studios, ...props } = Astro.props
+---
+
+<section class={cn('not-prose flex flex-col gap-y-4', className)} {...props}>
+  <div class='m-0 text-lg font-medium'>{title}</div>
+  <div class='grid grid-cols-1 gap-4'>
+    {
+      studios.map((entry) => (
+        <article class='rounded-xl border border-border bg-card p-4 sm:p-5'>
+          <div class='mb-4 flex flex-wrap items-center gap-x-2 gap-y-1'>
+            <img
+              src={entry.studioLogo}
+              alt={`${entry.studio} logo`}
+              class='size-7 rounded-md border border-border/60 bg-background object-cover'
+              loading='lazy'
+            />
+            <h3 class='m-0 text-base font-semibold text-foreground sm:text-lg'>{entry.studio}</h3>
+            {
+              entry.officialUrl && (
+                <a
+                  class='text-xs font-medium text-muted-foreground transition-colors hover:text-foreground'
+                  href={entry.officialUrl}
+                  target='_blank'
+                  rel='noopener noreferrer'
+                >
+                  Official
+                </a>
+              )
+            }
+          </div>
+          <div class='grid grid-cols-1 gap-3 sm:grid-cols-2'>
+            {
+              entry.games.map((game) => (
+                <div class='rounded-lg border border-border/70 bg-background/80 p-2.5'>
+                  <a
+                    class='block overflow-hidden rounded-md border border-transparent no-underline transition-all duration-200 hover:scale-[1.01] hover:border-border'
+                    href={game.officialUrl}
+                    target='_blank'
+                    rel='noopener noreferrer'
+                    aria-label={`打开 ${game.name} 官网`}
+                  >
+                    <img
+                      src={game.cover}
+                      alt={`${game.name} cover`}
+                      class='aspect-[16/9] w-full rounded-md object-cover'
+                      loading='lazy'
+                    />
+                  </a>
+                  <div class='pt-2.5'>
+                    <div class='line-clamp-1 text-sm font-semibold text-foreground'>{game.name}</div>
+                  </div>
+                </div>
+              ))
+            }
+          </div>
+        </article>
+      ))
+    }
+  </div>
+</section>

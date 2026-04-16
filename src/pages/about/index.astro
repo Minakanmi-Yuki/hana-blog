@@ -9,9 +9,9 @@ import { Button, DistributionSection, Spoiler } from '@/components/user'
 const headings = [
   { depth: 2, slug: 'steam', text: 'Steam' },
   { depth: 2, slug: 'bangdream', text: 'BangDream' },
-  { depth: 2, slug: 'galgame', text: 'Galgame' },
   { depth: 2, slug: 'dont-starve-together', text: "Don't Starve Together" },
   { depth: 2, slug: 'slay-the-spire', text: 'Slay The Spire' },
+  { depth: 2, slug: 'galgame', text: 'Galgame' },
   { depth: 2, slug: 'music', text: 'Music' },
   { depth: 2, slug: 'distribution', text: 'Distribution' },
   { depth: 2, slug: 'tools', text: 'Tools' },
@@ -39,6 +39,60 @@ const distributions = [
     title: 'Cloudflare Pages',
     url: 'hana-blog.pages.dev',
     platform: 'Cloudflare'
+  }
+]
+
+const favoriteGalgameStudios = [
+  {
+    studio: 'age',
+    studioLogo: 'https://www.google.com/s2/favicons?sz=128&domain_url=age-soft.com',
+    officialUrl: 'https://age-soft.com',
+    games: [
+      {
+        name: 'MUV-LUV EXTRA+UNLIMITED',
+        cover: 'https://pic.hana0721.top/muvluvlogo.7pvslv04a.webp',
+        officialUrl: 'https://muvluv.com/'
+      },
+      {
+        name: 'MUV-LUV ALTERNATIVE',
+        cover: 'https://pic.hana0721.top/rl-note-3.3yex1xdpri.webp',
+        officialUrl: 'https://muvluv.com/'
+      }
+    ]
+  },
+  {
+    studio: '枕 (Makura)',
+    studioLogo: 'https://www.google.com/s2/favicons?sz=128&domain_url=makura-soft.com',
+    officialUrl: 'http://www.makura-soft.com/',
+    games: [
+      {
+        name: '樱之诗-在樱花之森上飞舞',
+        cover: 'https://pic.hana0721.top/Sakura_no_uta.2ksi9r6jpk.webp',
+        officialUrl: 'http://www.makura-soft.com/sakuranouta/'
+      },
+      {
+        name: '美好的每一天 ～不连续的存在～',
+        cover: 'https://pic.hana0721.top/wonderful.5trm6g6vbw.webp',
+        officialUrl: 'http://www.keroq.co.jp/suba/'
+      }
+    ]
+  },
+  {
+    studio: 'Navel',
+    studioLogo: 'https://www.google.com/s2/favicons?sz=128&domain_url=project-navel.com',
+    officialUrl: 'https://www.project-navel.com/',
+    games: [
+      {
+        name: '近月少女的礼仪',
+        cover: 'https://pic.hana0721.top/jinyue.3goztw22av.webp',
+        officialUrl: 'https://www.project-navel.com/tsukiniyorisou/'
+      },
+      {
+        name: '少女理论及其周边 -巴黎学园篇-',
+        cover: 'https://pic.hana0721.top/lilun.7pvx8eko7.webp',
+        officialUrl: 'https://www.project-navel.com/otomeriron/'
+      }
+    ]
   }
 ]
 
@@ -79,15 +133,6 @@ const distributions = [
     <li>想找的同好：<code>[待填写：扩列偏好/交流方向]</code></li>
   </ul>
 
-  <h2 id='galgame'>🩷 Galgame<a class='anchor' href='#galgame'>#</a></h2>
-  <p>这里会记录我最喜爱的 Galgame 作品和推荐理由。</p>
-  <ul>
-    <li>最喜爱的作品：<code>[待填写：作品1、作品2、作品3]</code></li>
-    <li>最喜欢的角色：<code>[待填写：角色名]</code></li>
-    <li>推荐理由：<code>[待填写：剧情/音乐/人设等]</code></li>
-    <li>入坑顺序建议：<code>[待填写：推荐游玩顺序]</code></li>
-  </ul>
-
   <h2 id='dont-starve-together'>🔥 Don't Starve Together<a class='anchor' href='#dont-starve-together'>#</a></h2>
   <p>这里会放《饥荒》相关截图和生存记录。</p>
   <ul>
@@ -105,6 +150,69 @@ const distributions = [
     <li>常用流派：<code>[待填写：流派名称]</code></li>
     <li>心得笔记：<code>[待填写：关键策略或爬塔习惯]</code></li>
   </ul>
+
+  <h2 id='galgame'>🩷 Galgame<a class='anchor' href='#galgame'>#</a></h2>
+  <p>
+    我玩过的 Galgame 都整理在 <a href='/collection/galgame-rating'>Galgame 简评系列 collection</a> 中。
+    以下几部是我最喜欢的作品，按会社分组展示，点击封面可跳转到对应官网。
+  </p>
+  <section class='not-prose mb-8 mt-5 flex flex-col gap-y-4'>
+    <div class='m-0 text-lg font-medium'>Favorite Galgame Studios</div>
+    <div class='grid grid-cols-1 gap-4'>
+      {
+        favoriteGalgameStudios.map((entry) => (
+          <article class='rounded-xl border border-border bg-card p-4 sm:p-5'>
+            <div class='mb-4 flex flex-wrap items-center gap-x-2 gap-y-1'>
+              <img
+                src={entry.studioLogo}
+                alt={`${entry.studio} logo`}
+                class='size-7 rounded-md border border-border/60 bg-background object-cover'
+                loading='lazy'
+              />
+              <h3 class='m-0 text-base font-semibold text-foreground sm:text-lg'>{entry.studio}</h3>
+              {
+                entry.officialUrl && (
+                  <a
+                    class='text-xs font-medium text-muted-foreground transition-colors hover:text-foreground'
+                    href={entry.officialUrl}
+                    target='_blank'
+                    rel='noopener noreferrer'
+                  >
+                    Official
+                  </a>
+                )
+              }
+            </div>
+            <div class='grid grid-cols-1 gap-3 sm:grid-cols-2'>
+              {
+                entry.games.map((game) => (
+                  <div class='rounded-lg border border-border/70 bg-background/80 p-2.5'>
+                    <a
+                      class='block overflow-hidden rounded-md border border-transparent no-underline transition-all duration-200 hover:scale-[1.01] hover:border-border'
+                      href={game.officialUrl}
+                      target='_blank'
+                      rel='noopener noreferrer'
+                      aria-label={`打开 ${game.name} 官网`}
+                    >
+                      <img
+                        src={game.cover}
+                        alt={`${game.name} cover`}
+                        class='aspect-[16/9] w-full rounded-md object-cover'
+                        loading='lazy'
+                      />
+                    </a>
+                    <div class='pt-2.5'>
+                      <div class='line-clamp-1 text-sm font-semibold text-foreground'>{game.name}</div>
+                    </div>
+                  </div>
+                ))
+              }
+            </div>
+          </article>
+        ))
+      }
+    </div>
+  </section>
 
   <h2 id='music'>🎵 Music<a class='anchor' href='#music'>#</a></h2>
   <p>
