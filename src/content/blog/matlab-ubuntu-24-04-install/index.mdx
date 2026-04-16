@@ -1,0 +1,118 @@
+---
+title: 'Ubuntu 24.04 安装 MATLAB R2024a'
+publishDate: 2026-04-16
+updatedDate: 2026-04-16
+description: '基于 Ubuntu 24.04 的 MATLAB R2024a 安装实操：挂载 ISO、图形安装、命令行启动配置、卸载流程。'
+category: 'tech'
+heroImage: { src: 'https://pic.hana0721.top/70937229_p0_master1200.6bhnz4ob71.webp', color: '#8C8275' }
+pixivLink: '70937229'
+tags:
+  - 'ubuntu'
+  - 'matlab'
+  - 'linux'
+  - 'r2024a'
+draft: false
+comment: true
+---
+
+这篇记录整理了我在 Ubuntu 24.04 上安装 MATLAB R2024a 的流程，重点是**可复现**和**后续维护方便**。
+
+## 0. 准备条件
+
+安装前请先确认：
+
+- 你有有效的 MathWorks 账号与许可证（个人/学校/单位均可）
+- 系统是 Ubuntu 24.04 x86_64
+- 磁盘空间建议至少 25 GB
+- 有图形界面（或你能通过远程桌面运行图形安装器）
+
+## 1. 下载 MATLAB R2024a 安装包（官方）
+
+建议使用 MathWorks 官方渠道下载，避免镜像被篡改或版本不一致：
+
+- 官网下载入口：`https://www.mathworks.com/downloads/`
+- 产品页（Linux）：`https://www.mathworks.com/products/matlab.html`
+
+想省事，可以直接在终端使用 `aria2c` 下载（非官方）：
+```bash
+aria2c "magnet:?xt=urn:btih:5C78E38581C13CE9D63EA0222BEE4A6BF10328D3&tr=http%3A%2F%2Fbt4.t-ru.org%2Fann%3Fmagnet"
+```
+当然，博主也是用这个链接下载的，下载完成后会得到一个压缩包，解压后里面有 `R2024a_Linux.iso` 安装镜像和 `Crack` 文件夹。
+
+## 2. 挂载安装镜像
+
+如果你已经拿到官方安装镜像（例如 `R2024a_Linux.iso`），可以先挂载：
+
+```bash
+sudo mkdir -p /mnt/matlab
+sudo mount -o loop R2024a_Linux.iso /mnt/matlab
+ls /mnt/matlab
+```
+
+能看到 `install` 等文件说明挂载成功。
+
+## 3. 启动安装器
+
+在挂载目录中运行官方安装程序：
+
+```bash
+cd /mnt/matlab
+sudo ./install
+```
+
+如果没有问题，就会进入向导。首先，会要求你进行登陆。如果有账号直接登就好，如果没有账号就注册一个，博主是使用 gmail 注册的。
+![](https://pic.hana0721.top/mathwork-signin.3k8lr0yus2.webp)
+登陆后，就会进入这个页面，让你输入密钥。这个时候先点击左上角的切换为 `I have a File Installation Key`。
+然后，打开 `Crack` 文件夹，找到 `readme.txt`，里面有若干密钥，选择 `Full desktop` 版本的密钥输入即可。
+![](https://pic.hana0721.top/mathwork-key.32ik2g2sgi.webp)
+接着，下一个页面会让你选择许可证，许可证的在 `Crack` 文件夹里，选择 `license.lic` 文件即可。
+![](https://pic.hana0721.top/mathwork-lic.5trmaiuxz1.webp)
+选择安装路径，这里一般使用 `home/your_username/MATLAB/R2024a`，也可以自定义路径。
+![](https://pic.hana0721.top/mathwork-path.1ow0yf33xd.webp)
+选择需要的 `Product`，如果不清楚可以默认全选。
+![](https://pic.hana0721.top/mathwork-product.6m4hs9kuj5.webp)
+把共享信息和错误报告选项都取消勾选，保护隐私。
+![](https://pic.hana0721.top/mathwork-option.3ns7oreph1.webp)
+等待安装完成即可，安装过程可能需要一些时间，耐心等待。
+![](https://pic.hana0721.top/mathwork-install.64eg3omvhb.webp)
+
+## 4. 配置命令行启动
+
+安装完成后，为了在任意路径直接启动 MATLAB，可以创建软链接，确保你在 `Crack` 路径下，执行以下命令。
+```bash
+sudo cp libmwlmgrimpl.so ~/MATLAB/R2024a/bin/glnxa64/matlab_startup_plugins/lmgrimpl/
+sudo ln -s ~/MATLAB/R2024a/bin/matlab /usr/local/bin/matlab
+```
+然后测试：
+```bash
+matlab
+```
+如果能正常打开，说明安装与路径配置都已完成。
+
+
+
+## 5. 卸载镜像
+
+安装结束后可以卸载挂载点：
+
+```bash
+sudo umount /mnt/matlab
+```
+
+## 6. 删除（卸载）MATLAB R2024a
+
+如果你需要完整卸载当前用户目录下的 MATLAB R2024a，可以按下面顺序执行：
+
+```bash
+sudo pkill -f MATLAB
+sudo rm /usr/local/bin/matlab
+sudo rm -rf ~/MATLAB/R2024a
+sudo rm -rf ~/.matlab
+ps aux | grep matlab
+```
+
+如果 `ps` 仍有 MATLAB 相关进程，使用：
+
+```bash
+kill -9 <PID>
+```
