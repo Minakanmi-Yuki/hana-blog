@@ -1,0 +1,41 @@
+---
+import { cn } from '@/utils'
+
+interface Props {
+  class?: string
+  title: string
+  tracks: {
+    title: string
+    composer: string
+    cover: string
+    link: string
+  }[]
+}
+
+const { class: className, title, tracks, ...props } = Astro.props
+---
+
+<div
+  class={cn(
+    'not-prose flex flex-col rounded-xl border border-border py-3 px-3 gap-y-3 sm:gap-y-4',
+    className
+  )}
+  {...props}
+>
+  <div class='m-0 px-2 text-lg font-medium'>{title}</div>
+  <div class='grid grid-cols-1 gap-x-2 gap-y-2 sm:grid-cols-2'>
+    {
+      tracks.map((track) => (
+        <a class='group relative text-sm leading-normal no-underline' href={track.link} target='_blank' rel='noopener noreferrer'>
+          <div class='flex items-center gap-x-3 rounded-lg border border-transparent px-1.5 py-1 transition-colors hover:border-border hover:bg-muted'>
+            <img src={track.cover} alt={`${track.title} cover`} class='size-10 rounded-lg bg-primary-foreground object-cover' loading='lazy' />
+            <div class='z-20 flex min-w-0 flex-col'>
+              <div class='truncate font-medium text-foreground'>{track.title}</div>
+              <div class='truncate font-normal text-muted-foreground'>作者：{track.composer}</div>
+            </div>
+          </div>
+        </a>
+      ))
+    }
+  </div>
+</div>

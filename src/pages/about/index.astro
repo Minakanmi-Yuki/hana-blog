@@ -1,11 +1,18 @@
 ---
 import PageLayout from '@/layouts/CommonPage.astro'
 import AlgorithmShowcase from '@/components/about/AlgorithmShowcase.astro'
+import MusicSection from '@/components/about/MusicSection.astro'
 import ToolSection from '@/components/about/ToolSection.astro'
 import { Comment } from '@/components/advanced'
 import { Button, DistributionSection, Spoiler } from '@/components/user'
 
 const headings = [
+  { depth: 2, slug: 'steam', text: 'Steam' },
+  { depth: 2, slug: 'bangdream', text: 'BangDream' },
+  { depth: 2, slug: 'galgame', text: 'Galgame' },
+  { depth: 2, slug: 'dont-starve-together', text: "Don't Starve Together" },
+  { depth: 2, slug: 'slay-the-spire', text: 'Slay The Spire' },
+  { depth: 2, slug: 'music', text: 'Music' },
   { depth: 2, slug: 'distribution', text: 'Distribution' },
   { depth: 2, slug: 'tools', text: 'Tools' },
   { depth: 2, slug: 'copyright', text: 'Copyright' },
@@ -34,6 +41,7 @@ const distributions = [
     platform: 'Cloudflare'
   }
 ]
+
 ---
 
 <PageLayout title='About' {headings} info='/about'>
@@ -53,14 +61,153 @@ const distributions = [
   <p>特别感谢Axi提供的模板以及搭建Blog过程中提供的帮助！ </p>
   <Button title='Sponsor Me' class='w-fit' href='/projects#sponsorship' style='ahead' />
 
+  <h2 id='steam'>🎮 Steam<a class='anchor' href='#steam'>#</a></h2>
+  <p>这里会放我的 Steam 扩列信息，欢迎同好来加好友一起玩。</p>
+  <ul>
+    <li>Steam 主页：<a href='[待填写：Steam主页链接]'>[待填写：Steam主页链接]</a></li>
+    <li>好友码/ID：<code>[待填写：Steam好友码或ID]</code></li>
+    <li>常玩游戏：<code>[待填写：游戏A、游戏B、游戏C]</code></li>
+    <li>近期想一起玩的游戏：<code>[待填写：游戏列表]</code></li>
+  </ul>
+
+  <h2 id='bangdream'>🎤 BangDream<a class='anchor' href='#bangdream'>#</a></h2>
+  <p>这里会放 BanG Dream! 相关内容，包括账号图、主推乐队和谷子照片。</p>
+  <ul>
+    <li>账号图：<code>[待填写：账号截图说明或图片链接]</code></li>
+    <li>我推的团：<code>[待填写：主推乐队/角色]</code></li>
+    <li>谷子照片：<code>[待填写：照片描述或图集链接]</code></li>
+    <li>想找的同好：<code>[待填写：扩列偏好/交流方向]</code></li>
+  </ul>
+
+  <h2 id='galgame'>🩷 Galgame<a class='anchor' href='#galgame'>#</a></h2>
+  <p>这里会记录我最喜爱的 Galgame 作品和推荐理由。</p>
+  <ul>
+    <li>最喜爱的作品：<code>[待填写：作品1、作品2、作品3]</code></li>
+    <li>最喜欢的角色：<code>[待填写：角色名]</code></li>
+    <li>推荐理由：<code>[待填写：剧情/音乐/人设等]</code></li>
+    <li>入坑顺序建议：<code>[待填写：推荐游玩顺序]</code></li>
+  </ul>
+
+  <h2 id='dont-starve-together'>🔥 Don't Starve Together<a class='anchor' href='#dont-starve-together'>#</a></h2>
+  <p>这里会放《饥荒》相关截图和生存记录。</p>
+  <ul>
+    <li>常用角色：<code>[待填写：角色名]</code></li>
+    <li>世界天数记录：<code>[待填写：最高天数]</code></li>
+    <li>截图展示：<code>[待填写：截图描述或图片链接]</code></li>
+    <li>联机偏好：<code>[待填写：玩法偏好/服务器类型]</code></li>
+  </ul>
+
+  <h2 id='slay-the-spire'>🗼 Slay The Spire<a class='anchor' href='#slay-the-spire'>#</a></h2>
+  <p>这里会放我的《杀戮尖塔》战绩和偏好角色。</p>
+  <ul>
+    <li>当前战绩：<code>[待填写：连胜/进度/挑战记录]</code></li>
+    <li>喜爱的角色：<code>[待填写：静默猎手/铁甲战士/故障机器人/观者]</code></li>
+    <li>常用流派：<code>[待填写：流派名称]</code></li>
+    <li>心得笔记：<code>[待填写：关键策略或爬塔习惯]</code></li>
+  </ul>
+
+  <h2 id='music'>🎵 Music<a class='anchor' href='#music'>#</a></h2>
+  <p>
+    我平时主要听 Galgame/ACG 纯音乐、Mandopop 和 J-Pop。更多歌单欢迎在 <a href='[待填写：网易云主页链接]'>我的网易云主页</a> 查看。
+  </p>
+  <MusicSection
+    class='mb-8 mt-6'
+    title='Favorite Instrumentals'
+    tracks={[
+      {
+        title: '夜の向日葵',
+        composer: '松本文紀 (まつもと ふみのり)',
+        cover: '/images/music/instrumentals/yoru-no-himawari.jpg',
+        link: 'https://music.163.com/song?id=4937357'
+      },
+      {
+        title: '天球の奇蹟',
+        composer: '松本文紀 (まつもと ふみのり)',
+        cover: '/images/music/instrumentals/tenkyuu-no-kiseki.jpg',
+        link: 'https://music.163.com/song?id=399366428'
+      },
+      {
+        title: '夏凪ぎ-piano ver.-',
+        composer: 'MANYO (まにょっ) / 麻枝准 (まえだ じゅん)',
+        cover: '/images/music/instrumentals/natsunagi-piano-ver.jpg',
+        link: 'https://music.163.com/song?id=1833615260'
+      },
+      {
+        title: '夏影',
+        composer: '麻枝准 (まえだ じゅん)',
+        cover: '/images/music/instrumentals/natsukage.jpg',
+        link: 'https://music.163.com/song?id=28151024'
+      }
+    ]}
+  />
+  <MusicSection
+    class='mb-8'
+    title='Favorite Mandopop'
+    tracks={[
+      {
+        title: '蝴蝶',
+        composer: '陶喆',
+        cover: '/images/music/mandopop/taozhe-butterfly.jpg',
+        link: 'https://music.163.com/song?id=150561'
+      },
+      {
+        title: '小镇姑娘',
+        composer: '陶喆',
+        cover: '/images/music/mandopop/taozhe-town-girl.jpg',
+        link: 'https://music.163.com/song?id=150619'
+      },
+      {
+        title: '找自己',
+        composer: '陶喆',
+        cover: '/images/music/mandopop/taozhe-find-myself.jpg',
+        link: 'https://music.163.com/song?id=150617'
+      },
+      {
+        title: '普通朋友',
+        composer: '陶喆',
+        cover: '/images/music/mandopop/taozhe-ordinary-friend.jpg',
+        link: 'https://music.163.com/song?id=150623'
+      }
+    ]}
+  />
+  <MusicSection
+    class='mb-8'
+    title='Favorite Japanese Music'
+    tracks={[
+      {
+        title: '前へススメ！',
+        composer: "Poppin'Party",
+        cover: '/images/music/japanese/mae-e-susume.jpg',
+        link: 'https://music.163.com/song?id=477332351'
+      },
+      {
+        title: '1000回潤んだ空',
+        composer: "Poppin'Party",
+        cover: '/images/music/japanese/1000kai-uru-nda-sora.jpg',
+        link: 'https://music.163.com/song?id=2684126334'
+      },
+      {
+        title: 'Returns',
+        composer: "Poppin'Party",
+        cover: '/images/music/japanese/returns.jpg',
+        link: 'https://music.163.com/song?id=2001051772'
+      },
+      {
+        title: 'キズナミュージック♪',
+        composer: "Poppin'Party",
+        cover: '/images/music/japanese/kizuna-music.jpg',
+        link: 'https://music.163.com/song?id=1457757361'
+      }
+    ]}
+  />
   
-  <h2 id='distribution'>网页分发<a class='anchor' href='#distribution'>#</a></h2>
+  <h2 id='distribution'>🌐 网页分发<a class='anchor' href='#distribution'>#</a></h2>
   <p>
     为了提供更好的访问体验和可靠性，本站在多个平台进行了部署，您可以选择合适的镜像站点进行访问：
   </p>
   <DistributionSection class='mb-8 mt-6' {distributions} />
   <p>如果您遇到访问问题，建议尝试其他镜像站点。所有站点内容保持同步更新。</p>
-  <h2 id='tools'>工具<a class='anchor' href='#tools'>#</a></h2>
+  <h2 id='tools'>🧰 工具<a class='anchor' href='#tools'>#</a></h2>
   <ToolSection
     class='mb-5'
     title='Productivity'
@@ -91,7 +238,7 @@ const distributions = [
       }
     ]}
   />
-  <h2 id='copyright'>版权<a class='anchor' href='#copyright'>#</a></h2>
+  <h2 id='copyright'>📄 版权<a class='anchor' href='#copyright'>#</a></h2>
   <p>
     如你所见，本站中的所有原创内容及设计整体，除非特别说明，均使用 <a
       href='https://creativecommons.org/licenses/by-nc-sa/4.0/'>CC BY-NC-SA 4.0</a
@@ -183,7 +330,7 @@ const distributions = [
         id='path19'></path>
     </g>
   </svg>
-  <h2 id='theme'>主题<a class='anchor' href='#theme'>#</a></h2>
+  <h2 id='theme'>🎨 主题<a class='anchor' href='#theme'>#</a></h2>
   <p>
     本主题 Astro-Axi 基于 Astro 的 <a href='https://astro-pure.js.org/docs'>Pure</a>, <a
       href='https://github.com/chrismwilliams/astro-theme-cactus'>Cactus</a
