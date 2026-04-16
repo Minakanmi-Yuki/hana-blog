@@ -37,7 +37,14 @@ export const getStaticPaths = (async ({ paginate }) => {
   return uniqueCategories.flatMap((category, index) => {
     const collections = sortMDByDate(getCollectionsByCategory(allCollections, category))
     const uniqueTags = getUniqueTags(collections)
-    const sidebarCollections = getSidebarCollections(allCollections, 'en')
+    const allSidebarCollections = getSidebarCollections(allCollections, 'en', {
+      preferCategory: category
+    })
+    const sidebarCollections = getSidebarCollections(allCollections, 'en', {
+      preferCategory: category,
+      limit: 4
+    })
+    const hasMoreCollections = allSidebarCollections.length > sidebarCollections.length
     const collectionsCount = collections.length
     
     // Get previous and next categories (circular navigation)
@@ -52,6 +59,7 @@ export const getStaticPaths = (async ({ paginate }) => {
       props: {
         uniqueTags,
         sidebarCollections,
+        hasMoreCollections,
         collectionsCount,
         category,
         prevCategory,
@@ -66,6 +74,7 @@ interface Props {
   page: Page<CollectionEntry<'blog'>>
   uniqueTags: string[]
   sidebarCollections: SidebarCollection[]
+  hasMoreCollections: boolean
   collectionsCount: number
   category: string
   prevCategory: string
@@ -77,6 +86,7 @@ const {
   page,
   uniqueTags,
   sidebarCollections,
+  hasMoreCollections,
   collectionsCount,
   category,
   prevCategory,
@@ -170,6 +180,13 @@ const meta = {
                       </li>
                     ))}
                   </ul>
+                  {hasMoreCollections && (
+                    <span class='mt-4 block text-end text-sm'>
+                      <a aria-label='View all collections' href='/en/collection' data-astro-prefetch>
+                        View all collections →
+                      </a>
+                    </span>
+                  )}
                 </div>
               )}
 

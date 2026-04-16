@@ -1,0 +1,47 @@
+---
+import {
+  getBlogCollection,
+  getSidebarCollections,
+  getCollectionPostsByKey,
+  sortMDByDateAsc
+} from '@/server'
+import PageLayout from '@/layouts/BaseLayout.astro'
+import { Button, Icon } from '@/components/user'
+import CollectionPreview from '@/components/pages/CollectionPreview.astro'
+
+const allPosts = await getBlogCollection()
+const collections = getSidebarCollections(allPosts, 'zh')
+
+const collectionsWithCover = collections.map((collection) => {
+  const posts = sortMDByDateAsc(getCollectionPostsByKey(allPosts, collection.key))
+  return {
+    ...collection,
+    coverImage: posts[0]?.data.heroImage
+  }
+})
+
+const meta = {
+  description: '博客系列合集总览',
+  title: 'All Collections'
+}
+---
+
+<PageLayout {meta}>
+  <Button title='Back' href='/' style='back' />
+  <main class='mt-6 lg:mt-10'>
+    <div class='mb-6 flex items-center gap-2'>
+      <Icon name='package' class='size-5' />
+      <h1 class='text-3xl font-medium'>Collections</h1>
+    </div>
+
+    {
+      collectionsWithCover.length === 0 ? (
+        <p class='text-muted-foreground'>No collections yet.</p>
+      ) : (
+        <ul class='grid grid-cols-1 gap-4 text-start md:grid-cols-2'>
+          {collectionsWithCover.map((collection) => <CollectionPreview {collection} locale='zh' />)}
+        </ul>
+      )
+    }
+  </main>
+</PageLayout>

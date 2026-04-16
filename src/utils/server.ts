@@ -215,6 +215,19 @@ const sidebarCollectionRules = [
     },
     slugPrefix: 'galgame-',
     entryHref: '/blog/galgame-1'
+  },
+  {
+    key: 'sts-guide',
+    title: {
+      zh: 'Slay The Spire 系列攻略',
+      en: 'Slay The Spire Guide Series'
+    },
+    description: {
+      zh: 'Slay The Spire 攻略与思路合集',
+      en: 'Slay The Spire guides and strategy notes'
+    },
+    slugPrefix: 'sts-',
+    entryHref: '/blog/sts-silent-cards-rating'
   }
 ] as const
 
@@ -226,25 +239,53 @@ function normalizePostId(id: string) {
 
 export function getSidebarCollections(
   collections: Collections,
-  locale: 'zh' | 'en' = 'zh'
+  locale: 'zh' | 'en' = 'zh',
+  options: {
+    preferCategory?: string
+    limit?: number
+  } = {}
 ): SidebarCollection[] {
   const localePrefix = locale === 'en' ? '/en' : ''
+  const { preferCategory, limit } = options
 
-  return sidebarCollectionRules
-    .map((rule) => {
-      const count = collections.filter((collection) =>
+  const items = sidebarCollectionRules
+    .map((rule, index) => {
+      const matchedPosts = collections.filter((collection) =>
         normalizePostId(collection.id).startsWith(rule.slugPrefix)
-      ).length
+      )
+      const count = matchedPosts.length
+      const categoryMatched =
+        typeof preferCategory === 'string'
+          ? matchedPosts.some((post) => post.data.category === preferCategory)
+          : false
 
       return {
+        index,
         key: rule.key,
         title: rule.title[locale],
         description: rule.description[locale],
         href: `${localePrefix}/collection/${rule.key}`,
-        count
+        count,
+        categoryMatched
       }
     })
     .filter((item) => item.count > 0)
+    .sort((a, b) => {
+      if (a.categoryMatched !== b.categoryMatched) {
+        return a.categoryMatched ? -1 : 1
+      }
+      return a.index - b.index
+    })
+
+  const limitedItems = typeof limit === 'number' ? items.slice(0, Math.max(0, limit)) : items
+
+  return limitedItems.map(({ key, title, description, href, count }) => ({
+    key,
+    title,
+    description,
+    href,
+    count
+  }))
 }
 
 export function getSidebarCollectionRule(key: string): SidebarRule | undefined {
