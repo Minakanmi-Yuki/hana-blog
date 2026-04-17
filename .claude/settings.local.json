@@ -5,7 +5,17 @@
       "Bash(bun build)",
       "Bash(bun run:*)",
       "Bash(rm:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "WebFetch(domain:blog.arisa.moe)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:docs.bestdori.winsov8.win)",
+      "WebFetch(domain:bandori.party)",
+      "Bash(npm run:*)",
+      "Bash(sudo rm:*)",
+      "Bash(curl:*)",
+      "WebFetch(domain:bjd-mc.com)",
+      "WebFetch(domain:raw.githubusercontent.com)"
     ],
     "deny": []
   }
