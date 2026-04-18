@@ -4,9 +4,13 @@ import AlgorithmShowcase from '@/components/about/AlgorithmShowcase.astro'
 import MusicSection from '@/components/about/MusicSection.astro'
 import ToolSection from '@/components/about/ToolSection.astro'
 import { Comment } from '@/components/advanced'
-import { Button, DistributionSection, Spoiler } from '@/components/user'
+import { Button, DistributionSection, Icon, Label, SimpleIcon } from '@/components/user'
 
 const headings = [
+  { depth: 2, slug: 'profile', text: 'Profile' },
+  { depth: 2, slug: 'education', text: 'Education' },
+  { depth: 2, slug: 'research', text: 'Research' },
+  { depth: 2, slug: 'daily-life', text: 'Daily Life' },
   { depth: 2, slug: 'steam', text: 'Steam' },
   { depth: 2, slug: 'bangdream', text: 'BangDream' },
   { depth: 2, slug: 'galgame', text: 'Galgame' },
@@ -97,21 +101,248 @@ const favoriteGalgameStudios = [
 ---
 
 <PageLayout title='About' {headings} info='/about'>
-  <p>硕士在读 / <Spoiler>󠇖󠅸󠆁󠇖󠆈󠆟󠇕󠅿󠆟󠇗󠅸󠆡󠇗󠆄󠆧󠇕󠆘󠆈 疯狂可乐人🥤 </Spoiler></p>
+  <h2 id='profile'>🧭 Profile<a class='anchor' href='#profile'>#</a></h2>
+  <section class='not-prose mb-8 mt-5 rounded-xl border border-border bg-card p-4 sm:p-5'>
+    <div class='grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-start'>
+      <div class='flex h-full flex-col'>
+        <div class='flex flex-col gap-4 sm:flex-row sm:items-center'>
+          <img
+            src='/avatar/avatar.png'
+            alt='Profile avatar'
+            class='h-24 w-24 rounded-lg border p-1 object-cover'
+            loading='lazy'
+          />
+          <div class='flex-1'>
+            <p class='m-0 text-lg font-semibold text-foreground'>菊花花</p>
+            <p class='mt-1 text-sm text-muted-foreground'>Master Student @ NUDT</p>
+            <div class='mt-3 flex flex-wrap gap-2'>
+              <Label title='China'>
+                <Icon name='location' class='size-4' slot='icon' />
+              </Label>
+              <Label
+                title='Github'
+                as='a'
+                href='https://github.com/Minakanmi-Yuki'
+                target='_blank'
+                rel='noopener noreferrer'
+              >
+                <Icon name='github' class='size-4' slot='icon' />
+              </Label>
+              <Label title='Email' as='a' href='mailto:2849633943@qq.com'>
+                <Icon name='email' class='size-4' slot='icon' />
+              </Label>
+            </div>
+          </div>
+        </div>
+        <p class='mt-4 text-sm text-muted-foreground'>
+          我是个外向又爱笑的人，看到身边人需要帮忙，通常都会忍不住搭把手。能帮上一点忙，我自己也会开心很久。白天基本是“小太阳”模式。
+        </p>
+        <p class='mt-2 text-sm text-muted-foreground'>
+          我很喜欢聊天，你来找我基本不会冷场。我也在学着拿捏分寸，偶尔太热情会显得有点粘人。整体上我有主见、道德感强，只是夜里有时也会小小 emo。
+        </p>
+        <div class='mt-auto pt-4'>
+          <Button title='Sponsor Me' class='w-fit' href='/projects#sponsorship' style='ahead' />
+        </div>
+      </div>
+      <aside class='rounded-lg bg-card p-3'>
+        <p class='m-0 text-xs uppercase tracking-wide text-muted-foreground'>MBTI</p>
+        <p class='mt-1 text-lg font-semibold text-foreground'>ENFJ-A</p>
+        <img
+          src='/images/profile/enfj-protagonist-standing.svg'
+          alt='宝剑哥 ENFJ Protagonist'
+          class='mt-3 w-full'
+          loading='lazy'
+        />
+      </aside>
+    </div>
+  </section>
+
+  <h2 id='education'>🎓 Education<a class='anchor' href='#education'>#</a></h2>
+  <section class='not-prose mb-8 mt-5 grid grid-cols-1 gap-4'>
+    <article class='rounded-xl border border-border bg-card transition-shadow hover:shadow-md'>
+      <a
+        href='https://www.scnu.edu.cn/'
+        target='_blank'
+        rel='noopener noreferrer'
+        class='block rounded-xl p-4 no-underline sm:p-5'
+        aria-label='Open South China Normal University official website'
+      >
+        <div class='flex items-start gap-3'>
+          <div class='size-20 shrink-0 overflow-hidden rounded-md bg-transparent'>
+            <img
+              src='/images/education/scnu-badge.png'
+              alt='South China Normal University badge'
+              class='h-full w-full object-contain'
+              loading='lazy'
+            />
+          </div>
+          <div>
+            <div class='mb-1 text-sm font-medium text-muted-foreground'>Undergraduate</div>
+            <h3 class='m-0 text-base font-semibold text-foreground'>South China Normal University</h3>
+            <p class='mt-2 text-sm text-muted-foreground'>Artificial Intelligence, B.Eng.</p>
+            <p class='mt-1 text-xs text-muted-foreground'>Period: 2021 - 2025</p>
+          </div>
+        </div>
+      </a>
+    </article>
+    <article class='rounded-xl border border-border bg-card transition-shadow hover:shadow-md'>
+      <a
+        href='https://www.nudt.edu.cn/'
+        target='_blank'
+        rel='noopener noreferrer'
+        class='block rounded-xl p-4 no-underline sm:p-5'
+        aria-label='Open National University of Defense Technology official website'
+      >
+        <div class='flex items-start gap-3'>
+          <div class='size-20 shrink-0 overflow-hidden rounded-md bg-transparent'>
+            <img
+              src='/images/education/nudt-badge.jpg'
+              alt='National University of Defense Technology badge'
+              class='h-full w-full object-contain'
+              loading='lazy'
+            />
+          </div>
+          <div>
+            <div class='mb-1 text-sm font-medium text-muted-foreground'>Master's</div>
+            <h3 class='m-0 text-base font-semibold text-foreground'>National University of Defense Technology</h3>
+            <p class='mt-2 text-sm text-muted-foreground'>Electronic Information, M.Eng.</p>
+            <p class='mt-1 text-xs text-muted-foreground'>Period: 2025 - Present</p>
+          </div>
+        </div>
+      </a>
+    </article>
+  </section>
+
+  <h2 id='research'>🔬 Research<a class='anchor' href='#research'>#</a></h2>
+  <div class='not-prose mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3'>
+    {
+      [
+        {
+          title: 'Robotics Manipulation',
+          description: 'Robotic Manipulation, Grasping, Dexterous Control, Object Interaction',
+          icon: 'ros'
+        },
+        {
+          title: 'VLA',
+          description: 'Vision-Language-Action Models, Multi-modal Learning, Embodied AI',
+          icon: 'pytorch'
+        },
+        {
+          title: 'Multi-Agent System',
+          description: 'Cooperative MARL, Value Decomposition Methods',
+          icon: 'kubernetes'
+        }
+      ].map((interest) => (
+        <div class='group relative overflow-hidden rounded-xl border border-border bg-card p-4 transition-all hover:border-foreground/25 hover:shadow-md'>
+          <div class='flex items-start gap-4'>
+            <div class='flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 transition-colors group-hover:bg-primary/20'>
+              <SimpleIcon
+                class='size-5 text-primary transition-transform duration-300 group-hover:scale-110'
+                name={interest.icon}
+              />
+            </div>
+            <div class='flex-1'>
+              <p class='text-xl font-medium leading-tight text-foreground transition-colors group-hover:text-primary'>
+                {interest.title}
+              </p>
+              <p class='text-sm leading-relaxed text-muted-foreground'>{interest.description}</p>
+            </div>
+          </div>
+        </div>
+      ))
+    }
+  </div>
+
+  <h2 id='daily-life'>📸 Daily Life<a class='anchor' href='#daily-life'>#</a></h2>
   <p>
-    我是「菊花花」，是一名25级电子信息硕士在读生，来自国防科技大学。
-    本科就读于华南师范大学人工智能专业，毕业于2025年。 
-    目前，我正在从事多智能体强化学习（Multi-Agent Reinforcement Learning）、具身智能（Embodied AI）领域的研究。
+    除了学习和游戏之外，我的日常其实很简单：和朋友一起出去吃好吃的，以及偶尔去唱 K 放松一下。这两件事就是我最开心的日常。
   </p>
-  <p>兴趣爱好：</p>
-  <ul>
-    <li>喜欢看动漫和推Galgame，但最近淡坑了。</li>
-    <li>《Slay The Spire》发烧玩家，游戏时长2000h+，静默猎手SL179连胜/NOSL10连胜。</li>
-    <li>《BangDream》萌新玩家，主推是Poppin'Party，一辈子守护PPP。</li>
-    <li>喜欢听纯音乐，特别喜欢麻枝准，因为很治愈。</li>
-  </ul>
-  <p>特别感谢Axi提供的模板以及搭建Blog过程中提供的帮助！ </p>
-  <Button title='Sponsor Me' class='w-fit' href='/projects#sponsorship' style='ahead' />
+  <section class='not-prose mb-8 mt-5 grid grid-cols-1 gap-4 lg:grid-cols-2'>
+    <article class='rounded-xl border border-border bg-card p-4'>
+      <h3 class='mb-3 text-base font-semibold text-foreground'>Food Moments</h3>
+      <div class='grid grid-cols-2 gap-3'>
+        <figure class='rounded-lg border border-border/70 bg-card p-2'>
+          <img
+            src='https://pic.hana0721.top/food1.8adut11vdc.webp'
+            alt='Food photo 1'
+            class='aspect-[4/3] w-full rounded-md object-cover'
+            loading='lazy'
+          />
+          <figcaption class='px-1 pt-1.5 text-xs text-muted-foreground'>爱吃烤生蚝～</figcaption>
+        </figure>
+        <figure class='rounded-lg border border-border/70 bg-card p-2'>
+          <img
+            src='https://pic.hana0721.top/food2.4clhccquq2.webp'
+            alt='Food photo 2'
+            class='aspect-[4/3] w-full rounded-md object-cover'
+            loading='lazy'
+          />
+          <figcaption class='px-1 pt-1.5 text-xs text-muted-foreground'>爱吃炒花甲～</figcaption>
+        </figure>
+        <figure class='rounded-lg border border-border/70 bg-card p-2'>
+          <img
+            src='https://pic.hana0721.top/food3.2a5ooas9ol.webp'
+            alt='Food photo 3'
+            class='aspect-[4/3] w-full rounded-md object-cover'
+            loading='lazy'
+          />
+          <figcaption class='px-1 pt-1.5 text-xs text-muted-foreground'>爱吃烤串～</figcaption>
+        </figure>
+        <figure class='rounded-lg border border-border/70 bg-card p-2'>
+          <img
+            src='https://pic.hana0721.top/food4.7lkl90eccf.webp'
+            alt='Food photo 4'
+            class='aspect-[4/3] w-full rounded-md object-cover'
+            loading='lazy'
+          />
+          <figcaption class='px-1 pt-1.5 text-xs text-muted-foreground'>爱吃炝锅烩面～</figcaption>
+        </figure>
+      </div>
+    </article>
+
+    <article class='rounded-xl border border-border bg-card p-4'>
+      <h3 class='mb-3 text-base font-semibold text-foreground'>Karaoke Nights</h3>
+      <div class='grid grid-cols-2 gap-3'>
+        <figure class='rounded-lg border border-border/70 bg-card p-2'>
+          <img
+            src='https://pic.hana0721.top/ktv.9gx61n20aj.webp'
+            alt='Karaoke photo 1'
+            class='aspect-[4/3] w-full rounded-md object-cover'
+            loading='lazy'
+          />
+          <figcaption class='px-1 pt-1.5 text-xs text-muted-foreground'>MYGO版本《蝴蝶》</figcaption>
+        </figure>
+        <figure class='rounded-lg border border-border/70 bg-card p-2'>
+          <img
+            src='https://pic.hana0721.top/ktv.36263rd6gs.webp'
+            alt='Karaoke photo 2'
+            class='aspect-[4/3] w-full rounded-md object-cover'
+            loading='lazy'
+          />
+          <figcaption class='px-1 pt-1.5 text-xs text-muted-foreground'>《樱之诗》</figcaption>
+        </figure>
+        <figure class='rounded-lg border border-border/70 bg-card p-2'>
+          <img
+            src='https://pic.hana0721.top/ktv.32ik61k3r0.webp'
+            alt='Karaoke photo 3'
+            class='aspect-[4/3] w-full rounded-md object-cover'
+            loading='lazy'
+          />
+          <figcaption class='px-1 pt-1.5 text-xs text-muted-foreground'>《悠久之翼》</figcaption>
+        </figure>
+        <figure class='rounded-lg border border-border/70 bg-card p-2'>
+          <img
+            src='https://pic.hana0721.top/ktv.1hst6kmwak.webp'
+            alt='Karaoke photo 4'
+            class='aspect-[4/3] w-full rounded-md object-cover'
+            loading='lazy'
+          />
+          <figcaption class='px-1 pt-1.5 text-xs text-muted-foreground'>《Always in my heart》</figcaption>
+        </figure>
+      </div>
+    </article>
+  </section>
+  <p class='text-xs text-muted-foreground'>这些占位图可以随时替换成你自己的美食和唱 K 照片。</p>
 
   <h2 id='steam'>🎮 Steam<a class='anchor' href='#steam'>#</a></h2>
   <p>
@@ -399,7 +630,7 @@ const favoriteGalgameStudios = [
       }
     ]}
   />
-  
+
   <h2 id='distribution'>🌐 网页分发<a class='anchor' href='#distribution'>#</a></h2>
   <p>
     为了提供更好的访问体验和可靠性，本站在多个平台进行了部署，您可以选择合适的镜像站点进行访问：
