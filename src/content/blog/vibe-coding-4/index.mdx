@@ -1,0 +1,167 @@
+---
+title: 'Vibe Coding For AI 4: Gemini CLI 安装与使用指南'
+publishDate: 2026-04-18
+updatedDate: 2026-04-18
+description: '谷歌官方出品的 Gemini CLI 完整教程，探索其强大的上下文感知、自动任务执行与多模态交互能力。'
+heroImage: { src: 'https://pic.hana0721.top/120269913_p0_master1200.3k8lu5pi8s.webp', color: '#8C8275' }
+pixivLink: '120269913'
+category: 'tech'
+tags:
+  - 'vibe coding'
+  - 'gemini'
+  - 'gemini-cli'
+  - 'AI'
+---
+
+> 本文内容由 AI 生成，主要供博主自用参考，不保证完全准确，请以官方文档为准。
+
+## 什么是 Gemini CLI？
+
+Gemini CLI 是 Google 官方推出的命令行 AI 助手。
+它不仅是一个简单的聊天界面，更是一个深度集成到开发流程中的 Coding Agent。
+它能够感知项目上下文，读取和修改文件，执行 Shell 命令，并支持通过 Agent Skills 和 MCP（Model Context Protocol）进行扩展。
+
+对于追求极致性能和谷歌生态集成的开发者来说，Gemini CLI 是 Vibe Coding 的又一利器。
+
+## 安装前准备
+
+### 安装 Node.js
+
+Gemini CLI 要求 **Node.js 20.0.0+**。
+
+**macOS（Homebrew）：**
+
+```bash
+brew install node
+```
+
+**Linux（Ubuntu/Debian）：**
+
+```bash
+curl -fsSL https://deb.nodesource.com/setup_23.x | sudo -E bash -
+sudo apt-get install -y nodejs
+```
+
+**验证安装：**
+
+```bash
+node --version   # 确保版本 >= 20
+npm --version
+```
+
+### 检查网络环境
+
+确保你的终端可以顺畅访问 Google 的 API 服务。
+
+```bash
+curl ipin.io
+```
+
+## 安装 Gemini CLI
+
+### 推荐方式：npm 全局安装
+
+```bash
+npm install -g @google/gemini-cli
+```
+
+### 其他方式
+
+- **Homebrew:** `brew install gemini-cli`
+- **npx (无需安装直接运行):** `npx @google/gemini-cli`
+
+安装完成后验证：
+
+```bash
+gemini --version
+```
+
+## 配置与鉴权
+
+### 获取 API Key
+
+前往 [Google AI Studio](https://aistudio.google.com/) 获取你的 Gemini API Key。
+
+### 设置环境变量
+
+将密钥添加到你的 shell 配置文件（如 `~/.zshrc` 或 `~/.bashrc`）：
+
+```bash
+export GEMINI_API_KEY="你的_API_KEY"
+```
+
+如果使用中转服务，可以设置基础 URL：
+
+```bash
+export GEMINI_BASE_URL="https://你的中转地址/v1"
+```
+
+## 启动与基本用法
+
+### 交互模式（REPL）
+
+在项目根目录运行：
+
+```bash
+gemini
+```
+
+进入交互界面后，你可以像在网页端一样与 Gemini 对话，但它现在拥有操作你本地文件的权限。
+
+### 非交互模式（单次查询）
+
+```bash
+gemini -p "分析当前目录结构并总结项目功能"
+```
+
+### 管道模式
+
+```bash
+cat error.log | gemini "解释这个错误并给出修复方案"
+```
+
+### 恢复会话
+
+```bash
+gemini -r latest
+```
+
+## 核心功能特性
+
+### 1. 上下文感知
+Gemini CLI 会自动读取项目中的文件结构，并尊重 `.geminiignore` 文件（类似于 `.gitignore`）。
+你可以通过 `GEMINI.md` 文件为 AI 提供项目特定的指令和规范。
+
+### 2. 快捷文件引用
+在对话中，你可以使用 `@` 符号快速引用文件内容：
+`帮我重构一下 @src/utils/date.ts 里的格式化函数`
+
+### 3. Shell 集成
+在交互界面中，可以使用 `!` 前缀直接执行 Shell 命令：
+`!npm test`
+
+### 4. 自动任务执行
+你可以给 Gemini 下达复杂的指令，它会自动拆解步骤并执行，例如：
+`帮我把项目中所有的 React 组件从 Class 组件重构成 Function 组件，并添加 Vitest 测试`
+
+## 常用斜杠命令
+
+| 命令 | 功能 |
+|------|------|
+| `/help` | 显示所有可用命令 |
+| `/model set <model>` | 切换使用的 Gemini 模型版本 |
+| `/resume` | 搜索并恢复历史会话 |
+| `/rewind` | 在历史记录中回溯，甚至可以撤销代码更改 |
+| `/settings` | 配置 CLI 的外观和行为 |
+| `/quit` | 退出当前会话 |
+
+## 进阶技巧：Agent Skills
+
+Gemini CLI 支持通过 **Agent Skills** 扩展功能。你可以通过编写简单的脚本或配置，让 Gemini 具备特定领域的专家知识（如特定框架的优化技巧、复杂的部署流程等）。
+
+## 小结
+
+Gemini CLI 凭借其强大的多模态处理能力和 Google 的模型优势，在处理大规模代码重构和复杂逻辑理解上表现出色。
+它是目前命令行 Coding Agent 中最全能的选手之一。
+
+如果你已经习惯了在前几篇教程中提到的 Claude CLI 或 OpenCode，Gemini CLI 的强大工具链和恢复机制（Rewind）绝对值得你一试。

@@ -1,0 +1,278 @@
+---
+title: 'Vibe Coding For AI 3: Codex CLI 安装与使用指南'
+publishDate: 2026-04-18
+updatedDate: 2026-04-18
+description: '面向 macOS 和 Linux 用户的 Codex CLI 上手教程，覆盖安装、登录与常用命令说明。'
+heroImage: { src: 'https://pic.hana0721.top/120188807_p0_master1200.1lcf3tjzx5.webp', color: '#8C8275' }
+pixivLink: '120188807'
+category: 'tech'
+tags:
+  - 'vibe coding'
+  - 'codex'
+  - 'codex-cli'
+  - 'AI'
+---
+
+> 本文内容由 AI 生成，主要供博主自用参考，不保证完全准确，请以官方文档为准。
+
+## 什么是 Codex CLI？
+
+Codex CLI 是 OpenAI 推出的命令行 Coding Agent。
+它可以直接在终端中读取和修改项目文件、执行命令、完成代码任务，也支持非交互模式用于脚本化流程。
+
+本文基于 `codex-cli 0.121.0` 编写，面向 macOS 和 Linux 用户。
+
+## 安装前准备
+
+### 安装 Node.js
+
+Codex CLI 通过 `npm` 分发，先确保系统有 Node.js。
+当前 `@openai/codex` 的 `engines` 要求是 `node >= 16`，建议使用更高版本（如 Node 20 LTS）。
+
+**macOS（Homebrew）：**
+
+```bash
+brew install node
+```
+
+**Ubuntu/Debian：**
+
+```bash
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs
+```
+
+**Arch：**
+
+```bash
+sudo pacman -S nodejs npm
+```
+
+验证安装：
+
+```bash
+node --version
+npm --version
+```
+
+### 检查网络环境
+
+如果终端无法正常访问外网，安装和登录都可能失败。
+可以先测试当前出口 IP：
+
+```bash
+curl ipin.io
+```
+
+## 安装 Codex CLI
+
+### 方式 1：npm 安装（推荐）
+
+```bash
+npm install -g @openai/codex
+```
+
+验证是否安装成功：
+
+```bash
+codex --version
+```
+
+出现版本号即为成功。
+
+### 方式 2：Homebrew 安装（可选）
+
+```bash
+brew install --cask codex
+```
+
+这条路径适合习惯用 Homebrew 管理工具的用户，但版本更新节奏可能和 npm 不一致。
+
+## 登录与鉴权
+
+Codex CLI 需要先登录才能使用。
+
+### 交互登录
+
+```bash
+codex login
+```
+
+查看登录状态：
+
+```bash
+codex login status
+```
+
+### 使用 API Key 登录
+
+如果你已有 API Key，可以通过 stdin 方式登录：
+
+```bash
+export OPENAI_API_KEY="sk-xxxx"
+printenv OPENAI_API_KEY | codex login --with-api-key
+```
+
+退出登录：
+
+```bash
+codex logout
+```
+
+## 启动方式
+
+### 交互模式（最常用）
+
+进入项目目录后直接运行：
+
+```bash
+cd /path/to/your/project
+codex
+```
+
+也可以在启动时附带首条需求：
+
+```bash
+codex "帮我先梳理这个仓库的目录结构，然后给出重构计划"
+```
+
+### 非交互模式（自动化）
+
+适合 CI、脚本、批处理任务：
+
+```bash
+codex exec "检查 src 下的 TypeScript 类型错误并给出修复建议"
+```
+
+### 管道模式（stdin）
+
+把其他命令输出直接喂给 Codex：
+
+```bash
+git diff | codex exec "根据这份改动写一个规范的 commit message"
+```
+
+## 常用子命令速查
+
+| 命令 | 作用 |
+|------|------|
+| `codex` | 启动交互式 TUI |
+| `codex exec` | 非交互执行一次任务 |
+| `codex review` | 非交互代码审查 |
+| `codex login` | 登录管理 |
+| `codex logout` | 清除本地登录凭据 |
+| `codex resume` | 恢复历史会话 |
+| `codex fork` | 从历史会话分叉新会话 |
+| `codex apply <TASK_ID>` | 应用某个任务产出的 diff |
+| `codex mcp` | 管理 MCP 服务 |
+| `codex completion` | 生成 shell 补全脚本 |
+| `codex sandbox` | 在 Codex 提供的沙箱中运行命令 |
+
+## 高频命令示例
+
+### 1) 审查当前未提交改动
+
+```bash
+codex review --uncommitted
+```
+
+### 2) 和指定基线分支做审查
+
+```bash
+codex review --base main
+```
+
+### 3) 继续最近一次会话
+
+```bash
+codex resume --last
+```
+
+### 4) 在指定目录启动
+
+```bash
+codex -C /path/to/repo
+```
+
+### 5) 指定模型启动
+
+```bash
+codex -m gpt-5.4
+```
+
+### 6) 开启 web search 能力
+
+```bash
+codex --search
+```
+
+## 常见运行参数说明
+
+### 沙箱与安全
+
+- `-s, --sandbox read-only|workspace-write|danger-full-access`
+  控制命令执行权限范围。
+- `--full-auto`
+  低摩擦自动执行（默认沙箱是 `workspace-write`）。
+- `--dangerously-bypass-approvals-and-sandbox`
+  跳过审批与沙箱，风险极高，只建议在外部已隔离环境使用。
+
+### 上下文与目录
+
+- `-C, --cd <DIR>`
+  指定工作目录。
+- `--add-dir <DIR>`
+  给当前会话增加额外可写目录。
+
+### 模型与配置
+
+- `-m, --model <MODEL>`
+  指定模型。
+- `-p, --profile <CONFIG_PROFILE>`
+  使用配置文件中的 profile。
+- `-c, --config key=value`
+  临时覆写 `~/.codex/config.toml` 的配置项。
+
+## Shell 补全（可选）
+
+以 `zsh` 为例：
+
+```bash
+codex completion zsh
+```
+
+可以把输出重定向到你的补全目录并在 shell 配置中加载，之后 Tab 补全会更顺手。
+
+## 常见问题
+
+**Q: 提示 `command not found: codex`**
+
+检查 npm 全局 bin 目录是否在 PATH 中：
+
+```bash
+npm config get prefix
+export PATH="$(npm config get prefix)/bin:$PATH"
+```
+
+**Q: 如何升级 Codex CLI？**
+
+```bash
+npm update -g @openai/codex
+```
+
+**Q: 如何确认当前有哪些命令可用？**
+
+```bash
+codex --help
+```
+
+## 小结
+
+Codex CLI 的核心价值是把 AI 代理能力直接带到终端工作流里。
+如果你习惯命令行开发，先掌握这三件事就够用了：
+
+1. `codex`（交互）
+2. `codex exec`（自动化）
+3. `codex review`（审查改动）
+
+剩下的能力，再根据项目需求逐步加上就行。
