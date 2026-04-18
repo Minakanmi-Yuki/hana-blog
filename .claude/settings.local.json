@@ -15,7 +15,9 @@
       "Bash(sudo rm:*)",
       "Bash(curl:*)",
       "WebFetch(domain:bjd-mc.com)",
-      "WebFetch(domain:raw.githubusercontent.com)"
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(bun install *)",
+      "Bash(pnpm install *)"
     ],
     "deny": []
   }
