@@ -1,0 +1,47 @@
+---
+interface SponsorItem {
+  name: string
+  amount: string | number
+  date: string
+}
+
+interface Props {
+  class?: string
+  sponsors?: SponsorItem[]
+}
+
+const { class: className, sponsors = [] } = Astro.props as Props
+
+const normalizedSponsors = sponsors.map((item) => {
+  const amountValue =
+    typeof item.amount === 'number' ? item.amount : Number.parseFloat(item.amount) || 0
+  return { ...item, amountValue }
+})
+
+const totalAmount = normalizedSponsors.reduce((sum, item) => sum + item.amountValue, 0)
+---
+
+<section class:list={['not-prose mt-4 rounded-xl border border-border bg-card', className]}>
+  <div class='flex items-center justify-between border-b border-border/60 px-4 py-3'>
+    <p class='m-0 text-sm font-semibold text-foreground'>Sponsors ({normalizedSponsors.length})</p>
+    <p class='m-0 text-sm text-muted-foreground'>Total: ¥{totalAmount.toFixed(2)}</p>
+  </div>
+
+  {
+    normalizedSponsors.length > 0 ? (
+      <ul class='m-0 divide-y divide-border/60 p-0'>
+        {normalizedSponsors.map((item) => (
+          <li class='grid grid-cols-[1fr_auto_auto] items-center gap-3 px-4 py-3 text-sm'>
+            <span class='line-clamp-1 text-foreground'>{item.name}</span>
+            <span class='font-medium text-foreground'>¥{item.amountValue.toFixed(2)}</span>
+            <time class='text-xs text-muted-foreground' datetime={item.date}>
+              {item.date}
+            </time>
+          </li>
+        ))}
+      </ul>
+    ) : (
+      <p class='m-0 px-4 py-6 text-sm text-muted-foreground'>No sponsors yet.</p>
+    )
+  }
+</section>

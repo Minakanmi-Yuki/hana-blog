@@ -1,11 +1,20 @@
 ---
 import PageLayout from '@/layouts/CommonPage.astro'
 import AlgorithmShowcase from '@/components/about/AlgorithmShowcase.astro'
+import MusicSection from '@/components/about/MusicSection.astro'
 import ToolSection from '@/components/about/ToolSection.astro'
 import { Comment } from '@/components/advanced'
-import { Button, DistributionSection, Spoiler } from '@/components/user'
+import { Button, DistributionSection, Icon, Label, SimpleIcon } from '@/components/user'
 
 const headings = [
+  { depth: 2, slug: 'profile', text: 'Profile' },
+  { depth: 2, slug: 'education', text: 'Education' },
+  { depth: 2, slug: 'research', text: 'Research' },
+  { depth: 2, slug: 'daily-life', text: 'Daily Life' },
+  { depth: 2, slug: 'steam', text: 'Steam' },
+  { depth: 2, slug: 'bangdream', text: 'BangDream' },
+  { depth: 2, slug: 'galgame', text: 'Galgame' },
+  { depth: 2, slug: 'music', text: 'Music' },
   { depth: 2, slug: 'distribution', text: 'Distribution' },
   { depth: 2, slug: 'tools', text: 'Tools' },
   { depth: 2, slug: 'copyright', text: 'Copyright' },
@@ -34,23 +43,639 @@ const distributions = [
     platform: 'Cloudflare'
   }
 ]
+
+const favoriteGalgameStudios = [
+  {
+    studio: 'age',
+    studioLogo: '/images/about/galgame-studios/age.png',
+    officialUrl: 'https://age-soft.com',
+    games: [
+      {
+        name: 'MUV-LUV EXTRA+UNLIMITED',
+        cover: 'https://pic.hana0721.top/muvluvlogo.7pvslv04a.webp',
+        officialUrl: 'https://muvluv.com/'
+      },
+      {
+        name: 'MUV-LUV ALTERNATIVE',
+        cover: 'https://pic.hana0721.top/rl-note-3.3yex1xdpri.webp',
+        officialUrl: 'https://muvluv.com/'
+      }
+    ]
+  },
+  {
+    studio: 'Makura',
+    studioLogo: '/images/about/galgame-studios/makura.png',
+    officialUrl: 'http://www.makura-soft.com/',
+    games: [
+      {
+        name: 'Sakura no Uta',
+        cover: 'https://pic.hana0721.top/Sakura_no_uta.2ksi9r6jpk.webp',
+        officialUrl: 'http://www.makura-soft.com/sakuranouta/'
+      },
+      {
+        name: 'Subarashiki Hibi',
+        cover: 'https://pic.hana0721.top/wonderful.5trm6g6vbw.webp',
+        officialUrl: 'http://www.keroq.co.jp/suba/'
+      }
+    ]
+  },
+  {
+    studio: 'Navel',
+    studioLogo: '/images/about/galgame-studios/navel.png',
+    officialUrl: 'https://www.project-navel.com/',
+    games: [
+      {
+        name: 'A Maiden\'s Rule',
+        cover: 'https://pic.hana0721.top/jinyue.3goztw22av.webp',
+        officialUrl: 'https://www.project-navel.com/tsukiniyorisou/'
+      },
+      {
+        name: 'Otome Riron et son entourage -Paris Academy-',
+        cover: 'https://pic.hana0721.top/lilun.7pvx8eko7.webp',
+        officialUrl: 'https://www.project-navel.com/otomeriron/'
+      }
+    ]
+  }
+]
 ---
 
 <PageLayout title='About' {headings} info='/about'>
-  <p>Master's Student  / <Spoiler>🥤 Crazy Cola Lover</Spoiler></p>
+  <h2 id='profile'>🧭 Profile<a class='anchor' href='#profile'>#</a></h2>
+  <section class='not-prose mb-8 mt-5 rounded-xl border border-border bg-card p-4 sm:p-5'>
+    <div class='grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-start'>
+      <div class='flex h-full flex-col'>
+        <div class='flex flex-col gap-4 sm:flex-row sm:items-center'>
+          <img
+            src='/avatar/avatar.png'
+            alt='Profile avatar'
+            class='h-24 w-24 rounded-lg border p-1 object-cover'
+            loading='lazy'
+          />
+          <div class='flex-1'>
+            <p class='m-0 text-lg font-semibold text-foreground'>菊花花</p>
+            <p class='mt-1 text-sm text-muted-foreground'>Master Student @ NUDT</p>
+            <div class='mt-3 flex flex-wrap gap-2'>
+              <Label title='China'>
+                <Icon name='location' class='size-4' slot='icon' />
+              </Label>
+              <Label
+                title='Github'
+                as='a'
+                href='https://github.com/Minakanmi-Yuki'
+                target='_blank'
+                rel='noopener noreferrer'
+              >
+                <Icon name='github' class='size-4' slot='icon' />
+              </Label>
+              <Label title='Email' as='a' href='mailto:2849633943@qq.com'>
+                <Icon name='email' class='size-4' slot='icon' />
+              </Label>
+            </div>
+          </div>
+        </div>
+        <p class='mt-4 text-sm text-muted-foreground'>
+          I’m an outgoing person who smiles a lot. If someone around me needs help, I’ll usually jump in first. Even small help makes me genuinely happy. During the day, I’m mostly in “little sunshine” mode.
+        </p>
+        <p class='mt-2 text-sm text-muted-foreground'>
+          I enjoy chatting and usually don’t let conversations go cold. I’m still learning to balance my enthusiasm, since I can sometimes come across as a bit clingy. Overall, I’m opinionated and driven by a strong moral compass, though at night I occasionally get a little emo.
+        </p>
+        <div class='mt-auto pt-4'>
+          <Button title='Sponsor Me' class='w-fit' href='projects#sponsorship' style='ahead' />
+        </div>
+      </div>
+      <aside class='rounded-lg bg-card p-3'>
+        <p class='m-0 text-xs uppercase tracking-wide text-muted-foreground'>MBTI</p>
+        <p class='mt-1 text-lg font-semibold text-foreground'>ENFJ-A</p>
+        <img
+          src='/images/profile/enfj-protagonist-standing.svg'
+          alt='ENFJ Protagonist'
+          class='mt-3 w-full'
+          loading='lazy'
+        />
+      </aside>
+    </div>
+  </section>
+
+  <h2 id='education'>🎓 Education<a class='anchor' href='#education'>#</a></h2>
+  <section class='not-prose mb-8 mt-5 grid grid-cols-1 gap-4'>
+    <article class='rounded-xl border border-border bg-card transition-shadow hover:shadow-md'>
+      <a
+        href='https://www.scnu.edu.cn/'
+        target='_blank'
+        rel='noopener noreferrer'
+        class='block rounded-xl p-4 no-underline sm:p-5'
+        aria-label='Open South China Normal University official website'
+      >
+        <div class='flex items-start gap-3'>
+          <div class='size-20 shrink-0 overflow-hidden rounded-md bg-transparent'>
+            <img
+              src='/images/education/scnu-badge.png'
+              alt='South China Normal University badge'
+              class='h-full w-full object-contain'
+              loading='lazy'
+            />
+          </div>
+          <div>
+            <div class='mb-1 text-sm font-medium text-muted-foreground'>Undergraduate</div>
+            <h3 class='m-0 text-base font-semibold text-foreground'>South China Normal University</h3>
+            <p class='mt-2 text-sm text-muted-foreground'>Artificial Intelligence, B.Eng.</p>
+            <p class='mt-1 text-xs text-muted-foreground'>Period: 2021 - 2025</p>
+          </div>
+        </div>
+      </a>
+    </article>
+    <article class='rounded-xl border border-border bg-card transition-shadow hover:shadow-md'>
+      <a
+        href='https://www.nudt.edu.cn/'
+        target='_blank'
+        rel='noopener noreferrer'
+        class='block rounded-xl p-4 no-underline sm:p-5'
+        aria-label='Open National University of Defense Technology official website'
+      >
+        <div class='flex items-start gap-3'>
+          <div class='size-20 shrink-0 overflow-hidden rounded-md bg-transparent'>
+            <img
+              src='/images/education/nudt-badge.png'
+              alt='National University of Defense Technology badge'
+              class='h-full w-full object-contain'
+              loading='lazy'
+            />
+          </div>
+          <div>
+            <div class='mb-1 text-sm font-medium text-muted-foreground'>Master's</div>
+            <h3 class='m-0 text-base font-semibold text-foreground'>National University of Defense Technology</h3>
+            <p class='mt-2 text-sm text-muted-foreground'>Electronic Information, M.Eng.</p>
+            <p class='mt-1 text-xs text-muted-foreground'>Period: 2025 - Present</p>
+          </div>
+        </div>
+      </a>
+    </article>
+  </section>
+
+  <h2 id='research'>🔬 Research<a class='anchor' href='#research'>#</a></h2>
+  <div class='not-prose mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3'>
+    {
+      [
+        {
+          title: 'Robotics Manipulation',
+          description: 'Robotic Manipulation, Grasping, Dexterous Control, Object Interaction',
+          icon: 'ros'
+        },
+        {
+          title: 'VLA',
+          description: 'Vision-Language-Action Models, Multi-modal Learning, Embodied AI',
+          icon: 'pytorch'
+        },
+        {
+          title: 'Multi-Agent System',
+          description: 'Cooperative MARL, Value Decomposition Methods',
+          icon: 'kubernetes'
+        }
+      ].map((interest) => (
+        <div class='group relative overflow-hidden rounded-xl border border-border bg-card p-4 transition-all hover:border-foreground/25 hover:shadow-md'>
+          <div class='flex items-start gap-4'>
+            <div class='flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 transition-colors group-hover:bg-primary/20'>
+              <SimpleIcon
+                class='size-5 text-primary transition-transform duration-300 group-hover:scale-110'
+                name={interest.icon}
+              />
+            </div>
+            <div class='flex-1'>
+              <p class='text-xl font-medium leading-tight text-foreground transition-colors group-hover:text-primary'>
+                {interest.title}
+              </p>
+              <p class='text-sm leading-relaxed text-muted-foreground'>{interest.description}</p>
+            </div>
+          </div>
+        </div>
+      ))
+    }
+  </div>
+
+  <h2 id='daily-life'>📸 Daily Life<a class='anchor' href='#daily-life'>#</a></h2>
   <p>
-    Hey, I’m Juhua (菊花花). I’m a first-year Master's student (Class of 2025) majoring in Electronic Information at the National University of Defense Technology (NUDT). I just wrapped up my undergrad in AI at South China Normal University in 2025. Currently, I’m deep-diving into Multi-Agent Reinforcement Learning (MARL) and Embodied AI.
+    Besides studying and gaming, my daily life is simple and happy: going out for good food with friends and occasionally singing at KTV to relax.
   </p>
-  <p>A bit more about me:</p>
-  <ul>
-    <li>Anime & Galgames: Used to be a big fan, but I’ve been a bit less active lately.</li>
-    <li>Slay the Spire: Total addict with 2000+ hours. Proudly hit a 179-win streak with Silent (SL) and a 10-win streak on NOSL.</li>
-    <li>BanG Dream!: Still a rookie, but I’m a die-hard Poppin'Party fan. PPP for life!</li>
-    <li>Music: I love instrumentals, especially anything by Jun Maeda. His work is the ultimate "healing" for me.</li>
-  </ul>
-  <p>Huge thanks to Axi for the awesome blog template and all the help with the setup!</p>
-  <Button title='Sponsor Me' class='w-fit' href='/en/projects#sponsorship' style='ahead' />
-  <h2 id='distribution'>Website Distribution<a class='anchor' href='#distribution'>#</a></h2>
+  <section class='not-prose mb-8 mt-5 grid grid-cols-1 gap-4 lg:grid-cols-2'>
+    <article class='rounded-xl border border-border bg-card p-4'>
+      <h3 class='mb-3 text-base font-semibold text-foreground'>Food Moments</h3>
+      <div class='grid grid-cols-2 gap-3'>
+        <figure class='rounded-lg border border-border/70 bg-card p-2'>
+          <img
+            src='https://pic.hana0721.top/food1.8adut11vdc.webp'
+            alt='Food photo 1'
+            class='aspect-[4/3] w-full rounded-md object-cover'
+            loading='lazy'
+          />
+          <figcaption class='px-1 pt-1.5 text-xs text-muted-foreground'>Love grilled oysters ~</figcaption>
+        </figure>
+        <figure class='rounded-lg border border-border/70 bg-card p-2'>
+          <img
+            src='https://pic.hana0721.top/food2.4clhccquq2.webp'
+            alt='Food photo 2'
+            class='aspect-[4/3] w-full rounded-md object-cover'
+            loading='lazy'
+          />
+          <figcaption class='px-1 pt-1.5 text-xs text-muted-foreground'>Love stir-fried clams ~</figcaption>
+        </figure>
+        <figure class='rounded-lg border border-border/70 bg-card p-2'>
+          <img
+            src='https://pic.hana0721.top/food3.2a5ooas9ol.webp'
+            alt='Food photo 3'
+            class='aspect-[4/3] w-full rounded-md object-cover'
+            loading='lazy'
+          />
+          <figcaption class='px-1 pt-1.5 text-xs text-muted-foreground'>Love BBQ skewers ~</figcaption>
+        </figure>
+        <figure class='rounded-lg border border-border/70 bg-card p-2'>
+          <img
+            src='https://pic.hana0721.top/food4.7lkl90eccf.webp'
+            alt='Food photo 4'
+            class='aspect-[4/3] w-full rounded-md object-cover'
+            loading='lazy'
+          />
+          <figcaption class='px-1 pt-1.5 text-xs text-muted-foreground'>Love hot-oil braised noodles ~</figcaption>
+        </figure>
+      </div>
+    </article>
+
+    <article class='rounded-xl border border-border bg-card p-4'>
+      <h3 class='mb-3 text-base font-semibold text-foreground'>Karaoke Nights</h3>
+      <div class='grid grid-cols-2 gap-3'>
+        <figure class='rounded-lg border border-border/70 bg-card p-2'>
+          <img
+            src='https://pic.hana0721.top/ktv.9gx61n20aj.webp'
+            alt='Karaoke photo 1'
+            class='aspect-[4/3] w-full rounded-md object-cover'
+            loading='lazy'
+          />
+          <figcaption class='px-1 pt-1.5 text-xs text-muted-foreground'>MYGO version of “Butter-Fly”</figcaption>
+        </figure>
+        <figure class='rounded-lg border border-border/70 bg-card p-2'>
+          <img
+            src='https://pic.hana0721.top/ktv.36263rd6gs.webp'
+            alt='Karaoke photo 2'
+            class='aspect-[4/3] w-full rounded-md object-cover'
+            loading='lazy'
+          />
+          <figcaption class='px-1 pt-1.5 text-xs text-muted-foreground'>“Sakura no Uta”</figcaption>
+        </figure>
+        <figure class='rounded-lg border border-border/70 bg-card p-2'>
+          <img
+            src='https://pic.hana0721.top/ktv.32ik61k3r0.webp'
+            alt='Karaoke photo 3'
+            class='aspect-[4/3] w-full rounded-md object-cover'
+            loading='lazy'
+          />
+          <figcaption class='px-1 pt-1.5 text-xs text-muted-foreground'>“Eternal Feather”</figcaption>
+        </figure>
+        <figure class='rounded-lg border border-border/70 bg-card p-2'>
+          <img
+            src='https://pic.hana0721.top/ktv.1hst6kmwak.webp'
+            alt='Karaoke photo 4'
+            class='aspect-[4/3] w-full rounded-md object-cover'
+            loading='lazy'
+          />
+          <figcaption class='px-1 pt-1.5 text-xs text-muted-foreground'>“Always in my heart”</figcaption>
+        </figure>
+      </div>
+    </article>
+  </section>
+
+  <h2 id='steam'>🎮 Steam<a class='anchor' href='#steam'>#</a></h2>
+  <p>
+    On Steam, I mostly play Slay the Spire, Don't Starve Together, and Left 4 Dead. I also play various AAA titles and party games like Phasmophobia, Content Warning, and Lethal Company. I also have a bit of a collection habit and keep quite a few Galgames in my library.
+  </p>
+  <p>
+    Slay the Spire is the game I've spent the most time on, with 2000+ hours. My current best records are a 179-win Silent streak in SL and a 10-win streak in NOSL. I keep writing guides in my <a href='/collection/sts-guide'>Slay The Spire guide collection</a>, and recently I also started playing Slay the Spire 2.
+  </p>
+  <p>
+    In Don't Starve Together, I mainly play Wigfrid and also made a high-quality guide on Bilibili: <a href='https://www.bilibili.com/video/BV1MwGNz6EGF/'>Wigfrid Guide Collection</a>. As for Left 4 Dead, I usually play Campaign or Realism Versus, and I am not very good at it.
+  </p>
+  <p>
+    Here is my Steam profile: <a href='https://steamcommunity.com/profiles/76561199033212179/'>菊花花zako</a>. Feel free to add me and play together.
+  </p>
+  <a
+    href='https://steamcommunity.com/profiles/76561199033212179/'
+    target='_blank'
+    rel='noopener noreferrer'
+    aria-label='Steam profile screenshot'
+  >
+    <img
+      src='https://pic.hana0721.top/steam.7pvxaowx7.webp'
+      alt='Steam profile screenshot'
+      class='my-4 rounded-xl border border-border'
+      loading='lazy'
+    />
+  </a>
+  <section class='not-prose mt-6 rounded-xl border border-border bg-card p-4'>
+    <h3 class='mb-3 text-base font-semibold text-foreground'>Screen Shot</h3>
+    <div class='grid grid-cols-1 gap-3 sm:grid-cols-3'>
+      <figure class='overflow-hidden rounded-lg border border-border/70 bg-card'>
+        <img
+          src='https://pic.hana0721.top/IMG_4636.6t7prarkj0.webp'
+          alt='Steam screenshot 1'
+          class='aspect-video w-full object-cover'
+          loading='lazy'
+        />
+      </figure>
+      <figure class='overflow-hidden rounded-lg border border-border/70 bg-card'>
+        <img
+          src='https://pic.hana0721.top/IMG_4650.175zdfq9pq.webp'
+          alt='Steam screenshot 2'
+          class='aspect-video w-full object-cover'
+          loading='lazy'
+        />
+      </figure>
+      <figure class='overflow-hidden rounded-lg border border-border/70 bg-card'>
+        <img
+          src='https://pic.hana0721.top/0BFA5C2A5FE5E4E0480CB0DFC3F2156B.9o0dx36ran.webp'
+          alt='Steam screenshot 3'
+          class='aspect-video w-full object-cover'
+          loading='lazy'
+        />
+      </figure>
+      <figure class='overflow-hidden rounded-lg border border-border/70 bg-card'>
+        <img
+          src='https://pic.hana0721.top/IMG_7192.45i9gxyj76.webp'
+          alt='Steam screenshot 4'
+          class='aspect-video w-full object-cover'
+          loading='lazy'
+        />
+      </figure>
+      <figure class='overflow-hidden rounded-lg border border-border/70 bg-card'>
+        <img
+          src='https://pic.hana0721.top/2026-03-13_16.10.10.9gx61nklvd.webp'
+          alt='Steam screenshot 5'
+          class='aspect-video w-full object-cover'
+          loading='lazy'
+        />
+      </figure>
+      <figure class='overflow-hidden rounded-lg border border-border/70 bg-card'>
+        <img
+          src='https://pic.hana0721.top/IMG_5120.3yf1libhga.webp'
+          alt='Steam screenshot 6'
+          class='aspect-video w-full object-cover'
+          loading='lazy'
+        />
+      </figure>
+    </div>
+  </section>
+
+  <h2 id='bangdream'>🎤 BangDream<a class='anchor' href='#bangdream'>#</a></h2>
+  <p>
+    I'm still a beginner in BanG Dream!, and Poppin'Party is my #1 forever. Here are my account and gameplay screenshots.
+  </p>
+
+  <div class='not-prose mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-2'>
+    <div class='group overflow-hidden rounded-xl border border-border bg-card transition-all hover:shadow-lg'>
+      <div class='relative aspect-video overflow-hidden rounded-lg bg-muted'>
+        <img
+          src='https://pic.hana0721.top/ea2045a7b0b4584969ad05ac9b02a7d3.8l0okklbjh.webp'
+          alt='My game account'
+          class='h-full w-full object-cover transition-transform duration-300 group-hover:scale-105'
+          loading='lazy'
+        />
+      </div>
+      <div class='p-3'>
+        <p class='text-sm font-medium text-foreground'>This is my game account ~</p>
+      </div>
+    </div>
+
+    <div class='group overflow-hidden rounded-xl border border-border bg-card transition-all hover:shadow-lg'>
+      <div class='relative aspect-video overflow-hidden rounded-lg bg-muted'>
+        <img
+          src='https://pic.hana0721.top/063075ddf24f7670a7ce227937b83c76.41ynhlglja.webp'
+          alt='My PPP lineup level'
+          class='h-full w-full object-cover transition-transform duration-300 group-hover:scale-105'
+          loading='lazy'
+        />
+      </div>
+      <div class='p-3'>
+        <p class='text-sm font-medium text-foreground'>My PPP team level</p>
+      </div>
+    </div>
+
+    <div class='group overflow-hidden rounded-xl border border-border bg-card transition-all hover:shadow-lg'>
+      <div class='relative aspect-video overflow-hidden rounded-lg bg-muted'>
+        <img
+          src='https://pic.hana0721.top/3c45bcd41d6d683574ae0e97ee7fd048.7pvymz49f.webp'
+          alt='Poppin Party'
+          class='h-full w-full object-cover transition-transform duration-300 group-hover:scale-105'
+          loading='lazy'
+        />
+      </div>
+      <div class='p-3'>
+        <p class='text-sm font-medium text-foreground'>Poppin'Party my beloved ~</p>
+      </div>
+    </div>
+
+    <div class='group overflow-hidden rounded-xl border border-border bg-card transition-all hover:shadow-lg'>
+      <div class='relative aspect-video overflow-hidden rounded-lg bg-muted'>
+        <img
+          src='https://pic.hana0721.top/bangdream-4.8dxgp52t72.webp'
+          alt='Grinding rank'
+          class='h-full w-full object-cover transition-transform duration-300 group-hover:scale-105'
+          loading='lazy'
+        />
+      </div>
+      <div class='p-3'>
+        <p class='text-sm font-medium text-foreground'>Grinding rank is tiring ...</p>
+      </div>
+    </div>
+
+    <div class='group overflow-hidden rounded-xl border border-border bg-card transition-all hover:shadow-lg'>
+      <div class='relative aspect-video overflow-hidden rounded-lg bg-muted'>
+        <img
+          src='https://pic.hana0721.top/bangdream-5.3k8lt0is15.webp'
+          alt='OTAE'
+          class='h-full w-full object-cover transition-transform duration-300 group-hover:scale-110'
+          style='transform: scale(1.15);'
+          loading='lazy'
+        />
+      </div>
+      <div class='p-3'>
+        <p class='text-sm font-medium text-foreground'>OTAE my visual queen &gt;w&lt;</p>
+      </div>
+    </div>
+
+    <div class='group overflow-hidden rounded-xl border border-border bg-card transition-all hover:shadow-lg'>
+      <div class='relative aspect-video overflow-hidden rounded-lg bg-muted'>
+        <img
+          src='https://pic.hana0721.top/bangdream-6.1lcf2odx0r.webp'
+          alt='ARS'
+          class='h-full w-full object-cover transition-transform duration-300 group-hover:scale-110'
+          style='transform: scale(1.15);'
+          loading='lazy'
+        />
+      </div>
+      <div class='p-3'>
+        <p class='text-sm font-medium text-foreground'>ARS is so pretty too ~</p>
+      </div>
+    </div>
+  </div>
+
+  <p class='mt-4 text-xs text-muted-foreground'>Last updated: April 2026</p>
+
+  <h2 id='galgame'>🩷 Galgame<a class='anchor' href='#galgame'>#</a></h2>
+  <p>
+    I organized all the Galgames I played in my <a href='/collection/galgame-rating'>Galgame review collection</a>.
+    The works below are my favorites, grouped by studio. Click the cover to visit the official site.
+  </p>
+  <section class='not-prose mb-8 mt-5 flex flex-col gap-y-4'>
+    <div class='m-0 text-lg font-medium'>Favorite Galgame Studios</div>
+    <div class='grid grid-cols-1 gap-4'>
+      {
+        favoriteGalgameStudios.map((entry) => (
+          <article class='rounded-xl border border-border bg-card p-4 sm:p-5'>
+            <div class='mb-4 flex flex-wrap items-center gap-x-2 gap-y-1'>
+              <img
+                src={entry.studioLogo}
+                alt={`${entry.studio} logo`}
+                class='size-7 rounded-md border border-border/60 bg-background object-cover'
+                loading='lazy'
+              />
+              <h3 class='m-0 text-base font-semibold text-foreground sm:text-lg'>{entry.studio}</h3>
+              {
+                entry.officialUrl && (
+                  <a
+                    class='text-xs font-medium text-muted-foreground transition-colors hover:text-foreground'
+                    href={entry.officialUrl}
+                    target='_blank'
+                    rel='noopener noreferrer'
+                  >
+                    Official
+                  </a>
+                )
+              }
+            </div>
+            <div class='grid grid-cols-1 gap-3 sm:grid-cols-2'>
+              {
+                entry.games.map((game) => (
+                  <div class='rounded-lg border border-border/70 bg-background/80 p-2.5'>
+                    <a
+                      class='block overflow-hidden rounded-md border border-transparent no-underline transition-all duration-200 hover:scale-[1.01] hover:border-border'
+                      href={game.officialUrl}
+                      target='_blank'
+                      rel='noopener noreferrer'
+                      aria-label={`Open ${game.name} official site`}
+                    >
+                      <img
+                        src={game.cover}
+                        alt={`${game.name} cover`}
+                        class='aspect-[16/9] w-full rounded-md object-cover'
+                        loading='lazy'
+                      />
+                    </a>
+                    <div class='pt-2.5'>
+                      <div class='line-clamp-1 text-sm font-semibold text-foreground'>{game.name}</div>
+                    </div>
+                  </div>
+                ))
+              }
+            </div>
+          </article>
+        ))
+      }
+    </div>
+  </section>
+
+  <h2 id='music'>🎵 Music<a class='anchor' href='#music'>#</a></h2>
+  <p>
+    I mostly listen to Galgame/ACG instrumentals, Mandopop, and J-Pop. For more songs, check <a href='https://music.163.com/#/user?id=389087205&dlt=0846&app_version=9.4.95'>my NetEase Music homepage</a>.
+  </p>
+  <MusicSection
+    class='mb-8 mt-6'
+    title='Favorite Instrumentals'
+    tracks={[
+      {
+        title: '夜の向日葵',
+        composer: 'Fuminori Matsumoto',
+        cover: '/images/music/instrumentals/yoru-no-himawari.jpg',
+        link: 'https://music.163.com/song?id=4937357'
+      },
+      {
+        title: '天球の奇蹟',
+        composer: 'Fuminori Matsumoto',
+        cover: '/images/music/instrumentals/tenkyuu-no-kiseki.jpg',
+        link: 'https://music.163.com/song?id=399366428'
+      },
+      {
+        title: '夏凪ぎ-piano ver.-',
+        composer: 'MANYO / Jun Maeda',
+        cover: '/images/music/instrumentals/natsunagi-piano-ver.jpg',
+        link: 'https://music.163.com/song?id=1833615260'
+      },
+      {
+        title: '夏影',
+        composer: 'Jun Maeda',
+        cover: '/images/music/instrumentals/natsukage.jpg',
+        link: 'https://music.163.com/song?id=28151024'
+      }
+    ]}
+  />
+  <MusicSection
+    class='mb-8'
+    title='Favorite Mandopop'
+    tracks={[
+      {
+        title: '蝴蝶',
+        composer: 'David Tao',
+        cover: '/images/music/mandopop/taozhe-butterfly.jpg',
+        link: 'https://music.163.com/song?id=150561'
+      },
+      {
+        title: '小镇姑娘',
+        composer: 'David Tao',
+        cover: '/images/music/mandopop/taozhe-town-girl.jpg',
+        link: 'https://music.163.com/song?id=150619'
+      },
+      {
+        title: '找自己',
+        composer: 'David Tao',
+        cover: '/images/music/mandopop/taozhe-find-myself.jpg',
+        link: 'https://music.163.com/song?id=150617'
+      },
+      {
+        title: '普通朋友',
+        composer: 'David Tao',
+        cover: '/images/music/mandopop/taozhe-ordinary-friend.jpg',
+        link: 'https://music.163.com/song?id=150623'
+      }
+    ]}
+  />
+  <MusicSection
+    class='mb-8'
+    title='Favorite Japanese Music'
+    tracks={[
+      {
+        title: '前へススメ！',
+        composer: "Poppin'Party",
+        cover: '/images/music/japanese/mae-e-susume.jpg',
+        link: 'https://music.163.com/song?id=477332351'
+      },
+      {
+        title: '1000回潤んだ空',
+        composer: "Poppin'Party",
+        cover: '/images/music/japanese/1000kai-uru-nda-sora.jpg',
+        link: 'https://music.163.com/song?id=2684126334'
+      },
+      {
+        title: 'Returns',
+        composer: "Poppin'Party",
+        cover: '/images/music/japanese/returns.jpg',
+        link: 'https://music.163.com/song?id=2001051772'
+      },
+      {
+        title: 'キズナミュージック♪',
+        composer: "Poppin'Party",
+        cover: '/images/music/japanese/kizuna-music.jpg',
+        link: 'https://music.163.com/song?id=1457757361'
+      }
+    ]}
+  />
+
+  <h2 id='distribution'>🌐 Website Distribution<a class='anchor' href='#distribution'>#</a></h2>
   <p>
     To provide a better browsing experience and improved reliability, this site is deployed across
     multiple platforms. You can choose the mirror site that best suits your needs:
@@ -60,7 +685,7 @@ const distributions = [
     If you encounter access issues, we recommend trying another mirror site. All sites are kept
     synchronized and updated.
   </p>
-  <h2 id='tools'>Tools<a class='anchor' href='#tools'>#</a></h2>
+  <h2 id='tools'>🧰 Tools<a class='anchor' href='#tools'>#</a></h2>
   <ToolSection
     class='mb-5'
     title='Productivity'
@@ -91,19 +716,18 @@ const distributions = [
       }
     ]}
   />
-  <h2 id='copyright'>Copyright<a class='anchor' href='#copyright'>#</a></h2>
+  <h2 id='copyright'>📄 Copyright<a class='anchor' href='#copyright'>#</a></h2>
   <p>
     Unless otherwise stated, all original content and site design are licensed under the <a
       href='https://creativecommons.org/licenses/by-nc-sa/4.0/'>CC BY-NC-SA 4.0</a
-    > license. This means you are free to share, copy, or adapt the work within the license scope, as
-    long as you give appropriate credit and **do not use it for commercial purposes**.
+    > license. This means you are free to share, copy, or adapt the work within the license scope,
+    as long as you give appropriate credit and do not use it for commercial purposes.
   </p>
   <p>
     Most blog cover images on this site are sourced from publicly available artworks on Pixiv and
     are linked to the original (Hero Image). Other images, icons, trademarks, or materials used on
-    this site belong to their respective rights holders, regardless of whether a © or ™ is
-    explicitly shown. No copyright infringement is intended. If you believe any content on this site
-    infringes upon your rights, please contact me — I will promptly remove it.
+    this site belong to their respective rights holders. If you believe any content on this site
+    infringes your rights, please contact me and I will remove it promptly.
   </p>
   <svg width='160' height='56' viewBox='0 0 160 56' xmlns='http://www.w3.org/2000/svg'>
     <g transform='scale(1.3333333)'>
@@ -185,17 +809,15 @@ const distributions = [
         id='path19'></path>
     </g>
   </svg>
-  <h2 id='theme'>Theme<a class='anchor' href='#theme'>#</a></h2>
+
+  <h2 id='theme'>🎨 Theme<a class='anchor' href='#theme'>#</a></h2>
   <p>
-    This theme, Astro-Axi, is heavily modified based on Astro's <a
-      href='https://astro-pure.js.org/docs '>Pure</a
-    >, <a href='https://github.com/chrismwilliams/astro-theme-cactus '>Cactus</a>, and <a
-      href='https://astro-theme-resume.vercel.app/ '>Resume</a
-    > themes. The modifications include decoupling components from packages and moving them into the Astro-conventional
-    `components` directory to fully support hot reloading; redesigning the styles of many components,
-    rewriting pages such as the Tags page, and adding a Publication interface; fixing numerous bugs, such
-    as incorrect calculations in the BackToTop component; and adding support for i18n multi-language functionality.
+    This theme, Astro-Axi, is heavily modified based on Astro's <a href='https://astro-pure.js.org/docs'>Pure</a>, <a
+      href='https://github.com/chrismwilliams/astro-theme-cactus'>Cactus</a
+    >, and <a href='https://astro-theme-resume.vercel.app/'>Resume</a> themes. Changes include decoupling components from packages into Astro-native `components`, redesigning many UI modules, rewriting pages such as Tags, adding publication interfaces, fixing bugs (e.g., BackToTop counting), and supporting i18n.
   </p>
+
   <AlgorithmShowcase class='my-8' />
+
   <Comment slot='bottom' />
 </PageLayout>
