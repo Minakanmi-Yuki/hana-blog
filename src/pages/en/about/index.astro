@@ -4,6 +4,7 @@ import AlgorithmShowcase from '@/components/about/AlgorithmShowcase.astro'
 import MusicSection from '@/components/about/MusicSection.astro'
 import ToolSection from '@/components/about/ToolSection.astro'
 import { Comment } from '@/components/advanced'
+import { DeferredImage } from '@/components/basic'
 import { Button, DistributionSection, Icon, Label, SimpleIcon } from '@/components/user'
 
 const headings = [
@@ -105,12 +106,14 @@ const favoriteGalgameStudios = [
     <div class='grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-start'>
       <div class='flex h-full flex-col'>
         <div class='flex flex-col gap-4 sm:flex-row sm:items-center'>
-          <img
+          <DeferredImage
             src='/avatar/avatar.png'
             alt='Profile avatar'
             class='h-24 w-24 rounded-lg border p-1 object-cover'
-            loading='lazy'
-          />
+            loading='eager'
+            fetchpriority='high'
+            defer={false}
+            />
           <div class='flex-1'>
             <p class='m-0 text-lg font-semibold text-foreground'>菊花花</p>
             <p class='mt-1 text-sm text-muted-foreground'>Master Student @ NUDT</p>
@@ -146,12 +149,14 @@ const favoriteGalgameStudios = [
       <aside class='rounded-lg bg-card p-3'>
         <p class='m-0 text-xs uppercase tracking-wide text-muted-foreground'>MBTI</p>
         <p class='mt-1 text-lg font-semibold text-foreground'>ENFJ-A</p>
-        <img
+        <DeferredImage
           src='/images/profile/enfj-protagonist-standing.svg'
           alt='ENFJ Protagonist'
           class='mt-3 w-full'
-          loading='lazy'
-        />
+          loading='eager'
+          fetchpriority='high'
+          defer={false}
+          />
       </aside>
     </div>
   </section>
@@ -168,12 +173,11 @@ const favoriteGalgameStudios = [
       >
         <div class='flex items-start gap-3'>
           <div class='size-20 shrink-0 overflow-hidden rounded-md bg-transparent'>
-            <img
+            <DeferredImage
               src='/images/education/scnu-badge.png'
               alt='South China Normal University badge'
               class='h-full w-full object-contain'
-              loading='lazy'
-            />
+              />
           </div>
           <div>
             <div class='mb-1 text-sm font-medium text-muted-foreground'>Undergraduate</div>
@@ -194,12 +198,11 @@ const favoriteGalgameStudios = [
       >
         <div class='flex items-start gap-3'>
           <div class='size-20 shrink-0 overflow-hidden rounded-md bg-transparent'>
-            <img
+            <DeferredImage
               src='/images/education/nudt-badge.png'
               alt='National University of Defense Technology badge'
               class='h-full w-full object-contain'
-              loading='lazy'
-            />
+              />
           </div>
           <div>
             <div class='mb-1 text-sm font-medium text-muted-foreground'>Master's</div>
@@ -261,39 +264,35 @@ const favoriteGalgameStudios = [
       <h3 class='mb-3 text-base font-semibold text-foreground'>Food Moments</h3>
       <div class='grid grid-cols-2 gap-3'>
         <figure class='rounded-lg border border-border/70 bg-card p-2'>
-          <img
+          <DeferredImage
             src='https://pic.hana0721.top/food1.8adut11vdc.webp'
             alt='Food photo 1'
             class='aspect-[4/3] w-full rounded-md object-cover'
-            loading='lazy'
-          />
+            />
           <figcaption class='px-1 pt-1.5 text-xs text-muted-foreground'>Love grilled oysters ~</figcaption>
         </figure>
         <figure class='rounded-lg border border-border/70 bg-card p-2'>
-          <img
+          <DeferredImage
             src='https://pic.hana0721.top/food2.4clhccquq2.webp'
             alt='Food photo 2'
             class='aspect-[4/3] w-full rounded-md object-cover'
-            loading='lazy'
-          />
+            />
           <figcaption class='px-1 pt-1.5 text-xs text-muted-foreground'>Love stir-fried clams ~</figcaption>
         </figure>
         <figure class='rounded-lg border border-border/70 bg-card p-2'>
-          <img
+          <DeferredImage
             src='https://pic.hana0721.top/food3.2a5ooas9ol.webp'
             alt='Food photo 3'
             class='aspect-[4/3] w-full rounded-md object-cover'
-            loading='lazy'
-          />
+            />
           <figcaption class='px-1 pt-1.5 text-xs text-muted-foreground'>Love BBQ skewers ~</figcaption>
         </figure>
         <figure class='rounded-lg border border-border/70 bg-card p-2'>
-          <img
+          <DeferredImage
             src='https://pic.hana0721.top/food4.7lkl90eccf.webp'
             alt='Food photo 4'
             class='aspect-[4/3] w-full rounded-md object-cover'
-            loading='lazy'
-          />
+            />
           <figcaption class='px-1 pt-1.5 text-xs text-muted-foreground'>Love hot-oil braised noodles ~</figcaption>
         </figure>
       </div>
@@ -303,39 +302,35 @@ const favoriteGalgameStudios = [
       <h3 class='mb-3 text-base font-semibold text-foreground'>Karaoke Nights</h3>
       <div class='grid grid-cols-2 gap-3'>
         <figure class='rounded-lg border border-border/70 bg-card p-2'>
-          <img
+          <DeferredImage
             src='https://pic.hana0721.top/ktv.9gx61n20aj.webp'
             alt='Karaoke photo 1'
             class='aspect-[4/3] w-full rounded-md object-cover'
-            loading='lazy'
-          />
+            />
           <figcaption class='px-1 pt-1.5 text-xs text-muted-foreground'>MYGO version of “Butter-Fly”</figcaption>
         </figure>
         <figure class='rounded-lg border border-border/70 bg-card p-2'>
-          <img
+          <DeferredImage
             src='https://pic.hana0721.top/ktv.36263rd6gs.webp'
             alt='Karaoke photo 2'
             class='aspect-[4/3] w-full rounded-md object-cover'
-            loading='lazy'
-          />
+            />
           <figcaption class='px-1 pt-1.5 text-xs text-muted-foreground'>“Sakura no Uta”</figcaption>
         </figure>
         <figure class='rounded-lg border border-border/70 bg-card p-2'>
-          <img
+          <DeferredImage
             src='https://pic.hana0721.top/ktv.32ik61k3r0.webp'
             alt='Karaoke photo 3'
             class='aspect-[4/3] w-full rounded-md object-cover'
-            loading='lazy'
-          />
+            />
           <figcaption class='px-1 pt-1.5 text-xs text-muted-foreground'>“Eternal Feather”</figcaption>
         </figure>
         <figure class='rounded-lg border border-border/70 bg-card p-2'>
-          <img
+          <DeferredImage
             src='https://pic.hana0721.top/ktv.1hst6kmwak.webp'
             alt='Karaoke photo 4'
             class='aspect-[4/3] w-full rounded-md object-cover'
-            loading='lazy'
-          />
+            />
           <figcaption class='px-1 pt-1.5 text-xs text-muted-foreground'>“Always in my heart”</figcaption>
         </figure>
       </div>
@@ -361,63 +356,56 @@ const favoriteGalgameStudios = [
     rel='noopener noreferrer'
     aria-label='Steam profile screenshot'
   >
-    <img
+    <DeferredImage
       src='https://pic.hana0721.top/steam.7pvxaowx7.webp'
       alt='Steam profile screenshot'
       class='my-4 rounded-xl border border-border'
-      loading='lazy'
-    />
+      />
   </a>
   <section class='not-prose mt-6 rounded-xl border border-border bg-card p-4'>
     <h3 class='mb-3 text-base font-semibold text-foreground'>Screen Shot</h3>
     <div class='grid grid-cols-1 gap-3 sm:grid-cols-3'>
       <figure class='overflow-hidden rounded-lg border border-border/70 bg-card'>
-        <img
+        <DeferredImage
           src='https://pic.hana0721.top/IMG_4636.6t7prarkj0.webp'
           alt='Steam screenshot 1'
           class='aspect-video w-full object-cover'
-          loading='lazy'
-        />
+          />
       </figure>
       <figure class='overflow-hidden rounded-lg border border-border/70 bg-card'>
-        <img
+        <DeferredImage
           src='https://pic.hana0721.top/IMG_4650.175zdfq9pq.webp'
           alt='Steam screenshot 2'
           class='aspect-video w-full object-cover'
-          loading='lazy'
-        />
+          />
       </figure>
       <figure class='overflow-hidden rounded-lg border border-border/70 bg-card'>
-        <img
+        <DeferredImage
           src='https://pic.hana0721.top/0BFA5C2A5FE5E4E0480CB0DFC3F2156B.9o0dx36ran.webp'
           alt='Steam screenshot 3'
           class='aspect-video w-full object-cover'
-          loading='lazy'
-        />
+          />
       </figure>
       <figure class='overflow-hidden rounded-lg border border-border/70 bg-card'>
-        <img
+        <DeferredImage
           src='https://pic.hana0721.top/IMG_7192.45i9gxyj76.webp'
           alt='Steam screenshot 4'
           class='aspect-video w-full object-cover'
-          loading='lazy'
-        />
+          />
       </figure>
       <figure class='overflow-hidden rounded-lg border border-border/70 bg-card'>
-        <img
+        <DeferredImage
           src='https://pic.hana0721.top/2026-03-13_16.10.10.9gx61nklvd.webp'
           alt='Steam screenshot 5'
           class='aspect-video w-full object-cover'
-          loading='lazy'
-        />
+          />
       </figure>
       <figure class='overflow-hidden rounded-lg border border-border/70 bg-card'>
-        <img
+        <DeferredImage
           src='https://pic.hana0721.top/IMG_5120.3yf1libhga.webp'
           alt='Steam screenshot 6'
           class='aspect-video w-full object-cover'
-          loading='lazy'
-        />
+          />
       </figure>
     </div>
   </section>
@@ -430,12 +418,11 @@ const favoriteGalgameStudios = [
   <div class='not-prose mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-2'>
     <div class='group overflow-hidden rounded-xl border border-border bg-card transition-all hover:shadow-lg'>
       <div class='relative aspect-video overflow-hidden rounded-lg bg-muted'>
-        <img
+        <DeferredImage
           src='https://pic.hana0721.top/ea2045a7b0b4584969ad05ac9b02a7d3.8l0okklbjh.webp'
           alt='My game account'
           class='h-full w-full object-cover transition-transform duration-300 group-hover:scale-105'
-          loading='lazy'
-        />
+          />
       </div>
       <div class='p-3'>
         <p class='text-sm font-medium text-foreground'>This is my game account ~</p>
@@ -444,12 +431,11 @@ const favoriteGalgameStudios = [
 
     <div class='group overflow-hidden rounded-xl border border-border bg-card transition-all hover:shadow-lg'>
       <div class='relative aspect-video overflow-hidden rounded-lg bg-muted'>
-        <img
+        <DeferredImage
           src='https://pic.hana0721.top/063075ddf24f7670a7ce227937b83c76.41ynhlglja.webp'
           alt='My PPP lineup level'
           class='h-full w-full object-cover transition-transform duration-300 group-hover:scale-105'
-          loading='lazy'
-        />
+          />
       </div>
       <div class='p-3'>
         <p class='text-sm font-medium text-foreground'>My PPP team level</p>
@@ -458,12 +444,11 @@ const favoriteGalgameStudios = [
 
     <div class='group overflow-hidden rounded-xl border border-border bg-card transition-all hover:shadow-lg'>
       <div class='relative aspect-video overflow-hidden rounded-lg bg-muted'>
-        <img
+        <DeferredImage
           src='https://pic.hana0721.top/3c45bcd41d6d683574ae0e97ee7fd048.7pvymz49f.webp'
           alt='Poppin Party'
           class='h-full w-full object-cover transition-transform duration-300 group-hover:scale-105'
-          loading='lazy'
-        />
+          />
       </div>
       <div class='p-3'>
         <p class='text-sm font-medium text-foreground'>Poppin'Party my beloved ~</p>
@@ -472,12 +457,11 @@ const favoriteGalgameStudios = [
 
     <div class='group overflow-hidden rounded-xl border border-border bg-card transition-all hover:shadow-lg'>
       <div class='relative aspect-video overflow-hidden rounded-lg bg-muted'>
-        <img
+        <DeferredImage
           src='https://pic.hana0721.top/bangdream-4.8dxgp52t72.webp'
           alt='Grinding rank'
           class='h-full w-full object-cover transition-transform duration-300 group-hover:scale-105'
-          loading='lazy'
-        />
+          />
       </div>
       <div class='p-3'>
         <p class='text-sm font-medium text-foreground'>Grinding rank is tiring ...</p>
@@ -486,13 +470,12 @@ const favoriteGalgameStudios = [
 
     <div class='group overflow-hidden rounded-xl border border-border bg-card transition-all hover:shadow-lg'>
       <div class='relative aspect-video overflow-hidden rounded-lg bg-muted'>
-        <img
+        <DeferredImage
           src='https://pic.hana0721.top/bangdream-5.3k8lt0is15.webp'
           alt='OTAE'
           class='h-full w-full object-cover transition-transform duration-300 group-hover:scale-110'
           style='transform: scale(1.15);'
-          loading='lazy'
-        />
+          />
       </div>
       <div class='p-3'>
         <p class='text-sm font-medium text-foreground'>OTAE my visual queen &gt;w&lt;</p>
@@ -501,13 +484,12 @@ const favoriteGalgameStudios = [
 
     <div class='group overflow-hidden rounded-xl border border-border bg-card transition-all hover:shadow-lg'>
       <div class='relative aspect-video overflow-hidden rounded-lg bg-muted'>
-        <img
+        <DeferredImage
           src='https://pic.hana0721.top/bangdream-6.1lcf2odx0r.webp'
           alt='ARS'
           class='h-full w-full object-cover transition-transform duration-300 group-hover:scale-110'
           style='transform: scale(1.15);'
-          loading='lazy'
-        />
+          />
       </div>
       <div class='p-3'>
         <p class='text-sm font-medium text-foreground'>ARS is so pretty too ~</p>
@@ -529,12 +511,11 @@ const favoriteGalgameStudios = [
         favoriteGalgameStudios.map((entry) => (
           <article class='rounded-xl border border-border bg-card p-4 sm:p-5'>
             <div class='mb-4 flex flex-wrap items-center gap-x-2 gap-y-1'>
-              <img
+              <DeferredImage
                 src={entry.studioLogo}
                 alt={`${entry.studio} logo`}
                 class='size-7 rounded-md border border-border/60 bg-background object-cover'
-                loading='lazy'
-              />
+                />
               <h3 class='m-0 text-base font-semibold text-foreground sm:text-lg'>{entry.studio}</h3>
               {
                 entry.officialUrl && (
@@ -560,12 +541,11 @@ const favoriteGalgameStudios = [
                       rel='noopener noreferrer'
                       aria-label={`Open ${game.name} official site`}
                     >
-                      <img
+                      <DeferredImage
                         src={game.cover}
                         alt={`${game.name} cover`}
                         class='aspect-[16/9] w-full rounded-md object-cover'
-                        loading='lazy'
-                      />
+                        />
                     </a>
                     <div class='pt-2.5'>
                       <div class='line-clamp-1 text-sm font-semibold text-foreground'>{game.name}</div>

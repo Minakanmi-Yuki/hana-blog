@@ -139,6 +139,66 @@ const live2dCdnPath = `${baseUrl}live2d-api/`
       })()
     </script>
 
+    <script is:inline>
+      (() => {
+        const OBSERVER_KEY = '__deferred_image_observer__'
+
+        function revealDeferredImage(img) {
+          const source = img.getAttribute('data-src')
+          if (!source) return
+          img.setAttribute('src', source)
+          img.removeAttribute('data-src')
+          img.removeAttribute('data-deferred-image')
+        }
+
+        function getObserver() {
+          if (!('IntersectionObserver' in window)) return null
+          if (!window[OBSERVER_KEY]) {
+            window[OBSERVER_KEY] = new IntersectionObserver(
+              (entries) => {
+                entries.forEach((entry) => {
+                  if (!entry.isIntersecting) return
+                  const image = entry.target
+                  revealDeferredImage(image)
+                  window[OBSERVER_KEY].unobserve(image)
+                })
+              },
+              {
+                rootMargin: '320px 0px'
+              }
+            )
+          }
+          return window[OBSERVER_KEY]
+        }
+
+        function bindDeferredImages(root = document) {
+          const deferredImages = root.querySelectorAll('img[data-deferred-image="true"][data-src]')
+          if (!deferredImages.length) return
+
+          const observer = getObserver()
+
+          deferredImages.forEach((img) => {
+            if (img.hasAttribute('data-deferred-bound')) return
+            img.setAttribute('data-deferred-bound', 'true')
+
+            if (observer) {
+              observer.observe(img)
+            } else {
+              revealDeferredImage(img)
+            }
+          })
+        }
+
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', () => bindDeferredImages(), { once: true })
+        } else {
+          bindDeferredImages()
+        }
+
+        document.addEventListener('astro:page-load', () => bindDeferredImages())
+      })()
+    </script>
+
     {/* Set highlight color */}
     <style define:vars={{ highlightColor }}>
       :global(.highlight) {
