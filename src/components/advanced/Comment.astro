@@ -24,13 +24,52 @@ const { class: className } = Astro.props
   import config from '@/site-config'
 
   const walineConfig = config.integ.waline
+  const ROOT_MARGIN = '420px 0px'
 
   class Comment extends HTMLElement {
+    observer: IntersectionObserver | null = null
+    initialized = false
+
     constructor() {
       super()
     }
 
+    disconnectedCallback() {
+      this.observer?.disconnect()
+      this.observer = null
+    }
+
     connectedCallback() {
+      this.scheduleInit()
+    }
+
+    scheduleInit() {
+      if (this.initialized) return
+
+      if (!('IntersectionObserver' in window)) {
+        this.initWaline()
+        return
+      }
+
+      this.observer = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (!entry.isIntersecting || this.initialized) return
+            this.observer?.disconnect()
+            this.observer = null
+            this.initWaline()
+          })
+        },
+        { rootMargin: ROOT_MARGIN }
+      )
+
+      this.observer.observe(this)
+    }
+
+    initWaline() {
+      if (this.initialized) return
+      this.initialized = true
+
       // Prevent Vue log errors
       ;(globalThis as unknown as { __VUE_OPTIONS_API__: boolean }).__VUE_OPTIONS_API__ = true
       ;(globalThis as unknown as { __VUE_PROD_DEVTOOLS__: boolean }).__VUE_PROD_DEVTOOLS__ = false

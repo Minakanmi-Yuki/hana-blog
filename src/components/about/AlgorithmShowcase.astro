@@ -7,21 +7,21 @@ interface Props {
 const { class: className = '' } = Astro.props;
 ---
 
-<div class={`algorithm-showcase ${className}`}>
+<div class={`algorithm-showcase ${className}`} data-algorithm-showcase>
   <div class="showcase-header">
-    <h3 id="current-title">Boids Algorithm</h3>
+    <h3 data-role="current-title">Boids Algorithm</h3>
     <div class="showcase-controls">
-      <button id="prev-btn" class="nav-btn" aria-label="上一个算法">
+      <button data-action="prev" class="nav-btn" aria-label="上一个算法">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="15,18 9,12 15,6"></polyline>
         </svg>
       </button>
-      <div class="indicator-dots" id="indicator-dots">
+      <div class="indicator-dots">
         <span class="dot active"></span>
         <span class="dot"></span>
         <span class="dot"></span>
       </div>
-      <button id="next-btn" class="nav-btn" aria-label="下一个算法">
+      <button data-action="next" class="nav-btn" aria-label="下一个算法">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="9,18 15,12 9,6"></polyline>
         </svg>
@@ -30,7 +30,7 @@ const { class: className = '' } = Astro.props;
   </div>
   
   <div class="showcase-content">
-    <div class="showcase-slider" id="showcase-slider">
+    <div class="showcase-slider" data-role="slider">
       <!-- Boids Algorithm -->
       <div class="showcase-slide active" data-title="Boids Algorithm">
         <div class="boids-showcase">
@@ -295,40 +295,108 @@ const { class: className = '' } = Astro.props;
 </style>
 
 <script>
-  // 导入算法模块
-  import { BoidsSystem } from './algorithms/BoidsAlgorithm.ts';
-  import { CellularAutomata } from './algorithms/CellularAutomata.ts';
-  import { AStar } from './algorithms/AStar.ts';
+  interface AlgorithmDeps {
+    BoidsSystem: new (canvas: HTMLCanvasElement) => { destroy: () => void }
+    CellularAutomata: new (canvas: HTMLCanvasElement, config?: any) => { destroy: () => void }
+    AStar: new (canvas: HTMLCanvasElement, config?: any) => {
+      destroy: () => void
+      startPathfinding: () => Promise<void> | void
+    }
+  }
 
-  // 翻页展示逻辑
+  let algorithmDepsPromise: Promise<AlgorithmDeps> | null = null
+
+  function loadAlgorithmDeps(): Promise<AlgorithmDeps> {
+    if (!algorithmDepsPromise) {
+      algorithmDepsPromise = Promise.all([
+        import('./algorithms/BoidsAlgorithm.ts'),
+        import('./algorithms/CellularAutomata.ts'),
+        import('./algorithms/AStar.ts')
+      ]).then(([boidsModule, cellularModule, astarModule]) => ({
+        BoidsSystem: boidsModule.BoidsSystem,
+        CellularAutomata: cellularModule.CellularAutomata,
+        AStar: astarModule.AStar
+      }))
+    }
+    return algorithmDepsPromise
+  }
+
+  function runWhenIdle(fn: () => void): void {
+    if ('requestIdleCallback' in window) {
+      window.requestIdleCallback(fn, { timeout: 1200 })
+      return
+    }
+    setTimeout(fn, 350)
+  }
+
+  // 翻页展示逻辑（可视区后再初始化算法，降低 About 首屏开销）
   class AlgorithmShowcase {
+    root: HTMLElement;
+    active = false;
+    destroyed = false;
     currentIndex: number = 0;
-    slides!: NodeListOf<Element>;
-    dots!: NodeListOf<Element>;
-    slider!: HTMLElement;
-    title!: HTMLElement;
-    prevBtn!: HTMLElement;
-    nextBtn!: HTMLElement;
-    boidsSystem: BoidsSystem | null = null;
-    cellularAutomata: CellularAutomata | null = null;
-    astar: AStar | null = null;
+    slides: NodeListOf<HTMLElement>;
+    dots: NodeListOf<HTMLElement>;
+    slider: HTMLElement;
+    title: HTMLElement;
+    prevBtn: HTMLButtonElement;
+    nextBtn: HTMLButtonElement;
+    boidsSystem: { destroy: () => void } | null = null;
+    cellularAutomata: { destroy: () => void } | null = null;
+    astar: { destroy: () => void; startPathfinding: () => Promise<void> | void } | null = null;
+    visibilityObserver: IntersectionObserver | null = null;
 
     titles = ["Boids Algorithm", "Game of Life", "Pathfinding"];
 
-    constructor() {
-      this.initializeElements();
+    constructor(root: HTMLElement) {
+      this.root = root;
+      this.slides = this.root.querySelectorAll<HTMLElement>('.showcase-slide');
+      this.dots = this.root.querySelectorAll<HTMLElement>('.dot');
+
+      const slider = this.root.querySelector<HTMLElement>('[data-role="slider"]');
+      const title = this.root.querySelector<HTMLElement>('[data-role="current-title"]');
+      const prevBtn = this.root.querySelector<HTMLButtonElement>('[data-action="prev"]');
+      const nextBtn = this.root.querySelector<HTMLButtonElement>('[data-action="next"]');
+
+      if (!slider || !title || !prevBtn || !nextBtn || this.slides.length === 0) {
+        throw new Error('AlgorithmShowcase: required elements are missing');
+      }
+
+      this.slider = slider;
+      this.title = title;
+      this.prevBtn = prevBtn;
+      this.nextBtn = nextBtn;
+
       this.setupEventListeners();
       this.updateDisplay();
-      this.initializeBoids();
+      this.setupVisibilityObserver();
     }
 
-    initializeElements(): void {
-      this.slides = document.querySelectorAll('.showcase-slide');
-      this.dots = document.querySelectorAll('.dot');
-      this.slider = document.getElementById('showcase-slider')!;
-      this.title = document.getElementById('current-title')!;
-      this.prevBtn = document.getElementById('prev-btn')!;
-      this.nextBtn = document.getElementById('next-btn')!;
+    setupVisibilityObserver(): void {
+      const activate = () => {
+        if (this.active || this.destroyed) return
+        this.active = true
+        void this.syncAlgorithmSystems()
+      }
+
+      if (!('IntersectionObserver' in window)) {
+        runWhenIdle(activate)
+        return
+      }
+
+      this.visibilityObserver = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (!entry.isIntersecting) return
+            activate()
+            this.visibilityObserver?.disconnect()
+            this.visibilityObserver = null
+          })
+        },
+        { rootMargin: '240px 0px' }
+      )
+
+      this.visibilityObserver.observe(this.root)
     }
 
     setupEventListeners(): void {
@@ -375,64 +443,71 @@ const { class: className = '' } = Astro.props;
       });
       
       // 更新标题
-      this.title.textContent = this.titles[this.currentIndex];
+      this.title.textContent = this.titles[this.currentIndex] ?? this.titles[0];
       
       // 更新按钮状态
-      (this.prevBtn as HTMLButtonElement).disabled = this.currentIndex === 0;
-      (this.nextBtn as HTMLButtonElement).disabled = this.currentIndex === this.slides.length - 1;
-      
-      // 处理算法系统
+      this.prevBtn.disabled = this.currentIndex === 0;
+      this.nextBtn.disabled = this.currentIndex === this.slides.length - 1;
+
+      if (this.active) {
+        void this.syncAlgorithmSystems();
+      }
+    }
+
+    async syncAlgorithmSystems(): Promise<void> {
+      if (this.destroyed) return
+
       if (this.currentIndex === 0) {
-        // Boids 算法
-        if (!this.boidsSystem) {
-          this.initializeBoids();
-        }
-        this.destroyOtherSystems(['boids']);
+        this.destroyOtherSystems(['boids'])
+        await this.initializeBoids()
       } else if (this.currentIndex === 1) {
-        // 元胞自动机
-        if (!this.cellularAutomata) {
-          this.initializeCellularAutomata();
-        }
-        this.destroyOtherSystems(['cellular']);
+        this.destroyOtherSystems(['cellular'])
+        await this.initializeCellularAutomata()
       } else if (this.currentIndex === 2) {
-        // A* 寻路算法
-        if (!this.astar) {
-          this.initializeAStar();
-        }
-        this.destroyOtherSystems(['astar']);
+        this.destroyOtherSystems(['astar'])
+        await this.initializeAStar()
       } else {
-        // 其他算法或占位符
-        this.destroyOtherSystems([]);
+        this.destroyOtherSystems([])
       }
     }
 
-    initializeBoids(): void {
-      const canvas = document.getElementById('boidsCanvas') as HTMLCanvasElement;
-      if (canvas && this.currentIndex === 0) {
-        this.boidsSystem = new BoidsSystem(canvas);
-      }
+    async initializeBoids(): Promise<void> {
+      if (this.destroyed || this.boidsSystem || this.currentIndex !== 0) return
+      const deps = await loadAlgorithmDeps()
+      if (this.destroyed || this.boidsSystem || this.currentIndex !== 0) return
+
+      const canvas = this.root.querySelector<HTMLCanvasElement>('#boidsCanvas')
+      if (!canvas) return
+      this.boidsSystem = new deps.BoidsSystem(canvas)
     }
 
-    initializeCellularAutomata(): void {
-      const canvas = document.getElementById('cellularAutomataCanvas') as HTMLCanvasElement;
-      if (canvas && this.currentIndex === 1) {
-        this.cellularAutomata = new CellularAutomata(canvas, {
-          cellSize: 12,
-          updateInterval: 1000,
-          density: 0.25,
-          colors: {
-            alive: '#64748b',
-            dead: 'transparent',
-            grid: 'rgba(203, 213, 225, 0.15)'
-          }
-        });
-      }
+    async initializeCellularAutomata(): Promise<void> {
+      if (this.destroyed || this.cellularAutomata || this.currentIndex !== 1) return
+      const deps = await loadAlgorithmDeps()
+      if (this.destroyed || this.cellularAutomata || this.currentIndex !== 1) return
+
+      const canvas = this.root.querySelector<HTMLCanvasElement>('#cellularAutomataCanvas')
+      if (!canvas) return
+      this.cellularAutomata = new deps.CellularAutomata(canvas, {
+        cellSize: 12,
+        updateInterval: 1000,
+        density: 0.25,
+        colors: {
+          alive: '#64748b',
+          dead: 'transparent',
+          grid: 'rgba(203, 213, 225, 0.15)'
+        }
+      })
     }
 
-    initializeAStar(): void {
-      const canvas = document.getElementById('astarCanvas') as HTMLCanvasElement;
-      if (canvas && this.currentIndex === 2) {
-        this.astar = new AStar(canvas, {
+    async initializeAStar(): Promise<void> {
+      if (this.destroyed || this.astar || this.currentIndex !== 2) return
+      const deps = await loadAlgorithmDeps()
+      if (this.destroyed || this.astar || this.currentIndex !== 2) return
+
+      const canvas = this.root.querySelector<HTMLCanvasElement>('#astarCanvas')
+      if (!canvas) return
+      this.astar = new deps.AStar(canvas, {
           gridSize: 20,
           animationSpeed: 50,
           allowDiagonal: false,
@@ -446,35 +521,77 @@ const { class: className = '' } = Astro.props;
             open: 'rgba(16, 185, 129, 0.2)',
             grid: 'rgba(203, 213, 225, 0.25)'
           }
-        });
+        })
         
-        // 自动开始寻路
-        setTimeout(() => {
-          if (this.astar) {
-            this.astar.startPathfinding();
-          }
-        }, 500);
-      }
+      // 自动开始寻路
+      setTimeout(() => {
+        if (this.destroyed || this.currentIndex !== 2 || !this.astar) return
+        void this.astar.startPathfinding()
+      }, 500)
+    }
+
+    destroy(): void {
+      this.destroyed = true
+      this.visibilityObserver?.disconnect()
+      this.visibilityObserver = null
+      this.destroyOtherSystems([])
+      this.root.removeAttribute('data-algorithm-showcase-bound')
+    }
+
+    destroySystem(system: { destroy: () => void } | null): null {
+      if (!system) return null
+      system.destroy()
+      return null
     }
 
     destroyOtherSystems(keep: string[]): void {
-      if (!keep.includes('boids') && this.boidsSystem) {
-        this.boidsSystem.destroy();
-        this.boidsSystem = null;
+      if (!keep.includes('boids')) {
+        this.boidsSystem = this.destroySystem(this.boidsSystem)
       }
-      if (!keep.includes('cellular') && this.cellularAutomata) {
-        this.cellularAutomata.destroy();
-        this.cellularAutomata = null;
+      if (!keep.includes('cellular')) {
+        this.cellularAutomata = this.destroySystem(this.cellularAutomata)
       }
-      if (!keep.includes('astar') && this.astar) {
-        this.astar.destroy();
-        this.astar = null;
+      if (!keep.includes('astar')) {
+        this.astar = this.destroySystem(this.astar)
       }
     }
   }
 
-  // 初始化
-  document.addEventListener('DOMContentLoaded', () => {
-    new AlgorithmShowcase();
-  });
+  const instances = new WeakMap<HTMLElement, AlgorithmShowcase>()
+
+  function initAlgorithmShowcases(root: ParentNode = document): void {
+    const showcases = root.querySelectorAll<HTMLElement>('[data-algorithm-showcase]')
+
+    showcases.forEach((showcase) => {
+      if (showcase.getAttribute('data-algorithm-showcase-bound') === 'true') return
+      showcase.setAttribute('data-algorithm-showcase-bound', 'true')
+
+      try {
+        const instance = new AlgorithmShowcase(showcase)
+        instances.set(showcase, instance)
+      } catch (error) {
+        showcase.removeAttribute('data-algorithm-showcase-bound')
+        console.error(error)
+      }
+    })
+  }
+
+  function destroyAlgorithmShowcases(root: ParentNode = document): void {
+    const showcases = root.querySelectorAll<HTMLElement>('[data-algorithm-showcase]')
+    showcases.forEach((showcase) => {
+      const instance = instances.get(showcase)
+      if (!instance) return
+      instance.destroy()
+      instances.delete(showcase)
+    })
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => initAlgorithmShowcases(), { once: true })
+  } else {
+    initAlgorithmShowcases()
+  }
+
+  document.addEventListener('astro:page-load', () => initAlgorithmShowcases())
+  document.addEventListener('astro:before-swap', () => destroyAlgorithmShowcases())
 </script>

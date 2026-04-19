@@ -1,5 +1,4 @@
 ---
-import { Svg } from '@/components/user'
 import { cn } from '@/utils'
 
 interface Props {
@@ -9,7 +8,7 @@ interface Props {
     name: string
     description: string
     href: string
-    icon: Promise<typeof import('*.svg?raw')>
+    icon: string
   }[]
 }
 
@@ -34,9 +33,12 @@ const { class: className, title, tools, ...props } = Astro.props
           target='_blank'
         >
           <div class='flex items-center gap-x-3 rounded-lg border border-transparent px-1.5 py-1 transition-colors hover:border-border hover:bg-muted'>
-            <Svg
+            <img
               src={tool.icon}
-              class='size-10 rounded-lg bg-primary-foreground fill-foreground p-2'
+              alt={`${tool.name} icon`}
+              class='size-10 rounded-lg bg-primary-foreground p-2 object-contain'
+              loading='lazy'
+              decoding='async'
             />
             <div class='z-20 flex flex-col'>
               <div class='font-medium text-foreground'>{tool.name}</div>
