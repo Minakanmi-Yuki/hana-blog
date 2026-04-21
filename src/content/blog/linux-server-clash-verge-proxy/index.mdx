@@ -1,0 +1,472 @@
+---
+title: 'Linux 无图形界面服务器代理配置（Clash Verge 方案）'
+publishDate: 2026-04-22
+updatedDate: 2026-04-22
+description: '面向纯 SSH 服务器：Clash Verge 无 GUI 不可用时，使用 mihomo 内核完成订阅、选节点、systemd 常驻与终端代理。'
+heroImage: { src: 'https://pic.hana0721.top/99749488_p0_master1200.83an1pr7zr.webp', color: '#8C8275' }
+category: 'tech'
+tags:
+  - 'linux'
+  - 'clash verge'
+  - 'mihomo'
+  - 'proxy'
+  - 'tutorial'
+draft: false
+comment: true
+---
+
+你这个场景是“Linux 服务器只有 SSH，没有图形桌面”。
+
+先说结论：**无 GUI 环境不能直接运行 Clash Verge**（它是基于 WebView 的图形客户端）。
+在服务器上应改为使用它的内核方案：`mihomo` 命令行。
+
+这篇给你一套纯命令行流程，目标是：
+
+- 不依赖图形界面
+- 可开机自启
+- 默认不走全局代理，需要时再临时 `export`
+- 终端里的 `curl` / `apt` / `git` 可按命令局部走代理
+
+## 0. 前置条件
+
+- 服务器系统：Linux（Ubuntu / Debian / CentOS）
+- 你有一个可用的 Clash 订阅链接
+- 你有 `sudo` 权限
+
+## 1. 安装 mihomo（替代 Clash Verge GUI）
+
+不要先手写通配符解压。先把文件下载到当前目录，再解压。
+
+下面脚本会自动识别架构并从官方最新 release 获取下载链接：
+
+- `https://github.com/MetaCubeX/mihomo/releases/latest`
+
+```bash
+mkdir -p ~/downloads/mihomo
+cd ~/downloads/mihomo
+
+ARCH="$(uname -m)"
+if [ "$ARCH" = "x86_64" ]; then
+  PATTERN='mihomo-linux-amd64[^"]*\.gz'
+elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
+  PATTERN='mihomo-linux-arm64[^"]*\.gz'
+else
+  echo "Unsupported arch: $ARCH"
+  exit 1
+fi
+
+URL="$(curl -fsSL https://api.github.com/repos/MetaCubeX/mihomo/releases/latest \
+  | grep -oE "https://[^\"]+${PATTERN}" \
+  | head -n 1)"
+
+if [ -z "$URL" ]; then
+  echo "Failed to resolve download url"
+  exit 1
+fi
+
+curl -L "$URL" -o mihomo.gz
+gunzip -f mihomo.gz
+chmod +x mihomo
+sudo install -m 755 mihomo /usr/local/bin/mihomo
+```
+
+验证安装：
+
+```bash
+mihomo -v
+```
+
+你遇到的这类错误：
+
+```text
+gzip: mihomo-linux-amd64-*.gz: No such file or directory
+```
+
+本质是当前目录里没有匹配文件，常见原因有两个：
+
+1. 还没下载 `mihomo` 压缩包
+2. 文件名和通配符不一致
+
+先 `ls -lh` 看目录里实际文件名，再执行解压。
+
+## 2. 准备配置目录与 `config.yaml`
+
+创建工作目录：
+
+```bash
+sudo mkdir -p /etc/mihomo/providers
+```
+
+新建 `/etc/mihomo/config.yaml`（最小可用模板）：
+
+```yaml
+mixed-port: 7890
+allow-lan: false
+bind-address: 127.0.0.1
+mode: rule
+log-level: info
+external-controller: 127.0.0.1:9090
+secret: "your-strong-secret"
+
+proxy-providers:
+  mysub:
+    type: http
+    url: "https://your-subscription-url"
+    path: ./providers/mysub.yaml
+    interval: 3600
+    health-check:
+      enable: true
+      interval: 300
+      url: https://www.gstatic.com/generate_204
+
+proxy-groups:
+  - name: Proxy
+    type: select
+    use:
+      - mysub
+
+rules:
+  - MATCH,Proxy
+```
+
+如果你“只有一个订阅链接”，只需要改这两处：
+
+1. `secret`：改成你自己的随机字符串（例如 16~32 位）
+2. `url`：改成你的订阅链接原文
+
+示例（只演示要改的行）：
+
+```yaml
+secret: "8e1d3f4a5b6c7d8e"
+url: "https://your-subscription-url"
+```
+
+> `url` 必须带引号，避免 `&`、`?` 等字符导致 YAML 解析错误。
+
+写入文件：
+
+```bash
+sudo tee /etc/mihomo/config.yaml >/dev/null <<'YAML'
+mixed-port: 7890
+allow-lan: false
+bind-address: 127.0.0.1
+mode: rule
+log-level: info
+external-controller: 127.0.0.1:9090
+secret: "your-strong-secret"
+
+proxy-providers:
+  mysub:
+    type: http
+    url: "https://your-subscription-url"
+    path: ./providers/mysub.yaml
+    interval: 3600
+    health-check:
+      enable: true
+      interval: 300
+      url: https://www.gstatic.com/generate_204
+
+proxy-groups:
+  - name: Proxy
+    type: select
+    use:
+      - mysub
+
+rules:
+  - MATCH,Proxy
+YAML
+```
+
+> 如果你的机场给的是“完整配置文件”而不是订阅 URL，可以直接把完整 YAML 覆盖到 `/etc/mihomo/config.yaml`。
+
+### 2.1 只有订阅链接时，怎么判断用哪种方式
+
+先看订阅返回的前几行：
+
+```bash
+curl -L "你的订阅链接" | head -n 20
+```
+
+- 如果能看到 `proxies:`、`proxy-groups:`、`rules:`，说明这是完整配置。直接保存为 `/etc/mihomo/config.yaml` 即可。
+- 如果主要是节点列表，没有完整规则组，就用本文上面的 `proxy-providers` 模板，把链接填到 `url`。
+
+## 3. 先前台启动测试
+
+```bash
+sudo mihomo -d /etc/mihomo -t
+sudo mihomo -d /etc/mihomo
+```
+
+关注是否有报错；确认正常后用 `Ctrl+C` 停止，继续做 systemd 常驻。
+
+## 4. 配置 systemd 开机自启
+
+创建服务文件 `/etc/systemd/system/mihomo.service`：
+
+```ini
+[Unit]
+Description=mihomo Daemon, Another Clash Kernel.
+After=network.target NetworkManager.service systemd-networkd.service iwd.service
+
+[Service]
+Type=simple
+LimitNPROC=500
+LimitNOFILE=1000000
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE CAP_SYS_TIME CAP_SYS_PTRACE CAP_DAC_READ_SEARCH CAP_DAC_OVERRIDE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE CAP_SYS_TIME CAP_SYS_PTRACE CAP_DAC_READ_SEARCH CAP_DAC_OVERRIDE
+Restart=always
+ExecStartPre=/usr/bin/sleep 1s
+ExecStart=/usr/local/bin/mihomo -d /etc/mihomo
+ExecReload=/bin/kill -HUP $MAINPID
+
+[Install]
+WantedBy=multi-user.target
+```
+
+执行：
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable mihomo
+sudo systemctl start mihomo
+sudo systemctl status mihomo
+```
+
+### 4.1 不开机自启，只手动启动
+
+如果你不希望开机自动拉起，只想“需要时再开”：
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl disable mihomo
+```
+
+之后按需手动控制：
+
+```bash
+sudo systemctl start mihomo
+sudo systemctl stop mihomo
+sudo systemctl restart mihomo
+sudo systemctl status mihomo
+```
+
+开机自启和手动启动并不冲突：
+
+- `enable` / `disable` 决定“开机是否自动启动”
+- `start` / `stop` 决定“当前这一刻是否运行”
+
+查看日志：
+
+```bash
+journalctl -u mihomo -o cat -f
+```
+
+## 5. 无 GUI 下切换节点（API）
+
+先注意请求头写法，必须是：
+
+```bash
+-H "Authorization: Bearer your-strong-secret"
+```
+
+错误写法（会返回 `{"message":"Unauthorized"}`）：
+
+```bash
+-H "your-strong-secret"
+```
+
+查看策略组节点：
+
+```bash
+curl -s -H "Authorization: Bearer your-strong-secret" \
+  http://127.0.0.1:9090/proxies | head
+```
+
+把 `Proxy` 组切到指定节点（例如 `HK-01`）：
+
+```bash
+curl -s -X PUT \
+  -H "Authorization: Bearer your-strong-secret" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"HK-01"}' \
+  http://127.0.0.1:9090/proxies/Proxy
+```
+
+## 6. 让终端命令走代理
+
+当前 shell 临时生效：
+
+```bash
+export http_proxy=http://127.0.0.1:7890
+export https_proxy=http://127.0.0.1:7890
+export all_proxy=socks5://127.0.0.1:7890
+```
+
+验证：
+
+```bash
+curl https://ipinfo.io
+curl -I https://www.google.com
+```
+
+取消：
+
+```bash
+unset http_proxy https_proxy all_proxy
+```
+
+服务器场景不建议写进 `~/.bashrc` 全局生效，推荐做成手动开关函数：
+
+```bash
+proxy_on() {
+  export http_proxy=http://127.0.0.1:7890
+  export https_proxy=http://127.0.0.1:7890
+  export all_proxy=socks5://127.0.0.1:7890
+}
+
+proxy_off() {
+  unset http_proxy https_proxy all_proxy
+}
+
+proxy_status() {
+  env | grep -i proxy || echo "proxy is off"
+}
+```
+
+把上面函数放进 `~/.bashrc` 或 `~/.zshrc` 后，按需执行 `proxy_on` / `proxy_off`。
+
+## 7. 常见工具代理
+
+### APT（单次命令局部代理）
+
+```bash
+sudo env \
+  http_proxy=http://127.0.0.1:7890 \
+  https_proxy=http://127.0.0.1:7890 \
+  apt update
+```
+
+安装包也是同理：
+
+```bash
+sudo env \
+  http_proxy=http://127.0.0.1:7890 \
+  https_proxy=http://127.0.0.1:7890 \
+  apt install -y <package-name>
+```
+
+### Git（单次命令局部代理）
+
+```bash
+git -c http.proxy=http://127.0.0.1:7890 \
+    -c https.proxy=http://127.0.0.1:7890 \
+    clone <repo-url>
+```
+
+`pull` / `push` 也可以同样加 `-c`：
+
+```bash
+git -c http.proxy=http://127.0.0.1:7890 \
+    -c https.proxy=http://127.0.0.1:7890 \
+    pull
+```
+
+## 8. 排障速查
+
+### 1) `curl` 仍然直连
+
+```bash
+env | grep -i proxy
+ss -lntp | grep 7890
+```
+
+确认代理变量已设置，且 `mihomo` 确实监听在 `127.0.0.1:7890`。
+
+### 2) 服务起不来
+
+```bash
+systemctl status mihomo
+journalctl -u mihomo -o cat -e
+```
+
+大多数情况是 `config.yaml` 语法错误或订阅 URL 无效。
+
+### 3) API 连接被拒绝
+
+检查 `external-controller` 是否是 `127.0.0.1:9090`，以及 `secret` 是否和请求头一致。
+
+如果返回：
+
+```json
+{"message":"Unauthorized"}
+```
+
+通常不是端口错了，而是认证头格式错误。应使用：
+
+```bash
+curl -s -H "Authorization: Bearer your-strong-secret" \
+  http://127.0.0.1:9090/proxies | head
+```
+
+### 4) `mihomo.service not found` / `Unit file does not exist`
+
+这表示 systemd 服务文件还没创建成功，或文件名不对。
+
+先确认二进制路径存在：
+
+```bash
+which mihomo
+ls -l /usr/local/bin/mihomo
+```
+
+再重新创建服务文件：
+
+```bash
+sudo tee /etc/systemd/system/mihomo.service >/dev/null <<'UNIT'
+[Unit]
+Description=mihomo Daemon, Another Clash Kernel.
+After=network.target NetworkManager.service systemd-networkd.service iwd.service
+
+[Service]
+Type=simple
+Restart=always
+ExecStart=/usr/local/bin/mihomo -d /etc/mihomo
+ExecReload=/bin/kill -HUP $MAINPID
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+```
+
+然后加载并启动：
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable mihomo
+sudo systemctl start mihomo
+sudo systemctl status mihomo
+```
+
+如果你只想手动启动，不开机自启，把 `enable` 换成：
+
+```bash
+sudo systemctl disable mihomo
+sudo systemctl start mihomo
+```
+
+## 9. 最小闭环（无 GUI）
+
+```bash
+# 1) 启动服务
+sudo systemctl start mihomo
+
+# 2) 配置终端代理
+export http_proxy=http://127.0.0.1:7890
+export https_proxy=http://127.0.0.1:7890
+export all_proxy=socks5://127.0.0.1:7890
+
+# 3) 验证
+curl https://ipinfo.io
+```
+
+到这里，你在纯 SSH 服务器上的代理就可用了。
