@@ -77,6 +77,14 @@ git status
 
 多人共用一个 Linux 用户时，不要用全局身份，避免污染他人项目。
 
+先做前置检查：`git config user.email` 里要填的邮箱，必须先在 GitHub 账号里添加并完成验证。
+
+GitHub 邮箱设置路径：
+
+`Settings` -> `Emails` -> `Add email address` -> `Verify`
+
+然后再回到服务器配置仓库级身份：
+
 ```bash
 git config user.name "your-github-username"
 git config user.email "your-email@example.com"
@@ -94,6 +102,7 @@ git config --get user.email
 - 用仓库级配置（不加 `--global`）
 - 不使用 `credential.helper store`
 - 不在共享机器长期保存个人 PAT/私钥
+- 如果开启了 GitHub 邮箱隐私策略，优先使用 GitHub 提供的 `noreply` 邮箱做 `user.email`
 
 ## 四、把远程切到 SSH
 
@@ -239,6 +248,22 @@ git push origin main
 - `feat: add baseline scripts`
 
 这样回滚和审阅都会轻松很多。
+
+如果 `git push` 因邮箱策略被拒绝（常见于开启了 “Block command line pushes that expose my email”）：
+
+1. 到 GitHub `Settings` -> `Emails` 确认邮箱已验证，或复制你的 `noreply` 邮箱
+2. 在仓库重新设置：
+
+```bash
+git config user.email "your-noreply-email@users.noreply.github.com"
+```
+
+3. 用新邮箱重做提交并推送：
+
+```bash
+git commit --amend --reset-author --no-edit
+git push origin main
+```
 
 ## 八、共享机器最佳实践清单
 
