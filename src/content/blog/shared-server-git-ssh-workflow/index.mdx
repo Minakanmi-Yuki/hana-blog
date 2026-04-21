@@ -17,11 +17,12 @@ tags:
 这个场景非常典型：
 
 - 代码仓库：`https://github.com/your-username/your-repo.git`
-- 服务器：Linux
-- 使用方式：多人共用同一个系统用户
+- 服务器：固定为 Linux
+- 使用方式：多人共用同一个 Linux 系统用户
+- 本地电脑：可能是 Linux / macOS / Windows
 - 目标：既要规范用 Git 管理版本，又不能把个人凭证留在共享机器上
 
-这篇教程把完整流程整理成可复用版本，Linux 为主流程，同时给出 macOS 和 Windows 的对应操作。
+这篇教程把完整流程整理成可复用版本：所有仓库操作都在 Linux 服务器执行，本地电脑相关步骤按 Linux / macOS / Windows 分别给出命令。
 
 ## 一、先确认仓库状态（Linux 服务器）
 
@@ -112,20 +113,64 @@ git remote -v
 
 ## 五、核心安全做法：用 SSH Agent Forwarding（不在服务器留私钥）
 
-### 5.1 在你自己的电脑加载私钥
+### 5.1 在本地电脑准备 SSH key（按你的本机系统执行）
+
+如果你本地还没有 key，先生成：
+
+- Linux / macOS
+
+```bash
+ssh-keygen -t ed25519 -C "your-email@example.com"
+```
+
+- Windows（PowerShell）
+
+```powershell
+ssh-keygen -t ed25519 -C "your-email@example.com"
+```
+
+加载 key 到 agent：
+
+- Linux / macOS
 
 ```bash
 ssh-add ~/.ssh/id_ed25519
 ssh-add -l
 ```
 
-### 5.2 用带转发的方式登录服务器
+- Windows（PowerShell）
+
+```powershell
+Get-Service ssh-agent | Set-Service -StartupType Automatic
+Start-Service ssh-agent
+ssh-add $env:USERPROFILE\.ssh\id_ed25519
+ssh-add -l
+```
+
+### 5.2 配置 SSH 别名并开启转发（本地电脑）
+
+配置文件路径：
+
+- Linux / macOS：`~/.ssh/config`
+- Windows：`C:\Users\<你用户名>\.ssh\config`
+
+配置示例：
+
+```sshconfig
+Host <server-alias>
+  HostName <你的服务器IP或域名>
+  User <服务器用户名>
+  IdentityFile ~/.ssh/id_ed25519
+  ForwardAgent yes
+```
+
+然后登录服务器（任意系统本机都一样）：
 
 ```bash
 ssh -A <server-alias>
 ```
 
-### 5.3 在服务器上验证 agent 是否转发成功
+### 5.3 在服务器上验证 agent 转发
 
 ```bash
 ssh-add -l
@@ -151,10 +196,18 @@ git@github.com: Permission denied (publickey).
 
 解决步骤：
 
-1. 在你本地电脑查看公钥：
+1. 在你本地电脑查看公钥（按你的本机系统执行）：
+
+- Linux / macOS
 
 ```bash
 cat ~/.ssh/id_ed25519.pub
+```
+
+- Windows（PowerShell）
+
+```powershell
+Get-Content $env:USERPROFILE\.ssh\id_ed25519.pub
 ```
 
 2. 到 GitHub：`Settings` -> `SSH and GPG keys` -> `New SSH key`
@@ -186,89 +239,7 @@ git push origin main
 
 这样回滚和审阅都会轻松很多。
 
-## 八、macOS 对照步骤
-
-macOS 与 Linux 几乎一致，主要差异在终端和路径习惯。
-
-### 8.1 本地生成/加载 key（若已存在可跳过生成）
-
-```bash
-ssh-keygen -t ed25519 -C "your-email@example.com"
-ssh-add ~/.ssh/id_ed25519
-ssh-add -l
-```
-
-### 8.2 配置 `~/.ssh/config`（推荐）
-
-```sshconfig
-Host <server-alias>
-  HostName <你的服务器IP或域名>
-  User <服务器用户名>
-  IdentityFile ~/.ssh/id_ed25519
-  ForwardAgent yes
-```
-
-之后可直接：
-
-```bash
-ssh <server-alias>
-```
-
-### 8.3 在服务器内继续 Linux 主流程
-
-```bash
-ssh-add -l
-ssh -T git@github.com
-git push origin main
-```
-
-## 九、Windows 对照步骤
-
-Windows 推荐两条路径：
-
-- `PowerShell + OpenSSH`（系统原生）
-- `Git Bash`（命令体验更接近 Linux）
-
-下面以 PowerShell 为例。
-
-### 9.1 启动 ssh-agent 并加载 key
-
-```powershell
-Get-Service ssh-agent | Set-Service -StartupType Automatic
-Start-Service ssh-agent
-ssh-add $env:USERPROFILE\.ssh\id_ed25519
-ssh-add -l
-```
-
-### 9.2 连接服务器并启用转发
-
-```powershell
-ssh -A <server-alias>
-```
-
-如果你用配置文件，路径是：
-
-`C:\Users\<你用户名>\.ssh\config`
-
-示例：
-
-```sshconfig
-Host <server-alias>
-  HostName <你的服务器IP或域名>
-  User <服务器用户名>
-  IdentityFile ~/.ssh/id_ed25519
-  ForwardAgent yes
-```
-
-### 9.3 在服务器内验证并推送
-
-```bash
-ssh-add -l
-ssh -T git@github.com
-git push origin main
-```
-
-## 十、共享机器最佳实践清单
+## 八、共享机器最佳实践清单
 
 1. Git 身份用仓库级配置，不用全局。
 2. 不把个人私钥长期放在共享 Linux 账号目录。
