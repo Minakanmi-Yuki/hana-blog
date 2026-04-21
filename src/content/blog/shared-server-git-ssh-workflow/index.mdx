@@ -1,0 +1,286 @@
+---
+title: '共享服务器下 Git 版本管理实战（Linux/macOS/Windows）'
+publishDate: 2026-04-22
+updatedDate: 2026-04-22
+description: '基于 fars-grasp 实操记录整理：在多人共用 Linux 账号场景下，安全配置 Git 身份、SSH 转发并完成远程推送，附 macOS/Windows 对照步骤。'
+category: 'tech'
+tags:
+  - 'git'
+  - 'github'
+  - 'ssh'
+  - 'linux'
+  - 'macos'
+  - 'windows'
+  - 'tutorial'
+---
+
+你这次的场景非常典型：
+
+- 代码仓库：`https://github.com/Minakanmi-Yuki/fars-grasp.git`
+- 服务器：Linux
+- 使用方式：多人共用同一个系统用户
+- 目标：既要规范用 Git 管理版本，又不能把个人凭证留在共享机器上
+
+这篇教程把完整流程整理成可复用版本，Linux 为主流程，同时给出 macOS 和 Windows 的对应操作。
+
+## 一、先确认仓库状态（Linux 服务器）
+
+先进入项目目录，确认当前分支、远程地址、工作区状态：
+
+```bash
+cd /home/user/yuanjibao/Project/fars-grasp
+git branch --show-current
+git remote -v
+git status
+```
+
+预期重点：
+
+- 当前分支是 `main`
+- `origin` 指向你的仓库
+- 先识别是否有不该提交的大目录（如 `checkpoints/`、`outputs/`、`external/`）
+
+## 二、先做提交边界清理：补 `.gitignore`
+
+这一步的目的不是“立刻提交”，而是先把实验产物和本地依赖从源码中隔离。
+
+示例（按你项目实际调整）：
+
+```gitignore
+# local configs
+configs/paths.sh
+
+# experiment artifacts
+checkpoints/
+outputs/
+logs/
+
+# caches
+data/
+.cache/
+
+# local external deps
+external/
+```
+
+补完后再看状态：
+
+```bash
+git status
+```
+
+如果结果里主要剩下源码和文档改动，说明提交边界已经干净。
+
+## 三、共享账号场景下的 Git 身份配置（只配当前仓库）
+
+多人共用一个 Linux 用户时，不要用全局身份，避免污染他人项目。
+
+```bash
+git config user.name "Minakanmi-Yuki"
+git config user.email "2849633943@qq.com"
+```
+
+验证：
+
+```bash
+git config --get user.name
+git config --get user.email
+```
+
+推荐原则：
+
+- 用仓库级配置（不加 `--global`）
+- 不使用 `credential.helper store`
+- 不在共享机器长期保存个人 PAT/私钥
+
+## 四、把远程切到 SSH
+
+GitHub SSH URL 固定格式：
+
+`git@github.com:<用户名>/<仓库名>.git`
+
+你的仓库对应为：
+
+`git@github.com:Minakanmi-Yuki/fars-grasp.git`
+
+设置并验证：
+
+```bash
+git remote set-url origin git@github.com:Minakanmi-Yuki/fars-grasp.git
+git remote -v
+```
+
+## 五、核心安全做法：用 SSH Agent Forwarding（不在服务器留私钥）
+
+### 5.1 在你自己的电脑加载私钥
+
+```bash
+ssh-add ~/.ssh/id_ed25519
+ssh-add -l
+```
+
+### 5.2 用带转发的方式登录服务器
+
+```bash
+ssh -A SingleA800
+```
+
+### 5.3 在服务器上验证 agent 是否转发成功
+
+```bash
+ssh-add -l
+```
+
+如果能看到你本地 key 的指纹，说明转发已生效。
+
+## 六、第一次连 GitHub 的认证与排错
+
+在服务器上测试：
+
+```bash
+ssh -T git@github.com
+```
+
+你遇到过的报错是：
+
+```text
+git@github.com: Permission denied (publickey).
+```
+
+这通常表示“这把公钥还没绑定到目标 GitHub 账号”，不是服务器命令错了。
+
+解决步骤：
+
+1. 在你本地电脑查看公钥：
+
+```bash
+cat ~/.ssh/id_ed25519.pub
+```
+
+2. 到 GitHub：`Settings` -> `SSH and GPG keys` -> `New SSH key`
+3. `Key type` 选 **Authentication Key**
+4. `Key` 粘贴整行公钥（包括末尾邮箱注释）
+5. 保存后重新测试：
+
+```bash
+ssh -T git@github.com
+```
+
+通过标志通常是类似：`Hi Minakanmi-Yuki! You've successfully authenticated...`
+
+## 七、开始版本管理并推送
+
+建议每个明确阶段做一次小提交：
+
+```bash
+git add <files>
+git commit -m "feat: your change"
+git push origin main
+```
+
+针对你的这类实验项目，推荐把提交拆小：
+
+- `chore: add gitignore for artifacts and local deps`
+- `docs: add api compatibility notes`
+- `feat: add baseline scripts`
+
+这样回滚和审阅都会轻松很多。
+
+## 八、macOS 对照步骤
+
+macOS 与 Linux 几乎一致，主要差异在终端和路径习惯。
+
+### 8.1 本地生成/加载 key（若已存在可跳过生成）
+
+```bash
+ssh-keygen -t ed25519 -C "2849633943@qq.com"
+ssh-add ~/.ssh/id_ed25519
+ssh-add -l
+```
+
+### 8.2 配置 `~/.ssh/config`（推荐）
+
+```sshconfig
+Host SingleA800
+  HostName <你的服务器IP或域名>
+  User <服务器用户名>
+  IdentityFile ~/.ssh/id_ed25519
+  ForwardAgent yes
+```
+
+之后可直接：
+
+```bash
+ssh SingleA800
+```
+
+### 8.3 在服务器内继续 Linux 主流程
+
+```bash
+ssh-add -l
+ssh -T git@github.com
+git push origin main
+```
+
+## 九、Windows 对照步骤
+
+Windows 推荐两条路径：
+
+- `PowerShell + OpenSSH`（系统原生）
+- `Git Bash`（命令体验更接近 Linux）
+
+下面以 PowerShell 为例。
+
+### 9.1 启动 ssh-agent 并加载 key
+
+```powershell
+Get-Service ssh-agent | Set-Service -StartupType Automatic
+Start-Service ssh-agent
+ssh-add $env:USERPROFILE\.ssh\id_ed25519
+ssh-add -l
+```
+
+### 9.2 连接服务器并启用转发
+
+```powershell
+ssh -A SingleA800
+```
+
+如果你用配置文件，路径是：
+
+`C:\Users\<你用户名>\.ssh\config`
+
+示例：
+
+```sshconfig
+Host SingleA800
+  HostName <你的服务器IP或域名>
+  User <服务器用户名>
+  IdentityFile ~/.ssh/id_ed25519
+  ForwardAgent yes
+```
+
+### 9.3 在服务器内验证并推送
+
+```bash
+ssh-add -l
+ssh -T git@github.com
+git push origin main
+```
+
+## 十、共享机器最佳实践清单
+
+1. Git 身份用仓库级配置，不用全局。
+2. 不把个人私钥长期放在共享 Linux 账号目录。
+3. 不使用 `credential.helper store` 明文落盘 PAT。
+4. 用 `ssh -A` 转发本地凭证，断开会话即失效。
+5. 按功能阶段做小提交，避免把大文件和临时产物混入历史。
+
+## 结语
+
+这套流程本质上做了两件事：
+
+- 把“代码版本管理”做规范（清晰提交边界 + 小步提交）
+- 把“共享账号安全”做正确（本地持有私钥 + 会话转发认证）
+
+如果后续你要继续在这个仓库迭代，直接复用这一套即可。
