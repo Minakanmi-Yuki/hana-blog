@@ -180,7 +180,35 @@ Host <server-alias>
 ssh -A <server-alias>
 ```
 
-### 5.3 在服务器上验证 agent 转发
+### 5.3 在 GitHub 账号里添加 SSH 公钥（关键主步骤）
+
+先在本地电脑读取公钥（按你的本机系统执行）：
+
+- Linux / macOS
+
+```bash
+cat ~/.ssh/id_ed25519.pub
+```
+
+- Windows（PowerShell）
+
+```powershell
+Get-Content $env:USERPROFILE\.ssh\id_ed25519.pub
+```
+
+然后到 GitHub 网页完成绑定：
+
+1. 右上角头像 -> `Settings`
+2. 左侧进入 `SSH and GPG keys`
+3. 点击 `New SSH key`
+4. `Key type` 选择 **Authentication Key**
+5. `Title` 填一个容易识别的名称（例如 `my-laptop-agent-forward`）
+6. `Key` 粘贴整行公钥
+7. 点击 `Add SSH key`
+
+这一段必须完成，否则后面的 `ssh -T git@github.com` 很可能出现 `Permission denied (publickey)`。
+
+### 5.4 在服务器上验证 agent 转发
 
 ```bash
 ssh-add -l
@@ -206,24 +234,9 @@ git@github.com: Permission denied (publickey).
 
 解决步骤：
 
-1. 在你本地电脑查看公钥（按你的本机系统执行）：
-
-- Linux / macOS
-
-```bash
-cat ~/.ssh/id_ed25519.pub
-```
-
-- Windows（PowerShell）
-
-```powershell
-Get-Content $env:USERPROFILE\.ssh\id_ed25519.pub
-```
-
-2. 到 GitHub：`Settings` -> `SSH and GPG keys` -> `New SSH key`
-3. `Key type` 选 **Authentication Key**
-4. `Key` 粘贴整行公钥（包括末尾邮箱注释）
-5. 保存后重新测试：
+1. 确认你已经完成上面的 `Settings` -> `SSH and GPG keys` -> `New SSH key`
+2. 检查粘贴的是完整公钥（包含开头 `ssh-ed25519` 和中间长串内容）
+3. 保存后重新测试：
 
 ```bash
 ssh -T git@github.com
