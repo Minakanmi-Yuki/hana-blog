@@ -263,10 +263,29 @@ journalctl -u mihomo -o cat -f
 
 ## 5. 无 GUI 下切换节点（API）
 
+先在当前 shell 定义变量（推荐）：
+
+```bash
+export MIHOMO_API="http://127.0.0.1:9090"
+export MIHOMO_SECRET="your-strong-secret"
+```
+
+> `config.yaml` 里的 `secret` 仍然是固定字符串；这里用环境变量只是为了命令行调用更方便。
+
+可选：写入 `~/.bashrc`，每次登录自动可用：
+
+```bash
+echo 'export MIHOMO_API="http://127.0.0.1:9090"' >> ~/.bashrc
+echo 'export MIHOMO_SECRET="your-strong-secret"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+> 如果是多人共用账号，不建议把 `MIHOMO_SECRET` 长期明文写在共享用户的 `~/.bashrc`。
+
 先注意请求头写法，必须是：
 
 ```bash
--H "Authorization: Bearer your-strong-secret"
+-H "Authorization: Bearer ${MIHOMO_SECRET}"
 ```
 
 错误写法（会返回 `{"message":"Unauthorized"}`）：
@@ -278,18 +297,24 @@ journalctl -u mihomo -o cat -f
 查看策略组节点：
 
 ```bash
-curl -s -H "Authorization: Bearer your-strong-secret" \
-  http://127.0.0.1:9090/proxies | head
+curl -s -H "Authorization: Bearer ${MIHOMO_SECRET}" \
+  "${MIHOMO_API}/proxies" | head
 ```
 
 把 `Proxy` 组切到指定节点（例如 `HK-01`）：
 
 ```bash
 curl -s -X PUT \
-  -H "Authorization: Bearer your-strong-secret" \
+  -H "Authorization: Bearer ${MIHOMO_SECRET}" \
   -H "Content-Type: application/json" \
   -d '{"name":"HK-01"}' \
-  http://127.0.0.1:9090/proxies/Proxy
+  "${MIHOMO_API}/proxies/Proxy"
+```
+
+用完后清理变量（可选）：
+
+```bash
+unset MIHOMO_API MIHOMO_SECRET
 ```
 
 ## 6. 让终端命令走代理
@@ -404,8 +429,8 @@ journalctl -u mihomo -o cat -e
 通常不是端口错了，而是认证头格式错误。应使用：
 
 ```bash
-curl -s -H "Authorization: Bearer your-strong-secret" \
-  http://127.0.0.1:9090/proxies | head
+curl -s -H "Authorization: Bearer ${MIHOMO_SECRET}" \
+  "${MIHOMO_API}/proxies" | head
 ```
 
 ### 4) `mihomo.service not found` / `Unit file does not exist`
