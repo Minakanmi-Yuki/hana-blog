@@ -1,0 +1,467 @@
+---
+title: '在本地电脑上配置 GitHub 权限（SSH/HTTPS）'
+publishDate: 2026-04-22
+updatedDate: 2026-04-22
+description: '面向本地电脑的 GitHub 权限配置教程：Git 身份、SSH key、PAT、Credential Manager、多账号切换与常见报错排查。'
+category: 'tech'
+heroImage: { src: 'https://pic.hana0721.top/98000873_p0_master1200.491vjnsp6s.webp', color: '#8C8275' }
+pixivLink: '98000873'
+tags:
+  - 'github'
+  - 'git'
+  - 'ssh'
+  - 'tutorial'
+  - 'windows'
+  - 'macos'
+  - 'linux'
+---
+
+如果你要在自己的电脑上把代码推到 GitHub，核心其实只需要配对三件事：
+
+- Git 身份是谁
+- 你的电脑拿什么方式向 GitHub 认证
+- 凭证是临时输入、系统托管，还是长期缓存
+
+很多人把这三件事混在一起，所以一遇到 `Permission denied`、`Authentication failed`、推错账号，就很容易卡住。
+
+这篇教程专门讲“**本地电脑如何配置 GitHub 权限**”，按 SSH 和 HTTPS 两条路线都给一套可用流程。
+
+## 0. 先区分两个概念
+
+配置 GitHub 权限时，最容易混淆的是下面两件事：
+
+### 0.1 Git 身份
+
+这是提交记录里显示的作者信息：
+
+```bash
+git config --global user.name "your-name"
+git config --global user.email "your-email@example.com"
+```
+
+它决定的是 commit 里写谁，不等于“你有没有权限 push 到 GitHub”。
+
+### 0.2 GitHub 认证
+
+这是你电脑连接 GitHub 时真正用到的授权方式，常见有两种：
+
+- SSH key
+- HTTPS + Personal Access Token (PAT)
+
+也就是说：
+
+- `user.name` / `user.email` 解决“你是谁”
+- SSH / PAT 解决“你有没有权限访问这个仓库”
+
+## 1. 先检查本地环境
+
+先确认 Git 和 SSH 工具都可用。
+
+Linux / macOS:
+
+```bash
+git --version
+ssh -V
+```
+
+Windows（PowerShell）：
+
+```powershell
+git --version
+ssh -V
+```
+
+如果 `git` 不存在，先安装 Git。
+
+如果 `ssh` 不存在：
+
+- Windows: 安装 Git for Windows 或启用 OpenSSH Client
+- macOS / Linux: 通常系统自带
+
+## 2. 配置 Git 身份
+
+如果这台电脑主要由你自己使用，通常直接配置全局身份就够了：
+
+```bash
+git config --global user.name "your-github-username"
+git config --global user.email "your-email@example.com"
+```
+
+检查结果：
+
+```bash
+git config --global --get user.name
+git config --global --get user.email
+```
+
+如果你希望提交记录绑定到 GitHub 账号，`user.email` 最好使用：
+
+- 你在 GitHub 已验证过的邮箱
+- 或者 GitHub 提供的 `noreply` 邮箱
+
+查看某个仓库当前实际生效的身份：
+
+```bash
+git config --get user.name
+git config --get user.email
+```
+
+如果你只想对当前仓库单独配置，不要加 `--global`。
+
+## 3. 推荐路线 A：使用 SSH key
+
+对个人电脑来说，SSH 通常是最省心的一种方式：
+
+- 不需要每次输入 Token
+- 更适合长期使用
+- 配合 `ssh-agent` 后体验最好
+
+## 4. 生成 SSH key
+
+推荐使用 `ed25519`。
+
+Linux / macOS:
+
+```bash
+ssh-keygen -t ed25519 -C "your-email@example.com"
+```
+
+Windows（PowerShell）：
+
+```powershell
+ssh-keygen -t ed25519 -C "your-email@example.com"
+```
+
+执行过程中会看到几项提示：
+
+```text
+Enter file in which to save the key (...)
+Enter passphrase (...)
+```
+
+建议：
+
+- 路径直接用默认值
+- `passphrase` 最好设置，不要留空
+
+默认路径通常是：
+
+- Linux / macOS: `~/.ssh/id_ed25519`
+- Windows: `C:\Users\你的用户名\.ssh\id_ed25519`
+
+对应公钥文件是：
+
+- `id_ed25519.pub`
+
+## 5. 把公钥加到 GitHub
+
+先查看公钥内容。
+
+Linux / macOS:
+
+```bash
+cat ~/.ssh/id_ed25519.pub
+```
+
+Windows（PowerShell）：
+
+```powershell
+Get-Content $HOME\.ssh\id_ed25519.pub
+```
+
+复制整行公钥后，到 GitHub 页面：
+
+1. 右上角头像 -> `Settings`
+2. 进入 `SSH and GPG keys`
+3. 点击 `New SSH key`
+4. `Title` 随便填，例如 `My Laptop`
+5. 把刚才复制的公钥粘进去
+6. 点击 `Add SSH key`
+
+这一步完成后，你的 GitHub 账号才真正认识这台电脑的密钥。
+
+## 6. 启动 ssh-agent 并加载私钥
+
+### 6.1 Linux / macOS
+
+```bash
+eval "$(ssh-agent -s)"
+ssh-add ~/.ssh/id_ed25519
+```
+
+### 6.2 Windows（PowerShell）
+
+先启动 OpenSSH Agent 服务：
+
+```powershell
+Get-Service ssh-agent
+Start-Service ssh-agent
+Set-Service -Name ssh-agent -StartupType Automatic
+ssh-add $HOME\.ssh\id_ed25519
+```
+
+如果你设置了 passphrase，这里会要求你输入一次。
+
+## 7. 测试 SSH 认证是否成功
+
+执行：
+
+```bash
+ssh -T git@github.com
+```
+
+第一次连接时，可能会看到主机指纹确认：
+
+```text
+Are you sure you want to continue connecting (yes/no/[fingerprint])?
+```
+
+输入：
+
+```text
+yes
+```
+
+如果认证成功，常见输出类似：
+
+```text
+Hi your-username! You've successfully authenticated...
+```
+
+## 8. 把仓库远程地址切到 SSH
+
+查看当前远程地址：
+
+```bash
+git remote -v
+```
+
+如果是 HTTPS，例如：
+
+```text
+https://github.com/your-username/your-repo.git
+```
+
+可以改成 SSH：
+
+```bash
+git remote set-url origin git@github.com:your-username/your-repo.git
+git remote -v
+```
+
+之后推送：
+
+```bash
+git push -u origin main
+```
+
+## 9. 备选路线 B：使用 HTTPS + PAT
+
+如果你暂时不想配 SSH，也可以直接走 HTTPS，但现在不能再用 GitHub 登录密码，必须用 `Personal Access Token`。
+
+## 10. 创建 PAT
+
+GitHub 页面路径：
+
+1. 右上角头像 -> `Settings`
+2. `Developer settings`
+3. `Personal access tokens`
+4. 选择 `Tokens (classic)` 或 Fine-grained Token
+
+如果你是新手，本地个人电脑使用 `Tokens (classic)` 会更直接。
+
+创建时至少注意：
+
+- 设定过期时间
+- 给出需要的仓库权限
+- 私人仓库常见需要 `repo`
+
+生成后要立刻保存，因为 GitHub 通常只显示一次。
+
+## 11. HTTPS 推送时怎么填用户名和密码
+
+当你执行：
+
+```bash
+git push
+```
+
+如果提示输入：
+
+```text
+Username for 'https://github.com':
+Password for 'https://github.com':
+```
+
+应该这样填：
+
+- `Username`：你的 GitHub 用户名
+- `Password`：你的 PAT，不是 GitHub 登录密码
+
+## 12. 让系统记住凭证
+
+如果你每次都输 PAT，会比较烦。更合理的做法是让系统凭证管理器接管。
+
+### 12.1 Windows
+
+Git for Windows 通常可配 `manager-core`：
+
+```bash
+git config --global credential.helper manager-core
+```
+
+之后凭证会进入 Windows Credential Manager。
+
+### 12.2 macOS
+
+```bash
+git config --global credential.helper osxkeychain
+```
+
+### 12.3 Linux
+
+如果你没有桌面凭证管理器，最简单是：
+
+```bash
+git config --global credential.helper cache
+```
+
+这只做内存缓存，安全性通常比明文存盘好。
+
+不推荐：
+
+```bash
+git config --global credential.helper store
+```
+
+因为它可能把 Token 明文写到本地文件里。
+
+## 13. 多 GitHub 账号怎么处理
+
+这是本地电脑最常见的进阶需求之一：工作号一个，私人号一个。
+
+### 13.1 SSH 多账号方案
+
+思路是：
+
+- 每个账号各自一把 SSH key
+- 在 `~/.ssh/config` 里用不同 Host 别名
+- 不同仓库绑定不同远程地址
+
+示例：
+
+```ssh-config
+Host github-personal
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/id_ed25519_personal
+
+Host github-work
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/id_ed25519_work
+```
+
+然后你的远程地址可以写成：
+
+```text
+git@github-personal:yourname/repo.git
+git@github-work:company/repo.git
+```
+
+这样不同仓库就会走不同密钥。
+
+### 13.2 Git 身份也分仓库设置
+
+例如：
+
+```bash
+git config user.name "work-account"
+git config user.email "work@example.com"
+```
+
+这样只影响当前仓库。
+
+## 14. 最常见的报错与处理
+
+### 14.1 `Permission denied (publickey)`
+
+通常说明：
+
+- 公钥没加到 GitHub
+- `ssh-agent` 没加载私钥
+- 仓库远程地址和你预期账号不一致
+- 你实际用了另一把 key
+
+优先检查：
+
+```bash
+ssh-add -l
+git remote -v
+ssh -T git@github.com
+```
+
+### 14.2 `Authentication failed`
+
+这通常发生在 HTTPS 路线下，常见原因：
+
+- 你输入的是 GitHub 登录密码，不是 PAT
+- PAT 权限不够
+- PAT 已过期
+- 系统里缓存了旧凭证
+
+### 14.3 提交记录不显示在 GitHub 账号下
+
+通常不是权限问题，而是邮箱不匹配。
+
+检查：
+
+```bash
+git config --get user.email
+```
+
+确认这个邮箱已经在 GitHub 账号中添加并验证。
+
+### 14.4 推到了错误账号
+
+通常是：
+
+- 系统缓存了另一个账号的 PAT
+- SSH 走了另一把 key
+- 仓库配置的 `user.name` / `user.email` 与预期不一致
+
+## 15. 一条推荐工作流
+
+如果你是“自己的电脑 + 长期使用 GitHub”，我更推荐：
+
+1. 配 Git 全局身份
+2. 生成 `ed25519` SSH key
+3. 把公钥加到 GitHub
+4. 用 `ssh-agent` 管理私钥
+5. 把远程地址改成 SSH
+
+也就是：
+
+```bash
+git config --global user.name "your-name"
+git config --global user.email "your-email@example.com"
+ssh-keygen -t ed25519 -C "your-email@example.com"
+ssh-add ~/.ssh/id_ed25519
+ssh -T git@github.com
+git remote set-url origin git@github.com:your-username/your-repo.git
+```
+
+这套组合通常是最稳的。
+
+## 16. 结语
+
+在本地电脑上配置 GitHub 权限，本质上不是“装一个工具就完事”，而是把下面三层关系理顺：
+
+- Git 提交身份
+- GitHub 认证方式
+- 本地凭证管理方式
+
+如果你希望长期稳定使用，优先选 SSH。  
+如果你只是临时使用或公司流程要求 HTTPS，再用 PAT + 系统凭证管理器。
+
+只要把这套关系理顺，以后遇到 GitHub 权限问题，基本都能很快定位。
