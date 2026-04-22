@@ -1,0 +1,287 @@
+---
+title: '纯 SSH 服务器配置 RustDesk（命令行方案）'
+publishDate: 2026-04-22
+updatedDate: 2026-04-22
+description: '面向只有 SSH 的远程 Linux 服务器：从补桌面、安装 RustDesk，到设置固定密码、自建服务端配置与常见坑排查。'
+category: 'tech'
+tags:
+  - 'rustdesk'
+  - 'linux'
+  - 'ssh'
+  - 'remote desktop'
+  - 'ubuntu'
+  - 'tutorial'
+draft: false
+comment: true
+---
+
+如果你现在只有一台远程 Linux 服务器的 SSH 权限，想把它接入 RustDesk，先记住一个关键前提：
+
+- **只有命令行可以操作**，不等于**这台机器没有图形桌面**
+- 如果机器真的只有纯终端、没有图形会话，RustDesk 也不能凭空远控出一个“桌面”
+
+RustDesk 官方 Linux 文档明确提到两件事：
+
+- Linux 端优先使用发行版原生包安装
+- 登录界面远控仍然要求 `X11`
+
+另外，RustDesk 官方仓库的 Headless Linux 说明页提到：Linux headless 支持默认关闭，只在 Ubuntu 上做过测试，并要求 GNOME、`xserver-xorg-video-dummy` 和 `lightdm` 这类前置条件。
+
+所以这篇文章分两种情况写：
+
+1. 服务器本来就有桌面，只是你现在只能 SSH 上去
+2. 服务器真的没有桌面，需要先补一个最小可远控的图形环境
+
+本文主线以 Ubuntu / Debian 为例。
+
+## 0. 先判断你是哪一种机器
+
+如果下面命令里能看到 GNOME、Xorg、display manager 之类的包，通常说明机器已经有图形环境：
+
+```bash
+dpkg -l | rg 'ubuntu-desktop|gnome-shell|xorg|gdm3|lightdm'
+systemctl get-default
+```
+
+- 如果输出里已经有桌面组件，可以直接跳到“安装 RustDesk”
+- 如果基本什么都没有，而且默认 target 是 `multi-user.target`，按“先补桌面”处理
+
+## 1. 机器完全没有桌面时：先补图形环境
+
+如果你的远程机本质上是一台“纯 CLI 服务器”，先装一套 RustDesk 更稳的官方建议组合。
+
+```bash
+sudo apt update
+sudo apt install -y ubuntu-desktop xserver-xorg-video-dummy lightdm
+sudo systemctl set-default graphical.target
+sudo systemctl enable lightdm
+sudo reboot
+```
+
+这一步的作用分别是：
+
+- `ubuntu-desktop`：提供 GNOME 桌面
+- `xserver-xorg-video-dummy`：没有物理显示器时，提供 dummy display
+- `lightdm`：给无头场景一个更稳定的图形登录管理器
+
+> 这里我遵循 RustDesk 官方 headless 说明页的口径，优先写 GNOME + dummy driver + `lightdm`。  
+> 如果你打算用更轻的 `xfce4`，社区里有人跑通，但官方页只明确写了 GNOME，稳定性就别混着赌。
+
+## 2. 安装 RustDesk
+
+RustDesk 官方文档在 Linux 上推荐优先用发行版原生包：Ubuntu / Debian 用 `.deb`。
+
+下面这段命令会自动识别架构，并从 RustDesk GitHub 最新 release 拉对应的 Debian 包：
+
+```bash
+mkdir -p ~/downloads/rustdesk
+cd ~/downloads/rustdesk
+
+ARCH="$(dpkg --print-architecture)"
+if [ "$ARCH" = "amd64" ]; then
+  PATTERN='rustdesk-[^"]*-x86_64\.deb'
+elif [ "$ARCH" = "arm64" ]; then
+  PATTERN='rustdesk-[^"]*-aarch64\.deb'
+else
+  echo "Unsupported arch: $ARCH"
+  exit 1
+fi
+
+URL="$(curl -fsSL https://api.github.com/repos/rustdesk/rustdesk/releases/latest \
+  | grep -oE "https://[^\"]+${PATTERN}" \
+  | head -n 1)"
+
+if [ -z "$URL" ]; then
+  echo "Failed to resolve RustDesk release url"
+  exit 1
+fi
+
+curl -L "$URL" -o rustdesk.deb
+sudo apt install -fy ./rustdesk.deb
+```
+
+验证：
+
+```bash
+rustdesk --version
+systemctl status rustdesk --no-pager
+```
+
+如果 `systemctl status rustdesk` 提示服务不存在，也不用慌，先试：
+
+```bash
+sudo systemctl enable --now rustdesk
+```
+
+## 3. 开启 headless 选项、设置固定密码、拿到 ID
+
+如果这台机子没有物理显示器，或者你就是想让它长期作为“无人值守远控节点”，把下面三步做完：
+
+```bash
+sudo rustdesk --option allow-linux-headless Y
+sudo rustdesk --password 'YourStrongPassword123'
+sudo rustdesk --get-id
+```
+
+你真正要记住的是两样东西：
+
+- RustDesk ID
+- 你刚设置的固定密码
+
+然后在你本地电脑上的 RustDesk 客户端里，输入这个 ID 和密码即可连接。
+
+> `allow-linux-headless` 是 RustDesk 官方 headless Linux 说明页明确要求开启的选项。  
+> 如果你的机器本来就有显示器和完整桌面，这一步通常不是必须，但开了也没坏处。
+
+## 4. 如果你想重启后还能连登录界面：切到 X11
+
+RustDesk 官方 Linux 文档写得很明确：**登录界面远控仍然需要 X11**。  
+也就是说，哪怕新版本已经有实验性的 Wayland 支持，登录界面这块仍然不要指望 Wayland。
+
+如果你装的是 `gdm3`，直接改：
+
+```bash
+sudo nano /etc/gdm3/custom.conf
+```
+
+把这一行改成：
+
+```ini
+WaylandEnable=false
+```
+
+保存后重启：
+
+```bash
+sudo reboot
+```
+
+如果你前面按本文装的是 `lightdm`，通常会比 `gdm3 + Wayland` 少一层坑。
+
+## 5. 如果你用的是自建 RustDesk Server
+
+如果你不是走 RustDesk 官方公共服务器，而是用自己的 `hbbs` / `hbbr`，CLI 场景下最省事的方式不是手改 GUI，而是直接注入配置字符串。
+
+RustDesk 官方部署文档里的 Linux 脚本就是这么做的：
+
+```bash
+RUSTDESK_CFG='你的 config string'
+sudo rustdesk --config "$RUSTDESK_CFG"
+sudo systemctl restart rustdesk
+```
+
+然后再重新确认：
+
+```bash
+rustdesk --get-id
+```
+
+这里有两个实用建议：
+
+- `config string` 最好从你已经配好的 RustDesk 客户端或管理端导出，避免手敲 `ID Server` / `Relay Server` / `Key`
+- 先执行 `--config`，再执行 `systemctl restart rustdesk`，不要反过来
+
+如果你暂时还没有现成的 config string，可以先用 RustDesk 官方公共服务器把链路打通，再切到自建服务。
+
+## 6. 一套可直接复制的最小闭环
+
+如果你的目标只是“把一台只有 SSH 的 Ubuntu 服务器接进 RustDesk”，最短路径就是下面这套：
+
+```bash
+sudo apt update
+sudo apt install -y ubuntu-desktop xserver-xorg-video-dummy lightdm
+sudo systemctl set-default graphical.target
+sudo systemctl enable lightdm
+sudo reboot
+```
+
+重连 SSH 后继续：
+
+```bash
+mkdir -p ~/downloads/rustdesk
+cd ~/downloads/rustdesk
+
+ARCH="$(dpkg --print-architecture)"
+if [ "$ARCH" = "amd64" ]; then
+  PATTERN='rustdesk-[^"]*-x86_64\.deb'
+elif [ "$ARCH" = "arm64" ]; then
+  PATTERN='rustdesk-[^"]*-aarch64\.deb'
+else
+  echo "Unsupported arch: $ARCH"
+  exit 1
+fi
+
+URL="$(curl -fsSL https://api.github.com/repos/rustdesk/rustdesk/releases/latest \
+  | grep -oE "https://[^\"]+${PATTERN}" \
+  | head -n 1)"
+
+curl -L "$URL" -o rustdesk.deb
+sudo apt install -fy ./rustdesk.deb
+
+sudo systemctl enable --now rustdesk
+sudo rustdesk --option allow-linux-headless Y
+sudo rustdesk --password 'YourStrongPassword123'
+sudo rustdesk --get-id
+```
+
+到这里，这台服务器就已经具备“被 RustDesk 连接”的最小条件了。
+
+## 7. 常见问题
+
+### 7.1 `rustdesk --get-id` 没输出
+
+优先检查：
+
+```bash
+systemctl status rustdesk --no-pager
+journalctl -u rustdesk -n 100 --no-pager
+```
+
+常见原因：
+
+- RustDesk 服务没起来
+- 机器外网不通，无法连到官方服务器或你的自建 `hbbs`
+- 你切了自建服务，但没执行 `rustdesk --config`
+
+### 7.2 能连上，但黑屏
+
+这类问题大概率不是 RustDesk “安装失败”，而是**没有可用图形会话**。按这个顺序检查：
+
+1. 有没有安装桌面环境
+2. 有没有安装 `xserver-xorg-video-dummy`
+3. 当前是不是 `graphical.target`
+4. 登录界面是不是还在 Wayland
+
+### 7.3 重启后能 SSH，但 RustDesk 进不去登录界面
+
+优先怀疑两件事：
+
+- 没切到 `graphical.target`
+- 登录管理器还在 Wayland
+
+也就是说，下面两条至少要成立：
+
+```bash
+systemctl get-default
+grep -n 'WaylandEnable' /etc/gdm3/custom.conf
+```
+
+### 7.4 这台机器根本不需要桌面，我还该不该装 RustDesk？
+
+如果你只是想：
+
+- 跑训练
+- 部署服务
+- 改代码
+- 看日志
+
+那其实 `SSH + tmux + VSCode Remote SSH` 往往更合适。  
+RustDesk 真正擅长的是“图形桌面远控”，不是替代终端运维。
+
+## 8. 参考
+
+- RustDesk Linux 文档：[rustdesk.com/docs/en/client/linux/](https://rustdesk.com/docs/en/client/linux/)
+- RustDesk Client Deployment（Linux `--config` 脚本）：
+  [rustdesk.com/docs/en/self-host/client-deployment/](https://rustdesk.com/docs/en/self-host/client-deployment/)
+- RustDesk Headless Linux Support（官方仓库 Wiki）：
+  [github.com/rustdesk/rustdesk/wiki/Headless-Linux-Support](https://github.com/rustdesk/rustdesk/wiki/Headless-Linux-Support)
