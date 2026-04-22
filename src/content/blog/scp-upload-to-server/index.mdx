@@ -1,0 +1,319 @@
+---
+title: '用 scp 向远程服务器传送文件'
+publishDate: 2026-04-22
+updatedDate: 2026-04-22
+description: '一篇讲清 scp 文件上传的实用教程：基础命令、目录传输、自定义端口、SSH 密钥登录与常见报错排查。'
+heroImage: { src: 'https://pic.hana0721.top/93990522_p0_master1200.et40soxif.webp', color: '#8C8275' }
+pixivLink: '93990522'
+category: 'tech'
+tags:
+  - 'scp'
+  - 'ssh'
+  - 'linux'
+  - 'macos'
+  - 'windows'
+  - 'tutorial'
+draft: false
+comment: true
+---
+
+`scp` 是最常见的远程传文件命令之一。  
+如果你已经能通过 `ssh` 登录服务器，那么通常也可以直接用 `scp` 把本地文件传到远程机器上。
+
+这篇文章只解决一个实际问题：**如何把本地文件或目录上传到远程 Linux 服务器**。默认场景如下：
+
+- 本地电脑：Linux / macOS / Windows（PowerShell）
+- 远程机器：Linux 服务器
+- 远程登录方式：用户名 + IP（或域名）+ SSH 端口
+
+## 1. `scp` 最基本的命令格式
+
+上传文件的基本写法是：
+
+```bash
+scp 本地文件 用户名@服务器IP:远程路径
+```
+
+例如，把当前目录下的 `notes.txt` 上传到服务器家目录：
+
+```bash
+scp notes.txt username@192.168.1.20:~
+```
+
+这条命令的含义：
+
+- `notes.txt`：本地文件
+- `username`：远程服务器用户名
+- `192.168.1.20`：远程服务器 IP
+- `~`：远程用户家目录
+
+如果服务器要求密码，执行后会提示你输入远程登录密码。
+
+如果你已经在本地 `~/.ssh/config` 里给服务器配了 SSH 别名，那么这里也可以直接用别名替代 `username@服务器IP`。例如：
+
+```bash
+scp notes.txt my-server:~
+```
+
+## 2. 上传到指定目录
+
+如果你想把文件上传到远程机器上的某个明确目录，可以直接写完整路径：
+
+```bash
+scp notes.txt username@192.168.1.20:/home/username/uploads/
+```
+
+再比如上传一个压缩包：
+
+```bash
+scp project.tar.gz username@192.168.1.20:/home/username/projects/
+```
+
+建议先确认远程目录确实存在，否则可能报错：
+
+```bash
+ssh username@192.168.1.20 "mkdir -p /home/username/projects"
+```
+
+## 3. 上传目录而不是单个文件
+
+如果要上传整个文件夹，需要加 `-r`：
+
+```bash
+scp -r my_project username@192.168.1.20:/home/username/projects/
+```
+
+说明：
+
+- `-r` 表示递归复制
+- `my_project` 可以是目录
+- 远程目标目录建议提前创建好
+
+如果目录里文件较多，这个命令可能会执行一段时间。
+
+## 4. 服务器不是 22 端口时怎么写
+
+很多云服务器或实验室机器不会使用默认的 `22` 端口。  
+这时要用大写 `-P` 指定端口：
+
+```bash
+scp -P 2222 notes.txt username@192.168.1.20:/home/username/uploads/
+```
+
+注意这里是：
+
+- `scp` 用 `-P` 指定端口
+- `ssh` 通常用小写 `-p`
+
+这两个地方很容易写混。
+
+## 5. 使用 SSH 密钥上传
+
+如果你的服务器用私钥登录，可以用 `-i` 指定私钥文件：
+
+```bash
+scp -i ~/.ssh/id_ed25519 notes.txt username@192.168.1.20:/home/username/uploads/
+```
+
+如果服务器端口也不是默认值，可以一起写：
+
+```bash
+scp -P 2222 -i ~/.ssh/id_ed25519 notes.txt username@192.168.1.20:/home/username/uploads/
+```
+
+如果你已经在 `~/.ssh/config` 里配置了 SSH Host 别名，那么命令可以进一步简化。
+
+例如配置：
+
+```ssh-config
+Host my-server
+  HostName 192.168.1.20
+  User username
+  Port 2222
+  IdentityFile ~/.ssh/id_ed25519
+```
+
+之后就可以直接写：
+
+```bash
+scp notes.txt my-server:/home/username/uploads/
+```
+
+这个写法在日常使用里通常最省事。
+
+## 6. Windows / macOS / Linux 上是否都能用
+
+### Linux / macOS
+
+终端里通常直接可用：
+
+```bash
+scp -V
+```
+
+### Windows
+
+Windows 10 / 11 一般自带 OpenSSH Client，可以在 PowerShell 里直接执行：
+
+```powershell
+scp .\notes.txt username@192.168.1.20:/home/username/uploads/
+```
+
+如果提示 `scp` 不是内部或外部命令，先检查 OpenSSH Client 是否已安装。
+
+## 7. 文件名带空格时怎么处理
+
+如果本地文件名里有空格，建议加引号：
+
+```bash
+scp "my notes.txt" username@192.168.1.20:/home/username/uploads/
+```
+
+如果远程目录路径里有空格，也建议整体加引号：
+
+```bash
+scp notes.txt "username@192.168.1.20:/home/username/my uploads/"
+```
+
+最稳妥的做法仍然是：**文件名和目录名尽量避免空格**。
+
+## 8. 如何确认上传成功
+
+上传完成后，可以登录服务器检查：
+
+```bash
+ssh username@192.168.1.20
+ls -lh /home/username/uploads/
+```
+
+也可以直接一条命令验证：
+
+```bash
+ssh username@192.168.1.20 "ls -lh /home/username/uploads/"
+```
+
+如果你上传的是目录，也可以用：
+
+```bash
+ssh username@192.168.1.20 "du -sh /home/username/projects/my_project"
+```
+
+## 9. 常见报错与处理
+
+### `ssh: connect to host ... port ...: Connection refused`
+
+通常说明：
+
+- IP 或域名写错
+- 端口写错
+- 远程服务器 SSH 服务没开
+- 防火墙没有放行对应端口
+
+优先检查你是否能先正常执行：
+
+```bash
+ssh username@192.168.1.20
+```
+
+或者：
+
+```bash
+ssh -p 2222 username@192.168.1.20
+```
+
+### `Permission denied`
+
+通常有两种情况：
+
+- 用户名、密码或私钥不对
+- 你没有目标目录的写权限
+
+先确认登录是否正常，再确认上传目标是否是你有权限写入的位置，例如：
+
+- `/home/username/`
+- `/home/username/uploads/`
+- `~/projects/`
+
+不要一开始就传到 `/root/` 或系统目录。
+
+### `No such file or directory`
+
+通常表示：
+
+- 本地文件路径写错
+- 远程目标目录不存在
+
+处理方式：
+
+- 本地先 `ls`
+- 远程先 `ssh` 登录确认目录
+- 需要时先执行 `mkdir -p`
+
+## 10. 实用命令速查
+
+上传单个文件：
+
+```bash
+scp file.txt username@server:~
+```
+
+上传到指定目录：
+
+```bash
+scp file.txt username@server:/home/username/uploads/
+```
+
+上传整个目录：
+
+```bash
+scp -r mydir username@server:/home/username/projects/
+```
+
+指定端口：
+
+```bash
+scp -P 2222 file.txt username@server:/home/username/uploads/
+```
+
+指定私钥：
+
+```bash
+scp -i ~/.ssh/id_ed25519 file.txt username@server:/home/username/uploads/
+```
+
+使用 SSH Host 别名：
+
+```bash
+scp file.txt my-server:/home/username/uploads/
+```
+
+## 11. 什么时候不建议继续用 `scp`
+
+`scp` 很适合：
+
+- 临时上传文件
+- 上传脚本、压缩包、配置文件
+- 快速把本地项目丢到服务器上
+
+但如果你要：
+
+- 长时间断点续传
+- 大量文件同步
+- 频繁增量更新目录
+
+那么通常更推荐 `rsync`。
+
+## 12. 一句话总结
+
+记住这一条就够你先用起来：
+
+```bash
+scp 本地文件 用户名@服务器IP:远程路径
+```
+
+如果再多记两个参数：
+
+- `-r`：传目录
+- `-P`：指定端口
+
+大多数 `scp` 上传场景就已经能覆盖了。
