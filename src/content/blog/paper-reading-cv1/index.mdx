@@ -62,14 +62,16 @@ import { ManualTOC } from '@/components/advanced'
 
 ## ViT
 
-<ArxivRating id='2010.11929' publication='ICLR2021' tldr='把图像切成 Patch 后直接送入 Transformer，是后续大规模视觉预训练模型的重要基础。' rank={0}>
-
+<ArxivRating id='2010.11929' publication='ICLR2021' tldr='把图像切成 Patch 后直接送入 Transformer，是后续大规模视觉预训练模型的重要基础。' rank={4}>
+![](https://pic.hana0721.top/vit.45ib66czms.webp)
+ViT 是视觉 Transformer 的基础工作，提出了把图像切成固定大小的 Patch 后直接送入标准 Transformer 进行建模的思路。虽然 ViT 在小规模数据上表现不佳，但在大规模数据上展示了强大的性能，成为后续大规模视觉预训练模型的重要基础。ViT 的核心贡献在于证明了纯 Transformer 架构在视觉任务中的可行性，激发了后续大量基于 Transformer 的视觉模型的研究和发展。
 </ArxivRating>
 
 ## MAE
 
-<ArxivRating id='2111.06377' publication='CVPR2022' tldr='用高比例 Masked Image Modeling 训练可扩展视觉编码器，是图像自监督预训练的重要基线。' rank={0}>
-
+<ArxivRating id='2111.06377' publication='CVPR2022' tldr='用高比例 Masked Image Modeling 训练可扩展视觉编码器，是图像自监督预训练的重要基线。' rank={4}>
+![](https://pic.hana0721.top/mae.6f1bpnz90a.webp)
+MAE 做的事情很简单，就是把图像随机遮挡掉大部分 Patch 后让模型重建被遮挡的部分。虽然方法简单，但 MAE 展现了高比例 Masked Image Modeling 的有效性，训练出的视觉编码器在下游任务中表现出色，成为图像自监督预训练的重要基线。MAE 的核心贡献在于证明了通过遮挡大部分输入来训练模型重建缺失信息的思路在视觉领域同样有效，激发了后续大量基于 Masked Modeling 的视觉预训练方法的研究和发展。
 </ArxivRating>
 
 ## DINO
