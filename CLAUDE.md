@@ -88,6 +88,16 @@ Central configuration that controls:
    comment: true
    ```
 
+### Research Paper Reading Pages
+- Research-category paper reading pages that list papers with `ArxivRating` should contain
+  at most 25 papers per page.
+- Fill the current numbered page to 25 papers before creating the next page; do not split a
+  series early just by subtopic if the current page has room.
+- When a topic exceeds 25 papers, put only the overflow into the next numbered batch page,
+  such as `paper-reading-cv2`, and add a `ManualTOC` batch navigator on every page in that
+  series.
+- Use the `paper-reading-eba*` pages as the reference pattern for batch names and links.
+
 ### Content Processing Pipeline
 1. Zod validation of frontmatter in `src/content.config.ts`
 2. Remark plugins for markdown enhancement

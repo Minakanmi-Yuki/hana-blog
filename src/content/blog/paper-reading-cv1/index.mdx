@@ -1,7 +1,7 @@
 ---
 title: 'Paper Reading: CV 1'
 publishDate: 2025-12-26
-updatedDate: 2025-12-26
+updatedDate: 2026-05-31
 description: 浅度一些视觉相关的工作
 heroImage: { src: 'https://pic.hana0721.top/62258773_p0_master1200.7zr0vfh0rf.webp', color: '#8C8275' }
 category: 'research'
@@ -15,42 +15,179 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <RatingCriteria />
 
+import { ManualTOC } from '@/components/advanced'
+
+<ManualTOC
+  title=''
+  categories={[
+    {
+      title: 'CV Paper Reading',
+      items: [
+        {
+          title: 'Batch 1',
+          href: '/blog/paper-reading-cv1',
+          order: '1'
+        },
+        {
+          title: 'Batch 2',
+          href: '/blog/paper-reading-cv2',
+          order: '2'
+        }
+      ]
+    }
+  ]}
+/>
+
 ## 前言
 
-这里主要是一些比较基础性的文章。
+计算机视觉基础模型关注从图像、视频和点云中学习可迁移的表征与几何结构。相关工作覆盖经典视觉骨干、自监督预训练、开放词表检测、通用分割、点云表征与视觉几何，核心作用是为分类、检测、分割、三维理解、场景重建和机器人感知等任务提供稳定的基础感知能力。
 
 ## AlexNet
 
-<ArxivRating id='https://proceedings.neurips.cc/paper_files/paper/2012/file/c399862d3b9d6b76c8436e924a68c45b-Paper.pdf' tldr='' rank={0}>
+<ArxivRating id='https://proceedings.neurips.cc/paper_files/paper/2012/file/c399862d3b9d6b76c8436e924a68c45b-Paper.pdf' publication='NeurIPS2012' tldr='' rank={0}>
 
 </ArxivRating>
 
 ## VGG
 
-<ArxivRating id='1409.1556' tldr='' rank={0}>
+<ArxivRating id='1409.1556' publication='ICLR2015' tldr='' rank={0}>
 
 </ArxivRating>
 
 ## ResNet
 
-<ArxivRating id='1512.03385' tldr='' rank={0}>
+<ArxivRating id='1512.03385' publication='CVPR2016' tldr='' rank={0}>
+
+</ArxivRating>
+
+## ViT
+
+<ArxivRating id='2010.11929' publication='ICLR2021' tldr='把图像切成 Patch 后直接送入 Transformer，是后续大规模视觉预训练模型的重要基础。' rank={0}>
+
+</ArxivRating>
+
+## MAE
+
+<ArxivRating id='2111.06377' publication='CVPR2022' tldr='用高比例 Masked Image Modeling 训练可扩展视觉编码器，是图像自监督预训练的重要基线。' rank={0}>
+
+</ArxivRating>
+
+## DINO
+
+<ArxivRating id='2104.14294' publication='ICCV2021' tldr='Self-Distillation 的自监督 ViT，展示了无监督特征中自然涌现的语义分割能力。' rank={0}>
+
+</ArxivRating>
+
+## DINOv2
+
+<ArxivRating id='2304.07193' publication='TMLR2024' tldr='通过大规模精选数据和蒸馏训练得到通用视觉特征，是近几年最常用的冻结视觉 Backbone 之一。' rank={0}>
+
+</ArxivRating>
+
+## DINOv3
+
+<ArxivRating id='2508.10104' tldr='DINO 系列的进一步规模化版本，面向图像、遥感与密集预测等任务提供更强的通用视觉特征。' rank={0}>
+
+</ArxivRating>
+
+## Grounding DINO
+
+<ArxivRating id='2303.05499' publication='ECCV2024' tldr='把开放词表文本 Grounding 引入检测器，是 Grounded-SAM、开放词表检测和机器人感知中常用的定位模块。' rank={0}>
+
+</ArxivRating>
+
+## Segment Anything
+
+<ArxivRating id='2304.02643' publication='ICCV2023' tldr='提出 Promptable Segmentation 与 SA-1B 数据集，是通用分割和交互式标注的代表性 VFM。' rank={0}>
+
+</ArxivRating>
+
+## SAM 2
+
+<ArxivRating id='2408.00714' publication='ICLR2025' tldr='将 SAM 扩展到图像与视频，核心是带 Streaming Memory 的交互式视频分割模型。' rank={0}>
+
+</ArxivRating>
+
+## SAM 3
+
+<ArxivRating id='2511.16719' publication='ICLR2026' tldr='从点框提示扩展到文本与示例图像概念提示，统一图像和视频中的开放词表检测、分割与跟踪。' rank={0}>
+
+</ArxivRating>
+
+## SAM 3D
+
+<ArxivRating id='2511.16624' tldr='SAM 系列的 3D 重建方向工作，从单张自然图像预测物体几何、纹理与布局。' rank={0}>
 
 </ArxivRating>
 
 ## PointNet
 
-<ArxivRating id='1512.03385' tldr='' rank={0}>
+<ArxivRating id='1612.00593' publication='CVPR2017' tldr='直接在无序点集上学习点云特征，是点云深度学习的基础工作。' rank={0}>
 
 </ArxivRating>
 
 ## PointNet++
 
-<ArxivRating id='1512.03385' tldr='' rank={0}>
+<ArxivRating id='1706.02413' publication='NeurIPS2017' tldr='在 PointNet 基础上引入层级局部结构建模，补上点云局部几何感知能力。' rank={0}>
 
 </ArxivRating>
 
-## VGGT
+## Point-BERT
 
-<ArxivRating id='1512.03385' tldr='' rank={0}>
+<ArxivRating id='2111.14819' publication='CVPR2022' tldr='把 BERT 风格的 Masked Point Modeling 引入 3D 点云 Transformer 预训练。' rank={0}>
+
+</ArxivRating>
+
+## Point-MAE
+
+<ArxivRating id='2203.06604' publication='ECCV2022' tldr='点云版 MAE，通过 Masked Autoencoding 学习可迁移的 3D 表征。' rank={0}>
+
+</ArxivRating>
+
+## PointGPT
+
+<ArxivRating id='2305.11487' publication='NeurIPS2023' tldr='用自回归生成式预训练建模点云 Patch 序列，是 GPT 思路在点云表征学习中的代表。' rank={0}>
+
+</ArxivRating>
+
+## Point Transformer V3
+
+<ArxivRating id='2312.10035' publication='CVPR2024' tldr='强调规模化、序列化邻域映射和效率，是近年点云通用 Backbone 的强基线。' rank={0}>
+
+</ArxivRating>
+
+## PointCLIP
+
+<ArxivRating id='2112.02413' tldr='把点云投影到多视角深度图后借用 CLIP 进行零样本和小样本 3D 识别。' rank={0}>
+
+</ArxivRating>
+
+## PointCLIP V2
+
+<ArxivRating id='2211.11682' publication='ICCV2023' tldr='结合 CLIP 与 GPT Prompt，把开放世界能力扩展到 3D 分类、分割与检测。' rank={0}>
+
+</ArxivRating>
+
+## ULIP
+
+<ArxivRating id='2212.05171' publication='CVPR2023' tldr='统一语言、图像和点云表征，将 3D Backbone 对齐到图文预训练空间。' rank={0}>
+
+</ArxivRating>
+
+## Point-Bind & Point-LLM
+
+<ArxivRating id='2309.00615' tldr='将点云与图像、语言、音频、视频等模态对齐，并进一步接入 3D 指令跟随。' rank={0}>
+
+</ArxivRating>
+
+## OpenScene
+
+<ArxivRating id='2211.15654' publication='CVPR2023' tldr='把 3D 场景点特征对齐到 CLIP 空间，实现开放词表 3D 场景理解。' rank={0}>
+
+</ArxivRating>
+
+## OpenMask3D
+
+<ArxivRating id='2306.13631' publication='NeurIPS2023' tldr='面向开放词表 3D 实例分割，用多视角 CLIP 特征聚合到 3D 实例 Mask 上。' rank={0}>
 
 </ArxivRating>
