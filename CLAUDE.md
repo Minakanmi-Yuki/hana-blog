@@ -98,6 +98,11 @@ Central configuration that controls:
   series.
 - Use the `paper-reading-eba*` pages as the reference pattern for batch names and links.
 
+### Image Hosting
+- When an image source comes from `https://Minakanmi-Yuki.github.io/picx-images-hosting/`,
+  store it in content as `https://pic.hana0721.top/` with the same filename/path.
+- Use the `pic.hana0721.top` domain for future images from that image host.
+
 ### Content Processing Pipeline
 1. Zod validation of frontmatter in `src/content.config.ts`
 2. Remark plugins for markdown enhancement
