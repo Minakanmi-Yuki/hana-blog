@@ -1,0 +1,624 @@
+---
+title: 'Ubuntu OpenSSH 远程服务器配置教程'
+publishDate: 2026-06-01
+updatedDate: 2026-06-01
+description: '从安装 openssh-server 到公网访问、密钥登录、防火墙与安全加固，把一台 Ubuntu 配成可维护的 SSH 远程服务器。'
+heroImage: { src: 'https://pic.hana0721.top/145491169_p0_master1200.2dpccm5v9t.webp', color: '#8C8275' }
+category: 'tech'
+tags:
+  - 'ubuntu'
+  - 'openssh'
+  - 'ssh'
+  - 'linux'
+  - 'server'
+  - 'tutorial'
+---
+
+有一台已经装好 Ubuntu 的机器后，最常见的下一步就是把它当作远端服务器使用：本地电脑通过 `ssh` 登录，在服务器上跑代码、部署服务、传文件或远程开发。
+
+这篇文章整理一套从零开始的 OpenSSH 配置流程，目标是：
+
+- 局域网内可以 SSH 登录
+- 公网或云服务器场景知道该放行哪些端口
+- 支持 SSH 密钥登录
+- 关闭高风险登录方式，减少被爆破的概率
+- 遇到连不上时能快速定位问题
+
+默认环境：
+
+- 服务器：Ubuntu 22.04 / 24.04 或相近版本
+- 客户端：Linux / macOS / Windows PowerShell 均可
+- SSH 服务端：OpenSSH Server
+
+## 1. 安装 OpenSSH Server
+
+在 Ubuntu 服务器上执行：
+
+```bash
+sudo apt update
+sudo apt install -y openssh-server
+```
+
+安装完成后启动 SSH 服务，并设置开机自启：
+
+```bash
+sudo systemctl enable --now ssh
+```
+
+查看服务状态：
+
+```bash
+sudo systemctl status ssh
+```
+
+如果看到 `active (running)`，说明 SSH 服务已经正常运行。
+
+也可以用下面的命令确认 22 端口是否在监听：
+
+```bash
+sudo ss -tlnp | grep ':22'
+```
+
+正常情况下会看到类似：
+
+```text
+LISTEN 0 128 0.0.0.0:22 0.0.0.0:* users:(("sshd",pid=1234,fd=3))
+```
+
+## 2. 创建一个普通登录用户
+
+如果你现在只是在本机上用安装系统时创建的用户，也可以直接用这个用户登录。  
+如果这台机器之后要长期当服务器用，推荐单独创建一个普通用户。
+
+例如创建 `hana` 用户：
+
+```bash
+sudo adduser hana
+```
+
+如果这个用户需要执行 `sudo`：
+
+```bash
+sudo usermod -aG sudo hana
+```
+
+之后就可以用这个用户远程登录：
+
+```bash
+ssh hana@服务器IP
+```
+
+不推荐直接用 `root` 远程登录。服务器日常运维最好使用普通用户登录，需要管理员权限时再通过 `sudo` 提权。
+
+## 3. 查看服务器 IP
+
+### 局域网 IP
+
+如果你只需要在同一个 Wi-Fi / 路由器 / 实验室内网里连接，先查看服务器的内网 IP：
+
+```bash
+hostname -I
+```
+
+输出可能类似：
+
+```text
+192.168.1.20 172.17.0.1
+```
+
+一般使用 `192.168.x.x`、`10.x.x.x` 或 `172.16.x.x` 到 `172.31.x.x` 这一类地址。
+
+然后在本地电脑上连接：
+
+```bash
+ssh hana@192.168.1.20
+```
+
+第一次连接时会看到主机指纹确认提示：
+
+```text
+Are you sure you want to continue connecting (yes/no/[fingerprint])?
+```
+
+确认 IP 没写错后输入：
+
+```text
+yes
+```
+
+之后再输入服务器用户密码即可登录。
+
+### 公网 IP
+
+如果是云服务器，公网 IP 通常在云厂商控制台里可以直接看到。
+
+如果是放在家里或实验室的物理机器，则需要区分两件事：
+
+- 机器自己的内网 IP，例如 `192.168.1.20`
+- 路由器对外的公网 IP
+
+可以在服务器上查看对外出口 IP：
+
+```bash
+curl ifconfig.me
+```
+
+但能看到公网 IP 不代表外部一定能连进来。很多校园网、公司网络、家庭宽带可能处在 NAT 后面，没有可直接访问的公网入口。
+
+## 4. 开放防火墙端口
+
+Ubuntu 常用防火墙是 `ufw`。如果你启用了它，需要允许 SSH 流量。
+
+查看防火墙状态：
+
+```bash
+sudo ufw status
+```
+
+放行 OpenSSH：
+
+```bash
+sudo ufw allow OpenSSH
+```
+
+或者明确放行 22 端口：
+
+```bash
+sudo ufw allow 22/tcp
+```
+
+如果 `ufw` 还没启用，可以启用它：
+
+```bash
+sudo ufw enable
+```
+
+再次确认：
+
+```bash
+sudo ufw status numbered
+```
+
+如果后面你把 SSH 改到了非默认端口，例如 `2222`，记得提前放行新端口：
+
+```bash
+sudo ufw allow 2222/tcp
+```
+
+**重点：先放行新端口，再改 SSH 配置。** 否则可能把自己锁在服务器外面。
+
+## 5. 从本地电脑连接服务器
+
+最基本的 SSH 命令格式是：
+
+```bash
+ssh 用户名@服务器IP
+```
+
+例如：
+
+```bash
+ssh hana@192.168.1.20
+```
+
+如果 SSH 服务不是默认的 22 端口，需要加 `-p`：
+
+```bash
+ssh -p 2222 hana@192.168.1.20
+```
+
+Windows PowerShell、macOS Terminal、Linux Terminal 都可以直接使用这个命令。  
+如果 Windows 提示找不到 `ssh`，可以在系统设置的“可选功能”里安装 OpenSSH Client。
+
+## 6. 配置 SSH 密钥登录
+
+密码登录能用，但不适合长期暴露在公网。更推荐使用 SSH 密钥。
+
+### 6.1 在本地电脑生成密钥
+
+在本地电脑执行，不是在服务器上执行：
+
+```bash
+ssh-keygen -t ed25519 -C "your_email@example.com"
+```
+
+默认会生成：
+
+- 私钥：`~/.ssh/id_ed25519`
+- 公钥：`~/.ssh/id_ed25519.pub`
+
+看到 passphrase 提示时：
+
+- 想安全一些：设置一个私钥密码
+- 想省事：直接回车留空
+
+更推荐设置 passphrase，然后配合 `ssh-agent` 使用。
+
+### 6.2 把公钥上传到服务器
+
+Linux / macOS 通常可以直接用：
+
+```bash
+ssh-copy-id -i ~/.ssh/id_ed25519.pub hana@192.168.1.20
+```
+
+如果服务器端口不是 22：
+
+```bash
+ssh-copy-id -i ~/.ssh/id_ed25519.pub -p 2222 hana@192.168.1.20
+```
+
+Windows PowerShell 没有 `ssh-copy-id` 时，可以手动追加公钥：
+
+```powershell
+type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh hana@192.168.1.20 "mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys"
+```
+
+上传完成后测试密钥登录：
+
+```bash
+ssh hana@192.168.1.20
+```
+
+如果不再要求输入服务器用户密码，说明密钥登录已经生效。  
+如果你设置了私钥 passphrase，系统可能会要求输入私钥密码，这是正常的。
+
+## 7. 配置本地 SSH 别名
+
+每次输入 `ssh -p 2222 hana@1.2.3.4` 很麻烦，可以在本地电脑配置 `~/.ssh/config`。
+
+Linux / macOS：
+
+```bash
+nano ~/.ssh/config
+```
+
+Windows：
+
+```powershell
+notepad $env:USERPROFILE\.ssh\config
+```
+
+添加：
+
+```ssh-config
+Host my-server
+  HostName 192.168.1.20
+  User hana
+  Port 22
+  IdentityFile ~/.ssh/id_ed25519
+  ServerAliveInterval 60
+  ServerAliveCountMax 5
+```
+
+之后直接连接：
+
+```bash
+ssh my-server
+```
+
+如果是 Windows，也可以把私钥路径写成：
+
+```ssh-config
+IdentityFile C:/Users/YourName/.ssh/id_ed25519
+```
+
+这套配置对 `scp`、`rsync`、VSCode Remote SSH 也都有效。
+
+## 8. 公网访问需要额外做什么
+
+局域网能连，不代表公网能连。公网访问取决于你的机器放在哪里。
+
+### 云服务器
+
+云服务器通常需要检查三层：
+
+1. Ubuntu 里的 SSH 服务是否正常运行
+2. Ubuntu 防火墙是否放行 SSH 端口
+3. 云厂商安全组是否放行 SSH 端口
+
+云厂商安全组里至少需要一条入站规则：
+
+```text
+协议：TCP
+端口：22 或你的自定义端口
+来源：你的本地公网 IP，或临时使用 0.0.0.0/0
+```
+
+更安全的做法是只允许自己的公网 IP，而不是长期开放给所有地址。
+
+### 家里或实验室物理机
+
+如果服务器在路由器后面，需要在路由器里设置端口转发：
+
+```text
+公网 TCP 2222 -> 192.168.1.20:22
+```
+
+外部连接时写：
+
+```bash
+ssh -p 2222 hana@你的公网IP
+```
+
+这里推荐把公网端口设成 `2222` 这类非默认端口，再转发到内网的 `22` 端口。  
+这不能替代密钥和安全配置，但可以减少一些默认端口扫描噪音。
+
+如果你的网络没有公网 IP，或者被校园网 / 公司网 NAT 隔离，可以考虑：
+
+- Tailscale / ZeroTier 这类内网穿透组网工具
+- WireGuard 自建 VPN
+- 云服务器反向 SSH 隧道
+
+不要为了省事把路由器后台、服务器密码登录和弱密码一起暴露到公网。
+
+## 9. 安全加固 SSH 服务端
+
+确认密钥登录已经成功后，再进行安全加固。
+
+Ubuntu 的 OpenSSH 配置主文件是：
+
+```text
+/etc/ssh/sshd_config
+```
+
+更推荐把本地自定义配置放到：
+
+```text
+/etc/ssh/sshd_config.d/99-local.conf
+```
+
+这样以后系统升级时更清晰。
+
+创建配置文件：
+
+```bash
+sudo nano /etc/ssh/sshd_config.d/99-local.conf
+```
+
+写入：
+
+```ssh-config
+PermitRootLogin no
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+X11Forwarding no
+AllowUsers hana
+```
+
+含义：
+
+- `PermitRootLogin no`：禁止 root 远程登录
+- `PubkeyAuthentication yes`：允许公钥登录
+- `PasswordAuthentication no`：禁止密码登录
+- `KbdInteractiveAuthentication no`：关闭键盘交互式密码认证
+- `X11Forwarding no`：关闭不常用的图形转发
+- `AllowUsers hana`：只允许指定用户登录
+
+如果你有多个用户，可以写成：
+
+```ssh-config
+AllowUsers hana deploy ubuntu
+```
+
+保存后先检查配置语法：
+
+```bash
+sudo sshd -t
+```
+
+没有输出通常表示语法正确。然后重载 SSH：
+
+```bash
+sudo systemctl reload ssh
+```
+
+**不要立刻关闭当前 SSH 窗口。**  
+请打开一个新的终端窗口，再测试一次：
+
+```bash
+ssh my-server
+```
+
+确认新连接可以登录后，再退出旧连接。
+
+## 10. 是否需要修改默认端口
+
+修改默认端口不是必须项。它不能真正替代密钥登录和防火墙策略，但能减少自动化扫描日志。
+
+如果要把 SSH 端口改成 `2222`，先放行新端口：
+
+```bash
+sudo ufw allow 2222/tcp
+```
+
+然后编辑本地配置文件：
+
+```bash
+sudo nano /etc/ssh/sshd_config.d/99-local.conf
+```
+
+添加或修改：
+
+```ssh-config
+Port 2222
+```
+
+检查配置并重载：
+
+```bash
+sudo sshd -t
+sudo systemctl reload ssh
+```
+
+新开一个终端测试：
+
+```bash
+ssh -p 2222 hana@服务器IP
+```
+
+确认新端口可用后，再考虑删除旧的防火墙规则。
+
+## 11. 安装 fail2ban（可选）
+
+如果服务器必须暴露在公网，并且你还保留了密码登录，建议至少安装 `fail2ban`。  
+即使已经关闭密码登录，`fail2ban` 也可以减少日志里的暴力扫描噪音。
+
+安装：
+
+```bash
+sudo apt update
+sudo apt install -y fail2ban
+sudo systemctl enable --now fail2ban
+```
+
+查看状态：
+
+```bash
+sudo systemctl status fail2ban
+```
+
+查看 SSH jail：
+
+```bash
+sudo fail2ban-client status sshd
+```
+
+如果只是内网服务器，可以先不装，避免引入额外变量。
+
+## 12. 常见问题排查
+
+### 12.1 Connection timed out
+
+一般是网络路径不通，重点检查：
+
+- IP 是否写对
+- 端口是否写对
+- 服务器是否开机
+- `ufw` 是否放行
+- 云服务器安全组是否放行
+- 路由器端口转发是否正确
+- 是否处在不可入站的 NAT 网络后面
+
+服务器上看端口监听：
+
+```bash
+sudo ss -tlnp | grep ssh
+```
+
+本地测试端口连通性：
+
+```bash
+nc -vz 服务器IP 22
+```
+
+Windows PowerShell 可以用：
+
+```powershell
+Test-NetConnection 服务器IP -Port 22
+```
+
+### 12.2 Connection refused
+
+通常说明网络到了服务器，但目标端口没有服务在监听。检查：
+
+```bash
+sudo systemctl status ssh
+sudo ss -tlnp | grep ':22'
+```
+
+如果 SSH 没启动：
+
+```bash
+sudo systemctl restart ssh
+```
+
+### 12.3 Permission denied
+
+这类错误通常是认证失败。检查：
+
+- 用户名是否正确
+- 公钥是否写入服务器的 `~/.ssh/authorized_keys`
+- 服务器是否禁用了密码登录
+- 本地是否用了正确的私钥
+- `~/.ssh` 权限是否正确
+
+在服务器上修复权限：
+
+```bash
+chmod 700 ~/.ssh
+chmod 600 ~/.ssh/authorized_keys
+```
+
+在本地指定私钥测试：
+
+```bash
+ssh -i ~/.ssh/id_ed25519 hana@服务器IP
+```
+
+### 12.4 改配置后彻底连不上
+
+如果是云服务器，优先使用云厂商控制台的 VNC / Web Terminal 登录修复。  
+如果是物理机，需要接显示器或通过管理口进入。
+
+常见恢复动作：
+
+```bash
+sudo sshd -t
+sudo systemctl status ssh
+sudo nano /etc/ssh/sshd_config.d/99-local.conf
+sudo systemctl reload ssh
+```
+
+所以修改 SSH 配置时，一定要遵守这个顺序：
+
+1. 保留当前 SSH 会话
+2. 修改配置
+3. 执行 `sudo sshd -t`
+4. 执行 `sudo systemctl reload ssh`
+5. 新开终端测试新连接
+6. 确认无误后再关闭旧会话
+
+## 13. 一套推荐的最终配置
+
+如果是个人长期使用的 Ubuntu 服务器，我通常会采用：
+
+- 普通用户登录，不允许 root 登录
+- SSH 密钥登录
+- 禁止密码登录
+- `ufw` 只放行必要端口
+- 云服务器安全组只允许自己的 IP 访问 SSH
+- 本地配置 `~/.ssh/config` 别名
+- 长任务放在 `tmux` 里跑
+
+最小可用服务端配置：
+
+```ssh-config
+PermitRootLogin no
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+X11Forwarding no
+AllowUsers hana
+```
+
+本地客户端配置：
+
+```ssh-config
+Host my-server
+  HostName 服务器IP
+  User hana
+  Port 22
+  IdentityFile ~/.ssh/id_ed25519
+  ServerAliveInterval 60
+  ServerAliveCountMax 5
+```
+
+以后连接只需要：
+
+```bash
+ssh my-server
+```
+
+到这里，这台 Ubuntu 机器就已经可以作为一台基础远端服务器使用了。后续可以继续接上 VSCode Remote SSH、`scp`、`rsync`、`tmux` 等工具，形成完整的远程开发工作流。

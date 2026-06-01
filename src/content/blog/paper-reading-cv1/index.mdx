@@ -1,7 +1,7 @@
 ---
 title: 'Paper Reading: CV 1'
 publishDate: 2025-12-26
-updatedDate: 2026-05-31
+updatedDate: 2026-06-02
 description: 浅度一些视觉相关的工作
 heroImage: { src: 'https://pic.hana0721.top/62258773_p0_master1200.7zr0vfh0rf.webp', color: '#8C8275' }
 category: 'research'
@@ -78,12 +78,15 @@ MAE 做的事情很简单，就是把图像随机遮挡掉大部分 Patch 后让
 
 <ArxivRating id='2104.14294' publication='ICCV2021' tldr='Self-Distillation 的自监督 ViT，展示了无监督特征中自然涌现的语义分割能力。' rank={4}>
 ![](https://pic.hana0721.top/DINO.6f1bqri3zj.webp)
-DINO 提出了一种无需标签的自监督训练方式（Self-Distillation with No Labels），并应用于 ViT 架构。通过这种方法，DINO 展示了无监督特征中自然涌现的语义分割能力，即使没有任何标注信息，模型也能够学习到有意义的视觉特征。特别是对于 ViT 模型，其 attention maps 中自然涌出了语义分割能力。DINO 的网络架构分为学生网络（Student） $g_{\theta_s}$ 与教师网络（Teacher） $g_{\theta_t}$。首先，图像 $x$ 经过 Multi-crop 生成多个不同尺度的视图（crops），主要分为一系列全局视图 $x_\text{global}$ 和局部视图 $x_\text{local}$。$g_{\theta_t}$ 接收 $x_\text{global}$，能够捕获比较完整的信息，而 $g_{\theta_s}$ 接收 $x_\text{local}$ 或者 $x_\text{global}$，只能看到局部信息。训练目标是让学生网络的输出与教师网络的输出保持一致，也就是最小化交叉熵。在具体实现中，教师网络的参数 $\theta_t$ 是通过学生网络的参数 $\theta_s$ 进行指数移动平均（EMA）更新的，同时教师网络使用softmax温度系数 $T$ 进行缩放和使用加权中心更新，使得学习的分布更加多样化和尖锐。DINO 的核心贡献在于提出了一种简单有效的自监督训练方法，能够在没有任何标签的情况下学习到有意义的视觉特征，并展示了这些特征中自然涌现的语义分割能力，激发了后续大量基于 Self-Distillation 的视觉预训练方法的研究和发展。
+DINO 提出了一种无需标签的自监督训练方法，即 Self-Distillation with No Labels，并将其应用到 ViT 架构中。它的核心思想是用教师网络（Teacher） $g_{\theta_t}$ 为学生网络（Student） $g_{\theta_s}$ 提供软目标，让学生在不同增强视图下预测与教师一致的输出分布。具体来说，输入图像 $x$ 会先经过 Multi-crop augmentation，生成多个不同尺度的视图：较大的全局视图 $x_\text{global}$ 和较小的局部视图 $x_\text{local}$。教师网络只接收全局视图，因此能够看到相对完整的图像语义；学生网络则接收全局视图与局部视图，需要在只观察局部区域时也预测出与教师相近的语义分布。两者的输出经过 DINO Head 映射到一个高维空间后，通过 softmax 得到概率分布，并使用交叉熵作为训练目标，使学生分布尽可能接近教师分布。训练过程中，学生网络通过反向传播更新，而教师网络不直接接收梯度，而是由学生参数的指数移动平均（EMA）得到。为了避免模型输出塌缩，DINO 还对教师输出引入 centering 和 sharpening：前者通过滑动平均的中心项抑制某些维度长期占优，后者通过较低的温度系数使教师分布更加尖锐。DINO 的重要发现是，在没有任何人工标注的情况下，ViT 的 attention maps 会自然关注前景物体，呈现出类似语义分割的结构。这说明 DINO 不仅能学到可迁移的视觉表征，也展示了自监督 ViT 中自然涌现的 object-centric 特性，推动了后续基于自蒸馏的视觉预训练方法发展。
 </ArxivRating>
 
 ## DINOv2
 
-<ArxivRating id='2304.07193' publication='TMLR2024' tldr='通过大规模精选数据和蒸馏训练得到通用视觉特征，是近几年最常用的冻结视觉 Backbone 之一。' rank={0}>
+<ArxivRating id='2304.07193' publication='TMLR2024' tldr='通过大规模精选数据和蒸馏训练得到通用视觉特征，是近几年最常用的冻结视觉 Backbone 之一。' rank={4}>
+
+![](https://pic.hana0721.top/DINOv2.4g550rsa3m.webp)
+DINOv2 可以看作是 DINO 的规模化与工程化升级版本，目标不再只是验证 self-distillation 在 ViT 上的有效性，而是训练出一组可以直接作为冻结视觉 Backbone 使用的通用特征模型。在数据层面，DINOv2 不再局限于 ImageNet 这类标准数据集，而是从大规模无标签图像中进行去重、过滤、检索和聚类，构建出包含 1.42 亿张图像的 LVD-142M 数据集，从而获得覆盖更广、质量更高的视觉概念分布。在方法层面，DINOv2 仍然沿用教师-学生自蒸馏框架，但将训练目标从 DINO 中偏图像级的表示学习进一步扩展到 patch-level 表示学习：除了使用 DINO loss 对齐全局视图的语义分布，还引入 iBOT 风格的 masked patch prediction，让学生网络在部分 patch 被 mask 的情况下预测教师网络给出的 patch-level 目标。这样模型不仅能学到 image-level 的全局语义，也能学到适合分割、深度估计和视觉对应等任务的 dense features。为了在更大数据和更大模型上稳定训练，DINOv2 还强化了防塌缩机制，包括 Sinkhorn-Knopp centering 和 KoLeo regularization，使特征分布更加均衡、输出空间利用更加充分。总体来看，DINOv2 的核心贡献在于把 DINO 的自监督 ViT 路线扩展为一套可规模化训练、可蒸馏到不同模型尺寸、且能在多种下游任务中直接迁移的通用视觉特征体系。
 
 </ArxivRating>
 
