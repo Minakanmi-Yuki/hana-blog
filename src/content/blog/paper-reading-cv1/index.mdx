@@ -76,8 +76,9 @@ MAE 做的事情很简单，就是把图像随机遮挡掉大部分 Patch 后让
 
 ## DINO
 
-<ArxivRating id='2104.14294' publication='ICCV2021' tldr='Self-Distillation 的自监督 ViT，展示了无监督特征中自然涌现的语义分割能力。' rank={0}>
-
+<ArxivRating id='2104.14294' publication='ICCV2021' tldr='Self-Distillation 的自监督 ViT，展示了无监督特征中自然涌现的语义分割能力。' rank={4}>
+![](https://pic.hana0721.top/DINO.6f1bqri3zj.webp)
+DINO 提出了一种无需标签的自监督训练方式（Self-Distillation with No Labels），并应用于 ViT 架构。通过这种方法，DINO 展示了无监督特征中自然涌现的语义分割能力，即使没有任何标注信息，模型也能够学习到有意义的视觉特征。特别是对于 ViT 模型，其 attention maps 中自然涌出了语义分割能力。DINO 的网络架构分为学生网络（Student） $g_{\theta_s}$ 与教师网络（Teacher） $g_{\theta_t}$。首先，图像 $x$ 经过 Multi-crop 生成多个不同尺度的视图（crops），主要分为一系列全局视图 $x_\text{global}$ 和局部视图 $x_\text{local}$。$g_{\theta_t}$ 接收 $x_\text{global}$，能够捕获比较完整的信息，而 $g_{\theta_s}$ 接收 $x_\text{local}$ 或者 $x_\text{global}$，只能看到局部信息。训练目标是让学生网络的输出与教师网络的输出保持一致，也就是最小化交叉熵。在具体实现中，教师网络的参数 $\theta_t$ 是通过学生网络的参数 $\theta_s$ 进行指数移动平均（EMA）更新的，同时教师网络使用softmax温度系数 $T$ 进行缩放和使用加权中心更新，使得学习的分布更加多样化和尖锐。DINO 的核心贡献在于提出了一种简单有效的自监督训练方法，能够在没有任何标签的情况下学习到有意义的视觉特征，并展示了这些特征中自然涌现的语义分割能力，激发了后续大量基于 Self-Distillation 的视觉预训练方法的研究和发展。
 </ArxivRating>
 
 ## DINOv2
