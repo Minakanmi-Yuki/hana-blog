@@ -1,40 +1,51 @@
 ---
-const { id, tldr, rank, url = id } = Astro.props
+const { id, tldr, rank, publication, url = id } = Astro.props
 
 // 在 frontmatter 中处理逻辑
-const isArxivId = /^\d{4}\.\d{4,5}$/.test(id)
+const arxivMatch = id.match(/^(\d{4}\.\d{4,5})(v\d+)?$/)
+const isArxivId = Boolean(arxivMatch)
+const arxivBaseId = arxivMatch?.[1] ?? id
 const href = isArxivId ? `https://arxiv.org/abs/${id}` : url
-const hjfy_href = isArxivId ? `https://hjfy.top/arxiv/${id}` : url
+const hjfy_href = isArxivId ? `https://hjfy.top/arxiv/${arxivBaseId}` : url
 const processed_id = isArxivId ? id : url.split('/').pop()
+const publicationText = publication?.trim() || 'pending'
 ---
 
 <div class='rounded-xl border p-4'>
-  <div class='inline-flex items-stretch gap-2 rounded-full border pe-3'>
-    <span
-      class='flex shrink-0 items-center rounded-full bg-primary-foreground px-2.5 text-sm text-primary'
-    >
-      Arxiv ID
-    </span>
-    <samp class='break-all text-foreground'>
-      <a href={href} target='_blank' rel='noopener noreferrer'>
-        {processed_id}
-      </a>
-    </samp>
+  <div class='flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden'>
+    <div class='inline-flex min-w-0 max-w-[18rem] items-stretch gap-2 rounded-full border pe-3'>
+      <span
+        class='flex shrink-0 items-center rounded-full bg-primary-foreground px-2.5 text-sm text-primary'
+      >
+        Arxiv ID
+      </span>
+      <samp class='min-w-0 truncate text-foreground'>
+        <a href={href} target='_blank' rel='noopener noreferrer'>
+          {processed_id}
+        </a>
+      </samp>
+    </div>
+    {
+      isArxivId && (
+        <div class='inline-flex shrink-0 items-stretch gap-2 rounded-full border pe-3'>
+          <span class='flex shrink-0 items-center rounded-full bg-blue-100 px-2.5 text-sm text-blue-700'>
+            幻觉翻译
+          </span>
+          <samp class='text-foreground'>
+            <a href={hjfy_href} target='_blank' rel='noopener noreferrer'>
+              {id}
+            </a>
+          </samp>
+        </div>
+      )
+    }
+    <div class='inline-flex shrink-0 items-stretch gap-2 rounded-full border pe-3'>
+      <span class='flex shrink-0 items-center rounded-full bg-emerald-100 px-2.5 text-sm text-emerald-700'>
+        publication
+      </span>
+      <samp class='text-foreground'>{publicationText}</samp>
+    </div>
   </div>
-  {
-    isArxivId && (
-      <div class='inline-flex items-stretch gap-2 rounded-full border pe-3'>
-        <span class='flex shrink-0 items-center rounded-full bg-blue-100 px-2.5 text-sm text-blue-700'>
-          幻觉翻译
-        </span>
-        <samp class='break-all text-foreground'>
-          <a href={hjfy_href} target='_blank' rel='noopener noreferrer'>
-            {id}
-          </a>
-        </samp>
-      </div>
-    )
-  }
   <p class='flex items-center gap-x-3'>
     <svg xmlns='http://www.w3.org/2000/svg' width='26' height='26' viewBox='0 0 24 24'>
       <g fill='none'>
