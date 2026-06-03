@@ -112,19 +112,186 @@ Grounding DINO 的目标是把传统的 closed-set object detection 扩展成 te
 
 ## Segment Anything
 
-<ArxivRating id='2304.02643' publication='ICCV2023' tldr='提出 Promptable Segmentation 与 SA-1B 数据集，是通用分割和交互式标注的代表性 VFM。' rank={0}>
+<ArxivRating id='2304.02643' publication='ICCV2023' tldr='提出 Promptable Segmentation 与 SA-1B 数据集，是通用分割和交互式标注的代表性 VFM。' rank={4}>
+![](https://pic.hana0721.top/sam-overview.mpxq1n4v.webp)
+SAM 的核心不是把某个固定分割任务做到最强，而是把图像分割重新定义成一种可以被 Prompt 调用的基础能力。
+论文提出的 Promptable Segmentation 任务要求模型在给定任意提示时输出一个有效 Mask。
+这里的提示可以是前景点、背景点、框、粗 Mask，甚至是文本。
+「有效」的含义很重要：当提示本身有歧义时，例如一个点既可能指向衣服，也可能指向整个人，模型不必猜出唯一标准答案，而是要给出至少一个合理的分割结果。
+这个定义使 SAM 可以像语言模型响应 Prompt 一样，通过不同提示迁移到交互式分割、自动标注、目标提案和实例分割等任务。
+![](https://pic.hana0721.top/sam-arch.2yz018aw43.webp)
+模型结构很直接，分成 Image Encoder、Prompt Encoder 和 Mask Decoder 三部分。
+Image Encoder 使用 MAE 预训练的 ViT 处理高分辨率图像，并提前计算图像 Embedding；这一步最重，但每张图只需要做一次。
+Prompt Encoder 负责把提示转成向量：点和框使用位置编码加提示类型 Embedding，Mask 通过卷积编码后加到图像特征上，文本提示则借助 CLIP 文本编码器做初步探索。
+Mask Decoder 是轻量 Transformer 解码器，它让 Prompt Token 和 Image Embedding 做双向 Cross-Attention，然后上采样图像特征，并用输出 Token 生成动态线性分类器，逐像素预测前景概率。
+这种「重图像编码 + 轻提示解码」的拆分非常关键：图像特征可以复用，用户不断点击或给框时，只需要快速运行 Prompt Encoder 和 Mask Decoder，论文报告在浏览器 CPU 中约 50ms 即可得到 Mask。
+
+SAM 对歧义的处理也很关键。
+如果模型只有一个输出，在单点提示这种天然模糊的场景里容易把多个合理 Mask 平均成一个不干净的结果。
+因此 SAM 默认对单个提示预测 3 个 Mask，对应 whole、part、subpart 这类常见嵌套层级，并额外预测每个 Mask 的 IoU 置信度用于排序。
+训练时对多个输出分别计算损失，但只反传最小损失的那一个，相当于允许模型把不同输出槽位分配给不同合理解释。
+当输入包含多个提示时，歧义通常降低，模型则返回单个更确定的 Mask。
+损失函数使用 focal loss 与 dice loss 的组合，IoU 预测头使用 MSE 监督。
+
+训练流程模拟交互式分割，而不是只做一次静态预测。
+每个目标 Mask 先随机选择一个前景点或带噪声的框作为初始提示，模型预测后，再从预测错误区域采样新的前景点或背景点进行修正，并把上一轮未阈值化的 Mask logits 作为 Dense Prompt 输入下一轮。
+论文默认使用 11 轮：1 个初始提示、8 个从错误区域采样的交互点，以及 2 轮不加入新点的自我细化。
+这样训练出来的模型不仅能处理单点或框，也能自然接入「用户继续点击修正」的交互流程。
+
+数据层面的贡献同样重要。
+由于互联网上没有现成的海量分割 Mask，作者构建了一个三阶段 Data Engine。
+第一阶段是 Assisted-manual：标注员使用 SAM 辅助的浏览器工具点击前景和背景，并可用 brush/eraser 修正，最终在 12 万张图上收集 430 万个 Mask，平均每个 Mask 的标注时间从 34 秒降到 14 秒。
+第二阶段是 Semi-automatic：先用检测器自动填入高置信 Mask，标注员再补充遗漏物体，累计达到 30 万张图、1020 万个 Mask。
+第三阶段是 Fully automatic：对每张图使用 32×32 规则点网格提示 SAM，并通过 IoU 置信度、稳定性筛选、NMS 和重叠裁剪过滤结果，最终在 1100 万张授权且隐私处理过的图像上生成 11 亿个高质量 Mask，形成 SA-1B。
+
+实验强调的是 Zero-shot Transfer。
+单前景点分割中，SAM 在 23 个多域数据集上有 16 个数据集的 mIoU 高于 RITM；如果用 oracle 从 3 个候选 Mask 中选择最接近 GT 的结果，则所有数据集都优于 RITM，说明单点评估会受到 GT 歧义影响。
+在 BSDS500 边缘检测上，SAM 没有专门训练边缘任务，但 ODS 达到 0.768、R50 达到 0.928，召回很强但会预测更多未标注边缘。
+在 LVIS 目标提案中，SAM 的 AR@1000 为 59.3，低于 ViTDet-H 的 63.0，但在 medium、common 和 rare objects 上反而超过 ViTDet-H。
+在实例分割中，SAM 接收 ViTDet 的检测框作为 Prompt，在 COCO 上 AP 为 46.5、LVIS 上 AP 为 44.7，低于全监督 ViTDet，但人工评测认为 SAM 的边界质量更好。
+
+这篇论文最值得学习的是「任务定义、模型接口、数据飞轮」三者绑定在一起。
+Promptable Segmentation 给模型提供统一接口，轻量 Mask Decoder 保证交互可用，Data Engine 又利用当前模型降低标注成本、反过来扩大数据规模。
+因此 SAM 的创新并不只是一个 ViT 分割模型，而是把分割模型做成可组合的视觉基础设施。
+它的局限也来自这个定位：SAM 追求通用性而不是某个数据集的最高 IoU，细小结构可能漏掉，偶尔会产生小的断裂或幻觉区域；重型 Image Encoder 也让完整端到端推理并非真正实时。
+另外，论文中的 text-to-mask 只是探索性结果，还不能等价于后续开放词表分割模型。
 
 </ArxivRating>
 
 ## SAM 2
 
-<ArxivRating id='2408.00714' publication='ICLR2025' tldr='将 SAM 扩展到图像与视频，核心是带 Streaming Memory 的交互式视频分割模型。' rank={0}>
+<ArxivRating id='2408.00714' publication='ICLR2025' tldr='将 SAM 扩展到图像与视频，核心是带 Streaming Memory 的交互式视频分割模型。' rank={4}>
+![](https://pic.hana0721.top/sam2-overview.13mf8n1zpl.webp)
+SAM 2 的出发点是：SAM 只解决静态图像中的 Promptable Segmentation，但真实视觉世界往往是视频。
+视频分割不仅要在某一帧中找到目标，还要在时间维度上持续定位同一个对象。
+这会引入图像分割没有的困难，例如运动、形变、遮挡、目标消失后重现、相机抖动、运动模糊和长序列效率问题。
+因此，SAM 2 把任务从 Segment Anything 扩展为 Promptable Visual Segmentation，也就是用户可以在视频任意帧提供点、框或 Mask，模型需要立即响应当前帧 Mask，并把目标传播到整段视频，得到一个跨时间的 Masklet。
+如果传播过程中出错，用户还可以在任意后续帧继续点击修正，模型要利用已有记忆快速恢复，而不是像「SAM + tracker」那样从新帧重新开始分割。
+![](https://pic.hana0721.top/sam2-arch.7zr2stm97y.webp)
+模型上，SAM 2 可以理解成给 SAM 加上 Streaming Memory。
+对每一帧，Image Encoder 只负责提取未条件化的 frame embedding；论文使用 MAE 预训练的 Hiera 作为图像编码器，相比原 SAM 的 ViT 更适合多尺度和高效视频处理。
+当前帧特征不会直接送入 Mask Decoder，而是先经过 Memory Attention。
+Memory Attention 使用 Transformer block，让当前帧 token 通过 self-attention 建模本帧信息，再通过 cross-attention 读取 Memory Bank 中的历史帧记忆、被提示帧记忆和 object pointers，从而把「当前看到了什么」与「之前这个目标长什么样、在哪里、是否被用户修正过」结合起来。
+
+Memory Bank 是 SAM 2 的核心数据结构。
+它维护两类空间记忆：一类是最近若干未提示帧的 FIFO 记忆，用来表示短期运动和外观变化；另一类是用户提示过的关键帧记忆，用来长期锚定目标身份。
+除了空间特征，SAM 2 还保存 object pointers，也就是从 Mask Decoder 输出 token 得到的轻量向量，用来提供高层语义级的目标身份信息。
+每一帧预测完成后，Memory Encoder 会把当前预测 Mask 下采样，并与该帧未条件化的图像特征相加，再用轻量卷积融合，生成下一步可写入 Memory Bank 的记忆。
+这形成了一个流式循环：读入一帧 → 查询记忆 → 预测 Mask → 编码新记忆 → 继续处理下一帧。
+
+Prompt Encoder 和 Mask Decoder 大体沿用 SAM。
+点、框等 sparse prompts 通过位置编码和提示类型 Embedding 表示，Mask 通过卷积编码后加到 frame embedding 上。
+Mask Decoder 继续使用 two-way Transformer，在 Prompt Token 和 frame embedding 之间双向交互，并输出 Mask、IoU 分数和目标可见性信息。
+对于单点这类歧义提示，SAM 2 仍然预测多个候选 Mask；但在视频里，歧义不仅发生在空间上，也可能沿时间传播，因此如果用户没有额外提示消除歧义，模型会根据预测 IoU 选择一个候选继续传播。
+当某帧目标被遮挡或不可见时，遮挡 / 可见性预测头也会参与判断，避免错误地强行生成目标 Mask。
+
+训练时，SAM 2 同时使用图像和视频数据，并模拟交互式视频标注过程。
+论文默认采样 8 帧序列，随机选择最多 2 帧作为提示帧，并在训练过程中根据 GT masklet 和模型预测采样纠错点击。
+初始提示的分布是：50% 使用 GT Mask，25% 使用 GT 内的正点，25% 使用 bounding box。
+模型需要按时间顺序逐帧预测完整 masklet，并在收到纠错点击后利用新的提示和已有 memory 修正后续结果。
+损失包括 Mask 的 focal loss 和 dice loss、IoU 预测的 L1/MAE loss，以及目标是否存在的 occlusion / object prediction cross-entropy，权重比例为 20:1:1:1。
+为增强长视频能力，作者还加入 16 帧序列微调：选择编辑帧最多、最困难的一半 masklets，用较低学习率训练，并冻结图像编码器以适配 A100 80GB 显存。
+
+数据引擎是 SAM 2 的另一条主线。
+Phase 1 使用原始 SAM 逐帧辅助标注视频，每帧都要重新分割，质量高但慢，平均 37.8 秒 / 帧，在 1.4K 视频上收集 16K masklets。
+Phase 2 引入只能接收 Mask prompt 的 SAM 2 Mask：标注员先用 SAM 标第一帧，再让模型传播到后续帧，错误时仍需要在中间帧重新画 Mask，速度降到 7.4 秒 / 帧，收集 63.5K masklets。
+Phase 3 使用完整 SAM 2，标注员可以直接用点或 Mask 在任意帧修正，模型利用 memory 继续传播，速度降到 4.5 秒 / 帧，相比 Phase 1 快 8.4 倍，同时保持可比质量，收集 197K masklets。
+此外，作者还用规则点网格在首帧自动生成候选 masklets，并经过人工验证筛选，既增加覆盖度，也能把失败样本送回人工修正流程。
+最终 SA-V 数据集包含 50.9K 视频、642.6K masklets 和 35.5M masks，是已有最大 VOS 数据集 Mask 数量的 53 倍；其中手工部分为 190.9K masklets 和 10.0M masks。
+
+实验上，SAM 2 的重点是 Zero-shot 视频和图像分割。
+在 promptable video segmentation 中，SAM 2 在 9 个密集标注视频数据集上同时优于 SAM+XMem++ 和 SAM+Cutie，并且达到更好精度所需交互次数少于前者的三分之一。
+在只给第一帧提示的 semi-supervised VOS 设定中，SAM 2 在 17 个视频数据集平均表现也最好：1-click 为 64.7，3-click 为 75.3，5-click 为 77.6，box 为 74.4，GT mask 为 79.3，均高于 SAM+XMem++ 和 SAM+Cutie。
+在图像 Segment Anything 任务中，如果只用 SA-1B 训练，SAM 2 的 1-click mIoU 为 58.9，略高于 SAM 的 58.1，但速度从 21.7 FPS 提升到 130.1 FPS；使用作者的视频和图像混合数据后，SA-23 上升到 61.9，14 个新增视频图像化数据集上升到 69.6。
+在传统 VOS SOTA 对比中，SAM 2 Hiera-L 在 MOSE val、DAVIS 2017 val、LVOS val、SA-V val/test 和 YTVOS 2019 val 上分别达到 77.9、90.7、78.0、77.9、78.4 和 89.3，并且 Hiera-B+ / Hiera-L 都能在 A100 上实时运行，分别约 43.8 / 30.2 FPS。
+
+这篇论文最值得学习的是它把 SAM 的「可提示接口」推广成了一个流式时序系统。
+SAM 负责在单帧里根据 Prompt 找到目标，SAM 2 则进一步回答：当目标在视频里移动、遮挡、消失、重现时，模型如何记住它、如何接受用户在任意帧修正、如何把修正继续传播。
+它的局限也主要来自视频长期建模：跨镜头切换、拥挤场景、长时间遮挡、快速移动的细小结构和多个外观相似目标仍然困难。
+另外，SAM 2 虽然可以处理多目标，但基本是逐目标独立处理，只共享每帧图像特征，目标之间缺少显式交互。
+因此 SAM 2 更像是一个通用交互式视频分割基础设施，而不是完全解决所有开放世界视频理解问题的最终模型。
 
 </ArxivRating>
 
 ## SAM 3
 
-<ArxivRating id='2511.16719' publication='ICLR2026' tldr='从点框提示扩展到文本与示例图像概念提示，统一图像和视频中的开放词表检测、分割与跟踪。' rank={0}>
+<ArxivRating id='2511.16719' publication='ICLR2026' tldr='从点框提示扩展到文本与示例图像概念提示，统一图像和视频中的开放词表检测、分割与跟踪。' rank={4}>
+![](https://pic.hana0721.top/sam3-overview.2rvs5vd2te.webp)
+SAM 3 的目标不是继续加强「点一下分一个物体」这种 PVS 接口，而是把 SAM 系列推进到 Concept Prompt。
+SAM 和 SAM 2 的提示主要是点、框、Mask，用来指定一个具体实例；SAM 3 的 Promptable Concept Segmentation 则要求模型根据概念提示，在图像或短视频中检测、分割并跟踪所有匹配实例。
+概念提示可以是短 noun phrase，例如 `yellow school bus`，也可以是图像 exemplar，或者两者结合。
+因此，SAM 3 的输出不再只是一个 Mask，而是一组具有身份 ID 的 instance masks / masklets：如果用户输入「cat」，模型要找出所有猫；如果输入视频，还要在时间上保持每只猫的身份一致。
+
+PCS 和 PVS 的本质差异在于「一个提示对应一个实例」变成了「一个概念对应所有实例」。
+这带来两个新难点。
+第一是开放词表识别：模型要判断输入中是否存在某个短语对应的概念，尤其要处理大量 hard negatives，例如图中没有该概念、相似概念或细粒度概念。
+第二是实例穷尽性：只分出一个目标是不够的，模型必须尽量找到所有匹配实例，还要允许用户通过正负 exemplar 交互式补充漏检或移除误检。
+论文明确限制文本提示为简单名词短语，不直接解决长 referring expression 或需要复杂推理的语言查询；复杂查询可以用 MLLM 拆成多个 noun phrases 后再调用 SAM 3。
+![](https://pic.hana0721.top/sam3-arch.1vzaqf4jmb.webp)
+模型结构由 detector 和 tracker 组成，两者共享一个对齐过的 Perception Encoder 视觉语言 backbone。
+Detector 是 DETR 风格的开放词表检测/分割器：图像和文本由 PE 编码，image exemplars 如果存在，则由 exemplar encoder 编码；文本 token 和 exemplar token 合称 prompt tokens。
+Fusion Encoder 让图像特征 cross-attend 到 prompt tokens，得到条件化图像特征；随后 DETR-like decoder 用 object queries 在条件化图像特征上定位匹配实例。
+每层 decoder 都预测 query 是否匹配当前 prompt、box refinement；Mask head 借鉴 MaskFormer 产生实例 Mask，此外还有 semantic segmentation head 逐像素预测是否属于当前概念。
+
+Presence Token 是 SAM 3 中很关键的设计。
+普通 DETR query 同时承担「识别是什么」和「定位在哪里」两个任务，但开放词表场景下，识别需要看全图上下文，定位却是局部问题，两者容易冲突。
+SAM 3 引入一个全局 learned presence token，专门预测 noun phrase 是否存在于输入中，即全局 presence score。
+各个 object query 只负责在「该概念存在」的条件下定位候选实例，最终实例分数由 query score 和 presence score 相乘得到。
+这样 recognition 和 localization 被解耦，尤其有利于 hard negatives：当图中根本没有该概念时，presence head 可以整体压低预测，而不是让局部 query 硬找一个相似物体。
+
+Image exemplar 让 SAM 3 具备交互式概念适配能力。
+一个 exemplar 由 bounding box 和二元标签组成，标签可以是 positive 或 negative。
+Positive exemplar 表示「找和这个框中目标同类的所有实例」，negative exemplar 表示「不要找这类误检」。
+Exemplar encoder 会融合 box 位置编码、正负标签编码和 ROI-pooled 视觉特征，再用小 Transformer 得到 exemplar prompt，最后和文本 prompt 拼接。
+这和 SAM/SAM2 的视觉提示不同：SAM 的框通常只定位一个实例，而 SAM 3 的 exemplar 会泛化成概念提示，例如给一个狗的正框后，模型应当找出图中所有狗。
+
+视频部分可以理解为「detector 负责发现新实例，tracker 负责维持身份」。
+在每一帧，detector 根据概念 prompt 检测当前帧所有匹配对象；tracker 则沿用 SAM 2 风格的 memory-based propagation，把上一帧已有 masklets 传播到当前帧。
+随后，SAM 3 用 IoU-based matching 将传播结果和当前帧检测结果合并：已匹配的 masklet 更新位置，未匹配的新检测会 spawn 成新的 masklet。
+为了降低拥挤场景中的身份混淆，模型还使用 temporal disambiguation：一方面用 masklet detection score 衡量某个轨迹在时间窗口内是否持续被检测支持，低于阈值则抑制；另一方面周期性用高置信 detector mask 重新 prompt tracker，替换 tracker 自己可能漂移的预测，让 memory bank 保持新鲜可靠。
+用户也可以继续用正负 click 细化单个 mask 或 masklet，视频中修正后的 Mask 会继续传播到整段视频。
+
+训练分四个阶段：先预训练 Perception Encoder，再做 detector pre-training，然后 detector fine-tuning，最后冻结 backbone 训练 tracker。
+数据引擎也对应地从图像走向视频。
+Phase 1 使用 captioner/parser 提出 noun phrases，用开放词表检测器加 SAM 2 生成初始 Mask，人类执行 Mask Verification 和 Exhaustivity Verification，得到 4.3M image-NP pairs。
+Phase 2 用 Phase 1 的人类验证数据微调 Llama 3.2，形成 AI verifiers 自动做 MV 和 EV，让人类专注困难样本；同时用 Llama-based pipeline 生成 hard negative NPs，并多轮更新 SAM 3，新增 122M image-NP pairs。
+Phase 3 扩展到 15 个图像域，并从 alt-text 和基于 Wikidata 的 22.4M 节点 SA-Co ontology 中挖掘长尾细粒度概念，新增 19.5M image-NP pairs。
+Phase 4 扩展到视频，通过运动/场景过滤和失败样本挖掘生成视频 masklets，最终得到 SA-Co/VIDEO。
+
+SA-Co 数据集的规模很大。
+高质量图像数据 SA-Co/HQ 包含 5.2M images、4M unique NPs、146.1M image-NP pairs 和 52.3M masks。
+合成数据 SA-Co/SYN 由成熟数据引擎和 AI verifiers 生成，包含 39.4M images、38M NPs、1.7B image-NP pairs 和 1.4B masks。
+外部数据 SA-Co/EXT 包含 9.3M images、497.4K NPs 和 70.5M masks。
+视频数据 SA-Co/VIDEO 包含 52.5K videos、24.8K NPs、134K video-NP pairs 和 467K masklets。
+评测集覆盖 207K unique phrases、121K images/videos 和超过 3M media-phrase pairs，并显式包含大量 hard negatives。
+
+实验上，SAM 3 在图像 PCS with text 中显著优于已有开放词表系统。
+在 SA-Co/Gold 实例分割上，SAM 3 的 cgF1 为 54.1，而最强基线 OWLv2* 为 24.6，Human oracle 为 72.8；也就是说 SAM 3 超过最强基线两倍，并达到约 74% 的人类表现。
+在 LVIS instance segmentation 上，SAM 3 的 cgF1/AP 为 37.2/48.5；在 box detection 上，LVIS cgF1/AP 为 40.6/53.6，COCO AP 为 56.4。
+语义分割上，SAM 3 在 ADE-847、PascalConcept-59 和 Cityscapes 上分别达到 13.8、60.8 和 65.2 mIoU，超过强 specialist baseline APE。
+
+Exemplar 和交互结果体现了 SAM 3 的新接口价值。
+单个 exemplar 提示下，SAM 3 在 COCO、LVIS 和 ODinW13 上相对 T-Rex2 分别提升 +18.3、+10.3 和 +20.5 AP+。
+从文本 prompt 开始逐步添加 exemplar 时，3 次点击后 cgF1 比 text-only 高 +21.6，也比理想化的 PVS 单实例修正高 +2.0。
+原因是 PCS exemplar 不只是修正一个实例，而是会泛化到类似目标：正样本能补一类漏检，负样本能压一类误检。
+计数任务也受益于「先分割再计数」：SAM 3 在 CountBench 上 MAE 0.12、Accuracy 93.8%，并且能给出实例 Mask，而多数 MLLM 只能输出数字。
+
+视频 PCS 中，SAM 3 也把文本概念扩展到开放词表视频分割。
+在 SA-Co/VEval 的三个子集上，SAM 3 分别达到 SA-V 30.3 cgF1 / 58.0 pHOTA、YT-Temporal-1B 50.8 / 69.9、SmartGlasses 36.4 / 63.6。
+在公开 benchmark 上，SAM 3 在 LVVIS test mAP 为 36.3，BURST test HOTA 为 44.5，OVIS val mAP 为 60.5，整体明显优于 GLEE、LLMDet + SAM 3 Tracker 以及 tracking-by-detection 替代方案。
+在传统 PVS/VOS 能力上，SAM 3 也没有退化：VOS 中在 MOSEv1、DAVIS17、LVOSv2、SA-V val/test、YTVOS19、MOSEv2 上分别达到 78.4、92.2、88.5、83.5、84.4、89.7、60.3，其中 MOSEv2 比 prior work 高 6.5 点。
+在 SA-37 交互式图像分割上，SAM 3 的 1/3/5-click mIoU 为 66.1、81.3、85.1，3-click 和 5-click 超过 SAM 2.1 L。
+
+消融说明这篇论文的关键收益确实来自「识别-定位解耦、hard negatives、数据引擎」三件事。
+Presence head 让 cgF1 从 50.7 提升到 52.2，IL_MCC 从 0.77 到 0.82。
+Hard negatives 数量从 0 增加到 30/img 时，cgF1 从 28.3 提升到 43.0，主要提升来自 image-level recognition。
+训练数据方面，仅 EXT 为 23.7 cgF1，加入 SYN 后到 32.8，加入 HQ 后到 45.5，EXT+SYN+HQ 达到 47.4。
+AI verifiers 也很关键：在伪标签上加入 EV verifier 可把 cgF1 从 54.0 提到 61.2，再加入 MV verifier 到 62.3，论文认为 AI verifiers 关闭了模型与人类表现差距的大约一半。
+
+我觉得 SAM 3 的核心贡献是把 SAM 系列从「视觉位置提示」推进到「开放词表概念提示」。
+SAM 解决单图实例分割，SAM 2 解决视频中同一实例的记忆与传播，SAM 3 则进一步解决「给一个概念，找出所有实例，并在视频里保持身份」的问题。
+局限也很清楚：它不擅长 out-of-domain 术语，需要额外 domain expansion 或 fine-tuning；文本输入被限制为简单 noun phrases，复杂推理查询要借助 MLLM agent；视频中推理成本随被跟踪对象数量线性增长；概念本身还存在天然歧义，例如类别边界、主观形容词和上下文依赖。
+所以 SAM 3 更像是开放词表实例分割/视频分割的基础接口，而不是通用视觉推理模型。
 
 </ArxivRating>
 
