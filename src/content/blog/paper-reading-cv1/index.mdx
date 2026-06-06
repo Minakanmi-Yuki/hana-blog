@@ -49,19 +49,37 @@ import { ManualTOC } from '@/components/advanced'
 
 ## AlexNet
 
-<ArxivRating id='https://proceedings.neurips.cc/paper_files/paper/2012/file/c399862d3b9d6b76c8436e924a68c45b-Paper.pdf' publication='NeurIPS2012' tldr='' rank={0}>
+<ArxivRating id='https://proceedings.neurips.cc/paper_files/paper/2012/file/c399862d3b9d6b76c8436e924a68c45b-Paper.pdf' publication='NeurIPS2012' tldr='用大规模 CNN 在 ImageNet 上取得突破，是现代深度视觉识别的起点。' rank={5}>
+![](https://pic.hana0721.top/alexnet.2vfe7jxq9h.webp)
+AlexNet 的重要性不在于某一个单独模块，而在于它第一次把大规模标注数据、GPU 训练和更深的 CNN 组合起来，在 ImageNet 上明显超过传统视觉方法。模型主体是 8 个带权重层：前 5 层是卷积层，后 3 层是全连接分类器。相比早期浅层特征或较小 CNN，AlexNet 通过更大的模型容量直接学习从低级纹理到高级类别的层级表征。
+
+训练稳定性主要来自几个工程选择。第一，激活函数使用 ReLU，而不是 sigmoid 或 tanh，使深层网络训练更快，也缓解梯度饱和。第二，模型使用 overlapping max pooling，让池化窗口有重叠，在降采样的同时保留更多局部信息。第三，论文引入 local response normalization（LRN）模拟局部竞争，不过这个模块后来基本被 BatchNorm 等方法替代。第四，因为当时单卡显存不足，网络被拆到两块 GPU 上训练，部分层只连接同一 GPU 上的通道，部分层再跨 GPU 交互。
+
+AlexNet 对过拟合的处理也很关键。ImageNet 已经比过去的数据集大很多，但相对 6000 万级参数的网络仍然不算大，因此论文使用随机裁剪、水平翻转和 RGB PCA 颜色扰动做数据增强，并在全连接层使用 dropout。最终模型在 ILSVRC-2012 测试集上达到 15.3% top-5 error，显著低于第二名的 26.2%。从今天看，AlexNet 的结构并不优雅：大卷积核、全连接层参数重、LRN 已经过时；但它证明了“更大数据 + GPU + 深 CNN”这条路线可行，直接开启了后续 VGG、GoogLeNet、ResNet 等 CNN Backbone 的发展。
 
 </ArxivRating>
 
 ## VGG
 
-<ArxivRating id='1409.1556' publication='ICLR2015' tldr='' rank={0}>
+<ArxivRating id='1409.1556' publication='ICLR2015' tldr='用统一的 3×3 卷积堆叠到 16/19 层，证明网络深度对视觉识别性能至关重要。' rank={3}>
+
+VGG 的问题意识很清楚：在大规模图像识别中，如果尽量固定其他设计，只增加网络深度，性能会不会继续提升？因此它没有追求复杂模块，而是采用极其统一的设计原则：输入为 224×224 RGB 图像，卷积层几乎全部使用 `3×3` kernel，stride 为 1，padding 为 1，使特征图尺寸在卷积后保持不变；空间下采样由 5 个 `2×2` max pooling 完成；最后接 3 个全连接层和 softmax 分类器。
+
+使用连续 `3×3` 卷积是 VGG 最核心的设计。两个 `3×3` 卷积堆叠后的感受野相当于 `5×5`，三个 `3×3` 相当于 `7×7`，但参数更少，而且中间多了非线性激活，因此表达能力更强。论文比较了从 11 层到 19 层的多个配置，最终 VGG-16 和 VGG-19 表现最好，说明在当时的训练设定下，把网络稳定加深到 16/19 个带权重层确实能带来收益。
+
+实验上，VGG 在 ILSVRC-2014 分类任务中取得很强结果，论文报告的最佳单模型测试 top-5 error 约为 7.3%，结合 multi-crop 与 dense evaluation 后验证集 top-5 error 可到约 7.1%。VGG 的长期影响不只是 ImageNet 排名，而是提供了一个非常简单、可复现、迁移性强的卷积 Backbone 范式：小卷积核重复堆叠、逐级下采样、通道数逐级增加。它的缺点也同样明显：全连接层带来大量参数，整体计算和存储开销很高，因此后来逐渐被 Inception、ResNet 等更高效或更易优化的结构取代。
 
 </ArxivRating>
 
 ## ResNet
 
-<ArxivRating id='1512.03385' publication='CVPR2016' tldr='' rank={0}>
+<ArxivRating id='1512.03385' publication='CVPR2016' tldr='用残差连接解决深层网络退化问题，使 50/101/152 层 CNN 成为可训练的强视觉 Backbone。' rank={5}>
+![](https://pic.hana0721.top/resnet.3yf3ifwd69.webp)
+ResNet 关注的不是普通过拟合，而是深层网络的 degradation problem：当网络继续加深时，训练误差反而可能升高，说明问题不是模型容量不够，而是优化变困难。论文的核心假设是，与其让一组层直接学习目标映射 $H(x)$，不如让它学习残差 $F(x)=H(x)-x$，最后输出 $F(x)+x$。如果更深的层暂时没有必要学习新变换，只需要让残差趋近于 0，整体就可以近似恒等映射，这使深层模型至少不应比浅层模型更难表示已有解。
+
+结构上，ResNet 的基本单元是 residual block。浅层版本通常由两个 `3×3` 卷积组成，输入通过 identity shortcut 直接加到卷积分支输出上；当空间尺寸或通道数变化时，可以用 projection shortcut 或 zero-padding 处理维度匹配。论文特别强调，很多情况下无参数的 identity shortcut 已经足够有效，这意味着残差连接本身不是靠增加大量参数取胜，而是在优化路径上提供了更直接的信息和梯度通道。
+
+对于 50/101/152 层的 ImageNet 模型，ResNet 使用 bottleneck block：`1×1` 卷积先降维，`3×3` 卷积处理空间信息，再用 `1×1` 卷积升维。这样可以在控制计算量的同时把网络加深到 152 层。实验中，34 层 plain net 训练和验证都劣于 18 层 plain net，而 34 层 ResNet 明显改善这一问题；论文报告 34 层 ResNet 相比 34 层 plain net 降低约 3.5% top-1 error。更深模型继续提升，ResNet-152 单模型在 ImageNet 验证集上达到 4.49% top-5 error，集成模型在测试集上达到 3.57% top-5 error，并赢得 ILSVRC 与 COCO 2015 多个任务。ResNet 的贡献非常基础：残差连接后来成为 CNN、Transformer 和多模态网络里几乎默认的深层建模组件。
 
 </ArxivRating>
 
@@ -534,17 +552,17 @@ PTv3 不再坚持完全 permutation invariant 的 KNN 邻域搜索，而是用 s
 
 ## PointCLIP
 
-<ArxivRating id='2112.02413' publication='CVPR2022' tldr='把点云投影到多视角深度图后借用 CLIP 进行零样本和小样本 3D 识别。' rank={4}>
-
+<ArxivRating id='2112.02413' publication='CVPR2022' tldr='把点云投影到多视角深度图后借用 CLIP 进行零样本和小样本 3D 识别。' rank={3}>
+![](https://pic.hana0721.top/pclip-overview.54yer10odz.webp)
 PointCLIP 是把 2D CLIP 迁移到 3D 点云的早期代表。
 它不训练 3D backbone，而是把点云从多个固定视角在线投影成 depth maps，再送入 CLIP image encoder；类别名则放进手写 prompt，比如 `point cloud depth map of a [CLASS].`，由 CLIP text encoder 得到分类权重。
 每个视角独立得到 image-text matching logits，最后用手工 view weights 加权融合。
-
+![](https://pic.hana0721.top/pclip-pipeline.96ae5f5qrj.webp)
 零样本版本完全不需要 3D 训练，但性能还比较初步：ModelNet10 为 30.23%，ModelNet40 为 20.18%，ScanObjectNN 为 15.38%。
 论文真正有用的部分是 few-shot adapter：冻结 CLIP 的图像和文本编码器，只训练一个三层 inter-view adapter。
 它先拼接多视角特征得到 global feature，再用残差方式把 global-guided adapted feature 加回每个 view feature，使少量 3D 样本学到的知识和 CLIP 的 2D 预训练知识融合。
 在 ModelNet40 上，16-shot PointCLIP 能从 zero-shot 20.18% 提升到 87.20%。
-
+![](https://pic.hana0721.top/pclip-arch.36280owtus.webp)
 PointCLIP 还有一个有趣发现：它和传统 3D 全监督网络具有互补性。
 例如 16-shot PointCLIP 与 PointNet++ ensemble，可把 PointNet++ 从 89.71% 提升到 92.10%；与 CurveNet ensemble，可从 93.84% 提升到 94.08%。
 总体看，PointCLIP 的价值不是性能最强，而是证明了「多视角投影 + CLIP 对齐」可以作为 3D open-vocabulary / low-shot 学习的入口。
