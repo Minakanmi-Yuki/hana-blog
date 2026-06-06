@@ -1,7 +1,7 @@
 ---
 title: 'Paper Reading: CV 2'
 publishDate: 2025-12-26
-updatedDate: 2026-05-31
+updatedDate: 2026-06-06
 description: 浅度一些视觉相关的工作
 heroImage: { src: 'https://pic.hana0721.top/139063757_p0_master1200.2yyzxgr9fg.webp', color: '#8C8275' }
 category: 'research'
@@ -32,6 +32,11 @@ import { ManualTOC } from '@/components/advanced'
           title: 'Batch 2',
           href: '/blog/paper-reading-cv2',
           order: '2'
+        },
+        {
+          title: 'Batch 3',
+          href: '/blog/paper-reading-cv3',
+          order: '3'
         }
       ]
     }
@@ -41,6 +46,46 @@ import { ManualTOC } from '@/components/advanced'
 ## 前言
 
 计算机视觉基础模型关注从图像、视频和点云中学习可迁移的表征与几何结构。相关工作覆盖经典视觉骨干、自监督预训练、开放词表检测、通用分割、点云表征与视觉几何，核心作用是为分类、检测、分割、三维理解、场景重建和机器人感知等任务提供稳定的基础感知能力。
+
+## OpenScene
+
+<ArxivRating id='2211.15654' publication='CVPR2023' tldr='把 3D 场景点特征对齐到 CLIP 空间，实现开放词表 3D 场景理解。' rank={4}>
+
+OpenScene 关注的是开放词表 3D scene understanding，而不是单物体点云分类。
+它的目标是给每个 3D point 预测一个和 CLIP/text/image pixel 共嵌入的 dense feature，这样任意文本 query 都可以通过 cosine similarity 在 3D 场景里生成热力图或语义分割。
+
+方法分三步。
+首先，用 OpenSeg 或 LSeg 这类开放词表 2D segmentation model 提取每张 RGB 图像的 dense pixel features；然后利用相机位姿和深度，把多视角 pixel features back-project 到 3D points，并做 multi-view average fusion，得到 `F_2D`。
+其次，训练一个 MinkowskiNet18A 只从 3D geometry 输入预测 `F_3D`，用 cosine loss 蒸馏到 `F_2D`，这样没有 RGB 时也能做开放词表查询。
+最后，用文本 prompt 与 2D/3D features 的相似度决定每个点采用 2D fusion 还是 3D distill feature，形成 2D-3D ensemble。
+
+结果上，在 ScanNet 4 个 unseen 类别的 zero-shot segmentation 中，OpenScene-LSeg 达到 62.8% mIoU，而 3DGenZ 是 7.7%，MSeg voting 是 53.4%。
+在标准场景语义分割中，OpenScene-OpenSeg zero-shot 在 nuScenes 上达到 42.1% mIoU / 61.8% mAcc，在 ScanNet 上为 47.5% / 70.7%，在 Matterport 上为 42.6% / 59.2%。
+消融显示 2D-3D ensemble 通常优于只用 2D fusion 或 3D distillation；并且随着 label set 扩大，OpenScene 对长尾类别比全监督模型更稳。
+总体看，OpenScene 把 CLIP 空间从 2D 图像和单物体 3D 扩展到真实 3D 场景，是开放词表 3D 场景理解的关键基线。
+
+</ArxivRating>
+
+## OpenMask3D
+
+<ArxivRating id='2306.13631' publication='NeurIPS2023' tldr='面向开放词表 3D 实例分割，用多视角 CLIP 特征聚合到 3D 实例 Mask 上。' rank={4}>
+
+OpenMask3D 解决的是 OpenScene 的一个自然短板：OpenScene 学的是 per-point semantic feature，适合做语义热力图，但不能天然区分同类物体的多个 instance。
+OpenMask3D 因此提出 open-vocabulary 3D instance segmentation：先拿到 class-agnostic 3D instance masks，再给每个 mask 计算一个开放词表 CLIP feature。
+
+具体流程是两阶段。
+第一阶段使用预训练 Mask3D 的 mask proposal module，只保留 binary instance masks，丢掉 closed-set class labels 和 confidence scores。
+第二阶段对每个 3D mask 计算 mask feature：先根据可见点数量和深度遮挡选择 top-k RGB-D views；再把 3D mask 投影到 2D，并用 SAM 根据投影点生成更干净的 2D object mask；随后围绕 2D mask 做多尺度 crop，用 CLIP visual encoder 提取 crop features，最后跨 crop 和 view 平均，得到 per-mask feature。
+查询时只需要把文本或图像 query 编成 CLIP feature，与每个 mask feature 做相似度匹配。
+
+ScanNet200 validation 上，OpenMask3D 达到 AP 15.4、AP50 19.9、AP25 23.1，明显高于用 OpenScene features 加 mask 聚合的 open-vocabulary baselines；尤其 tail AP 为 14.9，而 OpenScene 2D Fusion + masks 是 9.9。
+在 Replica 跨数据集测试中，OpenMask3D AP 为 13.1，也高于 OpenScene 变体。
+如果 mask proposal 只用 ScanNet20 训练、再评估 ScanNet200，OpenMask3D 在 novel classes 上仍有 11.9 AP，说明它对未见类别主要依赖 CLIP mask feature，而不是 closed-set class head。
+消融显示 SAM 2D mask refinement 和 multi-scale crops 都有帮助；oracle masks 实验中，OpenMask3D 的 tail AP 达到 32.9，甚至超过 fully supervised Mask3D 的 tail AP 17.9，说明瓶颈主要在 3D mask proposal 质量。
+
+总体看，OpenMask3D 是从开放词表 3D 语义理解走向开放词表 3D 实例级交互的重要一步：它把 CLIP 的开放语义绑定到 object mask，而不是散落在每个 point 上。
+
+</ArxivRating>
 
 ## VGGT
 
@@ -180,14 +225,3 @@ import { ManualTOC } from '@/components/advanced'
 
 </ArxivRating>
 
-## InternImage
-
-<ArxivRating id='2211.05778' publication='CVPR2023' tldr='用 deformable convolution 构建可规模化 CNN 视觉基础模型，在检测和分割等 dense prediction 任务上表现强。' rank={0}>
-
-</ArxivRating>
-
-## V-JEPA
-
-<ArxivRating id='2404.08471' tldr='Meta 的视频自监督表征模型，用 latent feature prediction 学习视频中的时空表示，不依赖文本、负样本或像素重建。' rank={0}>
-
-</ArxivRating>
