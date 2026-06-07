@@ -1,7 +1,7 @@
 ---
 title: 'Paper Reading: CV 3'
 publishDate: 2025-12-26
-updatedDate: 2026-06-06
+updatedDate: 2026-06-07
 description: 浅度一些视觉相关的工作
 heroImage: { src: 'https://pic.hana0721.top/98073480.3rbvmy4uvn.webp', color: '#8C8275' }
 category: 'research'
@@ -51,10 +51,26 @@ import { ManualTOC } from '@/components/advanced'
 
 <ArxivRating id='2211.05778' publication='CVPR2023' tldr='用 deformable convolution 构建可规模化 CNN 视觉基础模型，在检测和分割等 dense prediction 任务上表现强。' rank={0}>
 
+InternImage 的目标是证明 CNN 也可以像 ViT 一样受益于大参数量和大规模数据。论文认为传统卷积的强 inductive bias 带来效率和稳定性，但也限制了长程依赖和输入自适应空间聚合；而 dense prediction 任务又非常需要大感受野和高分辨率特征。因此作者选择 deformable convolution 作为核心算子，试图在 CNN 框架里获得类似 self-attention 的动态采样能力。
+
+核心改动是 DCNv3。它从 DCNv2 出发，保留可学习 offset 和 modulation 带来的 adaptive spatial aggregation，但做了几处适合大模型训练的调整：共享采样点之间的投影权重以降低参数和显存成本，引入 multi-group 机制让不同 group 学习不同空间聚合模式，并对 modulation scalars 在采样点维度归一化，使训练更稳定。这些设计让 3×3 deformable convolution 能同时具备较大有效感受野、输入相关采样和相对可控的计算成本。
+
+架构上，InternImage 仍是分层 CNN backbone：stem 和 downsampling 沿用常规 CNN 设计，基本 block 则围绕 DCNv3 构建，并吸收 Transformer/现代 backbone 中常见的 LayerNorm、FFN、残差堆叠和 scaling rule。论文从 30M 到 1B 参数探索模型规模，并在 427M 级别训练数据上训练 InternImage-H，重点验证 CNN 是否能在大数据大模型设定下追上甚至超过大型 ViT。
+
+实验覆盖 ImageNet、COCO、ADE20K 等分类、检测和语义分割任务。论文报告 InternImage-B 仅用 ImageNet-1K 训练达到 84.9% top-1；InternImage-H 在 427M 数据上达到 89.6% top-1，并在 COCO test-dev 达到 65.4 mAP、ADE20K 达到 62.9 mIoU。它的意义是给“大规模 CNN 视觉基础模型”提供了一个强案例；局限是 DCN 算子吞吐仍不如普通卷积/部分 ViT 友好，工程部署复杂度也高于标准 CNN。
+
 </ArxivRating>
 
 ## V-JEPA
 
 <ArxivRating id='2404.08471' tldr='Meta 的视频自监督表征模型，用 latent feature prediction 学习视频中的时空表示，不依赖文本、负样本或像素重建。' rank={0}>
+
+V-JEPA 的核心问题是：只靠 feature prediction，能否从视频中学到强视觉表征？它不使用文本、负样本、人类标注、预训练图像编码器，也不做像素级重建；而是把视频中的一部分时空区域作为 context，预测另一部分区域在 latent feature space 中的表示。相比 VideoMAE 这类 pixel reconstruction，V-JEPA 更强调抽象语义和动态结构，而不是复原低层纹理。
+
+训练框架是 joint-embedding predictive architecture。模型包含 x-encoder、y-encoder 和 predictor：x-encoder 只看未遮挡的视频 token，y-encoder 处理完整视频并提供目标区域的特征，predictor 根据 context features 和带位置编码的 mask tokens 去预测目标区域的 latent features。y-encoder 不是直接反向传播更新，而是 x-encoder 的 EMA 版本，这样可以提供较稳定的目标并避免表示坍塌。损失使用特征空间中的 L1 regression。
+
+masking 设计也很关键。论文采用 3D multi-block masking，把空间连续块沿整个时间维度重复，减少视频时空冗余造成的信息泄露。它混合 short-range masks 和 long-range masks：前者覆盖较小局部区域，后者覆盖大区域，平均遮挡比例接近 90%。这种任务迫使模型利用视频上下文预测缺失区域的高层表示，而不是简单从邻近像素复制。模型本体使用 ViT-L/16、ViT-H/16 等视频 Transformer，视频 patch 是 16×16 像素、跨 2 帧的时空 token。
+
+实验上，V-JEPA 在 VideoMix2M 上预训练，并用 frozen backbone + attentive probe 评估 Kinetics-400、Something-Something-v2、ImageNet-1K 等任务。论文报告最大 ViT-H/16 模型在冻结评估下达到 K400 81.9%、SSv2 72.2%、IN1K 77.9%；特征预测相比像素预测在冻结评估中更强，尤其在需要细粒度时间理解的 SSv2 上优势明显。fine-tuning 时 V-JEPA 也接近 VideoMAE/MVD 等像素预测方法。总体看，它是 JEPA 思路在视频自监督上的重要实证，但训练仍依赖大规模视频数据和较重的 ViT，且空间定位/密集任务能力不是本文重点。
 
 </ArxivRating>
