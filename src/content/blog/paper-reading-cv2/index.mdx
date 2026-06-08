@@ -49,11 +49,11 @@ import { ManualTOC } from '@/components/advanced'
 
 ## OpenScene
 
-<ArxivRating id='2211.15654' publication='CVPR2023' tldr='把 3D 场景点特征对齐到 CLIP 空间，实现开放词表 3D 场景理解。' rank={0}>
+<ArxivRating id='2211.15654' publication='CVPR2023' tldr='把 3D 场景点特征对齐到 CLIP 空间，实现开放词表 3D 场景理解。' rank={3}>
 
 OpenScene 关注的是开放词表 3D scene understanding，而不是单物体点云分类。
 它的目标是给每个 3D point 预测一个和 CLIP/text/image pixel 共嵌入的 dense feature，这样任意文本 query 都可以通过 cosine similarity 在 3D 场景里生成热力图或语义分割。
-
+![](https://pic.hana0721.top/openscene.45ibfrh4ps.webp)
 方法分三步。
 首先，用 OpenSeg 或 LSeg 这类开放词表 2D segmentation model 提取每张 RGB 图像的 dense pixel features；然后利用相机位姿和深度，把多视角 pixel features back-project 到 3D points，并做 multi-view average fusion，得到 `F_2D`。
 其次，训练一个 MinkowskiNet18A 只从 3D geometry 输入预测 `F_3D`，用 cosine loss 蒸馏到 `F_2D`，这样没有 RGB 时也能做开放词表查询。
