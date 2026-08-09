@@ -87,6 +87,64 @@ const headings = [
     }
   </div>
   <h2 id='publications'>Publications<a class='anchor' href='#publications'>#</a></h2>
+  <PublicationSection
+    publications={[
+      {
+        title: 'GraRe: Grasp Candidate Re-Ranking for Frozen 6-DoF Grasp Detectors',
+        authors: [
+          { name: 'Jibao Yuan', isMe: true },
+          { name: 'Yuhui Zhao' },
+          { name: 'Yinzhen Lv' },
+          { name: 'Chao Xu' },
+          { name: 'Shun Li' },
+          { name: 'Chenxi Deng' },
+          { name: 'Shaofei Chen' }
+        ],
+        venue: 'arXiv preprint',
+        year: '2026',
+        type: 'preprint',
+        abstract:
+          'Existing 6-DoF grasp detectors often rank candidates by detector confidence, which can be poorly aligned with grasp quality. GraRe re-ranks candidates from frozen detectors using candidate attributes, shell-stratified local geometry, and object context, fused by a Transformer. Experiments on GraspNet-1Billion with three frozen detectors improve Average AP by up to 13.60 points, while real-robot tests demonstrate robust grasping in cluttered scenes.',
+        links: [{ type: 'arxiv', href: 'https://arxiv.org/abs/2608.00946' }],
+        status: 'preprint'
+      },
+      {
+        title: 'Construction and Study of an Explainable Logical Reasoning Dataset',
+        authors: [
+          { name: 'Yu Xiao' },
+          { name: 'Jing Xiao' },
+          { name: 'Guijin Lin' },
+          { name: 'Rongsen Ni' },
+          { name: 'Jiarong Xian' },
+          { name: 'Jibao Yuan', isMe: true }
+        ],
+        venue: 'Journal of Computer Engineering & Applications',
+        year: '2025',
+        type: 'journal',
+        abstract:
+          'Logical reasoning is crucial for machine understanding, yet existing benchmarks lack detailed explanations of reasoning processes. This work introduces the Chinese-English Explainable Logical Reasoning (Ex-LoR) dataset, containing 3,411 problems with explanations across six reasoning categories. It defines question-answering and explanation-generation tasks, and experiments with several language models show that current systems still struggle to answer reliably and produce reasonable explanations.',
+        links: [{ type: 'doi', href: 'https://doi.org/10.3778/j.issn.1002-8331.2309-0458' }],
+        status: 'published'
+      },
+      {
+        title: 'BERT-Enhanced Retrieval Tool for Homework Plagiarism Detection System',
+        authors: [
+          { name: 'Jiarong Xian', isEqual: true },
+          { name: 'Jibao Yuan', isMe: true, isEqual: true },
+          { name: 'Peiwei Zheng', isEqual: true },
+          { name: 'Dexian Chen', isEqual: true },
+          { name: 'Yuntao Nie' }
+        ],
+        venue: 'arXiv preprint',
+        year: '2024',
+        type: 'preprint',
+        abstract:
+          'This paper presents a GPT-3.5-based method for generating 32,927 paired plagiarism-detection examples covering diverse plagiarism strategies. A Faiss-and-BERT retrieval system identifies plagiarism efficiently and accurately, achieving 98.86% accuracy, 98.90% precision, 98.86% recall, and 0.9888 F1 in experiments. A user-friendly demo platform supports uploading a text library for interactive analysis.',
+        links: [{ type: 'arxiv', href: 'https://arxiv.org/abs/2404.01582' }],
+        status: 'preprint'
+      }
+    ]}
+  />
   <!-- <PublicationSection
     publications={[
       {
