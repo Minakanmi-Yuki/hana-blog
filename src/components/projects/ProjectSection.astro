@@ -11,7 +11,6 @@ interface Props {
     image?: string
     name: string
     description: string
-    role?: string
     links: {
       type: string
       href: string
@@ -68,22 +67,15 @@ const projectIconSet: Record<string, iconsType> = {
               {/* Header section */}
               <div class='flex-1 space-y-3'>
                 <div class='flex items-start justify-between gap-4'>
-                  <div class='flex min-w-0 items-center gap-2'>
-                    <a
-                      href={project.links.find(link => link.type === 'site')?.href || project.links[0].href}
-                      target='_blank'
-                      class='group/title no-underline'
-                    >
-                      <h3 class='text-xl font-semibold tracking-tight text-foreground transition-colors group-hover/title:text-primary'>
-                        {project.name}
-                      </h3>
-                    </a>
-                    {project.role && (
-                      <span class='shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary'>
-                        {project.role}
-                      </span>
-                    )}
-                  </div>
+                  <a
+                    href={project.links.find(link => link.type === 'site')?.href || project.links[0].href}
+                    target='_blank'
+                    class='group/title no-underline'
+                  >
+                    <h3 class='text-xl font-semibold tracking-tight text-foreground transition-colors group-hover/title:text-primary'>
+                      {project.name}
+                    </h3>
+                  </a>
                   {imagePath && (
                     <div class='flex-shrink-0 overflow-hidden rounded-lg border border-border/30 bg-background/60 p-1.5 backdrop-blur-sm transition-all duration-300 group-hover:border-primary/30 group-hover:bg-background/80'>
                       <Image
