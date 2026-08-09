@@ -92,20 +92,25 @@ const headings = [
       {
         title: 'GraRe: Grasp Candidate Re-Ranking for Frozen 6-DoF Grasp Detectors',
         authors: [
-          { name: 'Jibao Yuan', isMe: true },
-          { name: 'Yuhui Zhao' },
-          { name: 'Yinzhen Lv' },
-          { name: 'Chao Xu' },
-          { name: 'Shun Li' },
+          { name: 'Jibao Yuan', isMe: true, isEqual: true },
+          { name: 'Yuhui Zhao', isEqual: true },
+          { name: 'Yinzhen Lv', isEqual: true },
+          { name: 'Chao Xu', isEqual: true },
+          { name: 'Shun Li', isEqual: true },
           { name: 'Chenxi Deng' },
-          { name: 'Shaofei Chen' }
+          { name: 'Shaofei Chen', role: 'corresponding' }
         ],
         venue: 'arXiv preprint',
         year: '2026',
         type: 'preprint',
         abstract:
           'Existing 6-DoF grasp detectors often rank candidates by detector confidence, which can be poorly aligned with grasp quality. GraRe re-ranks candidates from frozen detectors using candidate attributes, shell-stratified local geometry, and object context, fused by a Transformer. Experiments on GraspNet-1Billion with three frozen detectors improve Average AP by up to 13.60 points, while real-robot tests demonstrate robust grasping in cluttered scenes.',
-        links: [{ type: 'arxiv', href: 'https://arxiv.org/abs/2608.00946' }],
+        links: [
+          { type: 'arxiv', href: 'https://arxiv.org/abs/2608.00946' },
+          { type: 'dataset', href: 'https://huggingface.co/datasets/jibaoyuan/grare-graspnet' },
+          { type: 'model', href: 'https://huggingface.co/jibaoyuan/grare-graspnet' },
+          { type: 'code', href: 'https://github.com/Minakanmi-Yuki/grare' }
+        ],
         status: 'preprint'
       },
       {
@@ -287,6 +292,32 @@ const headings = [
   <h2 id='open-source-projects'>
     Open-source Projects<a class='anchor' href='#open-source-projects'>#</a>
   </h2>
+  <ResearchProjectSection
+    projects={[
+      {
+        title: 'GraRe',
+        description:
+          'A grasp candidate re-ranking framework that improves frozen 6-DoF grasp detectors with candidate attributes, local geometry, and object context.',
+        category: 'Robotic Grasping',
+        role: 'Core Maintainer',
+        status: 'active',
+        links: [
+          { type: 'arxiv', href: 'https://arxiv.org/abs/2608.00946', label: 'Paper' },
+          { type: 'github', href: 'https://github.com/Minakanmi-Yuki/grare', label: 'GitHub' },
+          {
+            type: 'huggingface',
+            href: 'https://huggingface.co/datasets/jibaoyuan/grare-graspnet',
+            label: 'Dataset'
+          },
+          {
+            type: 'huggingface',
+            href: 'https://huggingface.co/jibaoyuan/grare-graspnet',
+            label: 'Model'
+          }
+        ]
+      }
+    ]}
+  />
   <!-- <ResearchProjectSection
     projects={[
       {

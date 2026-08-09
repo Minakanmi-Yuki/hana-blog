@@ -13,6 +13,7 @@ interface Props {
     title: string
     description: string
     category?: string
+    role?: string
     status?: 'active' | 'completed' | 'archived'
     links: {
       type: string
@@ -87,10 +88,17 @@ const statusColors = {
                   <p class='text-xl text-foreground group-hover:text-primary transition-colors'>
                     {project.title}
                   </p>
-                  {project.category && (
-                    <span class='mt-1 inline-block text-sm text-muted-foreground'>
-                      {project.category}
-                    </span>
+                  {(project.category || project.role) && (
+                    <div class='mt-1 flex flex-wrap items-center gap-2'>
+                      {project.category && (
+                        <span class='text-sm text-muted-foreground'>{project.category}</span>
+                      )}
+                      {project.role && (
+                        <span class='rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary'>
+                          {project.role}
+                        </span>
+                      )}
+                    </div>
                   )}
                 </div>
                 {!imagePath && project.status && (
