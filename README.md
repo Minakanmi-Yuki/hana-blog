@@ -221,3 +221,35 @@ rg -n "关键词" src
 3. 只有行为异常或渲染链路问题时才往 `layout / plugin / integration` 深挖
 
 这样通常最省 token，也最省时间。
+
+## 11. 批量上传图床图片
+
+项目提供了 `scripts/upload-images.mjs`，会把 PNG/JPG 等图片转换为 WebP，并按照 PicX 的
+`原文件名.哈希.webp` 形式命名，然后通过 SSH clone、commit、push 到
+`Minakanmi-Yuki/picx-images-hosting` 的 `master` 分支，并同步到 `gh-pages`，因此自定义
+域名链接可以直接使用。
+
+先用 dry-run 检查转换结果：
+
+```bash
+pnpm images:upload -- --dry-run ./path/to/images
+```
+
+确认无误后直接上传一张或多张图片，也可以传入目录（目录会递归扫描）：
+
+```bash
+pnpm images:upload -- ./image-a.png ./image-b.jpg
+pnpm images:upload -- ./path/to/images
+```
+
+常用选项：
+
+```bash
+pnpm images:upload -- --quality 85 --remote-dir blog/demo ./path/to/images
+```
+
+默认输出链接前缀是 `https://pic.hana0721.top`。如需更换图床仓库、分支或链接前缀，可使用
+`--repo`、`--branch`、`--pages-branch`、`--base-url`，或设置对应的 `PICX_REPO`、
+`PICX_BRANCH`、`PICX_PAGES_BRANCH`、`PICX_BASE_URL` 环境变量。如果只使用 GitHub Raw 或
+jsDelivr 链接，可以加 `--no-pages` 跳过 Pages 同步。脚本不会修改输入图片，也不会把 SSH
+私钥写入项目。
