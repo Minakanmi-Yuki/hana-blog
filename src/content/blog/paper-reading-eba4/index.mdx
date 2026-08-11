@@ -59,160 +59,483 @@ RL菜鸡开始进军Embodied AI，慢慢积累，提升自己。
 
 ## 4D-VLA
 
-<ArxivRating id='2506.22242' tldr='' rank={0}>
+<ArxivRating
 
+  id='2506.22242'
+  tldr='4D-VLA 用连续 RGB-D 和历史帧记忆把深度、时间与跨场景坐标纳入 VLA 预训练，缓解多机器人数据中的坐标混乱和状态混乱。'
+  rank={0}
+>
+
+![](https://pic.hana0721.top/4d-vla-01.2dpf69c904.webp)
+4D-VLA 的动机是让来自不同机器人、相机和场景的轨迹真正可以一起预训练。只用单帧 RGB 时，模型既看不清物体的三维关系，也无法判断动作所处的阶段，导致同一观察对应的动作分布很分散，论文称之为 coordinate-system chaos 和 state chaos。
+
+核心方法是在视觉输入中加入连续 RGB-D 帧，把深度用于对齐机器人与场景坐标，把时间上下文用于建模运动状态；同时用 cross-scene calibration 减少不同采集设置的坐标偏差。memory-bank sampling 从历史观测中选择信息量较高的帧，避免把全部视频都塞进上下文。作者还提出 MV-Bench，用多视角仿真检验空间感知和新视角泛化。
+
+数据与实验覆盖仿真和真实机器人操作，并与 OpenVLA 等 VLA 比较；消融分别考察深度、时序、校准和记忆采样。结果显示，4D 输入和记忆策略能同时改善动作成功率、时空推理及跨视角适应，而不需要显著增加主干模型规模。
+
+主要结论是，补足观测的几何和时间信息，比单纯扩大动作数据更能稳定多源预训练。局限在于深度传感器噪声、相机标定和帧选择错误会直接影响策略，MV-Bench 仍是仿真评测，真实长时序与更多 embodiment 的收益需要继续验证。建议代表 Figure：Figure 1（4D-VLA 输入、校准和记忆采样的总览）。
 </ArxivRating>
 
 ## D(R,O) Grasp
 
-<ArxivRating id='2410.01702' tldr='' rank={0}>
+<ArxivRating
 
+  id='2410.01702'
+  tldr='D(R,O) Grasp 将机器人手的描述与物体点云编码为统一交互表示，直接预测跨机器人、跨物体的合法稳定灵巧抓取。'
+  rank={0}
+>
+
+![](https://pic.hana0721.top/dr-o-grasp-01.4xv9iwc7o5.webp)
+D(R,O) Grasp 的动机是解决灵巧手抓取中的 embodiment gap：不同手的关节数量、连杆尺寸和可达空间不同，分别训练会浪费数据，直接迁移抓取姿态又常出现运动学不合法或接触不稳定。
+
+方法把处于抓取姿态的机器人手和物体点云放到同一交互表示中。网络读取机器人的几何/关节描述和物体点云，学习手—物接触关系，再输出候选抓取姿态；预测阶段配合运动学约束和稳定性筛选，因而不是只在图像上找一个二维框。表示不绑定某一手型，目标是对新手和新物体保持泛化。
+
+实验在三种不同灵巧手的仿真环境和 LeapHand 真实平台上评估成功率、抓取多样性与推理时间，并比较不同手型、物体几何和未见组合。论文报告仿真平均成功率约为 87.5%，真实 LeapHand 约为 89%，且单次推理可在秒级内完成。
+
+结果表明，显式建模机器人与物体的交互，比把每个 embodiment 当作独立类别更容易迁移。局限是输入仍依赖较完整的手部描述、点云质量和标定；稳定性主要由几何/仿真指标近似，动态接触、柔性物体和闭环失败恢复尚未充分覆盖。建议代表 Figure：Figure 1（统一交互表示与跨手型抓取流程）。
 </ArxivRating>
 
 ## Fast-in-Slow
 
-<ArxivRating id='2506.01953' tldr='' rank={0}>
+<ArxivRating
 
+  id='2506.01953'
+  tldr='Fast-in-Slow 将高速 System 1 动作模块嵌入带 VLM 推理能力的 System 2，并以异步双系统协同兼顾规划质量和控制频率。'
+  rank={0}
+>
+
+![](https://pic.hana0721.top/fast-in-slow-01.4cllwlhrfn.webp)
+Fast-in-Slow（FiS）的研究动机是解决机器人基础模型的两难：VLM 能做常识和长时序推理，却通常以很低频率输出动作；单独的快速策略能实时控制，却无法利用大模型的语义知识。把两个完全独立的模型串联还会造成表示和通信损失。
+
+FiS 在一个 VLA 中部分共享参数，把 System 1 执行模块放入 System 2 的 VLM 表示内部。两个系统接收不同的模态输入、以异步频率运行：System 2 低频生成和筛选高层动作候选，System 1 高频把候选变成平滑的动作 chunk。dual-aware co-training 同时训练动作生成与上下文表示，避免快速分支破坏慢速分支的推理能力。
+
+实验包含仿真操作任务和真实机器人任务。作者报告相对既有方法平均成功率在仿真提升约 8%、真实任务提升约 11%，动作 chunk 为 8 时控制频率可达 117.7 Hz；消融表明部分参数共享和异步调度都对收益有贡献。
+
+主要结论是，快慢系统不必靠两个互不相干的网络实现，适度共享能把语义计划直接传给高速控制器。局限是 System 2 候选和价值判断出错时，System 1 只能快速执行错误计划；异步缓存、频率和硬件同步增加工程复杂度，复杂接触任务及更多机器人形态仍需验证。建议代表 Figure：Figure 1（FiS 的 System 1/System 2 数据流和异步时序）。
 </ArxivRating>
 
 ## NavDP
 
-<ArxivRating id='2505.08712' tldr='' rank={0}>
+<ArxivRating
 
+  id='2505.08712'
+  tldr='NavDP 在仿真中用带特权信息指导的轨迹扩散策略学习 RGB-D 导航，并尝试零样本迁移到真实环境和不同机器人。'
+  rank={0}
+>
+
+![](https://pic.hana0721.top/navdp-1.2a5t8jj6g3.webp)
+NavDP 的动机是让导航策略摆脱手工级联模块和昂贵真实示范。动态、开放世界中的机器人需要同时生成安全轨迹并判断轨迹质量，而只用 RGB-D 的策略往往看不出碰撞风险，单纯依靠仿真又容易产生 sim-to-real 落差。
+
+核心是一个 Transformer 架构，输入局部 RGB-D，联合预测候选轨迹和对应的 critic value。训练时在仿真中使用地图、碰撞和未来状态等 privileged information 为轨迹打分，再通过对比式候选监督把这些信号蒸馏到只看 RGB-D 的策略；动作轨迹由 diffusion policy 生成。配套的数据管线在大量场景中自动产生安全/危险导航经验。
+
+数据集覆盖约三千个仿真场景和超过一百万米的导航经历，实验在仿真和真实环境中测试点到点导航、动态障碍与不同底盘/传感器设置，并与模块化和学习式导航器比较。结果显示，特权信息只用于训练并不会阻碍部署，NavDP 在跨场景、跨机器人和 sim-to-real 测试中保持较强的成功率与安全性。
+
+结论是“用仿真老师教会视觉策略评估轨迹”比直接模仿最短路径更有利于泛化。局限包括仿真中的碰撞/动力学模型与真实世界仍有差异，RGB-D 在强反光、雨雾或稀疏纹理下会失效；长程全局规划、极端动态人群和未知传感器还不是充分覆盖的场景。建议代表 Figure：Figure 1（NavDP 的轨迹生成—价值评估联合训练和部署流程）。
 </ArxivRating>
 
 ## Nav $A^3$
 
-<ArxivRating id='2508.04598' tldr='' rank={0}>
+<ArxivRating
 
+  id='2508.04598'
+  tldr='NavA³ 用全局 Reasoning-VLM 解析开放指令、用局部 NaviAfford 做开放词汇空间指向，完成长时程“理解—导航—找物体”。'
+  rank={0}
+>
+
+![](https://pic.hana0721.top/nav-a3-01.7zr5k4dk1f.webp)
+NavA³ 针对现实中“去找到能完成某件事的物品”这类开放指令，而非预先定义的 object navigation 标签。难点在于高层语言目标可能包含隐含的地点和用途，目标物体还可能是开放词汇、被遮挡并处在陌生布局中。
+
+框架分为全局和局部两级。全局策略将 Reasoning-VLM 的指令解析能力与全局三维场景视图结合，推断最可能包含目标的区域并规划长程路线；局部策略 NaviAfford（PointingVLM）接收当前视野，输出开放词汇物体的位置、可达性和空间 affordance，从而把路线终点精确到目标。
+
+作者收集约一百万条带空间 affordance 的样本训练局部模型，并在不同机器人 embodiment 的真实长时程导航中评估复杂指令、开放词汇定位和找物体成功率，同时与现有 VLN/物体导航方法比较。实验显示，分层设计在全局搜索和局部指向之间取得更好的成功率，并能处理预定义类别之外的目标。
+
+主要结论是，高层语义推理和低层空间指向应分别建模再闭环协作。局限是全局三维重建、定位漂移和局部指向误差会级联放大；affordance 标注与真实可操作性不总是一致，长程失败恢复和动态人群中的安全性还缺少系统评估。建议代表 Figure：Figure 1（全局区域规划与局部 NaviAfford 指向的层次化架构）。
 </ArxivRating>
 
 ## StreamVLN
 
-<ArxivRating id='2507.05240' tldr='' rank={0}>
+<ArxivRating
 
+  id='2507.05240'
+  tldr='StreamVLN 以 slow-fast 上下文建模处理连续视觉流：滑窗对话保证即时动作，3D 感知记忆压缩长期历史并复用 KV cache。'
+  rank={0}
+>
+
+![](https://pic.hana0721.top/streamvln-1.9ddoo5om4g.webp)
+StreamVLN 的动机是把视频式 VLM 用到真实视觉语言导航时，细粒度当前观测、长期路线记忆和推理延迟很难同时满足。每帧都重算长视频上下文会越来越慢，固定窗口又会忘记早期地标和指令约束。
+
+方法维护两个上下文。fast stream 使用交错视觉、语言、动作的滑动窗口和多轮对话，持续给出低延迟动作；slow stream 低频更新历史记忆，用 3D-aware token pruning 保留与空间布局和路线相关的视觉 token。推理时复用 KV cache，使上下文长度和成本随视频时长保持有界。
+
+实验在 VLN-CE 等连续环境基准上比较导航成功率、路径效率、延迟和长视频鲁棒性，并测试不同窗口和记忆更新频率。结果达到当时的强基线水平，同时支持实时对话式动作生成，说明慢速压缩记忆可以补足快速局部控制。
+
+结论是，导航视频的历史信息不应简单截断，而应按三维空间价值异步压缩。局限是 token pruning 依赖深度/几何估计，错误记忆可能持续影响后续决策；VLN-CE 与真实家庭环境仍有差距，语言歧义、遮挡和大规模动态物体下的长期记忆需要更多验证。建议代表 Figure：Figure 1（fast dialogue stream 与 slow memory stream 的时序关系）。
 </ArxivRating>
 
 ## V-JEPA 2
 
-<ArxivRating id='2506.09985' tldr='' rank={0}>
+<ArxivRating
 
+  id='2506.09985'
+  tldr='V-JEPA 2 先从海量无动作视频学习潜在世界模型，再用少量机器人视频对齐动作，实现理解、预测和图像目标规划。'
+  rank={0}
+>
+
+![](https://pic.hana0721.top/v-jepa2-01.1zizfe3yha.webp)
+V-JEPA 2 的动机是让模型主要靠观察学习物理世界，而不是为每个机器人任务重新收集带动作和奖励的数据。像素生成模型容易把容量用在纹理细节上，直接行为克隆又难以从互联网视频获得可迁移的动力学知识。
+
+作者先用超过百万小时的互联网视频和图像训练 action-free joint-embedding predictive architecture，在潜空间预测被遮挡或未来的视觉表示；再与语言模型对齐以支持视频问答。针对机器人规划，V-JEPA 2-AC 只用少量 DROID 无标注机器人视频做 latent action-conditioned world model，并在潜空间搜索到达图像目标的动作序列。
+
+评测覆盖 Something-Something v2 动作理解、EPIC-Kitchens-100 预期动作、PerceptionTest/TempCompass 视频问答，以及 Franka 机械臂的取放和图像目标规划。论文报告动作理解和问答达到很强的结果；V-JEPA 2-AC 在两个实验室的 Franka 上无需目标机器人数据、任务奖励或任务专门训练即可完成若干取放任务。
+
+主要结论是，web-scale 自监督视频加少量交互视频足以形成可用于规划的视觉世界模型。局限是潜在动作并不等同于可执行控制，接触动力学、力觉和失败恢复仍需真实数据；零样本实验任务较受限，面对新机器人、长时程目标和安全约束时不能直接保证成功。建议代表 Figure：Figure 1（V-JEPA 2 预训练、V-JEPA 2-AC 对齐和规划闭环）。
 </ArxivRating>
 
 ## MolmoAct
 
-<ArxivRating id='2508.07917' tldr='' rank={0}>
+<ArxivRating
 
+  id='2508.07917'
+  tldr='MolmoAct 提出 Action Reasoning Model：先用深度感知生成可编辑空间轨迹，再由低层动作头执行，使 VLA 的计划可解释、可干预。'
+  rank={0}
+>
+
+![](https://pic.hana0721.top/molmoact-01.46emrrixd.webp)
+MolmoAct 的动机是弥合“看到指令”到“生成可靠动作”的断层。许多机器人基础模型把观测和语言直接映射到控制，遇到长时程、空间约束或分布外物体时难以说明中间计划，也难以让用户修改动作意图。
+
+其 ARM 采用结构化三阶段管线：视觉和指令先编码为 depth-aware perception tokens；模型随后输出表示接触点、路径和目标姿态的中层 trajectory trace；最后由动作头把轨迹转换为精细的连续控制。轨迹是可视化且可编辑的中间表示，可以在执行前被检查或引导。作者同时发布包含一万余条高质量轨迹的 MolmoAct Dataset 和动作推理数据。
+
+实验覆盖 SimplerEnv Visual Matching、LIBERO、单臂与双臂真实任务，以及分布外物体和开放指令。MolmoAct-7B-D 在这些设置中都优于多种 VLA 基线，尤其在长时程和轨迹 steering 上；用新增数据做中期训练还能稳定提升基础模型的平均表现。
+
+结论是，把空间计划显式化能同时改善可解释性、干预性和泛化。局限是深度估计与轨迹标注错误会传递到动作，编辑轨迹的接口还未证明对普通用户足够直观；真实评测仍集中于桌面操作，快速接触、移动底盘和跨传感器迁移有待研究。建议代表 Figure：Figure 1（感知 token—轨迹 trace—动作执行三阶段）。
 </ArxivRating>
 
 ## MimicGen
 
-<ArxivRating id='2310.17596' publication='CoRL2023' tldr='' rank={0}>
+<ArxivRating
 
+  id='2310.17596'
+  publication='CoRL2023'
+  tldr='MimicGen 把少量人类示范中的动作片段按物体和场景变换自动重定向，规模化生成可用于模仿学习的机器人数据。'
+  rank={0}
+>
+
+![](https://pic.hana0721.top/mimicgen-01.2dpf69c9g1.webp)
+MimicGen 针对真实示范昂贵且覆盖范围窄的问题：长时程装配、咖啡准备等任务需要大量不同初始状态，但逐条遥操作既耗时又难以复现。论文希望只用少量高质量示范，自动扩展物体实例、摆放和机器人设置。
+
+系统先把示范分解为具有语义边界的动作片段，识别片段中的关键物体和相对位姿，再将 waypoint 和控制序列根据新场景中的物体变换重定向。重定向后的轨迹在仿真中进行碰撞与成功检查，失败样本被过滤或重新采样，最后输出统一格式的数据供行为克隆等算法训练。
+
+从约两百条人类示范出发，MimicGen 在 18 类任务、不同场景配置、物体实例和机械臂上生成五万条以上演示。作者在长时程和高精度任务中比较生成数据、额外人类示范和混合数据训练的策略，并展示多种初始状态下的仿真与真实执行。
+
+结果表明，经过物体中心重定向的数据能显著扩大覆盖，效果可与继续采集人类示范相比。局限是片段边界、物体追踪和重定向假设在遮挡、柔性物体或接触动力学变化时容易失效；数据主要在仿真中扩增，真实域的视觉和摩擦差异仍需额外示范或随机化。建议代表 Figure：Figure 1（示范分段、场景重定向和数据过滤流水线）。
 </ArxivRating>
 
 ## SpatialVLA
 
-<ArxivRating id='2501.15830' tldr='' rank={0}>
+<ArxivRating
 
+  id='2501.15830'
+  tldr='SpatialVLA 用 Ego3D 位置编码和 Adaptive Action Grids 显式表示三维空间，使预训练 VLA 更易跨任务和跨机器人迁移。'
+  rank={0}
+>
+
+![](https://pic.hana0721.top/spatialvla-01.39lwlplxxw.webp)
+SpatialVLA 的研究动机是，通用 VLA 往往能识别物体，却难以稳定判断深度、相对位置和运动幅度；直接离散化关节动作还把不同机器人绑定到不同的坐标和动作词表。
+
+方法一是在视觉 token 中加入 Ego3D Position Encoding，把像素与相机坐标中的深度/位置关系注入模型；方法二是 Adaptive Action Grids，将末端位姿变化按空间方向和尺度自适应离散化，使动作 token 表达可迁移的空间运动，而不是固定关节索引。模型先在约一百一十万条真实机器人 episode 上预训练，再在新设置中重新离散化动作网格进行轻量适配。
+
+实验包含多机器人仿真、真实桌面操作、零样本任务和分布外场景，评测物体、空间、目标与长时程泛化。作者报告空间表示带来更稳定的轨迹推断，Adaptive Action Grids 在新机器人/新相机上比从头训练或固定动作网格更容易适配。
+
+主要结论是，空间归纳偏置应同时进入观测编码和动作表示。局限在于 Ego3D 依赖深度与标定，深度缺失或透明物体会削弱优势；网格离散化仍有量化误差，灵巧手、移动机器人和连续力控制尚未被充分验证。建议代表 Figure：Figure 1（Ego3D Position Encoding 与 Adaptive Action Grids 的示意）。
 </ArxivRating>
 
 ## TraceVLA
 
-<ArxivRating id='2412.10345' publication='ICLR2024' tldr='' rank={0}>
+<ArxivRating
 
+  id='2412.10345'
+  publication='ICLR2024'
+  tldr='TraceVLA 将历史状态—动作轨迹画成视觉 trace 作为提示，增强 OpenVLA 的空间与时间感知，而不改动动作接口。'
+  rank={0}
+>
+
+![](https://pic.hana0721.top/tracevla-01.4jots13xb2.webp)
+TraceVLA 的动机是让 VLA 不只看当前帧，而能理解“物体从哪里来、末端刚刚做了什么”。直接把历史状态拼成长序列会增加上下文和训练负担，也不容易让视觉骨干学到可用的时空关系。
+
+作者把状态—动作轨迹编码为图像上的 visual trace，例如在观测或深度图上绘制末端和关键点的历史路径，再将这类提示与语言、当前图像一起输入 VLA。TraceVLA 通过收集并标注约十五万条操作轨迹微调 OpenVLA；同时训练一个基于 Phi-3-Vision 的较小模型，检验方法是否依赖大参数量。
+
+实验在 SimplerEnv 的多种配置和 WidowX 真实机器人任务上评测，并比较无 trace 的 OpenVLA 及不同轨迹长度/颜色编码。结果显示，visual trace 能提升空间—时间动作预测和跨 embodiment 泛化，真实任务的成功率提升尤其明显；小模型也能获得接近大型基线的效果并降低推理成本。
+
+结论是，简单的视觉化历史轨迹可以作为通用 VLA 的时空记忆接口。局限是 trace 依赖关键点跟踪、深度投影和坐标标定，遮挡或快速运动会把噪声写入提示；二维轨迹不能完整表达接触力和三维遮挡，超长时程任务与更多传感器仍需验证。建议代表 Figure：Figure 1（visual trace 如何从历史观测/动作生成并注入 VLA）。
 </ArxivRating>
 
 ## Hume
 
-<ArxivRating id='2505.21432' tldr='' rank={0}>
+<ArxivRating
 
+  id='2505.21432'
+  tldr='Hume 用价值引导的慢速 System 2 反复筛选动作候选，再由异步 System 1 级联去噪实现实时灵巧控制。'
+  rank={0}
+>
+
+![](https://pic.hana0721.top/hume-01.1sfrjyhtb3.webp)
+Hume 的动机是把“先想再做”的 System-2 思维引入 VLA。复杂操作中，单次动作预测可能碰撞或走错顺序，但让大模型每个控制周期都完整推理又会牺牲频率，因此需要低频决策与高频执行的协作。
+
+System 2 在 VLA 主干上增加 value-query head，为多次采样的动作候选估计 state-action value，并选择价值最高者；System 1 是轻量反应式 visuomotor policy，接收候选后用 cascaded action denoising 生成连续动作。部署时两者异步运行：System 2 偶尔重新思考，System 1 在其间保持流畅控制。
+
+作者在多个仿真操作基准和真实灵巧手/机械臂任务上比较单系统 VLA、不同候选数和无价值头的消融。结果显示，价值筛选对多峰动作和需要顺序判断的任务有效，Hume 在仿真与真实部署中都优于当时的 VLA 基线。
+
+主要结论是，显式估计动作价值能把慢思考转化为可执行的候选选择。局限是 value head 的判断依赖训练分布，错误高价值候选仍会被快速执行；多候选采样增加 System 2 延迟和算力，真实灵巧接触、长时程纠错与安全约束尚未充分检验。建议代表 Figure：Figure 1（价值引导候选选择与 System 1 级联去噪的双系统结构）。
 </ArxivRating>
 
 ## RICL
 
-<ArxivRating id='2508.02062' tldr='' rank={0}>
+<ArxivRating
 
+  id='2508.02062'
+  tldr='RICL 通过少量示范微调 π0-FAST 的检索式上下文接口，让预训练 VLA 能在不更新参数的情况下现场学习新操作。'
+  rank={0}
+>
+
+![](https://pic.hana0721.top/ricl-01.7axw03q1gg.webp)
+RICL 关注预训练 VLA 缺少 in-context learning 的问题。语言模型可以从示例中临时学会新格式或任务，但以模仿学习训练的 VLA 通常只会复现训练分布；终端用户若要适配新物体，不能每次都重新微调大模型。
+
+方法是在预训练策略上追加一套面向 ICL 的微调配方：给定新任务的少量演示，系统按视觉、语言和动作相似度检索最相关的片段，放入当前 VLA 上下文，再预测动作。作者将 RICL 应用于 π0-FAST，并支持只提供示范而不更新参数；若允许目标任务微调，还可以在 ICL 基础上继续提升。
+
+实验覆盖多个未见操作任务，比较零样本、10—20 条示范的 RICL、普通微调和不同检索策略。结果表明，少量演示即可带来明显的现场适应，且在不改权重时仍能利用示范中的动作顺序、物体外观和控制风格。
+
+主要结论是，ICL 可以作为 VLA 的用户接口，而不只是语言模型能力。局限是检索质量和上下文长度决定了收益，示范若遗漏失败恢复或安全边界，模型也不会自动补齐；目前验证集中于 π0-FAST 和桌面操作，跨机器人、触觉任务及恶意/冲突示范下的稳健性仍待评估。建议代表 Figure：Figure 1（示范检索、上下文拼接和动作预测流程）。
 </ArxivRating>
 
 ## OmniVTLA
 
-<ArxivRating id='2508.08706' tldr='' rank={0}>
+<ArxivRating
 
+  id='2508.08706'
+  tldr='OmniVTLA 以语义对齐的双路径触觉编码器融合视觉与力觉，并发布 ObjTac 三模态数据以改善接触丰富的抓取。'
+  rank={0}
+>
+
+![](https://pic.hana0721.top/omnivtla-01.5moj2wzrbz.webp)
+OmniVTLA 的动机是补上 VLA 对触觉的忽视。视觉能提供远距离语义，却难以判断是否接触、是否打滑或夹持力是否合适；不同视觉/力觉触觉传感器的数据格式又差异很大，使触觉难以直接加入通用模型。
+
+模型采用 dual-path tactile encoder：一条路径用预训练 ViT 处理视觉式触觉，另一条用 semantically aligned tactile ViT（SA-ViT）处理力觉/触觉图，并将两者与视觉、语言 token 融合。为学习统一表示，作者构建 ObjTac，包含 56 个物体、10 个类别的文本—视觉—触觉三模态样本，规模约 13.5 万条。
+
+实验在真实夹爪和灵巧手的抓取/放置任务中比较不同触觉传感器、无触觉 VLA 和单路径编码器，报告夹爪成功率约 96.9%、灵巧手达到满成功率，并观察到更短完成时间和更平滑轨迹。结果说明触觉不仅提高接触判断，也能作为语义条件参与动作生成。
+
+局限是 ObjTac 的物体和接触类型有限，SA-ViT 的跨传感器对齐仍依赖校准；力觉噪声、传感器磨损和柔性物体会改变分布。评测主要是抓取放置，插接、擦拭、工具使用等更复杂接触任务以及跨 embodiment 零样本迁移还需验证。建议代表 Figure：Figure 1（双路径触觉编码器与 VLA 融合结构）。
 </ArxivRating>
 
 ## Spatial Traces
 
-<ArxivRating id='2508.09032' tldr='' rank={0}>
+<ArxivRating
 
+  id='2508.09032'
+  tldr='Spatial Traces 将关键点的视觉轨迹投影到深度图，统一给 VLA 提供空间位置和时间运动提示，并以少量数据增强泛化。'
+  rank={0}
+>
+
+![](https://pic.hana0721.top/spatial-traces-1.58i3c1rgis.webp)
+Spatial Traces 的动机是现有 VLA 往往分别处理空间和时间：SpatialVLA 强调三维位置，TraceVLA 强调历史轨迹，但两者各自缺少另一维信息。机器人需要同时知道末端“在哪里”和“沿什么路径到达”。
+
+方法从连续观测中提取物体或末端关键点，在深度图上绘制带时间顺序的 visual trace，再与语言和当前视觉输入一起送入 VLA。轨迹把历史运动压缩成视觉提示，不要求改写原有动作接口；作者还研究了最少训练数据、轨迹长度和关键点选择对效果的影响。
+
+实验主要在 SimplerEnv 上，与 SpatialVLA、TraceVLA 等方法比较不同任务配置。论文报告平均成功任务数相对 SpatialVLA 提升约 4%，相对 TraceVLA 提升约 19%，并指出即使训练数据较少也能获得收益。
+
+结论是，把深度和轨迹叠加在同一视觉载体上，能以较低标注成本补足时空关联。局限是关键点跟踪、深度质量和绘制规范成为新的误差源；二维投影仍不能表达接触力、遮挡后的三维路径，真实机器人和长时程导航的结果还需要扩展。建议代表 Figure：Figure 1（关键点轨迹投影到深度图并输入 VLA 的流程）。
 </ArxivRating>
 
 ## Embodied-R1
 
-<ArxivRating id='2508.13998' tldr='' rank={0}>
+<ArxivRating
 
+  id='2508.13998'
+  tldr='Embodied-R1 把 embodiment-agnostic pointing 作为视觉到动作的中间层，用 20 万级 Embodied-Points 数据和两阶段强化微调训练通用空间推理。'
+  rank={0}
+>
+
+![](https://pic.hana0721.top/embodied-r1-01.32ioq9zstt.webp)
+Embodied-R1 针对“seeing-to-doing gap”：视觉语言模型能描述物体和关系，却很难把理解转化为不同机器人都能使用的空间指令；直接学习关节动作又受数据稀缺和 embodiment 异构限制。作者选择 pointing 作为与机器人形态无关的中间表示，先指向哪里，再由控制策略执行。
+
+模型是约 3B 参数的 VLM，围绕四类 embodied pointing 能力训练，包括目标指向、空间关系指向和与动作相关的定位。作者从通用视觉推理和机器人数据构建 Embodied-Points-200K，先监督微调，再用带多任务、尺度和几何约束的 reward 做两阶段 reinforced fine-tuning（RFT），使回答既正确又符合空间度量。
+
+实验覆盖 11 个 embodied spatial/pointing benchmark、SIMPLEREnv 和真实 XArm 任务，测试零样本物体、位置和视觉干扰泛化。论文报告在 SIMPLEREnv 可取得约 56.2% 成功率，在八个 XArm 任务上达到约 87.5%，并显著超过强基线。
+
+主要结论是，指向可作为从开放世界语义到具体动作的低带宽桥梁。局限是 pointing 本身仍是二维/局部表示，真实控制还要依赖外部策略与标定；RFT 奖励设计和自动构造数据可能引入偏差，复杂接触、连续轨迹和移动机器人尚未直接解决。建议代表 Figure：Figure 1（四类 pointing 能力、数据构建与 RFT curriculum）。
 </ArxivRating>
 
 ## RynnEC
 
-<ArxivRating id='2508.14160' tldr='' rank={0}>
+<ArxivRating
 
+  id='2508.14160'
+  tldr='RynnEC 以区域级视频理解为核心，引入 region encoder 与 mask decoder，把 MLLM 的物体属性、分割和空间推理连接到具身场景。'
+  rank={0}
+>
+
+![](https://pic.hana0721.top/rynnec-01.3uvk80gem0.webp)
+RynnEC 的动机是通用 MLLM 虽能回答整图问题，却常在机器人视角下无法精确处理“这个区域里的物体”“沿着该物体边界”等细粒度交互。具身认知还缺少大规模带区域和时间标注的三维数据。
+
+方法建立在视觉语言基础模型上，加入 region encoder 和 mask decoder，使模型可以对视频中的框、点、区域和掩码进行交互式理解。作者用以自中心视频为主的数据生成流程补足 3D 标注稀缺，并发布 RynnEC-Bench，覆盖物体属性理解、区域分割和空间关系推理。
+
+实验在区域级视频问答、分割和空间推理基准上与通用及具身 MLLM 比较。结果显示，紧凑的 RynnEC 在这些任务上达到很强的表现，尤其是区域选择和掩码质量；区域中心的接口也更适合作为后续规划/控制模块的感知输入。
+
+主要结论是，将视频上下文和可操作区域作为统一 token 空间，有助于把 MLLM 变成具身认知核心。局限是论文主要验证感知与推理，并不直接输出机器人动作；自动生成的 egocentric 数据存在视角和标注偏差，复杂接触、动态物体和跨机器人闭环仍需单独评估。建议代表 Figure：Figure 1（region encoder、mask decoder 与区域级视频交互）。
 </ArxivRating>
 
 ## RoboRefer
 
-<ArxivRating id='2506.04308' tldr='' rank={0}>
+<ArxivRating
 
+  id='2506.04308'
+  tldr='RoboRefer 用独立深度编码器和带几何过程奖励的强化微调，提升 VLM 在三维场景中的空间指代与多步推理。'
+  rank={0}
+>
+
+![](https://pic.hana0721.top/roborefer-01.67y6p7u7ul.webp)
+RoboRefer 的动机是让机器人准确理解“指令所说的位置”。通用 VLM 的二维语义能力不足以处理前后、遮挡、相对距离和多步空间关系，错误的指代会让后续控制策略在正确物体上执行错误动作。
+
+模型在视觉语言骨干旁加入 disentangled depth encoder，并用监督微调学习深度和空间关系；随后进行 reinforcement fine-tuning，使用对距离、方向和指代区域敏感的过程奖励，鼓励逐步、可度量的空间推理。为此作者构建 RefSpatial，包含约两千万 QA、31 类空间关系和最多五步的推理链，并发布 RefSpatial-Bench。
+
+实验在空间问答、指代定位和复杂场景基准上评估 SFT 与 RFT 版本，还把输出接到 UR5、G1 等机器人的控制策略，在杂乱真实场景完成长时程任务。论文报告 SFT 版本平均成功率约 89.6%，RFT 在 RefSpatial-Bench 上明显领先基线，并在部分设置超过 Gemini-2.5-Pro。
+
+结论是，深度分支与几何过程奖励能把“看懂关系”从语言猜测变成可检查的空间推理。局限是深度估计和相机标定仍是瓶颈，RFT 奖励可能偏向数据集中的几何模板；模型输出到连续控制之间仍有接口误差，动态遮挡、柔性物体和未知传感器需更多实测。建议代表 Figure：Figure 1（深度编码、空间推理链和机器人控制连接）。
 </ArxivRating>
 
 ## Discrete Diffusion VLA
 
-<ArxivRating id='2508.20072' tldr='' rank={0}>
+<ArxivRating
 
+  id='2508.20072'
+  tldr='Discrete Diffusion VLA 在统一 Transformer 内对离散动作 chunk 做扩散式渐进修正，以自适应顺序和二次重掩码兼顾并行效率与动作质量。'
+  rank={0}
+>
+
+![](https://pic.hana0721.top/discrete-diffusion-vla-01.45ie15vmv4.webp)
+Discrete Diffusion VLA 的动机是弥合两类动作解码的缺点：自回归 token 按固定左到右顺序生成、容易累积错误；外接连续 diffusion head 又切断视觉语言骨干中的统一信息流。作者希望保留预训练 VLM 先验，同时允许动作 token 并行且可纠错。
+
+方法先把 action chunk 离散化，在同一 Transformer 中执行离散扩散去噪。每轮根据置信度自适应决定先解码哪些动作元素，对不确定元素做 secondary re-masking 并再次预测；因此高置信维度可以提前确定，难维度获得渐进修正，而不是被固定顺序锁死。
+
+实验覆盖 LIBERO、SimplerEnv-Fractal、SimplerEnv-Bridge 的成功率/视觉匹配，以及 AgileX Cobot Magic 的真实机器人测试；还比较并行自回归、连续扩散和不同重掩码策略。结果显示，该方法在多项基准上保持强性能，并在语言、视觉分布外测试中比简单并行解码或连续扩散保留更多预训练能力。
+
+主要结论是，离散扩散把“动作 token 化”和“逐步修正”放进了一个可扩展骨干。局限是离散网格带来量化误差，迭代去噪仍会增加延迟；解码顺序依赖置信度校准，面对精细力控、不同动作空间和长时程规划的效果尚不明确。建议代表 Figure：Figure 1（离散动作扩散、置信度排序和二次重掩码过程）。
 </ArxivRating>
 
 ## G0
 
-<ArxivRating id='2509.00576' tldr='' rank={0}>
+<ArxivRating
 
+  id='2509.00576'
+  tldr='G0 将 Galaxea 真实开放世界数据与 VLM 规划、VLA 执行的双系统结合，以跨 embodiment—单 embodiment—任务后训练课程学习长时程操作。'
+  rank={0}
+>
+
+![](https://pic.hana0721.top/g0-01.6po8dsvlja.webp)
+G0 关注 VLA 从受控桌面走向真实生活/工作空间时的数据和规划瓶颈。公开轨迹常来自不同机器人和简单指令，真实环境中的物体、子任务和长时程错误恢复覆盖不足；一个低层策略也难以同时承担高层任务分解。
+
+作者发布 Galaxea Open-World Dataset，在真实人居和工作场景中用统一机器人 embodiment 采集多样行为，并提供精确到子任务的语言标注。G0 采用双系统：VLM 根据多模态观察生成任务计划和子目标，VLA 负责细粒度动作执行。训练按跨 embodiment 预训练、Galaxea 单 embodiment 预训练、任务级 post-training 三阶段进行。
+
+评测覆盖 tabletop manipulation、few-shot 新任务和长时程移动操作，比较不同数据阶段、规划器和低层策略。论文的消融明确显示，真实开放世界数据与单 embodiment 预训练共同决定了最终性能，而不是单纯增加模型参数。
+
+主要结论是，开放环境数据质量和针对部署硬件的后期对齐同样重要。局限是数据集中于单一机器人体系，跨硬件迁移仍依赖前期数据；VLM 计划错误会向下游级联，真实场景的安全、恢复和持续学习尚需更大规模测试。建议代表 Figure：Figure 1（Galaxea 数据、VLM 规划和 VLA 执行的双系统与三阶段训练）。
 </ArxivRating>
 
 ## InternScenes
 
-<ArxivRating id='2509.10813' tldr='' rank={0}>
+<ArxivRating
 
+  id='2509.10813'
+  tldr='InternScenes 融合真实扫描、程序生成和设计场景，构建布局逼真、可交互且经过物理消碰撞的大规模室内仿真数据集。'
+  rank={0}
+>
+
+![](https://pic.hana0721.top/internscenes-01.7i13vjc7b4.webp)
+InternScenes 的动机是现有具身仿真场景常在规模、类别或真实性之间取舍：小物体被清理掉、家具布局过于规整，或不同资产互相穿插导致导航和交互训练失真。作者希望同时扩大场景多样性和物理可模拟性。
+
+数据集把 real-world scans、程序化生成场景和设计师创建场景统一处理，建立真实到仿真的副本，补充可交互物体，并通过物理模拟解决碰撞。最终覆盖约四万个室内场景、约一百九十六万个 3D 物体、15 类常见房间和 288 个物体类别；场景保留大量小物体，布局比清洗后的数据更复杂。
+
+作者用两个任务检验数据价值：室内布局生成和 point-goal navigation。实验比较不同场景来源和训练规模，显示 InternScenes 的真实布局会带来更难但更有意义的泛化测试，同时扩大数据后模型能够学习这些复杂布局，而不只是记住规则化房间。
+
+主要结论是，数据处理、可交互资产和物理消碰撞本身就是具身学习基础设施。局限是仿真材质、光照和动力学仍不等同真实世界，资产许可与生成流程可能限制复现；当前基准偏感知、布局和导航，接触丰富操作及真实机器人 sim-to-real 还未被充分验证。建议代表 Figure：Figure 1（多源场景融合、真实到仿真处理与消碰撞流程）。
 </ArxivRating>
 
 ## GraspNet
 
 <ArxivRating
+
   id='https://openaccess.thecvf.com/content_CVPR_2020/papers/Fang_GraspNet-1Billion_A_Large-Scale_Benchmark_for_General_Object_Grasping_CVPR_2020_paper.pdf'
   publication='CVPR2020'
-  tldr=''
+  tldr='GraspNet-1Billion 建立面向通用物体抓取的 RGB-D/6D 基准，用密集抓取姿态和杂乱场景评测检测、碰撞与泛化。'
   rank={0}
 >
+
+![](https://pic.hana0721.top/graspnet-01.szo6sf2oa.webp)
+GraspNet 的动机是抓取研究长期缺少统一、足够大且包含杂乱场景的公开基准。小规模数据集通常只覆盖少量物体或单一摆放，算法在“看过的物体”上有效，却无法公平比较未见物体、遮挡和碰撞安全性。
+
+论文构建 GraspNet-1Billion：采集多视角 RGB-D 场景，为物体生成密集的 6-DoF 平行夹爪抓取姿态，并通过物理/碰撞检查提供可执行性标签。基准同时定义抓取检测、抓取姿态评估和碰撞检测任务，提供 seen/unseen 物体与不同场景条件的标准划分，并给出点云、RGB-D 和多种基线方法。
+
+数据与实验覆盖单物体、多个物体和密集杂乱堆叠，使用真实机器人验证仿真评分与实际抓取的一致性。作者比较基于深度、点云和多视角的检测器，展示在未见物体和遮挡下性能会明显下降，也说明密集标注能支持更细的误差分析。
+
+主要结论是，统一的 6D 抓取数据和评测协议推动了从单物体演示到一般物体抓取的研究。局限是标签主要针对刚性物体和特定平行夹爪，解析/仿真稳定性不能完全代表真实摩擦与柔性接触；RGB-D 传感器噪声、透明物体和手眼标定仍会造成 sim-to-real 差异。建议代表 Figure：Figure 1（数据采集、密集抓取标注与基准任务总览）。
 
 </ArxivRating>
 
 ## GraspNet-1Billion
 
 <ArxivRating
+
   id='https://journals.sagepub.com/doi/10.1177/02783649231193710'
   publication='IJRR2023'
-  tldr=''
+  tldr='GraspNet-1Billion 期刊版系统化整理大规模 6D 抓取数据、碰撞检测和标准评测，强调跨物体与杂乱场景的可复现比较。'
   rank={0}
 >
+
+![](https://pic.hana0721.top/graspnet-1billion.9ddoo5on0v.webp)
+这篇期刊版的动机仍是建立通用抓取的共同实验语言：不同工作使用不同相机、物体集合、抓取质量指标和成功定义，导致结果难以横向比较。完整版本进一步说明数据、标注和评测协议如何覆盖真实部署中的遮挡与碰撞。
+
+核心是以场景点云和物体姿态为条件的密集抓取表示，配套抓取质量评估、碰撞检测和标准化数据划分。算法可以先在点云中提出 6D 候选，再利用碰撞与稳定性标签排序；基准允许比较单视角/多视角输入、已见/未见物体及不同杂乱程度，而不把问题简化为二维检测。
+
+实验围绕公开数据和真实抓取平台展开，报告多种点云抓取基线在不同 split、遮挡和场景密度下的差异，并分析检测质量、碰撞率与实际成功之间的关系。结果支持 GraspNet 作为预训练和评测资源，也表明跨类别泛化仍是主要难点。
+
+结论是，数据规模只有在标签和评测协议一致时才真正有助于抓取研究。局限包括数据仍以刚性物体、平行夹爪和 RGB-D 观测为主，复杂灵巧手、软体/透明物体和力反馈未被覆盖；基准分数不能替代每个机器人工作空间的安全验证。建议代表 Figure：Figure 1（GraspNet 数据组织、抓取质量/碰撞评测和实验设置）。
 
 </ArxivRating>
 
 ## PointNetGPD
 
-<ArxivRating id='1809.06267' publication='ICRA2019' tldr='' rank={0}>
+<ArxivRating
 
+  id='1809.06267'
+  publication='ICRA2019'
+  tldr='PointNetGPD 直接用抓取器局部原始点云学习抓取评价函数，避免手工深度特征，并用 YCB 数据验证新物体泛化。'
+  rank={0}
+>
+
+![](https://pic.hana0721.top/pointnetgpd-1.3gp4h58444.webp)
+PointNetGPD 的动机是传统抓取检测通常先把局部深度图转换为手工特征，再由 CNN 判断候选好坏；稀疏、噪声或视角变化会让这些特征失真。作者希望让网络直接从抓取器内部的 3D 点集学习接触几何。
+
+方法采用 PointNet 风格的点集编码器，对每个候选抓取器位姿截取其夹爪空间内的物体点云，输出该候选的成功概率。它保留点集的置换不变性，能从稀疏点云中提取接触区域的整体几何；抓取候选生成与评价分开，评价网络可接到不同的采样器后面。
+
+作者利用 YCB 物体集构建约 35 万条真实点云—抓取样本，先在仿真中量化候选评价，再在机器人抓取和杂乱清除任务中测试。实验显示，直接点云输入比手工深度表示更能泛化到未见物体，并在成功率和推理效率上优于当时基线。
+
+主要结论是，局部原始点云已经包含足够的接触几何，不必依赖固定投影特征。局限是模型只评价给定候选，候选覆盖不足时无法补救；点云密度、遮挡和手眼标定仍敏感，主要面向平行夹爪和刚性物体，闭环力控与灵巧手迁移尚未解决。建议代表 Figure：Figure 1（抓取候选局部点云送入 PointNetGPD 的网络流程）。
 </ArxivRating>
 
 ## High Precision Grasp Pose Detection
 
-<ArxivRating id='1603.01564' publication='IROS2016' tldr='' rank={0}>
+<ArxivRating
 
+  id='1603.01564'
+  publication='IROS2016'
+  tldr='High Precision Grasp Pose Detection 先生成大量 6-DoF 候选，再用深度 CNN 结合候选表示、类别/实例先验和仿真预训练筛选密集杂乱中的可靠抓取。'
+  rank={0}
+>
+
+![](https://pic.hana0721.top/high-precision-grasp-1.491zyvopwi.webp)
+这篇工作的动机是密集杂乱抓取中的高精度筛选。候选生成器可以找到许多几何上可行的夹爪姿态，但遮挡、深度噪声和物体间碰撞会使大多数候选不可执行；仅靠简单局部特征难以区分这些细微差别。
+
+算法先从点云生成大量 6-DoF grasp candidates，再把每个候选转换为适合 CNN 的深度表示并分类为好/坏抓取。作者提出更有信息量的候选表示，并系统研究两类先验：待抓物体的实例/类别知识，以及用理想 CAD 深度图进行预训练。最终选择得分高且无碰撞的姿态交给 Baxter 机器人执行。
+
+实验使用在线深度数据和合成 CAD 深度进行训练，在不同杂乱程度、是否提供物体先验的设置下评估检测器，并在 Baxter 密集堆叠抓取中验证。真实实验报告平均抓取成功率约 93%，相对早期方法有明显提升；消融显示候选表示、预训练和先验各自都有贡献。
+
+主要结论是，候选质量不仅取决于 CNN 容量，表示设计与可迁移的深度预训练同样关键。局限是系统依赖前端候选生成和类别/实例先验，先验错误会导致偏置；深度遮挡、透明或柔性物体以及不同夹爪/相机仍会降低效果，端到端闭环动作修正不在论文范围内。建议代表 Figure：Figure 1（候选生成、深度表示分类与 Baxter 执行管线）。
 </ArxivRating>

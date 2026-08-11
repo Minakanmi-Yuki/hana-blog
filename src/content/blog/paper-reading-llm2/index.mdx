@@ -3,7 +3,8 @@ title: 'Paper Reading: LLM 2'
 publishDate: 2025-12-26
 updatedDate: 2026-8-11
 description: 读一些大型语言模型相关的论文
-heroImage: { src: 'https://pic.hana0721.top/69461006_p0_master1200.1e974ctzq9.webp', color: '#8C8275' }
+heroImage:
+  { src: 'https://pic.hana0721.top/69461006_p0_master1200.1e974ctzq9.webp', color: '#8C8275' }
 category: 'research'
 pixivLink: '69461006'
 tags:
@@ -17,6 +18,18 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 ## MMaDA
 
-<ArxivRating id='2505.15809' tldr='' rank={0}>
+<ArxivRating id='2505.15809' tldr='用同一套离散掩码扩散模型统一文本推理、多模态理解和图像生成，并以 Mixed Long-CoT 与 UniGRPO 完成跨任务后训练。' rank={0}>
+
+![](https://pic.hana0721.top/mmada-overview.2a5t8fpn1z.webp)
+
+MMaDA 关注统一多模态模型中的一个结构与训练错位：很多方法虽然把文本理解、视觉理解和图像生成放进同一个 Transformer，但文本仍采用自回归预测，图像则采用连续或离散扩散，后训练也主要沿用为自回归语言模型设计的方法。MMaDA 希望用同一种概率形式覆盖三类任务，并进一步回答非自回归的多模态扩散模型应该怎样进行长思维链微调和强化学习。最终的 MMaDA-8B 同时支持文本推理、多模态问答和文生图，而不是把专用 LLM、VLM 与图像扩散模型拼成多个独立模块。
+
+模型以 LLaDA-8B-Instruct 为文本骨干，并采用统一的离散 Token 表示。文本使用 LLaDA Tokenizer，图像则由 Show-o 的 MAGVIT-v2 Quantizer 编码；后者的下采样倍数为 16、Codebook 大小为 8192，因此一张 `512×512` 图像会被转换为 `32×32=1024` 个视觉 Token。文本和图像 Token 都通过随机替换成 `[MASK]` 来加噪，同一个 Transformer 同时预测所有被遮挡位置，并只在这些位置计算交叉熵。推理时，文本沿用 LLaDA 的 Semi-Autoregressive Remasking：把输出分块、从左到右处理，每个块内并行去噪；图像则对完整的 1024 Token 序列使用 Cosine Schedule 和 Low-Confidence Remasking，从而保持并行生成。
+
+后训练分成 Mixed Long-CoT 和 UniGRPO 两部分。Mixed Long-CoT 把文本推理、多模态推理和知识驱动文生图都整理为统一的 `<think>推理过程</think>最终结果` 格式，然后仅对回答部分加 Mask，让模型在保留 Prompt 的条件下复原推理与答案。文本轨迹来自 ReasonFlux、LIMO、s1k、OpenThoughts 和 AceMath-Instruct；几何与视觉推理由 LMM-R1 在 GeoQA、CLEVR 上生成并按正确性筛选；知识型文生图数据则由 GPT-4.1 合成科学、文化和地标等事实描述。UniGRPO 针对扩散模型无法像自回归模型那样直接连乘 Token 概率的问题，保持问题不被遮挡，在不同更新轮次对回答采样不同 Mask Ratio，并以被遮挡 Token 的平均 Log-Probability 近似序列概率。奖励也按任务分流：文本和几何推理使用正确性与格式奖励，图文任务再加入 CLIP Score，文生图同时使用 ImageReward。
+
+训练共三阶段。Stage 1 使用 RefinedWeb、ImageNet-1K 和开放图文数据做联合预训练，先训练 20 万步，再用更丰富的图文对替换 ImageNet 继续训练 40 万步；Stage 2 混合 Alpaca、LLaVA-1.5 和上述推理数据训练 5 万步；Stage 3 使用 UniGRPO 再训练 5 万步。论文报告训练使用 64 张 A100 80GB、全局 Batch Size 1280，并以 AdamW 和 `5e-5` 初始学习率优化。消融结果能清楚看到后训练的作用：从 Stage 1 到 Mixed Long-CoT 再到 UniGRPO，GSM8K 从 17.4 提升到 65.2、73.4，MATH500 从 4.2 提升到 26.5、36.0，ImageReward 也从 0.69 提升到 0.84、1.15。
+
+最终模型在文本侧取得 MMLU 68.4、GSM8K 73.4 和 MATH 36.0，均明显优于同源的 LLaDA-8B，但整体仍未超过 Qwen2-7B；多模态侧取得 POPE 86.1、VQAv2 76.7、MMMU 30.2；生成侧取得 CLIP Score 32.46、ImageReward 1.15、GenEval 0.63，并在强调文化知识的 WISE 上达到 0.67。这里最有说服力的不是每项都达到专用模型的绝对最优，而是同一套扩散参数和后训练规则能在三类任务上同步增益。局限也很明显：论文只验证了 8B 规模，图像仍受固定离散 Quantizer 和 `512×512` 分辨率约束；不少结果低于强专用模型，迭代去噪也没有消除多步推理成本。此外，CLIP Score 和 ImageReward 既是强化学习奖励又是主要生成评测指标，可能高估对这两种代理指标之外的真实视觉质量提升。
 
 </ArxivRating>

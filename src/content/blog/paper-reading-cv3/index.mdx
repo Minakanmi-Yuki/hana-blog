@@ -51,6 +51,8 @@ import { ManualTOC } from '@/components/advanced'
 
 <ArxivRating id='2211.05778' publication='CVPR2023' tldr='用 deformable convolution 构建可规模化 CNN 视觉基础模型，在检测和分割等 dense prediction 任务上表现强。' rank={0}>
 
+![](https://pic.hana0721.top/internimage.2yz2sgd5az.webp)
+
 InternImage 的目标是证明 CNN 也可以像 ViT 一样受益于大参数量和大规模数据。论文认为传统卷积的强 inductive bias 带来效率和稳定性，但也限制了长程依赖和输入自适应空间聚合；而 dense prediction 任务又非常需要大感受野和高分辨率特征。因此作者选择 deformable convolution 作为核心算子，试图在 CNN 框架里获得类似 self-attention 的动态采样能力。
 
 核心改动是 DCNv3。它从 DCNv2 出发，保留可学习 offset 和 modulation 带来的 adaptive spatial aggregation，但做了几处适合大模型训练的调整：共享采样点之间的投影权重以降低参数和显存成本，引入 multi-group 机制让不同 group 学习不同空间聚合模式，并对 modulation scalars 在采样点维度归一化，使训练更稳定。这些设计让 3×3 deformable convolution 能同时具备较大有效感受野、输入相关采样和相对可控的计算成本。
@@ -64,6 +66,8 @@ InternImage 的目标是证明 CNN 也可以像 ViT 一样受益于大参数量�
 ## V-JEPA
 
 <ArxivRating id='2404.08471' tldr='Meta 的视频自监督表征模型，用 latent feature prediction 学习视频中的时空表示，不依赖文本、负样本或像素重建。' rank={0}>
+
+![](https://pic.hana0721.top/v-jepa.83arhqd2lv.webp)
 
 V-JEPA 的核心问题是：只靠 feature prediction，能否从视频中学到强视觉表征？它不使用文本、负样本、人类标注、预训练图像编码器，也不做像素级重建；而是把视频中的一部分时空区域作为 context，预测另一部分区域在 latent feature space 中的表示。相比 VideoMAE 这类 pixel reconstruction，V-JEPA 更强调抽象语义和动态结构，而不是复原低层纹理。
 

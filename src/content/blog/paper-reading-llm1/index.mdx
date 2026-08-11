@@ -17,156 +17,416 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 ## GPT 1.0
 
-<ArxivRating id='https://www.cs.ubc.ca/~amuham01/LING530/papers/radford2018improving.pdf' tldr='' rank={0}>
+<ArxivRating id='https://www.cs.ubc.ca/~amuham01/LING530/papers/radford2018improving.pdf' tldr='先用无监督语言模型学习通用表示，再以极少任务改动微调；GPT-1 将 Transformer 解码器式预训练带入通用语言理解。' rank={0}>
+
+![](https://pic.hana0721.top/gpt1-01.362anzf7mw.webp)
+
+**动机。** 当时有监督 NLP 往往为每个任务单独设计网络，也受制于标注数据规模。论文提出：海量无标注文本蕴含可迁移的语言知识，先学习下一词预测，再用少量标注数据适配下游任务。
+
+**方法。** 采用仅含 Transformer decoder 的 12 层、117M 参数语言模型，在 BooksCorpus 上以标准自回归目标预训练；微调时将文本或文本对拼接输入，接一个线性任务头，并保留辅助语言模型损失以稳定小数据集学习。其核心不是新结构，而是“生成式预训练 + 判别式微调”的统一范式。
+
+**实验。** 在自然语言推理、问答、语义相似度和文本分类共 12 个基准上取得 9 项当时最佳结果，例如在 RACE、MultiNLI、QQP 等任务显著超过此前专用模型，证明迁移收益并不限于单一任务。
+
+**局限。** 单向自回归表示无法同时利用一个词左右两侧的上下文；预训练语料和模型都较小，且微调输入模板仍依赖任务设计。后续 BERT 的双向掩码建模和更大规模训练主要补足了这些问题。
 
 </ArxivRating>
 
 ## BERT
 
-<ArxivRating id='1810.04805' publication='NAACL2019' tldr='' rank={0}>
+<ArxivRating id='1810.04805' publication='NAACL2019' tldr='BERT 用双向掩码语言模型预训练 Transformer encoder，并以几乎不改结构的微调刷新多项语言理解基准。' rank={0}>
+
+![](https://pic.hana0721.top/bert-01.4ubnl65huz.webp)
+
+**动机。** 传统从左到右语言模型在预测词时看不到右侧上下文，不利于词级分类、抽取式问答等理解任务；同时，任务专用架构使迁移成本很高。
+
+**方法。** BERT 是 Transformer encoder。它在 BooksCorpus 与英文 Wikipedia（约 33 亿词）上进行预训练：随机遮住 15% token 做 MLM，并以句对是否连续的 NSP 学习句间关系；输入由 token、segment 与位置嵌入相加。BERT-base（110M）与 BERT-large（340M）只需在顶部加入很小的输出层即可微调分类、序列标注和问答。
+
+**实验。** BERT-large 在 GLUE 获得 80.5，较此前最佳提高 7.7 分；SQuAD v1.1 的 F1 达 93.2，SQuAD v2.0 的 F1 达 83.1，并在 MultiNLI、SWAG 等任务创下当时纪录。消融显示双向条件化是关键，而 NSP 的收益并不如 MLM 稳定。
+
+**局限。** MLM 在预训练中看到 `[MASK]`、微调推理时却看不到，存在目标不一致；预测被遮挡 token 彼此独立，NSP 也后来被证明未必必要。编码器天生不直接生成文本，预训练与微调的计算开销也很大。
 
 </ArxivRating>
 
 ## GPT 2.0
 
-<ArxivRating id='https://cdn.openai.com/better-language-models/language_models_are_unsupervised_multitask_learners.pdf' tldr='' rank={0}>
+<ArxivRating id='https://cdn.openai.com/better-language-models/language_models_are_unsupervised_multitask_learners.pdf' tldr='GPT-2 表明仅扩大自回归语言模型并在 WebText 预训练，就能在不做任务微调时展现零样本多任务能力。' rank={0}>
+
+![](https://pic.hana0721.top/gpt2-01.5xbcw21bso.webp)
+
+**动机。** 作者将许多 NLP 任务都视为“根据上下文继续生成文本”，追问一个语言模型是否能只靠预训练、无显式多任务监督地完成它们。
+
+**方法。** 在从 Reddit 高质量外链收集的 WebText（约 40GB 文本）上训练 decoder-only Transformer，并使用 byte-level BPE，避免未知词。模型从 117M 扩展至 1.5B 参数（48 层、1600 隐藏维），用自然语言式提示把翻译、问答、摘要等任务转成续写。
+
+**实验。** 最大模型在 8 个零样本语言建模/问答等基准中的 7 个优于此前零样本方法，在 WebText 测试集困惑度 18.34；其生成展示了长文连贯性和初步的任务迁移。出于滥用担忧，最初只公开较小模型，后才释放 1.5B 权重。
+
+**局限。** 零样本成绩仍明显落后于有监督专用系统，提示措辞和评测格式影响很大；WebText 的来源、偏见和版权边界不透明，模型也会生成虚假、有害或记忆化内容。论文没有建立可靠的事实性或安全控制机制。
 
 </ArxivRating>
 
 ## Megatron-LM
 
-<ArxivRating id='1909.08053' tldr='' rank={0}>
+<ArxivRating id='1909.08053' tldr='Megatron-LM 以张量模型并行打破单 GPU 的参数上限，在 512 块 GPU 上高效训练 83 亿参数 Transformer。' rank={0}>
+
+![](https://pic.hana0721.top/megatron-01.58i3c1dsua.webp)
+
+**动机。** 数据并行只能把不同 batch 分到多卡，每张卡仍须容纳完整模型；当 Transformer 大到单卡放不下时，训练瓶颈转为模型内部矩阵乘法和激活的显存与通信。
+
+**方法。** Megatron-LM 将 attention 的头和 MLP 中间维度按列/行切分到 GPU，在线性层边界仅做必要的 all-reduce；这是一种细粒度的张量模型并行，并可与数据并行组合。论文还实现了高效的 fused kernel、混合精度和激活重计算，训练 72 层、83 亿参数的 GPT 式模型及 36 层 BERT。
+
+**实验。** 在 512 张 NVIDIA V100 上，83 亿参数 GPT-2 模型达到约 15.1 PFLOP/s，训练吞吐与较小模型接近线性扩展；该模型在 WikiText-103、LAMBADA 等语言建模评测优于此前 GPT-2 规模模型，BERT 也在 RACE/SQuAD 上保持竞争力。
+
+**局限。** 张量并行在每层引入同步通信，对高速互连依赖很强，跨节点效率下降；它主要解决“放得下”，没有改变数据、优化和对齐问题。后来的流水线并行、ZeRO 和 3D 并行才让更大模型更易训练。
 
 </ArxivRating>
 
 ## T5
 
-<ArxivRating id='1910.10683' publication='JMLR2020' tldr='' rank={0}>
+<ArxivRating id='1910.10683' publication='JMLR2020' tldr='T5 把所有 NLP 问题统一成“文本到文本”，并系统比较预训练目标、数据和迁移策略，给出可复用的规模化配方。' rank={0}>
+
+![](https://pic.hana0721.top/t5-01.51evglrngp.webp)
+
+**动机。** 预训练研究中的模型结构、目标、数据集与下游格式各不相同，难以公平比较。作者希望以单一框架做受控实验，并让分类、翻译、摘要、问答共享同一接口。
+
+**方法。** T5 使用 encoder-decoder Transformer，将输入和目标都写成文本，例如 `sst2 sentence: ...` 生成 `positive`。在清洗后的 Common Crawl 数据集 C4 上预训练，最佳去噪目标是随机删除连续 span，并由 decoder 生成带 sentinel token 的缺失片段；模型从 Small 到 11B 参数，配合 task prefix 与多任务微调。
+
+**实验。** 论文在 GLUE、SuperGLUE、SQuAD、CNN/Daily Mail、WMT 翻译等 24 个任务上进行大规模消融，发现 C4、span corruption 与 encoder-decoder 的组合稳健；11B 模型在当时的 GLUE、SuperGLUE 和 SQuAD 取得强结果。贡献更重要之处在于公开了对数据清洗、长度、目标和规模的可复查比较。
+
+**局限。** 文本化接口虽然统一，却会把标签和格式选择变成 prompt 工程；encoder-decoder 对纯生成任务的推理成本通常高于 decoder-only。C4 的过滤规则仍会保留互联网偏见与噪声，且论文的最优规模结论受当时计算预算限制。
 
 </ArxivRating>
 
 ## ZeRO
 
-<ArxivRating id='1910.02054' tldr='' rank={0}>
+<ArxivRating id='1910.02054' tldr='ZeRO 通过在数据并行进程间分片优化器状态、梯度和参数，大幅削减冗余显存，使万亿参数训练成为可能。' rank={0}>
+
+![](https://pic.hana0721.top/zero-01.2rvux46x1l.webp)
+
+**动机。** 混合精度数据并行中，每张 GPU 仍复制参数、梯度及 Adam 的 FP32 主权重和一、二阶矩；这些模型状态的冗余很快耗尽显存，即使单步计算还能继续扩展。
+
+**方法。** ZeRO-DP 按阶段消除冗余：Stage 1 分片优化器状态，Stage 2 再分片梯度，Stage 3 连参数也分片、在计算时按需聚合。论文结合 CPU/NVMe offload 与 ZeRO-R 等残余内存优化（如分区激活、固定大小 buffer），在保持数据并行通信量量级的前提下降低单卡状态内存。
+
+**实验。** 在 1024 张 V100 上，作者训练了 1.5 万亿参数模型；相较基线，ZeRO 在相近吞吐下可训练远大于单卡/普通数据并行容量的模型，并展示了百亿至千亿参数设置下的可扩展性与内存节省。
+
+**局限。** Stage 3 的按需 all-gather/reduce-scatter 增加通信和实现复杂度，低带宽集群或小模型未必划算；offload 会受 PCIe、CPU 或存储延迟限制。它是系统内存方案，并不能替代对模型质量、数据治理和训练稳定性的研究。
 
 </ArxivRating>
 
 ## Scaling Law
 
-<ArxivRating id='2001.08361' tldr='' rank={0}>
+<ArxivRating id='2001.08361' tldr='Kaplan 等人用幂律拟合揭示语言模型损失随参数、数据和计算量平滑下降，并提出给定算力下应优先扩大模型的早期缩放配方。' rank={0}>
+
+![](https://pic.hana0721.top/scaling-law-01.9rk4f0j9xm.webp)
+
+**动机。** 大模型训练成本高，若只能试少数规模，研究者需要可外推的规律来回答“模型、数据与训练步数应如何分配计算预算”。
+
+**方法。** 作者训练大量不同大小的 Transformer 语言模型，分别控制参数量、数据集 token 数和总 FLOPs，以交叉熵损失拟合幂律。实验进一步考察了宽度/深度、batch size 和训练步数，并给出计算受限下参数量增长快于数据量的经验配比。
+
+**实验。** 在跨多个数量级的模型、数据和计算预算上，验证损失呈稳定幂律且尚未见明显饱和；结论解释了为何更大模型即使未充分训练仍可能更划算，并为 GPT-3 时代的规模规划提供依据。
+
+**局限。** 规律主要以训练损失为目标，不能直接保证下游能力、安全性或推理成本；它也依赖特定数据和模型族。后来的 Chinchilla 工作以更多训练 token 重新估计计算最优配比，指出 Kaplan 配方会让大模型相对欠训练，故不应将其视为永久定律。
 
 </ArxivRating>
 
 ## GPT 3.0
 
-<ArxivRating id='2005.14165' publication='NeurIPS2020' tldr='' rank={0}>
+<ArxivRating id='2005.14165' publication='NeurIPS2020' tldr='175B 参数的 GPT-3 展示了上下文学习：不更新权重，只给少量示例也能完成多种语言任务。' rank={0}>
+
+![](https://pic.hana0721.top/gpt3-01.60uytruern.webp)
+
+**动机。** 微调为每个任务保存和训练一个模型，既昂贵又依赖标注。论文检验：单个极大自回归模型能否把任务描述和演示样例写入上下文，并在推理时完成适配。
+
+**方法。** GPT-3 是 96 层、175B 参数的 decoder-only Transformer，使用约 3000 亿 token 的混合语料训练，含过滤后的 Common Crawl、WebText2、Books1/2 与 Wikipedia。作者统一比较 zero-shot、one-shot 与 few-shot prompting：将自然语言指令或示例直接置于 2048-token 上下文中，不做梯度更新。
+
+**实验。** 参数增大显著提升少样本表现：在闭卷问答、翻译、Winograd、算术和文本补全等任务中，few-shot 往往接近或超过当时微调系统；LAMBADA 的 few-shot 准确率达 76.2%。但一些任务仍接近随机，说明能力并不均匀。
+
+**局限。** 训练数据可能污染测试集，few-shot 提示选择会导致结果波动；模型仍会事实幻觉、执行浅层模式匹配，并带有互联网偏见。175B 模型训练和部署成本极高，作者也明确讨论了滥用、隐私和公平性风险。
 
 </ArxivRating>
 
 ## Switch Transformers
 
-<ArxivRating id='2101.03961' publication='JMLR2022' tldr='' rank={0}>
+<ArxivRating id='2101.03961' publication='JMLR2022' tldr='Switch Transformer 以每个 token 只路由到一个专家的稀疏 MoE，显著扩大参数量，同时控制计算与通信开销。' rank={0}>
+
+![](https://pic.hana0721.top/switch-01.2dpf68ymbj.webp)
+
+**动机。** 密集 Transformer 每个 token 都激活全部参数，扩容同时线性增加 FLOPs。MoE 可以增加专家容量，但传统 top-2 路由的通信、负载均衡和数值稳定性使超大训练困难。
+
+**方法。** 在 T5 的 FFN 层替换为大量专家，并由 router 对每个 token 选择 top-1 专家（Switch）；这样单 token 只计算一个专家。论文配套使用容量因子、辅助负载均衡损失、选择性精度和 router z-loss，以避免 token 拥塞、专家塌缩和 bfloat16 训练不稳定。
+
+**实验。** Switch-C 模型达到约 1.6 万亿参数，在同等计算预算下比 T5-XXL 更快达到更低预训练损失；在多语言翻译和 SuperGLUE 微调上也有竞争力。作者报告相对密集 T5 可获得约 4 倍预训练速度提升，并成功扩展到数千 TPU 核。
+
+**局限。** 总参数虽大，每个 token 实际看到的参数有限；all-to-all 专家通信和负载均衡使硬件、batch 和实现高度耦合。容量溢出的 token 会被丢弃或走残差，MoE 也使推理部署、显存占用和专家利用率监控更复杂。
 
 </ArxivRating>
 
 ## Codex
 
-<ArxivRating id='2107.03374' tldr='' rank={0}>
+<ArxivRating id='2107.03374' tldr='Codex 将 GPT 的大规模代码预训练转化为自然语言到程序的能力，并以 HumanEval 建立函数级代码生成评测。' rank={0}>
+
+![](https://pic.hana0721.top/codex-01.102w27nkc9.webp)
+
+**动机。** 编程语言既有严格语法又要求语义正确，通用文本模型即使能补全代码，也不等于能按自然语言规格编写可执行函数。作者希望量化代码预训练与规模对这一能力的影响。
+
+**方法。** 在 GPT-3 基础上，以从 GitHub 收集、去重和过滤后的公开 Python 代码微调，得到 12B 参数 Codex；输入文档字符串、函数签名及可选示例，模型自回归补全函数体。论文同时提出 HumanEval：164 道人工编写的 Python 函数题，以隐藏单元测试和 pass@k 衡量功能正确性。
+
+**实验。** Codex 12B 在 HumanEval 的 pass@1 为 28.8%，从多个采样中选择时 pass@100 达 72.3%，远高于同规模纯文本 GPT-3；规模、代码数据量和温度采样均影响结果。论文还给出 Docstring 到代码、代码解释和修复的质性案例。
+
+**局限。** HumanEval 很小，且公开代码预训练带来基准泄漏、许可证和作者归属疑问；pass@k 的多次采样会掩盖单次可靠性。生成程序可能不安全、低效或包含漏洞，单元测试通过也无法证明在真实工程中的正确性。
 
 </ArxivRating>
 
 ## COT
 
-<ArxivRating id='2201.11903' publication='NeurIPS2022' tldr='' rank={0}>
+<ArxivRating id='2201.11903' publication='NeurIPS2022' tldr='链式思维提示把中间推理步骤写进示例，使足够大的语言模型在算术、常识和符号推理上显著提升。' rank={0}>
+
+![](https://pic.hana0721.top/cot-01.60uytruewy.webp)
+
+**动机。** 标准 few-shot 示例只给“问题 → 答案”，模型必须在一次跳跃中完成多步计算；这在数学、符号和组合推理中容易失败。作者考察显式自然语言推导是否能充当可迁移的推理脚手架。
+
+**方法。** CoT prompting 在 few-shot demonstrations 中提供“问题 → 分步推理 → 最终答案”，测试题则让模型续写推理与答案，无需微调或外部工具。论文在 PaLM 等不同规模模型上比较直接答案、标准提示与 CoT，并涵盖 GSM8K、MultiArith、SVAMP、CommonsenseQA、AQuA、策略问答等任务。
+
+**实验。** 对 540B PaLM，8-shot CoT 将 GSM8K 准确率从标准 prompting 的 17.9% 提高到 58.1%，MultiArith 达 94.2%；对算术、常识与符号推理都有收益。关键现象是“涌现”：小于约百亿参数的模型通常不能从 CoT 获益，甚至更差。
+
+**局限。** 中间文字是模型生成的表象，未必忠实反映内部因果过程，错误也会逐步累积；结果高度依赖示例质量和任务语言形式。CoT 增加输出 token 和延迟，且不能保证精确计算、事实核验或对抗鲁棒性。
 
 </ArxivRating>
 
 ## InstructGPT
 
-<ArxivRating id='2203.02155' publication='NeurIPS2022' tldr='' rank={0}>
+<ArxivRating id='2203.02155' publication='NeurIPS2022' tldr='InstructGPT 以人类示范、偏好排序和 PPO 组成 RLHF 流程，让小得多的模型也比 GPT-3 更符合用户意图。' rank={0}>
+
+![](https://pic.hana0721.top/instructgpt-01.8adzd9f5fi.webp)
+
+**动机。** 仅最大化互联网文本似然会让模型模仿错误、偏见和不希望的行为，且“预测下一词”不等于“遵循用户指令”。论文将对齐目标概括为 helpful、honest、harmless。
+
+**方法。** 三阶段 RLHF：标注员先写示范回答以监督微调（SFT）；再对同一提示的多个回答排序，训练 reward model；最后以 PPO 优化策略，并加入来自 SFT 模型的 KL 惩罚以抑制奖励投机。数据来自 API 提示与标注员编写提示，且明确进行隐私过滤。
+
+**实验。** 在人工偏好比较中，1.3B InstructGPT 的回答比 175B 原始 GPT-3 更常被标注员偏好；部署后，用户对不真实、有毒和不当输出的投诉下降。论文还报告了 TruthfulQA、RealToxicityPrompts 等自动/半自动评测，说明偏好优化并未简单损害语言任务表现。
+
+**局限。** 奖励模型只能学习有限标注员群体的偏好，存在文化代表性、标注偏差和 reward hacking；PPO 训练不稳定且昂贵。人类更喜欢的回答不必然真实、安全或公平，长期行为、分布外提示和社会影响仍难由离线比较充分验证。
 
 </ArxivRating>
 
 ## PaLM
 
-<ArxivRating id='2204.02311' publication='JMLR2023' tldr='' rank={0}>
+<ArxivRating id='2204.02311' publication='JMLR2023' tldr='PaLM 用 Pathways 系统训练 540B 参数稠密 Transformer，在少样本推理、语言和代码任务展示显著的规模化能力。' rank={0}>
+
+![](https://pic.hana0721.top/palm-01.1sfrjy467t.webp)
+
+**动机。** 更大模型在 few-shot 学习上持续进步，但训练系统、数值稳定性和跨任务能力仍限制规模。PaLM 试图同时验证 500B 级稠密语言模型的可训练性及其泛化边界。
+
+**方法。** PaLM 是 540B 参数、118 层的 decoder-only Transformer，采用并行 attention/FFN、SwiGLU、RoPE、共享输入输出嵌入和多查询 attention 等设计；以 Pathways 在 6144 个 TPU v4 芯片上训练约 780B token。语料覆盖网页、书籍、Wikipedia、新闻、GitHub 代码及多语种文本，并使用 8192-token 上下文。
+
+**实验。** 论文报告其在 29 项英语 NLP 任务中以少样本提示超越此前最佳，GSM8K 的 8-shot CoT 达 58.1%，在多语言翻译、自然语言推理与代码生成也有强结果；进一步以 PaLM-SayCan 等案例展示将语言规划用于机器人控制的潜力。大量消融比较了规模、数据混合和架构选择。
+
+**局限。** 论文承认模型会复述训练数据、生成刻板印象、错误信息和有害内容；超大训练的能耗、碳排和资源集中同样显著。基准成绩不能说明真实世界可靠性，且数据来源、覆盖语言和低资源语言公平性仍有限。
 
 </ArxivRating>
 
 ## LLaMA
 
-<ArxivRating id='2302.13971' tldr='' rank={0}>
+<ArxivRating id='2302.13971' tldr='LLaMA 证明只用公开数据并不必然输给闭源巨型模型：经过充分训练的 7B–65B 模型在许多基准上可匹敌甚至超过更大的系统。' rank={0}>
+
+![](https://pic.hana0721.top/llama-01.1vzdhnx8zd.webp)
+
+**动机。** 当时最强的语言模型通常依赖不公开的训练数据、代码和算力，研究者难以复现或分析。作者希望用公开可获得的语料训练一组相对小的模型，探索“更多高质量 token 是否能以较小参数换取同等能力”。
+
+**方法。** LLaMA 是 decoder-only Transformer，使用 RMSNorm、SwiGLU、RoPE 和 AdamW，最大上下文 2048。训练数据约 1.4T token，来自 CommonCrawl/CCNet、C4、GitHub、Wikipedia、书籍、arXiv 和 StackExchange 等公开来源；7B/13B 约训练 1T token，较大模型训练约 1.4T token。模型规模为 6.7B、13B、32.5B 和 65.2B（通常简称 7B/13B/33B/65B）。
+
+**实验。** LLaMA-13B 在多数基准上超过 GPT-3 175B，65B 与 Chinchilla-70B 和 PaLM-540B 具有竞争力；这说明数据配方、训练 token 数和规模的平衡可以显著提高参数效率。论文还报告了语言建模、常识推理、数学和代码等多类评测。
+
+**局限。** 发布的是未做指令对齐的基础模型，直接对话的帮助性和安全性有限；公开网页、代码和书籍仍可能包含偏见、毒性、个人信息及评测污染。训练 65B 仍需 2048 张 A100 运行约 21 天，开放权重并不等于训练成本低，且英文和高资源语料占比限制了多语种泛化。
 
 </ArxivRating>
 
 ## GPT 4
 
-<ArxivRating id='2303.08774' tldr='' rank={0}>
+<ArxivRating id='2303.08774' tldr='GPT-4 技术报告展示了文本与图像输入、对齐后模型的广泛能力，但刻意不公开架构规模和训练细节，重点转向能力评估与安全部署。' rank={0}>
+
+![](https://pic.hana0721.top/gpt4-001.lwgbcf9qf.webp)
+
+**动机。** GPT-3.5 之后，模型是否能稳定达到专业考试和复杂推理所需的水平，以及多模态输入能否纳入同一系统，成为主要问题。作者还希望系统评估事实性、偏见、滥用和安全缓解，而不只报告单一语言建模损失。
+
+**方法。** 报告只披露 GPT-4 以 Transformer 自回归目标进行预训练，再经过包含人类反馈的后训练与对齐；模型可接收图像和文本，但输出为文本。训练数据包括公开互联网数据和获许可的第三方数据，具体参数量、数据配比、硬件和优化配方没有公开。工程上使用可预测的规模化训练和多轮安全后训练来控制行为。
+
+**实验。** GPT-4 在 MMLU、专业考试、代码和推理评测上达到接近人类或专业级表现，模拟律师资格考试位列约前 10%；在 MMLU 的翻译版本中，26 种语言有 24 种超过对应语言的最佳公开系统。图像输入也能处理图表、文档和视觉问答等任务。
+
+**局限。** 模型仍会幻觉、给出过时或不可靠的答案，无法像人一样从交互经验持续学习；上下文长度、工具使用和复杂任务的稳定性也有限。报告没有给出足够的架构和训练信息，难以独立复现，且偏见、隐私、越权使用和安全评测的覆盖仍不完整。
 
 </ArxivRating>
 
 ## DPO
 
-<ArxivRating id='2305.18290' publication='NeurIPS2023' tldr='' rank={0}>
+<ArxivRating id='2305.18290' publication='NeurIPS2023' tldr='DPO 将 RLHF 的奖励最大化目标改写成偏好对上的直接分类损失，不再单独训练奖励模型和运行 PPO，显著简化语言模型对齐。' rank={0}>
+
+![](https://pic.hana0721.top/dpo-01.4qs1ngcfuu.webp)
+
+**动机。** 传统 RLHF 需要监督微调、奖励模型、在线采样和 PPO，工程链条长、超参数多且训练不稳定。作者观察到，在固定参考策略和 KL 约束下，最优奖励函数可以由策略与参考模型的对数概率表示，因此无需显式学习奖励模型。
+
+**方法。** DPO 对每个“chosen/rejected”偏好对，比较策略相对参考模型的对数概率差，用一个带温度的 logistic/二元交叉熵损失直接更新策略。训练只需离线偏好数据、当前策略和冻结的参考模型，不需要价值模型、在线 rollout 或 PPO 的裁剪更新。
+
+**实验。** 在情感控制、摘要和对话等任务上，作者用最多约 6B 参数模型比较 DPO、PPO 和其他偏好优化方法。DPO 通常达到不低于 RLHF 的人类偏好和自动评测分数，同时训练流程更短、显存和调参成本更低。
+
+**局限。** 方法依赖离线偏好对的质量、覆盖范围和一致性，噪声或单一标注群体会被直接放大；固定参考模型和隐式奖励假设也可能限制策略探索。对需要在线交互、环境反馈或偏好难以可靠收集的任务，DPO 未必优于带奖励模型的 RL。
 
 </ArxivRating>
 
 ## ToT
 
-<ArxivRating id='2305.10601' publication='NeurIPS2023' tldr='' rank={0}>
+<ArxivRating id='2305.10601' publication='NeurIPS2023' tldr='Tree of Thoughts 将 Chain-of-Thought 扩展为可搜索的思路树，让语言模型生成、评估并回溯多个中间解，而非押注一条线性推理链。' rank={0}>
+
+![](https://pic.hana0721.top/tot-01.msp1ktjb.webp)
+
+**动机。** 普通 CoT 一旦在早期生成错误步骤，后续 token 往往只能沿错误路径继续；它也缺少对候选解的比较、规划和回溯。许多需要组合搜索的任务更像在状态空间中寻找解，而不是一次性续写。
+
+**方法。** ToT 把若干 token 组成一个可解释的“thought”状态，反复调用模型提出候选思路，再由模型或任务专用评价器估计价值。系统可用 BFS、DFS 或剪枝策略保留多个分支，在发现死路时回溯并继续搜索；无需重新训练基础模型。
+
+**实验。** 在 Game of 24、创意写作和填字游戏上，GPT-4 的 ToT 都明显超过直接回答和 CoT 基线；Game of 24 的成功率约 74%，而单链 CoT 约 4%。创意写作的全局一致性和填字的约束满足也得到提升，说明显式搜索对不同任务均有帮助。
+
+**局限。** 每类任务都要设计思路粒度、生成提示和评价器，迁移并非自动完成；搜索分支会成倍增加 API 调用、token、延迟和费用。语言模型的自评可能不可靠，错误价值判断会剪掉正确分支，因此 ToT 更像推理时的任务工程，而不是普适的训练算法。
 
 </ArxivRating>
 
 ## LLaMA2
 
-<ArxivRating id='2307.09288' tldr='' rank={0}>
+<ArxivRating id='2307.09288' tldr='Llama 2 在约 2T 公开 token 上训练更长上下文的开放模型，并以 SFT、拒绝采样和 PPO 组成可用的 Chat 对齐流程。' rank={0}>
+
+![](https://pic.hana0721.top/llama2-01.45ie15hznu.webp)
+
+**动机。** LLaMA 展示了开放基础模型的潜力，但未对齐的权重不适合直接服务用户；同时需要更长上下文、更高质量数据和系统性的安全评估。Llama 2 试图同时提升基础模型能力，并公开一套可复用的对话对齐配方。
+
+**方法。** 家族包含 7B、13B、34B 和 70B（34B 主要报告、未正式发布），在约 2T 公开 token 上预训练，比上一代多约 40%，上下文从 2048 扩至 4096；34B/70B 使用 GQA 降低 KV cache。Llama 2-Chat 先用 27,540 条高质量示范做 SFT，再迭代进行拒绝采样和 PPO，分别训练 helpfulness 与 safety 奖励模型，并用 Ghost Attention 改善多轮指令保持。
+
+**实验。** 基础 70B 在常识、知识、数学和代码基准上领先多数开放基线；Chat 版的人类偏好评测接近 GPT-3.5/PaLM，在安全和帮助性上优于上一代，仍与 GPT-4 存在差距。论文还公开了超过百万级二元偏好比较及红队测试结果。
+
+**局限。** 评测和标注主要以英语为中心，安全偏好带有主观性和文化偏差；实际部署仍需针对应用做过滤、拒答和工具权限设计。模型可能幻觉、泄露训练数据或产生毒性内容，RLHF 数据昂贵且 PPO 复杂，70B 的显存和推理成本也限制了普通团队使用。
 
 </ArxivRating>
 
 ## Mistral 7B
 
-<ArxivRating id='2310.06825' tldr='' rank={0}>
+<ArxivRating id='2310.06825' tldr='Mistral 7B 用 GQA 与滑动窗口注意力在较小参数量下兼顾速度和长上下文，公开权重却超过 Llama 2 13B 的多项结果。' rank={0}>
+
+![](https://pic.hana0721.top/mistral-1.6bhsmx9ngi.webp)
+
+**动机。** 仅扩大参数并不能解决部署显存、KV cache 和长序列解码成本；作者希望让一个 7B 模型在消费级或中等规模硬件上仍有强竞争力，并把高效注意力实现公开出来。
+
+**方法。** 模型有 32 层、隐藏维 4096、32 个 query heads 和 8 个 KV heads，使用 GQA 减少缓存。Sliding Window Attention 只连接固定窗口，并配合 rolling-buffer cache，使缓存大小有界而信息可通过层叠传播；上下文长度为 8192、窗口 4096。实现使用 FlashAttention/xFormers，并以 Apache 2.0 发布。
+
+**实验。** Mistral 7B 在 MMLU 60.1、HellaSwag 81.3、HumanEval 30.5、GSM8K 52.2 等指标上超过 Llama 2 13B 的对应结果；在指令微调的 MT-Bench 上得分 6.84，也高于 Llama 2-13B-Chat 的 6.65。作者报告在 16K 序列上约 2 倍速度和更低 KV cache 占用。
+
+**局限。** 7B 容量仍使知识覆盖和复杂推理受限，基础权重也没有安全对齐；Instruct 版本的数据和评测较初步，公开榜单不代表真实对话可靠性。滑窗的长程能力和“理论注意力跨度”依赖实现、层数与任务，提示式 guardrail 不能替代稳健的内容安全系统。
 
 </ArxivRating>
 
 ## Mamba
 
-<ArxivRating id='2312.00752' tldr='' rank={0}>
+<ArxivRating id='2312.00752' tldr='Mamba 让状态空间模型的状态更新依赖输入，并用硬件友好的 selective scan 实现线性序列复杂度，在长序列上替代注意力。' rank={0}>
+
+![](https://pic.hana0721.top/mamba-01.icudmm79i.webp)
+
+**动机。** Transformer 的注意力需要随序列长度增长的 KV cache 和二次计算；早期线性 SSM 虽高效，却难以进行基于内容的选择与复制。作者希望同时获得 Transformer 的内容选择能力和 SSM 的线性扩展、常数状态解码。
+
+**方法。** Mamba 令 SSM 的步长、状态转移和输入投影由当前 token 动态决定，使模型学习何时记住、忘记或传播信息。硬件感知的并行扫描避免显式物化扩展状态和反复读写内存；整体块去掉独立 attention 与 MLP，简化为选择性 SSM、门控和投影。推理时只保留固定大小的递归状态，序列计算和生成吞吐近似线性。
+
+**实验。** 在 Pile 上训练约 125M–2.8B 语言模型，Mamba-2.8B 超过 Pythia-2.8B，并在相近规模下匹敌更大的 Transformer；Mamba-3B 在多项任务接近约两倍参数的 Transformer。模型在 DNA、音频和基因组序列上也有效，合成 induction 任务可外推到百万 token，生成吞吐约为同等 Transformer 的 5 倍。
+
+**局限。** 固定大小状态必然压缩历史，对任意精确检索、全局交互或需要双向证据的任务可能成为瓶颈；selective scan 还依赖专门 CUDA/kernel 和硬件布局。主要实验规模在 3B 左右，不能直接证明其在前沿规模或开放域推理上超越注意力，长上下文质量也取决于状态容量与选择策略。
 
 </ArxivRating>
 
 ## Mamba2
 
-<ArxivRating id='2405.21060' publication='ICML2024' tldr='' rank={0}>
+<ArxivRating id='2405.21060' publication='ICML2024' tldr='Mamba-2 以结构化状态空间对偶统一 SSM 与注意力的递归、矩阵形式，在更适合并行的 SSD 层上取得更高速度和更好语言模型折中。' rank={0}>
+
+![](https://pic.hana0721.top/mamba2-01.9rk4f0jamh.webp)
+
+**动机。** Mamba 的选择性扫描高效但实现复杂，且 SSM 与注意力之间的关系不清晰，限制了并行化和架构设计。作者寻找一个既能递归处理长序列、又能利用矩阵乘法硬件的统一表示。
+
+**方法。** Structured State Space Duality（SSD）把 SSM 写成结构化半可分矩阵，同时支持递归、分块和二次矩阵乘法三种计算形式。Mamba-2 将状态矩阵简化为标量乘单位阵，增大 head 维度，并在块中加入 GVA 式头布局与适合 tensor parallel 的投影；专用 SSD kernel 可在短序列用扫描、长序列用块矩阵计算。
+
+**实验。** 在 Pile 上用 300B token 训练 2.7B 模型，Mamba-2 超过 Mamba-2.8B、Pythia-2.8B，部分下游结果也超过 Pythia-6.9B；在困惑度、FLOPs 和墙钟时间的 Pareto 前沿上支配早期 Mamba 与 Transformer++。SSD 比 selective scan 快约 2–8 倍，在约 2K 长度处追平优化后的 FlashAttention-2，16K 时最高约 6 倍快。
+
+**局限。** 为了获得结构化高效计算，SSD 对状态矩阵和表达能力作了限制，并不等同于任意 SSM 或完整注意力；性能高度依赖 kernel、GPU 和并行布局。实验主要集中在 2.7B、Pile 与标准语言任务，前沿规模的通用推理、事实性和极长上下文能力仍未充分验证。
 
 </ArxivRating>
 
 ## Qwen2.5
 
-<ArxivRating id='2412.15115' tldr='' rank={0}>
+<ArxivRating id='2412.15115' tldr='Qwen2.5 通过 18T token 预训练和大规模后训练，覆盖从 0.5B 到 72B 的开放权重模型，并强化长文本、代码、数学和工具调用。' rank={0}>
+
+![](https://pic.hana0721.top/qwen25-01.wja4hui89.webp)
+
+**动机。** 开放模型在长文档、结构化输出、数学代码和多语言指令上仍不稳定，且不同参数规模的性价比差异很大。Qwen 团队希望用更大、更干净的数据和统一后训练，把能力下放到小模型，同时保留 72B 的高端表现。
+
+**方法。** 提供 0.5B、1.5B、3B、7B、14B、32B、72B 的 dense decoder 模型，并另有不完全开放的 Turbo/Plus MoE。预训练数据从上一代约 7T 扩至 18T token，分阶段过滤和配比，加入数学、代码及合成数据；后训练使用超过百万样本的 SFT、离线 DPO 和在线 GRPO。模型使用 RoPE、RMSNorm、带 QKV bias 的 Transformer，并按规模提供 32K 或 128K 上下文；Turbo 通过渐进扩展、YaRN/DCA 支持更长窗口。
+
+**实验。** Qwen2.5-7B-Instruct 在 MMLU-Pro 56.3、MATH 75.5、GSM8K 91.6、HumanEval 84.8；72B-Instruct 分别达到 71.1、83.1、95.8、86.6，Arena-Hard 81.2、MT-Bench 9.35。72B 在多项任务接近或超过 Llama 3.1-405B，32B/14B 则提供较好的成本—效果折中。
+
+**局限。** 许多结果来自自动或内部评测，可能存在数据污染、提示敏感和对齐偏差；不同尺寸的权重、许可证与 Turbo/Plus 的可复现性不一致。128K/百万级上下文依赖专门扩展和评测设置，真实长文检索未必同样可靠；多语种覆盖、安全拒答和工具调用仍需应用侧验证。
 
 </ArxivRating>
 
 ## DeepSeek-V3
 
-<ArxivRating id='2412.19437' tldr='' rank={0}>
+<ArxivRating id='2412.19437' tldr='DeepSeek-V3 以 671B 总参数、每 token 激活约 37B 的 MoE，结合 MLA、无辅助损失负载均衡、FP8 和 DualPipe，把前沿能力的训练成本压到较低水平。' rank={0}>
+
+![](https://pic.hana0721.top/deepseekv3-01.58i3c1dtsb.webp)
+
+**动机。** 超大稠密模型的训练和推理成本随参数线性增长，而 MoE 虽能降低每 token 计算，却带来专家失衡、跨节点通信和显存压力。作者希望在保持大模型容量的同时，建立可扩展、稳定且成本透明的训练系统。
+
+**方法。** V3 为 61 层 MoE，含 256 个 routed experts 与 1 个 shared expert，每个 token 激活 8 个 routed experts（总规模约 671B、激活约 37B），并使用 Multi-head Latent Attention 压缩 KV。训练 14.8T 高质量 token，采用无 auxiliary loss 的专家负载均衡、multi-token prediction、FP8 混合精度和 DualPipe 计算—通信重叠；上下文通过 4K→32K→128K 的两阶段 YaRN 扩展。后训练结合 SFT、RL 和来自 DeepSeek-R1 的推理蒸馏。
+
+**实验。** 论文报告基础模型在 MMLU 88.5、MMLU-Pro 75.9、GPQA 59.1 等知识、数学和代码指标上处于开放模型前列；Chat 版总体接近 GPT-4o/Claude 3.5，并在中英文事实性、代码任务上表现强。训练总量约 278.8 万 H800 GPU 小时（含预训练、上下文扩展和后训练），论文给出的租用估算约 557.6 万美元；MTP/自验证解码还带来约 1.8 倍 token 吞吐。
+
+**局限。** 671B 总参数使推荐部署单元和显存需求仍对小团队不友好，端到端推理和专家通信尚有优化空间；FP8 收益依赖 Hopper 等硬件并伴随精度折中。数据配方和部分评测细节不完全公开，中文/英语分布与内部基准可能影响结论，MoE 在不同领域仍可能出现负载不均和能力波动。
 
 </ArxivRating>
 
 ## DeepSeek-R1
 
-<ArxivRating id='2501.12948' tldr='' rank={0}>
+<ArxivRating id='2501.12948' tldr='DeepSeek-R1 证明可从纯强化学习中诱导出反思、验证和策略切换，再用少量冷启动推理数据与迭代 RL/SFT 将能力整理成通用推理模型。' rank={0}>
+
+![](https://pic.hana0721.top/deepseekr1-01.3k8qeunjnt.webp)
+
+**动机。** 仅靠模仿短答案或人工 CoT 可能限制模型发现新解法；作者想测试规则可验证的奖励能否让模型自行发展长链推理，并将这种能力迁移到更广泛的帮助性任务。
+
+**方法。** R1-Zero 从 DeepSeek-V3-Base 出发，不做 SFT，使用 GRPO，以数学/代码/逻辑的正确性和格式作为规则奖励。训练中模型逐渐学会自我反思、验证和切换策略；完整 R1 先加入可读的 cold-start 长 CoT 数据，再进行迭代 RL、拒绝采样和 SFT，并混合一般帮助性与安全数据。论文还用约 80 万条 R1 生成样本对 Qwen/Llama 做纯 SFT 蒸馏，蒸馏模型不再额外做 RL。
+
+**实验。** R1-Zero 在 AIME 2024 的 pass@1 从 15.6% 提升到 77.9%；R1 主模型在 MMLU 90.8、MMLU-Pro 84.0、GPQA 71.5、AIME 2024 79.8、MATH-500 97.3、LiveCodeBench 65.9、SWE Verified 49.2 等任务达到强结果，Codeforces 约 96.3 百分位。蒸馏到 1.5B–70B 后仍保留相当一部分数学推理能力，显示推理轨迹具有迁移价值。
+
+**局限。** 长 CoT 会过度思考、消耗大量 token，模型可能陷入错误逻辑；pass@64 往往高于 pass@1，说明单次可靠性仍不足。工具调用、结构化输出和软件工程 RL 较弱，缺少可靠 verifier 时容易 reward hacking；在非中英语言中会混杂语言，few-shot 提示常使表现下降，应用需要零样本提示和额外后处理。
 
 </ArxivRating>
 
 ## Kimi K2
 
-<ArxivRating id='2507.20534' tldr='' rank={0}>
+<ArxivRating id='2507.20534' tldr='Kimi K2 是约 1T 参数、每 token 激活 32B 的开放 MoE，配合 MuonClip、代理数据合成和联合 RL，重点优化真实工具使用与软件工程任务。' rank={0}>
+
+![](https://pic.hana0721.top/kimi-k2-01.41ys3foxal.webp)
+
+**动机。** 语言模型在真实工作流中不仅要回答问题，还要规划、调用工具、读写文件并验证结果；静态指令数据难以覆盖这些长程交互。K2 以 agentic 能力为目标，尝试在超大 MoE 上稳定训练并降低开放模型的使用门槛。
+
+**方法。** 模型总参数约 1.04T、激活约 32B，含 384 个专家、每 token 选 8 个专家、61 层，并采用 MLA 式注意力。MuonClip 将 Muon 优化器与 QK-Clip 结合，控制注意力 logit 不稳定；模型在 15.5T token 上训练且无 loss spike。训练数据大量来自模拟/真实环境中的工具轨迹和合成任务，后训练联合可验证奖励（RLVR）与自批评 rubric 奖励。
+
+**实验。** 报告在非思考模式下的 Tau2-bench 66.1、ACEBench 英文 76.5、SWE-bench Verified 65.8、多语 47.3、LiveCodeBench v6 53.7、AIME 2025 49.5、GPQA-Diamond 75.1、OJBench 27.1，并称 2025 年 7 月 LMSYS 排名中为顶尖开放模型。工具调用和多轮代理评测的提升尤其明显。
+
+**局限。** 模糊的工具定义或困难推理会触发过长轨迹，导致输出截断和未完成的工具调用；无必要地开放工具甚至会降低成绩。一次性完成整套软件项目仍不如专门的 agentic coding 框架。合成重述可能引入事实漂移、幻觉或毒性，人工评测带主观性，而 1T 级模型的部署成本和并行通信压力仍很高。
 
 </ArxivRating>
 
 ## DFT
 
-<ArxivRating id='2508.05629' tldr='' rank={0}>
+<ArxivRating id='2508.05629' tldr='Dynamic Fine-Tuning 在 SFT 损失中按当前模型的 token 概率动态重加权，用一行改动缓解低概率专家 token 的过大梯度，并提升数学、代码和多模态泛化。' rank={0}>
+
+![](https://pic.hana0721.top/dft-01.70b26xx6tn.webp)
+
+**动机。** 标准 SFT 等价于对专家序列做精确匹配，模型对低概率 token 的逆概率权重会产生过大的梯度，导致过拟合和比 RL 更差的泛化。作者希望保留 SFT 的离线、简单和高效，同时让更新信号更接近带验证奖励的 RL。
+
+**方法。** DFT 将每个目标 token 的负对数似然乘以当前策略对该 token 的概率（停止梯度），从而抵消 SFT 梯度中的 inverse-probability weighting；实践中按 token 而非整句计算以避免数值不稳定。该改动不需要奖励模型、参考模型、大 batch 或在线采样，可直接替换标准 SFT 目标。
+
+**实验。** 在 NuminaMath-CoT 上微调 Qwen2.5-Math、Llama 3、DeepSeekMath 等模型，并评测 Math500、Minerva Math、OlympiadBench、AIME 2024、AMC 2023；例如 Qwen2.5-Math-1.5B 的平均准确率从基座 15.92、SFT 18.01 提升到 DFT 31.58，Qwen2.5-Math-7B 从 23.62 提升到 37.15。DFT 还在离线 RL、代码生成和多模态数学上普遍超过 SFT，并在该设置中以平均 35.43 超过 DPO、RFT、PPO 和 GRPO 的对比结果。
+
+**局限。** DFT 依赖正例轨迹和当前模型概率，仍是离线正数据学习，不能替代缺少 verifier 的在线探索。论文的 Natural Questions 案例中，SFT 将准确率从 31.24% 提高到 36.62%，DFT 反而降至 30.14%，说明它可能强化已有信念、不适合吸收模型尚未掌握的新事实；收益也可能随模型、数据和概率校准而变化，尚缺大规模生产验证。
 
 </ArxivRating>

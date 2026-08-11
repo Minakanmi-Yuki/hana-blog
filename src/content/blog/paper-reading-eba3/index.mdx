@@ -59,150 +59,396 @@ RL菜鸡开始进军Embodied AI，慢慢积累，提升自己。
 
 ## RoboVerse
 
-<ArxivRating id='https://roboverseorg.github.io/static/pdfs/roboverse.pdf' tldr='' rank={0}>
+<ArxivRating id='https://roboverseorg.github.io/static/pdfs/roboverse.pdf' tldr='RoboVerse 以 MetaSim 统一多种模拟器、数据与评测协议，构建可扩展的跨 embodiment 机器人学习基础设施。' rank={0}>
 
+![](https://pic.hana0721.top/roboverse.wja4hl5rt.webp)
+RoboVerse 关注的不是某一个策略网络，而是机器人学习长期缺失的“可扩展数据—仿真—评测”基础设施。真实机器人数据采集昂贵、硬件依赖强，现有仿真数据又分散在不同模拟器和格式中，导致数据难以复用、算法难以公平比较。论文希望用统一平台把这些碎片连接起来。
+
+核心是 MetaSim。它为不同模拟器提供统一的配置系统和 Gym 风格 API，抽象了环境启动、资产加载、物理步进、传感器和任务定义等接口，因此可以在多个模拟器之间迁移任务和轨迹。平台还支持混合仿真：把物理引擎、渲染器和资产库组合起来，以同时获得较好的物理精度和视觉质量；对于不同机械臂，则通过保留末端位姿和夹爪语义的映射完成 cross-embodiment trajectory transfer。
+
+在数据侧，RoboVerse 将公开数据迁移、策略 rollout、运动规划、遥操作、轨迹增强、域随机化和生成模型结合起来，构造统一格式的高保真数据。正文概述的规模约为 50 万条轨迹、276 个任务类别、5500 个资产和超过 5000 万个状态转移；项目页面与后续版本还继续扩展了任务和轨迹规模。数据覆盖 ManiSkill、RLBench、CALVIN、LIBERO、RoboSuite 等来源，并保留多种相机、物体、光照和机器人设置。
+
+评测协议同时覆盖 imitation learning、reinforcement learning、world model learning 以及 sim-to-sim、sim-to-real。作者把泛化划分为从同分布到任务、物体、场景和视觉条件变化的多个等级，统一训练/测试划分后比较行为克隆和 RL 基线。实验显示，跨模拟器的数据复用、域随机化和高保真渲染能改善策略的分布外表现，也能支持直接 sim-to-real 的验证。
+
+RoboVerse 的价值更接近“机器人学习的公共底座”，而不是单一 SOTA 算法：它降低了接入新模拟器和新任务的工程成本，并让不同方法在相同协议下比较。局限也很明确：合成数据的物理真实性和视觉多样性仍受模拟器与资产质量限制，真实世界复杂接触、软体和长时序任务不能完全由仿真替代；跨模拟器接口统一后仍可能存在动力学和传感器分布差异，sim-to-real 结果需要谨慎解读。
 </ArxivRating>
 
 ## AgiBot World Colosseo
 
-<ArxivRating id='2503.06669' publication='IROS2025' tldr='' rank={0}>
+<ArxivRating id='2503.06669' publication='IROS2025' tldr='AgiBot World Colosseo 构建大规模真实场景双臂人形机器人数据集，并以 GO-1 展示高质量数据对跨任务泛化的提升。' rank={0}>
 
+![](https://pic.hana0721.top/2503.06669.5trqybyxnv.webp)
+AgiBot World Colosseo 试图解决机器人基础模型最现实的瓶颈：不是模型参数不够，而是高质量、跨任务、跨场景的真实机器人数据不够。既有 Open X-Embodiment 虽然规模大，却混合了不同硬件、视角和采集标准；DROID 等数据集的场景更丰富，但在规模、质量控制、双臂和灵巧手覆盖上仍有限。
+
+平台在约 4000 平方米的 domestic、retail、industrial、restaurant、office 五类真实场景中，使用 100 多台 AgiBot G1 双臂人形机器人采集数据。最新版本包含 1,001,552 条轨迹、约 2976.4 小时数据，覆盖 217 个任务、87 种技能、106 个场景和 3000 多个物体。机器人配备 RGB-D/鱼眼相机、末端相机、6-DoF 灵巧手以及可选的视触觉夹爪，记录多视角图像、深度、标定信息、本体状态和任务/子任务语言标注。
+
+数据采集采用 human-in-the-loop 流程。任务先经过可行性验证，再由 VR 控制器或全身动作捕捉系统遥操作；本地检查帧完整性，云端进行场景、技能、任务和失败原因标注，人工复核后才进入训练。与简单丢弃失败轨迹不同，约 1% 的失败恢复数据会保留，并标注错误时间点和恢复行为；模型部署反馈还会反过来修正采集规范，例如删除过长的 idle frames。
+
+在模型侧，论文提出 Genie Operator-1（GO-1）。GO-1 使用视觉语言模型和 latent action planner，把人类视频、异构机器人轨迹与 AgiBot World 数据放到统一预训练流程中。潜动作表示将不同 embodiment 的观测变化压缩为可迁移的计划，之后再由目标机器人动作头解码。这样既能利用无动作的人类视频，也能避免直接把不同机器人关节空间硬拼在一起。
+
+实验中，AgiBot World 预训练策略相对 Open X-Embodiment 训练策略平均提升约 30%；即使只使用约十分之一的时长，泛化也能提升约 18%。GO-1 在复杂灵巧和长时序任务上成功率超过 60%，相对 RDT 提升约 32%，且随着数据量增加呈现较平滑的 scaling。论文的局限是所有主要评测都在真实场景中进行，暂时缺少与真实设置对齐的公开仿真环境，复现实验成本较高；数据还集中在 AgiBot G1 这一硬件体系，跨平台迁移仍需额外验证。
 </ArxivRating>
 
 ## UniVLA
 
-<ArxivRating id='2505.06111' tldr='' rank={0}>
+<ArxivRating id='2505.06111' tldr='UniVLA 从视频中学习与 embodiment 无关的 task-centric latent action，并用轻量 decoder 将统一计划解码为不同机器人的连续动作。' rank={0}>
 
+![](https://pic.hana0721.top/2505.06111.6po8ds8m6r.webp)
+UniVLA（Learning to Act Anywhere with Task-centric Latent Actions）关注跨 embodiment 学习。现有 VLA 大多依赖带动作标签的机器人数据，而不同机器人、视角和控制频率之间差异很大；如果直接把 action 拼在一起，模型会把相机抖动、旁观者运动等与任务无关的变化也当成动作。作者希望从互联网视频和人类第一视角视频中学习一个与 embodiment 无关、但与任务相关的潜动作空间。
+
+方法分三步。第一步从一对相隔约一秒的观测帧出发，用 inverse dynamics encoder 推断 latent action，再由 forward dynamics decoder 重建未来观测；动作 token 在 DINOv2 的 patch 特征空间中学习，而不是直接在像素空间重建，从而降低纹理、光照和镜头运动的干扰。随后使用 VQ-VAE 将 latent action 离散化成 codebook token。第二步，自动回归 VLA 以语言、当前观测和离散 latent action 为输入，学习跨 embodiment 的任务规划。第三步，只训练一个轻量 decoder（约 10.8M 参数），将 latent plan 解码为目标机器人的连续轨迹。
+
+训练数据可以没有动作标签：作者把 RT-1、BridgeV2、DROID、Kuka、TOTO、Taco Play、CALVIN、LIBERO、ManiSkill2 以及人类视频等统一成视频片段，再用语言条件去分离 task-centric dynamics。模型在 BridgeV2 上预训练后，也能继续吸收不同机器人和人类视频；这使得动作表示不再绑定某个机械臂的关节定义。
+
+结果显示，UniVLA 在 LIBERO Spatial/Object/Goal/Long 上分别达到 95.4/98.8/93.6/94.0%，平均约 95.5%；CALVIN ABC→D 和 ABCD→D 平均完成长度为 4.41 和 4.63。在 SimplerEnv 的 WidowX/Bridge 设置中平均成功率约 69.8%，相较既有结果明显提升。world-model 预训练比只做 action-only 训练更重要：在少量下游数据（例如 10% CALVIN 微调集）时仍能保持可用性能，而无 latent world model 的模型几乎无法完成长时序组合任务。
+
+作者指出目前的 post-training 规模研究受算力限制，622K 视频并不代表最终上限；统一自回归 token 框架的训练和推理成本也很高，真实 ALOHA 和 NAVSIM 结果仍属于初步迁移。未来还需要更大视频集、强化学习和更多真实 embodiment 的联合验证。
 </ArxivRating>
 
 ## GraspVLA
 
-<ArxivRating id='2505.03233' tldr='' rank={0}>
+<ArxivRating id='2505.03233' tldr='GraspVLA 以十亿帧合成抓取数据和 Progressive Action Generation，将开放词汇目标定位、抓取姿态与动作生成串联起来。' rank={0}>
 
+![](https://pic.hana0721.top/2505.03233.1appvctgvx.webp)
+GraspVLA 研究一个具体但基础的问题：能否完全依靠大规模合成动作数据训练出具有 foundation model 特征的抓取策略，从而减少真实遥操作数据的成本。作者构建 SynGrasp-1B，将 Objaverse 中约 10,680 个物体实例、240 个类别放入物理仿真，生成十亿帧、带语言和精确动作标签的抓取数据。
+
+数据流水线先随机化物体布局、初始姿态、材质、光照、背景和相机，再用抓取合成算法得到 force-closure 抓取姿态，用 CuRobo 规划无碰撞轨迹，并在 MuJoCo 中验证成功抬升。为避免模仿策略学到“先停一下再抓”的僵硬动作，作者采用单段平滑轨迹和随机机器人初始位姿；整套数据由 160 张 RTX 4090 运行约 10 天生成。
+
+GraspVLA 由视觉语言骨干和 flow-matching action expert 组成。它提出 Progressive Action Generation（PAG）：先自回归预测目标物体 2D bounding box，再预测机器人基座坐标系中的 grasp pose，最后让 action expert 生成连续 action chunk。互联网 grounding 数据只监督 bounding box，合成数据同时监督 box、grasp pose 和动作，因此语义知识与几何动作知识可以共同训练，模型还能对合成类别之外的长尾物体进行开放词汇抓取。
+
+在真实零样本抓取中，GraspVLA 在合成类别和 web 类别上都明显优于 OpenVLA、Octo 和 π0 的对应微调版本；表 1 中各项环境变化下的成功率大多在 86–97% 区间，透明物体上也优于 AnyGrasp。LIBERO 的 Long/Goal/Object 三个 suite 分别约为 82.0/91.2/94.1%。少量示范微调还能学习“不要碰杯内壁”“从拥挤瓶堆中按顺序抓取”等偏好。
+
+局限包括：合成和评测主要使用 Franka Panda 的固定双视角，跨机器人与跨相机配置尚未充分验证；force-closure 标签不建模柔性物体；含糊指令（如“拿食物”“最左边的物体”）仍容易失败；PAG 需要先生成中间 token，L40S 上延迟约 200 ms。当前重点是抓取，推、放置和非抓取操作还需要新的合成器和更复杂的动力学。
 </ArxivRating>
 
 ## GRAPE
 
-<ArxivRating id='2411.19309' tldr='' rank={0}>
+<ArxivRating id='2411.19309' tldr='GRAPE 用 VLM 生成阶段化代价并进行轨迹级偏好优化，使机器人策略可按完成度、安全性和效率定制对齐。' rank={0}>
 
+![](https://pic.hana0721.top/2411.19309.6m4mg2fjmj.webp)
+GRAPE（Generalizing Robot Policy via Preference Alignment）认为，单纯用成功示范做 behavior cloning 会把专家隐含的价值观一并“硬拷贝”进策略：有的示范追求完成任务，有的更安全，有的更省动作，但数据没有显式说明这些偏好。模型因此容易在新物体、新场景或不同目标下产生次优轨迹。作者希望在不依赖昂贵在线 RL 的情况下，直接对整条机器人轨迹做偏好对齐。
+
+GRAPE 先用 VLM 将复杂任务拆成时间阶段，并为每个阶段提出空间关键点。用户可以指定 task completion、safety、efficiency、resilience 等对齐目标，随后让 GPT-4o 根据关键点生成阶段性 cost function。模型在当前 VLA（实验主要使用 OpenVLA）上采样多条 rollout，用外部阶段 cost、策略自评 log-likelihood 和二值成功信号组成 GCPG reward，再把高 reward 与低 reward 轨迹配成 chosen/rejected 对。
+
+训练采用 trajectory-wise preference optimization（TPO）。每轮从更新后的策略在线采样，按多阶段 reward 排序，再迭代优化；阶段 cost 用指数衰减聚合，前一阶段失败会降低后续阶段的总体分数。与逐步动作偏好不同，TPO 的梯度贯穿整条轨迹，能同时利用成功和失败样本，并把“安全/效率”等定制目标变成可解释的约束。
+
+在真实和仿真任务上，GRAPE 相比同数据微调的 Octo-SFT、OpenVLA-SFT 和 DPO 基线，in-domain 成功率提升约 51.79%，unseen 任务提升约 58.20%。切换到安全目标时，碰撞率降低约 37.44%；切换到效率目标时，rollout 步数缩短约 11.15%。结果说明偏好优化不只提升平均成功率，也能改变策略的行为风格。
+
+局限在于偏好和 cost 仍由 VLM 自动生成，关键点检测或 VLM 判断错误会把错误偏好写入模型；在线采样虽然比完整 RL 便宜，仍需要多轮真实/仿真 rollout。多阶段拆分假设任务可以被清晰分段，对高度连续、接触丰富或需要全局协同的技能未必合适；论文也主要在有限的机械臂任务上验证，尚未覆盖移动机器人和长期自主运行。
 </ArxivRating>
 
 ## A0
 
-<ArxivRating id='2504.12636' publication='ICCV2025' tldr='' rank={0}>
+<ArxivRating id='2504.12636' publication='ICCV2025' tldr='A0 学习跨 embodiment 的接触点与接触后轨迹 affordance，再将其转换为具体机器人动作。' rank={0}>
 
+![](https://pic.hana0721.top/2504.12636.73uo4ngxa1.webp)
+A0 针对机器人操作中经常被忽视的空间 affordance：不仅要知道“抓哪个物体”，还要知道“在物体哪里接触、接触后沿什么轨迹运动”。端到端 VLA 往往直接回归动作，容易在擦桌面、堆叠或倒液体等任务上缺少明确的空间中间表示；模块化 VLM 方法则常停留在框或稠密 heatmap，难以表达接触后的运动。
+
+A0 采用层次化结构。高层 Spatial Affordance Understanding 模块输出 Embodiment-Agnostic Affordance Representation，包括目标物体的 object-centric contact point 和 post-contact trajectory；低层 Action Execution 模块再结合深度相机、2D-to-3D 投影、抓取姿态估计和机器人运动规划执行。这样高层表示不依赖具体机械臂的关节数量，能够迁移到 Franka、Kinova、Realman 和 Dobot 等平台。
+
+模型以语言编码器和图像编码器为输入，使用 Position Offset Attention 把运动相关的局部特征提取出来，再用 Spatial Information Aggregation Layer 将二维视觉坐标映射到精确空间位置。训练先在约 100 万个 contact-point 数据上做 affordance 预训练，再用标注的空间轨迹数据进行监督微调；DiT block 负责生成接触后的轨迹，action module 将其转换成具体控制量。
+
+论文报告 Franka 平均成功率 62.50%、Kinova 53.75%，在 Wipe Board 轨迹跟随任务上约 45%，并在双臂和多种物体交互上优于直接动作回归的 VLA。其意义在于把“可操作性”作为跨 embodiment 的中间层，而不是把视觉理解和控制完全割裂。
+
+局限是高层 affordance 仍需要接触点和轨迹标注，数据构建成本不低；二维点到三维坐标依赖深度相机标定，遮挡、透明物体和柔性物体会影响精度。模型目前聚焦桌面操作，复杂动态场景、移动底盘和真正的闭环失败恢复仍未充分评估。
 </ArxivRating>
 
 ## OneTwoVLA
 
-<ArxivRating id='2505.11917' tldr='' rank={0}>
+<ArxivRating id='2505.11917' tldr='OneTwoVLA 在单一 VLA 中自适应交替 reasoning 与 acting，仅在需要时规划以兼顾长时序能力和执行速度。' rank={0}>
 
+![](https://pic.hana0721.top/2505.11917.7axw0332s7.webp)
+OneTwoVLA 试图把“会想”和“会做”放进同一个 VLA，而不是用两个互不了解的系统拼接。传统 dual-system 让高层 VLM 先写计划、低层 VLA 再执行，容易出现高层提出低层做不到的动作，也会因为高层每次都重新推理而产生明显延迟。OneTwoVLA 让一个模型在执行过程中自适应决定何时进入 reasoning mode、何时直接输出动作。
+
+模型以 π0 为动作基座，使用两个特殊决策 token：`[BOR]` 表示开始推理，`[BOA]` 表示开始动作。每个时刻模型先根据多视角图像、上一次推理参考图、指令、历史摘要和本体状态预测决策 token；若选择 `[BOR]`，生成场景描述、任务计划、历史总结和下一步指令；若选择 `[BOA]`，则沿用最新 reasoning 内容生成连续 action chunk。完成子任务、检测到失败或需要询问用户时才触发推理，其他时刻保持快速执行。
+
+为训练这种交错结构，作者把机器人轨迹切成 reasoning interval 和 acting interval，并自动标注推理边界。随后用 Gemini 2.5 生成场景描述、计划、历史摘要和 next-step instruction，还构建包含空间关系、物体属性和多步骤任务的合成视觉语言数据，与机器人数据共同训练。人机交互文本会被追加到后续 instruction，使模型能在执行中接受澄清或纠正。
+
+实验覆盖长时序烹饪、hotpot、cocktail、错误恢复、自然语言交互和 visual grounding。论文报告长时序规划相对 flat VLA 提升约 30%，相对始终调用高层模型的 dual-system 提升约 24%；在 tomato-egg 任务中总执行时间约 184 s，明显低于始终推理的系统。模型能发现抓取失败、重新规划，并在用户临时说“换一个/不要这个”后立即更新动作。
+
+限制是自适应触发依赖合成推理标注，边界判断错误会导致过少或过多的 reasoning；模型仍以 π0 和现有 flow action expert 为基础，长时序真实任务的规模和硬件覆盖有限。推理内容也不保证完全忠实于内部决策，且每次进入 reasoning mode 仍会带来不可忽略的延迟。
 </ArxivRating>
 
 ## RDT-1B
 
-<ArxivRating id='2410.07864' publication='ICLR2024' tldr='' rank={0}>
+<ArxivRating id='2410.07864' publication='ICLR2024' tldr='RDT-1B 用扩散 Transformer 和统一物理动作空间学习多机器人双臂协同，提升少样本跨 embodiment 操作。' rank={0}>
 
+![](https://pic.hana0721.top/2410.07864.4n8fpqa1io.webp)
+RDT-1B（Robotics Diffusion Transformer）面向双臂操作中两个互相放大的难题：动作维度翻倍后分布高度多峰，而双臂示范又比单臂更昂贵、更稀缺。直接用 MSE 或离散 token 学习容易得到两种动作模式的平均值，造成两只手不协调；只用目标双臂数据又不足以支撑 foundation model 规模。
+
+RDT 使用 1.2B 参数的 Diffusion Transformer，通过迭代去噪生成 action chunk，利用扩散模型表达双臂动作的多模态分布。架构对机器人数据做了专门修改：用 MLP decoder 处理动作的非线性和高频变化，改进归一化，并交替注入图像和文本条件。更关键的是 Physically Interpretable Unified Action Space：把不同机器人的末端位姿、关节或轮子动作按照物理含义映射到统一向量，而不是按索引生硬拼接。
+
+预训练阶段汇总 46 个多机器人数据集，约 100 万条 episode；微调阶段在自建目标双臂数据上收集 6000 多条轨迹、300 多个挑战任务。输入包含外部相机、左右腕相机、语言、频率和本体状态，模型一次预测多个未来动作。为了满足实时性，部署时把扩散采样步数从 100 降到 5，动作 chunk 频率约 6 Hz，单动作频率约 381 Hz。
+
+在 ALOHA 双臂机器人上，RDT 相比 ACT、OpenVLA 和 Octo 的整体成功率提升约 56%，可以零样本处理未见物体、场景和语言指令，并用 1–5 条示范学习新技能。论文还展示了倒水、交接折衣、操纵机器狗摇杆等需要细粒度双手协同的任务；消融表明扩散建模、模型规模和预训练数据规模都贡献明显。
+
+局限是 1.2B 模型和多步去噪仍需要较高显存与计算，实时设置依赖减少采样步数和特定硬件；统一动作空间主要覆盖带夹爪的机器人，灵巧手、移动底盘和接触丰富任务的映射未充分验证。预训练数据以单臂为主，跨机器人迁移最后仍依赖目标双臂微调，不能完全消除 embodiment gap。
 </ArxivRating>
 
 ## Octo
 
-<ArxivRating id='2405.12213' publication='RSS2024' tldr='' rank={0}>
+<ArxivRating id='2405.12213' publication='RSS2024' tldr='Octo 以开放数据和可插拔 token 接口训练通用扩散策略，支持语言或目标图像条件及新机器人快速微调。' rank={0}>
 
+![](https://pic.hana0721.top/2405.12213.8adzd95u30.webp)
+Octo 是一个完全开源的 generalist robot policy，核心目标是让下游研究者不必为每个新机器人和新传感器从零训练。它在 Open X-Embodiment 的 25 个数据源上训练约 80 万条轨迹，覆盖单臂、双臂、语言指令、目标图像、腕部相机和第三视角相机。
+
+模型把不同输入都转成 token：语言由 T5-base 编码，图像经过浅层 CNN 切成 patch，目标图像和本体状态也各自有对应 tokenizer。Transformer 处理统一序列后输出 readout token，再交给动作头。其 block-wise attention 允许在微调时增加或删除 observation、task 和 action head，而不必改动预训练主干，因此可以从末端位姿控制切换到关节控制，或加入新的力觉/相机输入。
+
+动作头使用 conditional diffusion 预测连续 action chunk，而不是逐维离散化。扩散头能够表达一条观测对应的多种合理动作，特别适合插入、倒咖啡等多峰行为。Octo 提供 27M 和 93M 两个模型，支持语言或 goal image 条件，并发布预训练权重、数据管线和微调脚本。
+
+作者在 9 个机器人平台上做了 zero-shot 和 few-shot 评估。预训练数据中的机器人可以直接控制；对于新观测空间、新动作空间和新任务，只需少量目标域数据、消费级 GPU 上数小时即可完成微调。消融显示，扩大数据混合、使用更灵活的 token 接口和 diffusion action head 都比窄化的单一输入/离散动作设置更稳定。
+
+Octo 的边界也很清楚：80 万轨迹虽然在当时最大，但数据质量、语言标注和机器人形态仍不均衡；新 embodiment 仍需微调，并非真正的零样本通用控制。93M 模型对复杂灵巧技能的容量有限，扩散采样也带来推理开销；长时序规划、触觉和移动机器人任务不是论文主要覆盖范围。
 </ArxivRating>
 
 ## FAST
 
-<ArxivRating id='2501.09747' tldr='' rank={0}>
+<ArxivRating id='2501.09747' tldr='FAST 用频域 DCT 与 BPE 压缩动作序列，降低自回归动作 token 的相关性并支持高频灵巧控制。' rank={0}>
 
+![](https://pic.hana0721.top/2501.09747.msp1bi0f.webp)
+FAST（Frequency-space Action Sequence Tokenization）解决的是自回归 VLA 的一个底层但关键的问题：把连续动作按“每个维度、每个时间步”简单分桶，会产生高度相关的 token。模型只要复制上一个 token 就能获得低训练损失，却学不会高频、灵巧和长动作序列。
+
+作者把动作 chunk 看成时间序列，先对每个维度做离散余弦变换（DCT），在频域中用少量系数表达整段轨迹，再量化并进行 byte-pair encoding。这样相邻 token 的相关性下降，Transformer 可以用普通 next-token prediction 学习高频动作。FAST+ 进一步在 100 万条真实机器人轨迹上训练成通用 tokenizer，覆盖单臂、双臂、移动机器人和不同控制频率。
+
+在 π0 上使用 FAST 得到 π0-FAST 后，模型可以处理此前离散分桶完全失败的高频灵巧任务，也能在 DROID 这类大规模 in-the-wild 数据上训练。论文报告，结合 FAST 的自回归 VLA 在约 1 万小时机器人数据上达到接近 diffusion VLA 的表现，同时训练时间最多减少 5 倍。频域压缩还减少了动作序列长度，改善了高控制频率下的学习稳定性。
+
+FAST 的重要性不只在于一个编码器，而是揭示了 action tokenization 会直接决定 VLA 的能力上限。它适合训练阶段统一语言和动作，但推理仍需自回归生成 token，控制频率和延迟通常不如连续 diffusion/flow expert；量化误差、DCT 窗口长度和不同机器人的动作范围也需要校准。FAST+ 的通用性主要在已有机器人轨迹分布内验证，对全新传感器、接触动力学和极高频闭环控制仍需更多实验。
 </ArxivRating>
 
 ## Magma
 
-<ArxivRating id='2502.13130' publication='CVPR2025' tldr='' rank={0}>
+<ArxivRating id='2502.13130' publication='CVPR2025' tldr='Magma 以 Set-of-Mark 和 Trace-of-Mark 统一 UI 操作、视频轨迹与机器人控制的多模态 grounding。' rank={0}>
 
+![](https://pic.hana0721.top/2502.13130.26m7at35uc.webp)
+Magma 试图把数字世界的 UI agent 和物理世界的机器人放进同一个多模态 agent。作者认为，普通 VLM 具备“verbal intelligence”，却不懂空间和时间动作；而专门的 VLA 虽然会动，微调后又常丢失通用视觉语言理解。Magma 用统一的 action grounding 任务把两者连接起来。
+
+核心是 Set-of-Mark（SoM）和 Trace-of-Mark（ToM）。在静态图像中，SoM 给可点击按钮、物体或机器人末端加编号标记，模型预测下一个应操作的 mark；在视频中，ToM 用点跟踪器提取手、机械臂或物体的未来轨迹，模型预测这些 mark 的时空变化。这样没有动作标签的 UI 截图、教学视频和机器人视频都可以转成统一的“看图—定位—行动”训练样本。
+
+Magma 使用约 3900 万条多模态样本，混合图像文本、Ego4D/Something-Something 视频、UI 数据和 Open X-Embodiment 机器人轨迹。模型从一个视觉语言骨干出发，用统一 token 预测语言答案、2D UI 操作坐标或机器人 action token；之后可以在 Mind2Web、AITW、SimplerEnv、Bridge、LIBERO 和真实 WidowX 上 zero-shot 或轻量微调。
+
+单一 Magma 模型在 UI navigation 和机器人 manipulation 上达到开源模型中的 SOTA，同时保持 GQA、TextVQA、VideoMME 等理解能力。论文强调，SoM/ToM 比直接把 7-DoF 动作塞进语言词表更容易跨域，尤其在 sim-to-real 场景中能利用视频的空间和时间先验；在 SimplerEnv 的 Google Robot/Bridge 任务上，预训练模型比只用机器人数据的版本明显更稳。
+
+局限包括：SoM/ToM 依赖点跟踪、检测和自动标注质量，遮挡、快速运动和镜头运动会产生噪声；机器人动作在训练中仍被离散化或转成文本 token，精细连续控制能力不如专门 diffusion/flow policy。39M 样本来源异构，统一标记并不等于统一物理动力学；真实实验主要是 WidowX 和桌面操作，移动、双臂和高频灵巧控制还需要专门适配。
 </ArxivRating>
 
 ## ChatVLA
 
-<ArxivRating id='2502.14420' publication='EMNLP2025' tldr='' rank={0}>
+<ArxivRating id='2502.14420' publication='EMNLP2025' tldr='ChatVLA 通过分阶段对齐和 MLP 专家混合，缓解 VLA 训练中的视觉语言遗忘与控制—理解任务干扰。' rank={0}>
 
+![](https://pic.hana0721.top/2502.14420.4xv9ivp9yu.webp)
+ChatVLA 研究如何让一个模型同时“聊天、理解图像、控制机器人”。作者先系统分析三种训练方式：只用机器人轨迹会让模型几乎失去问答能力；直接混入 image-text 数据又会损害控制；在机器人数据中加入固定 reasoning 文本虽然有所帮助，但仍不能解决任务干扰。论文将前一种现象称为 spurious forgetting，后一种称为 partial task interference。
+
+方法包含两个关键点。第一是 Phased Alignment Training：先用机器人数据把模型训练成可靠的控制器，同时保留少量 reasoning 监督；然后再逐步加入视觉问答、caption、OCR 和 multimodal understanding 数据，重新激活原有视觉—语言对齐。第二是 MLP 层上的 Mixture-of-Experts：控制和理解共享 self-attention，以交换空间和语义特征，但分别使用 task-specific MLP，减少参数竞争；action head 与 LLM head 也分开。
+
+实验覆盖 TextVQA、DocVQA、MMMU、MME、MMStar 等理解基准，以及厨房、浴室、桌面 25 个真实机器人任务。ChatVLA 在 MMMU 上约为 6 倍于 ECoT，在 MMStar 得到 47.2%，且视觉语言骨干参数更少；真实 25 任务总成功次数为 55/107，高于 OpenVLA 的 20/107 和 Octo 的 18/107。论文还通过数据设置消融验证：reasoning 数据可以部分恢复对话能力，并改善控制泛化，而直接 co-training 若无阶段策略会明显降低动作成功率。
+
+这项工作说明 VLA 的“遗忘”不一定是预训练知识完全消失，可能是机器人动作目标改变了内部表示的对齐方式。局限是理解和控制仍依赖手工设定的阶段比例及 MoE 路由，25 个真实任务规模有限；对长时序、多机器人和连续动作分布的验证不足。模型同时维护多个专家会增加参数与训练复杂度，如何在不牺牲控制频率的情况下扩展更大视觉语言骨干仍是问题。
 </ArxivRating>
 
 ## ChatVLA-2
 
-<ArxivRating id='2505.21906' tldr='' rank={0}>
+<ArxivRating id='2505.21906' tldr='ChatVLA-2 用动态 MoE 与 reasoning-following 模块保留 VLM 开放世界知识，并将数学、OCR 和空间推理转化为机器人动作。' rank={0}>
 
+![](https://pic.hana0721.top/2505.21906.4ubnl5w7bm.webp)
+ChatVLA-2 在 ChatVLA 的基础上进一步追问：如果 VLA 真的保留了预训练 VLM 的知识，能否在训练时从未见过的数学题、OCR 字体、物体和空间关系上直接控制机器人？作者将目标定义为两种能力：open-world embodied reasoning（继承 VLM 的识别、数学和空间知识）以及 reasoning following（把语言推理可靠地转成动作）。
+
+模型以 Qwen2-VL/DexVLA 为基础，在 VLM 的 MLP 层引入 Dynamic Mixture-of-Experts，共 8 个专家、推理时动态选择 2 个。部分专家学习多模态理解，部分专家学习机器人控制，也允许共享空间关系等有益特征；动态路由保留原始 Qwen2-VL 结构，避免静态拆分破坏预训练知识。另一个 reasoning-following module 用 reasoning token 替换后半段 action expert 的 observation embedding，使动作生成明确受当前推理条件化。
+
+训练分两阶段。Stage 1 以 COCO、TextVQA、GQA 和机器人数据 co-training，建立图像文本知识到动作的连接；Stage 2 冻结整个 VLM，只训练 action expert，让它学习遵循任意新推理而不再破坏语言知识。作者只用 600 条 math-matching 和 300 条 toy-placement 轨迹，并给机器人数据加入 reasoning 文本。
+
+真实实验的 math matching game 要求双臂机器人读取白板算式、找到对应数字卡并按顺序抓取。开放世界设置中的算式和手写字体都未出现在训练数据里，ChatVLA-2 达到 OCR 3.58/4、数学推理 1.73/2、43/52 次任务成功（82.7%），而其他基线几乎为零。Toy placement 的开放世界设置中，模型物体识别 0.94、空间 affordance 0.88、127/156 次成功（81.4%），明显高于 DexVLA、ChatVLA 和 π0。
+
+局限是实验集中在两个精心设计的桌面任务，尚未证明对任意开放世界长时序任务都有效；动态 MoE 增加推理计算，且第二阶段冻结 VLM 后动作专家仍可能无法覆盖复杂接触技能。模型是否真正“遵循”内部推理，而不是利用任务相关捷径，也需要更多因果干预和更大规模盲测。
 </ArxivRating>
 
 ## RoboBrain
 
-<ArxivRating id='2502.21257' publication='CVPR2025' tldr='' rank={0}>
+<ArxivRating id='2502.21257' publication='CVPR2025' tldr='RoboBrain 构建 ShareRobot 数据并统一训练长时规划、物体 affordance 感知和末端轨迹预测。' rank={0}>
 
+![](https://pic.hana0721.top/2502.21257.7i13vip8pz.webp)
+RoboBrain 把机器人“大脑”拆成三个从抽象到具体的能力：long-horizon planning、object affordance perception 和 end-effector trajectory prediction。现有 MLLM 往往能描述场景，却不会把“把杯子放到盘子上”拆成可执行子任务，也不能在每个子任务中指出接触区域和轨迹。
+
+作者构建 ShareRobot，从 Open X-Embodiment 的 23 个源数据集中筛选 51,403 条高质量实例，过滤低分辨率、失败、描述模糊和短视频。三位标注者为数据添加任务分解、当前/未来子任务、成功/失败、affordance box 和 gripper trajectory。最终得到约 1,027,990 个 planning QA，另有 6,522 张 affordance 图和 6,870 张 trajectory 图，覆盖 102 个场景、12 种 embodiment 和 100 多种原子动作。
+
+RoboBrain 基于 LLaVA，使用多阶段训练：先用 LCS/OneVision 图文数据获得通用理解，再加入高分辨率图像和长视频，最后用 A-LoRA 专门训练 affordance、用 T-LoRA 专门训练 trajectory。输入可以是单帧、多帧或长视频，输出既可以是自然语言计划，也可以是标准化的框坐标、轨迹 waypoint 和成功判断。
+
+在 RoboVQA、OpenEQA、affordance 和 trajectory benchmark 上，RoboBrain 达到或接近 SOTA。它能回答“下一步做什么”“当前动作是否可执行”“未来会发生什么”等问题，并把同一套数据用于规划和视觉 grounding。这里的贡献更偏向数据和统一训练 recipe，而不是一个直接控制关节的 VLA。
+
+局限是大量 planning QA 由 Gemini 生成后再人工抽检，标注质量与模型偏差可能互相传递；affordance 仍用 2D 框、trajectory 仍用 2D 点，深度遮挡和真实运动学需要额外模块。RoboBrain 本身不直接输出连续动作，落地时还要接 action policy 或规划器；长视频记忆、跨 embodiment 控制和在线失败恢复尚未充分验证。
 </ArxivRating>
 
 ## CoT-VLA
 
-<ArxivRating id='2503.22020' publication='CVPR2025' tldr='' rank={0}>
+<ArxivRating id='2503.22020' publication='CVPR2025' tldr='CoT-VLA 先预测未来子目标图像，再据此生成动作 chunk，把视觉链式思考作为可执行中间计划。' rank={0}>
 
+![](https://pic.hana0721.top/2503.22020.5c1p9qxl1e.webp)
+CoT-VLA 将语言模型里的 Chain-of-Thought 改成视觉形式：机器人不直接从当前图像跳到动作，而是先预测一个未来 subgoal image，再根据这个图像生成一小段动作。未来图像天然存在于机器人示范中，因此相比人工写文字计划，额外标注成本较低；无动作的人类视频也可以参与训练视觉推理部分。
+
+模型建立在 VILA-U 7B 上，输入语言、当前观测和历史帧。第一阶段自回归生成若干 visual tokens，表示未来 (n) 帧的子目标；第二阶段同时读取当前观测和子目标图像，使用 full attention 一次预测 action chunk。训练时对视觉/文本 token 使用 causal attention，对 action token 使用 hybrid/full attention，避免把动作维度按语言 token 串行生成。
+
+预训练混合 Open X-Embodiment 机器人示范与 EPIC-KITCHENS、Something-Something 等 action-less 视频。视觉目标预测只需视频帧，动作生成仍使用带动作的机器人数据；部署时每执行一个短 chunk 就重新拍摄观测，形成闭环。这样中间图像不仅是可视化解释，也是动作条件。
+
+在 LIBERO 四个 suite 上，CoT-VLA-7B 达到 Spatial 81.13%、Object 87.5%、Goal 91.6%、Long 87.6%，平均表现优于或接近基线；Bridge-V2 的 motion/semantic/action 等泛化类别也优于 OpenVLA。Franka tabletop 六个任务上，模型平均成功率最高；使用真实示范中的 ground-truth goal image 会再提升约 40 个百分点，说明视觉推理质量是主要瓶颈。
+
+主要限制是生成中间图像需要逐 token 解码，论文报告推理速度约慢 7 倍；图像预测可能出现幻觉或模糊，最终动作仍会被错误目标带偏。动作 chunk 降低了反馈频率，难以处理快速接触和突发失败；当前视觉预训练数据规模也受算力限制，尚未覆盖更复杂的灵巧手与长时间操作。
 </ArxivRating>
 
 ## Interleave-VLA
 
-<ArxivRating id='2505.02152' tldr='' rank={0}>
+<ArxivRating id='2505.02152' tldr='Interleave-VLA 将文本与参考图像交错输入 VLA，改善未见物体和场景中的视觉指令 grounding。' rank={0}>
 
+![](https://pic.hana0721.top/2505.02152.4n8fpqa23j.webp)
+Interleave-VLA 认为，机器人只接受文字指令是泛化瓶颈。诸如“拿和这张图一样的物体”“把这个放到那个旁边”很难用文字唯一描述，而 cropped image、网页照片或手绘草图可以直接提供 in-context visual grounding。论文因此把 VLM 常用的交错图文输入扩展到连续低层机器人控制。
+
+方法尽量保持模型无关：在原有 π0/OpenVLA 的 tokenizer 中加入 `<BOI>/<EOI>` 等分隔 token，允许任意 text-image-text 序列进入 VLA，核心 action expert、flow matching 目标和超参数不变。训练时使用自动构建的 Open Interleaved X-Embodiment Dataset：解析原文字指令，用开放词汇检测器定位目标物体，再从机器人帧裁出对象图或插入互联网图片，生成诸如“把 [图像] 放进 [图像]”的交错指令。
+
+数据集整合 11 个 OXE 数据源，约 210K episodes、13M 帧、3500 多个物体，并混合真实相机 crop、网页照片、简单图形和手绘 sketch。论文还分析了 Text-VLA 的三种 attentional hallucination：语言歧义引起的 attention bias、注意力扩散以及目标与场景之间的 attention leakage；交错图像提供更直接的视觉锚点，可降低这些错误。
+
+在 SimplerEnv 中，熟悉任务上 Interleave-VLA 与 Text-VLA 基本持平；未见物体和场景上，完整 Interleave-VLA 平均成功率约 60.7%，而 Text-VLA 约 30.5%，接近 2 倍。真实机器人实验中，使用交错数据预训练后，目标物体正确拾取率和任务成功率通常提高 2–3 倍。模型还可以零样本理解训练中没有出现的网页图片和手绘草图，并可较小改动迁移到 OpenVLA。
+
+局限是自动生成的 crop/检测标签可能把背景、遮挡或相似物体裁错；训练数据依赖 OXE 的文字说明和有限 embodiment，不能覆盖任意多图关系。交错输入增加视觉 token 数量，长指令会提高显存和推理延迟；目前评测主要是桌面抓取，视频指令、触觉和长时序交互仍待验证。
 </ArxivRating>
 
 ## Knowledge Insulating Vision-Language-Action Models
 
-<ArxivRating id='2505.23705' tldr='' rank={0}>
+<ArxivRating id='2505.23705' tldr='Knowledge Insulating VLA 让离散 FAST token 与连续 action expert 分工，并用 stop-gradient 防止动作训练污染预训练 VLM 知识。' rank={0}>
 
+![](https://pic.hana0721.top/2505.23705.5trqybyyrb.webp)
+Knowledge Insulating VLA 研究一个常被忽略的训练动力学问题：给预训练 VLM 接上随机初始化的 diffusion/flow action expert 后，动作专家的梯度会反向污染 VLM backbone，导致训练变慢、语言跟随变差，并削弱 web-scale 视觉语言知识迁移。作者提出“知识绝缘”而不是简单冻结 backbone。
+
+核心做法是同时保留两种动作表示。VLM backbone 用 FAST 离散动作 token 和通用 VLM 数据做 next-token prediction，获得稳定的表征学习信号；小型 action expert 用连续 action chunk 做 flow matching，负责高频、精确控制。通过在 action expert 与 backbone 的 cross-attention 边界 stop-gradient，连续动作损失不会更新预训练 VLM，但 backbone 仍会被离散动作和图文任务适配。
+
+论文在 π0 架构上比较多种 recipe：纯 continuous action 的 π0、纯 FAST 的 π0-FAST、冻结 backbone、joint training、VLM co-training 和 knowledge insulation。实验覆盖 LIBERO、DROID、移动双臂机器人及多种长时序桌面任务。结果显示，绝缘模型训练更快、语言指令跟随更好，同时保持 flow expert 的连续控制优势；在 LIBERO 上从 generalist model 初始化的模型达到 Spatial 98.0、Object 97.8、Goal 95.6、Long 85.8、LIBERO-90 96.0，整体优于仅离散或无 stop-gradient 配置。
+
+作者还证明，VLM 图文数据不是“可有可无”的正则项：在未见物体的移动操作中，co-training 明显提高 OOD follow rate；而仅冻结 backbone 会因为没有机器人适配梯度而限制控制能力。离散 token 在训练阶段、连续 expert 在推理阶段的组合，正好把“容易训练”和“快速执行”分开。
+
+局限是同时预测离散和连续动作使训练计算量增加约 20%，架构和 mask 设计较复杂；语言跟随仍会受到数据中的动作—指令相关性影响，并非完全解决。stop-gradient 主要在 π0/flow expert 上验证，其他 VLA、灵巧手和更大 VLM 是否同样受益还需要测试；训练时仍需准备 FAST token 和通用 VLM 数据，工程门槛并没有完全消失。
 </ArxivRating>
 
 ## Hi Robot
 
-<ArxivRating id='2502.19417' publication='ICML2025' tldr='' rank={0}>
+<ArxivRating id='2502.19417' publication='ICML2025' tldr='Hi Robot 采用高层 VLM 原子化复杂指令、低层 VLA 高频执行的层次系统，支持开放式约束与中途交互。' rank={0}>
 
+![](https://pic.hana0721.top/2502.19417.26m7at36c0.webp)
+Hi Robot 针对的是开放环境里的“非原子”指令：用户不会总是说“拿起杯子”，而是会说“做一个不放番茄的素食三明治”“只收走垃圾，不要动餐盘”，并在执行过程中追加纠正和限制。单一 flat VLA 往往只能复读训练过的短指令，遇到组合任务或中途反馈就失去上下文。
+
+系统采用类似 System 2/System 1 的层次结构。高层 VLM 接收场景图像、用户长指令和实时反馈，输出下一步原子语言命令，也可以生成澄清或确认文本；低层 VLA 接收这些简单命令和当前观测，用 flow-matching action expert 连续输出动作 chunk。高层每隔约一秒或收到新用户交互时重新推理，低层则以较高频率执行，从而兼顾语义灵活性和控制反应速度。
+
+高层模型的训练数据不只来自人工标注。作者先用 VLM 读取机器人轨迹和原子命令，再反向合成“可能导致该动作的复杂用户提示、约束和中途纠正”，构成 open-ended synthetic interaction 数据；同时保留人工标注的原子行为。这样模型能学习“只拿黄色物体”“不要碰泡菜”“这不是垃圾，放回去”等组合语言，并把它们映射到低层可执行动作。
+
+实验覆盖单臂、双臂和移动双臂平台，任务包括清理杂乱桌面、制作三明治、买杂货。Hi Robot 在 instruction accuracy 和 task progress 上平均比 GPT-4o 高约 40%，也优于 flat VLA；用户在任务中说“留下其余的”“再拿一包 KitKat”时，系统能即时更新后续动作。去掉合成交互数据后，模型容易忽略澄清和约束；去掉层次分解则会退回清空所有物品等默认策略。
+
+局限是高层合成数据依赖 prompt engineering，生成的复杂指令不一定覆盖真实用户分布；高层和低层模型彼此并不知道对方能力，低层失败不会自动反馈给高层。固定低频调用高层仍有延迟，未来需要异步、自适应多层推理，以及把两个模型在训练或推理阶段更紧密地耦合。
 </ArxivRating>
 
 ## Scenethesis
 
-<ArxivRating id='2505.02836' tldr='' rank={0}>
+<ArxivRating id='2505.02836' tldr='Scenethesis 通过 LLM、视觉模型与 SDF 物理约束，在无需训练的情况下生成可编辑且空间一致的交互式 3D 场景。' rank={0}>
 
+![](https://pic.hana0721.top/2505.02836.102w27e9td.webp)
+Scenethesis 是一个 training-free 的文本到交互式 3D 场景生成框架，面向仿真、游戏、VR 和 Embodied AI。单独使用 LLM 规划场景时，模型知道“沙发和茶几应该共存”，却常把椅子朝向柜子、把小物体悬在空中或让物体互相穿插；而传统学习方法受限于小规模室内数据集，难以生成户外和非住宅场景。
+
+框架由四个 agentic 模块组成。第一步，LLM 根据文本和 Objaverse 资产库选择物体，确定 anchor object，并生成粗粒度层次布局。第二步，视觉模块调用图像生成器、Grounded-SAM 和 DepthPro，把粗布局细化为带对象分割、深度和关系的 scene graph。第三步，物理感知优化模块通过 RoMa 语义对应匹配，把 3D 资产投影到视觉引导图；再用 signed distance field（SDF）约束碰撞、尺度、落地和稳定性，迭代调整每个物体的 5DoF 位姿。最后由 VLM judge 检查整体空间一致性，必要时触发重新规划。
+
+和只检测 3D bounding box 的方法不同，Scenethesis 用 mesh-level SDF 处理小物体穿插，并区分 object collision、scene collision、instability、可达性和 walkable area。它不需要额外训练 3D layout 模型，因此可以从语言先验扩展到 beach、warehouse、hospital、museum 等室外或非住宅场景。
+
+在 22 个室内场景、6 个主类别和 12 个子类别上，Scenethesis 的 CLIP/BLIP/VQA 对齐、物体多样性、布局一致性和空间真实感整体优于 DiffuScene、PhyScene、SceneTeller 与 Holodeck。人类偏好评测也显示，在 shopping、tourism、sports 等训练数据稀少的类别中优势更明显；生成的可编辑对象和环境图可直接用于交互式仿真。
+
+局限是整个 pipeline 依赖多个外部模型（LLM、图像生成、分割、深度、对应匹配），推理成本和错误累积较高；图像引导是部分视角，遮挡和深度估计错误仍会导致几何错位。物理约束主要针对地面物体布局，软体、液体、复杂动力学和可操作性尚未建模；生成场景的“看起来合理”也不等同于真实机器人能稳定完成任务。
 </ArxivRating>
 
 ## LBM
 
-<ArxivRating id='2507.05331' tldr='' rank={0}>
+<ArxivRating id='2507.05331' tldr='LBM 以严格盲测和统计评估检验多任务预训练价值，发现其可显著降低下游机器人策略所需示范量。' rank={0}>
 
+![](https://pic.hana0721.top/2507.05331.491zyv1rio.webp)
+LBM（Large Behavior Model）论文的重点不是再提出一个更大的 VLA，而是严谨地检查“大规模多任务预训练到底有没有用”。作者指出，许多 LBM 论文的真实世界样本很少、初始条件不一致、没有盲测和统计检验，很难区分预训练收益与实验偶然性。因此本文固定 Diffusion Policy 范式，系统比较多任务预训练后微调和单任务从零训练。
+
+模型输入两步观测历史、最多六路 RGB、双臂末端位姿/相对位姿/夹爪状态和语言；CLIP ViT-B/16 提取视觉语言特征，8 层 768 维 DiT 预测 16 步、每步 20 维动作。部署频率为 10 Hz，每次执行前 8 步后重新规划。训练流程是先混合全部数据预训练，再按任务微调；评测随机化策略顺序和初始条件，并同时报告成功率（SR）与按里程碑计算的 task completion（TC）。
+
+数据总称 Ramen，约 1695 小时：TRI-Ramen 545 小时（真实 468 小时、仿真 45 小时、UMI 32 小时）加约 1150 小时 OXE-Ramen。平台是 9 个站点的双 Franka FR3。仿真覆盖 16 个 seen 和 8 个 unseen 任务，每个策略/条件通常约 200 次 rollout；真实评测包含 3 个 seen 与 5 个 unseen 任务，每个条件 50 次，总计约 47,000 次仿真和 1,800 次真实试验。作者使用 Bayesian posterior、Bonferroni/CLD 和顺序检验来报告不确定性。
+
+主要结论是：在相同微调数据量下，预训练 LBM specialist 通常优于从零训练的 single-task policy；达到后者相近性能时，LBM 只需要约 1/3–1/5 的任务示范。优势在外观、站点和物体分布偏移下更明显，且随着预训练数据量和任务多样性平滑增长。完全不微调的 LBM zero-shot 表现却不稳定，说明“预训练规模大”并不自动等于可执行策略。
+
+这篇论文的局限也很有警示意义：训练随机性没有纳入完整统计模型，真实每条件 50 次 rollout 仍会受到初始场景和人工评分误差影响；评测后还发现部分预训练 batch 使用了错误的 data normalization，主实验没有重跑昂贵的真实试验。小型 CLIP 文本编码器使语言 steerability 偏弱，低运动帧过滤对 LBM 与单任务模型的影响方向也不一致；结论主要针对双臂桌面 DiT，不能直接外推到更大 VLA 或其他 embodiment。
 </ArxivRating>
 
 ## UniVLA
 
-<ArxivRating id='2506.19850' tldr='' rank={0}>
+<ArxivRating id='2506.19850' tldr='UniVLA 将视觉、语言和动作离散到共享 token 空间，通过视频世界模型预训练提升统一 VLA 的长时序控制。' rank={0}>
 
+![](https://pic.hana0721.top/2506.19850.51evglidbs.webp)
+这篇 UniVLA 与前面的 task-centric latent action 论文不同，它把问题推进到“视觉、语言和动作是否可以原生共享一个 token 空间”。作者认为多数 VLA 是语言中心的 late fusion：静态图像经过额外视觉编码器后才接入动作头，难以学习视频里的时间和因果结构，也难以让动作反过来影响视觉预测。
+
+模型采用约 8.5B 参数、类似 Emu3 的纯自回归 Transformer，不额外依赖独立 ViT 或 action head。语言使用文本 token，图像经 VQ tokenizer 离散化，连续动作经 FAST/DCT 压缩后离散化；三者共享词表并按时间交错排列。训练第一阶段是 world-model post-training：给定文本和视频帧，只对视觉 token 计算 loss，学习指令条件下的未来状态。第二阶段是 policy fine-tuning：序列变成 $(T, I_1, A_1, \ldots)$，只对 action token 计算 loss。
+
+作者汇总约 622K 个机器人视频，来源包括 RT-1、BridgeV2、DROID、Kuka、TOTO、Taco Play、FMB、CALVIN、LIBERO、ManiSkill2、SSV2 等。模型在 CALVIN 34 个任务、LIBERO 四个 suite、SimplerEnv WidowX/Google Robot 上测试，并做了视觉未来预测、空间 grounding、ALOHA 真实操控和 NAVSIM 驾驶的初步迁移。
+
+CALVIN ABC→D/ABCD→D 平均完成长度为 4.41/4.63；LIBERO Spatial/Object/Goal/Long 为 95.4/98.8/93.6/94.0%，平均约 95.5%；SimplerEnv-Bridge-WidowX 平均约 69.8%。world-model post-training 比 action-only 明显有效，LIBERO、SimplerEnv 和 CALVIN 长时序指标都大幅提升，甚至只用 10% 下游微调数据也能保持约 3.19 的 CALVIN 平均长度。
+
+限制是 8.5B 纯自回归模型训练和推理成本很高，主结果仍以仿真为主；真实 ALOHA 与 NAVSIM 只属于初步迁移。作者明确表示受计算资源限制，post-training 的规模规律还没有充分研究，统一 token 框架与 RL 的结合也留待未来。
 </ArxivRating>
 
 ## SmolVLA
 
-<ArxivRating id='2506.01844' tldr='' rank={0}>
+<ArxivRating id='2506.01844' tldr='SmolVLA 以约 450M 参数的轻量 flow-matching VLA 和异步推理，在低成本硬件上实现高效机器人操作。' rank={0}>
 
+![](https://pic.hana0721.top/2506.01844.6il0icmi4v.webp)
+SmolVLA 追求的是“足够强但真的能买得起”的 VLA。现有模型往往数十亿参数，需要大型数据中心训练和高端 GPU 推理；社区里的低成本 SO-100/SO-101 机器人虽然可以采集数据，却很少被纳入公开基础模型。论文目标是单 GPU 训练、消费级 GPU/CPU 部署，并通过异步执行降低动作等待时间。
+
+模型基于 SmolVLM-2，只取视觉语言骨干前半部分（主模型前 16 层），图像只使用全局视图和 pixel shuffle，每帧压缩到 64 个 visual token；机器人状态投影成 token。约 450M 参数（action expert 约 100M）的 flow-matching expert 生成 50 步 action chunk，使用交错 cross-attention 与 causal self-attention，让动作块既能读取视觉语言条件又保持时间一致性。
+
+训练数据从 Hugging Face 的 481 个社区数据集筛选，约 22.9K episodes、10.6M 帧，主要是 SO-100 的多任务轨迹；Qwen2.5-VL-3B 自动重写噪声指令，并人工统一 top/wrist/side 相机顺序。评测覆盖 LIBERO、Meta-World、SO-100 真实 pick-place/stack/sort 和未见过 embodiment 的 SO-101 Lego pick-place。RobotClient/PolicyServer 把动作执行和新 chunk 推理放到异步队列，还能将策略放在远程 GPU。
+
+450M 模型在 LIBERO 平均 87.3%（Spatial 90、Object 96、Goal 92、Long 71），Meta-World 平均 57.3%；SO-100 多任务平均约 78.3%，高于 π0 的 61.7%，SO-101 Lego pick-place 达到 90%。异步模式成功率与同步模式相近，但平均完成时间从 13.75 s 降至 9.70 s，固定时间内完成次数约翻倍。
+
+局限是预训练几乎只有 SO-100 embodiment，数据规模远小于百万级 VLA；小模型容量、SmolVLM-2 主要面向 OCR/文档预训练、尚未联合通用多模态数据，都会限制开放世界能力。当前任务较短且主要依赖 imitation learning，长时序、复杂接触、RL 和更广泛跨 embodiment 泛化尚未解决。
 </ArxivRating>
 
 ## ThinkAct
 
-<ArxivRating id='2507.16815' tldr='' rank={0}>
+<ArxivRating id='2507.16815' tldr='ThinkAct 用 Qwen2.5-VL 生成带二维轨迹的视觉计划 latent，并以动作对齐奖励强化高层推理、驱动低层扩散策略。' rank={0}>
 
+![](https://pic.hana0721.top/2507.16815.4cllwkuugb.webp)
+ThinkAct 是一个“慢思考、快执行”的双系统 VLA。端到端 VLA 直接从图像和语言回归动作，往往缺少长时序计划，也没有明确的失败反思；已有 CoT 方法依赖昂贵的人工/模型推理轨迹，普通 QA 奖励又不能保证推理和动作对齐。ThinkAct 用 action-aligned visual reward 训练高层推理，再把推理压缩成 visual plan latent 交给低层动作模型。
+
+Reasoning MLLM 使用 Qwen2.5-VL 7B，根据当前观测和指令生成文本计划及长度为 8 的二维夹爪轨迹；Q-Former latent projector 将其压缩为高层空间—时间意图。低层是约 432M 参数的 DiT diffusion policy，接收 latent、状态和图像后生成连续动作 chunk。训练时冻结 MLLM，只在目标环境更新 action model、state encoder 和 projector；推理时两者可以异步运行。
+
+RL 阶段采用 GRPO，不用单一任务成功率，而是把视觉反馈做成两个奖励：goal reward 比较预测轨迹的起终点与目标，trajectory reward 用 DTW 对齐整条轨迹，再加 format reward。SFT/RL 数据混合 OXE、Something-Something V2、RoboVQA、EgoPlan、RoboFail 和 LLaVA-Video，覆盖机器人轨迹、失败恢复和具身问答。
+
+在 SimplerEnv 的 Google/Bridge 设置中，整体成功率分别为 71.5%、65.1% 和 43.8%；LIBERO 平均 84.4%，Long 70.9%。EgoPlan-Bench2、RoboVQA 和 OpenEQA 上分别达到约 48.2、59.8 BLEU 和 56.2 的整体分数。短视频上下文还能让模型识别“中途掉落”并重新规划抓取，展示自我纠错和少样本适应能力。
+
+局限是 ThinkAct 继承基础 MLLM 的视觉/空间幻觉，错误计划会直接影响动作；轨迹检测、关键点提取和离线 latent 缓存增加工程依赖，强遮挡或新相机下可能失效。训练需要多张高端 GPU，推理仍需同时运行大 MLLM 与动作模型；在安全关键场景中，错误 CoT、模糊指令和过度信任模型反思都可能产生风险。
 </ArxivRating>
 
 ## VIDAR
 
-<ArxivRating id='2507.12898' tldr='' rank={0}>
+<ArxivRating id='2507.12898' tldr='Vidar 将跨 embodiment 视频扩散先验与 masked inverse dynamics 结合，用少量目标机器人示范生成可执行动作。' rank={0}>
 
+![](https://pic.hana0721.top/2507.12898.58i3c14iz9.webp)
+Vidar 将机器人策略拆成“视频先验 + 逆动力学适配器”，目标是让一个视频模型迁移到多个 embodiment。传统 pixel-to-action VLA 需要大量目标机器人示范，且容易受相机视角、背景和遮挡影响；而视频包含动作连续性、接触和场景动力学，可以先在更丰富的数据上学习，再用很少的示范对齐动作空间。
+
+形式上 $\pi = I \circ G$：$G$ 是条件 rectified-flow 视频扩散模型，输入机器人类型、相机布局、任务语言、多视角观测，预测未来可执行视频；$I$ 是 Masked Inverse Dynamics Model（MIDM），把短视频窗口转成目标机器人的动作。作者把约 750K 跨平台多视角机器人片段投影到 unified observation space，预训练阶段不输入动作，只学习不同 embodiment 下的世界演化；目标平台再用少量视频微调。
+
+MIDM 由 U-Net mask predictor 和 ResNet action regressor 组成，通过动作回归误差和 mask 稀疏正则学习关注手、工具和接触区域，不需要像素级 segmentation 标签。扩散视频采样具有随机性，作者还使用 test-time scaling：并行生成多个候选视频，用 CLIP/VLM（真实实验为 GPT-4o）按任务相关性和物理合理性排序后再解码动作。
+
+仿真 RoboTwin 50 任务中，low-data clean/randomized 的成功率为 60.0/15.7%，standard clean/randomized 为 65.8/17.5%，优于 π0.5。真实未见平台只收集 20 分钟、232 个 episode（约每任务 3 条示范），seen task、unseen task、unseen background 分别达到 68.2%、66.7%、55.6%；MIDM 的测试准确率 49.0%，明显高于普通 ResNet 的 24.3%。去掉 TTS 或 MIDM 都会显著下降。
+
+局限是当前真实控制为 open-loop：一次生成 60 帧视频后不再闭环重生成；8 张 80GB GPU 生成 7.5 秒视频约需 25 秒，GPT-4o 候选排序还增加云端延迟和成本。MIDM 仍需要目标 embodiment 的少量动作示范，实验主体集中在 ALOHA 双臂和桌面场景，灵巧手、移动机器人、触觉和高频闭环控制尚未覆盖。
 </ArxivRating>
 
 ## DreamVLA
 
-<ArxivRating id='2507.04447' tldr='' rank={0}>
+<ArxivRating id='2507.04447' tldr='DreamVLA 不生成完整未来图像，而是预测动态、深度和语义 world knowledge，再由动作解码器完成操作。' rank={0}>
 
+![](https://pic.hana0721.top/2507.04447.32ioq9cval.webp)
+DreamVLA 认为，直接从当前图像和语言预测动作缺少“未来世界知识”。已有方法生成整张未来图像或视频，包含大量静态背景冗余，也没有显式的深度、物体语义和 affordance。DreamVLA 不重建完整未来帧，而是预测与动作最相关的 dynamic、spatial、semantic 表征，形成 perception–prediction–action 闭环。
+
+输入由文本、RGB 观测和 proprioception 编码；GPT-2 风格多模态 Transformer 通过 `<dream>` queries 产生 world embedding，分别预测未来动态区域、单目深度以及 DINOv2/SAM 高层语义特征，另用 `<action>` query 提取动作 latent。动态区域由 CoTracker/光流产生二值监督，深度和语义提供空间与物体身份先验。Block-wise structured attention 禁止 dynamic、depth、semantic query 互相读取，避免跨模态信息泄漏；独立 DiT action decoder 根据共享 latent 生成连续动作。
+
+训练时使用 CALVIN language-free split、DROID 和 LIBERO-90，再对目标 benchmark 微调 world-knowledge heads。推理时跳过辅助预测头，直接使用 world embedding，因此不会像外接视频生成器那样引入很高延迟。作者在 CALVIN、LIBERO 以及 Franka Panda 真实 pick/place、drawer open/close 上评测。
+
+CALVIN ABC-D 平均连续完成长度为 4.44；LIBERO Spatial/Object/Goal/Long 为 97.5/94.0/89.5/89.5%，平均 92.6%。Franka 三类任务总体成功率 76.7%（pick 82.5%、place 80.0%、drawer 67.5%）。消融显示 dynamic region 是最大收益来源，depth 和 semantic 单独使用可能反而损害性能；结构化 attention 将 CALVIN 平均长度从 causal 的 3.75 提升到 4.44。
+
+作者明确指出当前范围仍偏窄：主要是 parallel-gripper、RGB-centric 数据，场景几何和材质多样性有限。未来要加入灵巧手接触标注、点云/触觉和 volumetric world state，并通过更大数据和 on-policy fine-tuning 提升长时序鲁棒性。预测动态区域依赖光流/跟踪质量，遮挡或快速运动时也可能给 world embedding 带来错误监督。
 </ArxivRating>

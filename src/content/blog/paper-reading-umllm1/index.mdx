@@ -21,150 +21,300 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 ## SEED
 
-<ArxivRating id='2307.08041' tldr='' rank={0}>
+<ArxivRating id='2307.08041' tldr='用带语义约束的因果离散图像 tokenizer，把图像压成类似词语的视觉 token，使现成 LLM 通过 LoRA 同时理解图像和生成图像。' rank={0}>
 
+![](https://pic.hana0721.top/seed-01.60uyts4nmr.webp)
+SEED 针对早期统一模型的两难：VQ 图像 token 往往偏像素、难以和语言 token 对齐，而只把视觉特征当作文本提示又不能让模型真正生成视觉内容。作者提出因果式图像 tokenizer，让视觉 token 摆脱二维 patch 位置的硬编码，按一维因果依赖产生；tokenizer 同时使用图像重建和语义判别目标，使每个 token 的抽象程度更接近词语。
+
+训练时先在约 500 万公开图文对上学习 tokenizer，再把它接入现成 LLM，以 LoRA 做轻量对齐。视觉 token 和文本 token 共用自回归接口，因此可以做图像描述、视觉问答，也可以从文本预测视觉 token 后还原图像。论文的结果是一个很早期但完整的“看与画”原型，证明离散视觉语言有机会复用 LLM 的 next-token recipe；不过作者没有进行大规模多模态预训练或指令微调。
+
+局限是 tokenizer 的码本和固定视觉压缩仍会损失细节，重建质量与专用扩散模型存在差距；LoRA 对齐只验证了小规模可行性，复杂交错文档、长视频和高分辨率场景没有覆盖。建议代表 Figure：论文展示因果视觉 token 生成、LLM 对齐与图像解码的整体架构图。
 </ArxivRating>
 
 ## LaVIT
 
-<ArxivRating id='2309.04669' publication='ICLR2024' tldr='' rank={0}>
+<ArxivRating id='2309.04669' publication='ICLR2024' tldr='用动态长度的语义离散视觉 tokenizer 将图像当作一种“外语”，让 LLM 在统一自回归目标下同时处理图像和文本。' rank={0}>
 
+![](https://pic.hana0721.top/lavit-01.26m7atmpra.webp)
+LaVIT 认为把图像永远压成固定数量、低层次的 token，会浪费上下文并阻碍视觉信息与语言推理对齐；传统 VLM 又常冻结 LLM，只优化“看图后写字”。它因此设计动态离散视觉 tokenizer：先由视觉编码器提取 patch，再用 token selector 选择信息量高的 patch，并由 token merger 把被丢弃 patch 的信息合并到保留 token 中。输出 token 具有词语级语义，长度随图像内容变化。
+
+LaVIT 将视觉 token 与文本 token 拼成同一序列，用 LLaMA 类 decoder-only Transformer 做 next-token 预训练，并在同一个接口中支持图像理解和文本到图像生成。实验覆盖 NoCaps、Flickr、VQAv2、OKVQA、GQA、VizWiz 等 caption/VQA 任务，也评测图像生成和跨模态组合；在论文所用零样本设置中，7B 模型整体优于当时多种冻结式 VLM，说明动态压缩与统一目标确实有效。
+
+局限是 selector/merger 的决策会带来信息丢失和额外训练不稳定性，离散码本仍受重建质量、序列长度与分辨率制约；论文的预训练数据和算力规模也让完全复现实验有门槛。建议代表 Figure：展示 token selector、token merger 以及图文统一自回归序列的 Figure 2/3（以论文 PDF 标注为准）。
 </ArxivRating>
 
 ## SEED-X
 
-<ArxivRating id='2404.14396' tldr='' rank={0}>
+<ArxivRating id='2404.14396' tldr='以 ViT 视觉 token 和 SDXL 多粒度解码器统一任意分辨率理解、语义生成与精细编辑，解决单一视觉粒度难兼顾细节和多样性的问题。' rank={0}>
 
+![](https://pic.hana0721.top/seed-x-01.5q850mpfl6.webp)
+SEED-X 关注早期 SEED-LLaMA 在真实应用中的两个缺口：固定输入尺寸难处理长宽比各异的图片，单一视觉粒度又无法同时满足“看懂细节”和“按语义自由生成”。方法先用 ViT 得到视觉 token，并训练一个接收这些 token 的 SDXL U-Net 去噪器；理解侧采用动态分辨率/多图切片，生成侧则让不同粒度的视觉特征分别承担语义生成、重建和编辑。
+
+视觉 tokenizer/de-tokenizer 在 JourneyDB、LAION-Aesthetics、Unsplash、LAION-COCO 等图像数据上预训练，再进行多模态预训练和指令微调。论文评测单图、多图、交错图文理解，以及文本生图、条件生成和图像编辑；结果显示高分辨率输入和多粒度解码能改善 OCR、细节重建与指令跟随，并能通过应用级指令微调适配不同场景。结论是“同一视觉表示覆盖所有任务”并非唯一方案，粒度可控的编码/解码更实用。
+
+局限是 SDXL 解码器仍是外接扩散模块，训练和推理成本高于纯自回归模型；细粒度 token 会拉长上下文，动态切片也可能造成跨块关系丢失。部分应用依赖定制指令数据，通用交错生成和视频能力仍有限。建议代表 Figure：论文 Figure 1 的统一多粒度理解—生成流程，或展示不同 token 粒度重建/生成差异的图。
 </ArxivRating>
 
 ## Emu
 
-<ArxivRating id='2307.05222' publication='ICLR2024' tldr='' rank={0}>
+<ArxivRating id='2307.05222' publication='ICLR2024' tldr='把连续视觉 embedding 与文本 token 交错输入同一个 Transformer，以“下一个文本 token/视觉 embedding”目标统一多模态预训练。' rank={0}>
 
+![](https://pic.hana0721.top/emu-01.4xv9iw8twr.webp)
+Emu 的动机是把图片、视频和文本都当作可交错的序列元素，从而摆脱“视觉编码器加语言模型”的单向接口。视觉信号先编码为连续 embedding，和文本 token 按原文顺序交错；Transformer 对文本位置做分类，对视觉位置做回归，训练目标始终是序列中的下一个元素。图像生成时再用单独训练的 image decoder 将预测 embedding 还原成像素。
+
+预训练混合 LAION-2B、LAION-COCO 图文对、MMC4 交错网页、WebVid-10M 视频文本对和自建视频交错数据，覆盖图片、网页和视频。作者在 caption、VQA、视频问答、文本生图以及 in-context 图文生成上进行零样本/少样本评测，并用指令微调展示多模态助手。结果说明连续 embedding 能让一个模型在理解和生成之间共享上下文，且可直接利用大量交错数据。
+
+局限是视觉回归的连续向量缺少离散 token 的精确概率建模，容易产生平均化或细节不足的图像；真正的像素质量仍由外接 decoder 决定，训练也依赖大规模、噪声较高的网页数据。视频长序列、复杂编辑和可控文字生成没有系统解决。建议代表 Figure：论文展示交错图文/视频序列及两个模态预测头的 Figure 1 或 Figure 2。
 </ArxivRating>
 
 ## Emu2
 
-<ArxivRating id='2312.13286' publication='CVPR2024' tldr='' rank={0}>
+<ArxivRating id='2312.13286' publication='CVPR2024' tldr='将 Emu 扩展到 370 亿参数和更大规模交错数据，展示统一自回归模型在多模态上下文学习、视觉提示和主体驱动生成中的涌现能力。' rank={0}>
 
+![](https://pic.hana0721.top/emu2-01.64ekrhxqjy.webp)
+Emu2 研究的核心不是再加任务头，而是验证模型规模和数据规模能否让多模态 in-context learning 像语言模型一样自然出现。它用 EVA-02 CLIP 编码器将图像/视频压成连续 embedding，采用 LLaMA-33B 作为多模态 Transformer，并以 SDXL 作为视觉解码器；相较 Emu，连接方式简化为对图像 patch 做池化和线性投影，减少中间模块。
+
+训练使用 LAION-2B、CapsFusion-120M、WebVid-10M 等图文/视频文本对，随后加入交错图文、视频帧和纯文本序列。基础模型在少样本 VQA、视觉分类、视觉提示和 object-grounded generation 上测试，再用指令微调评测开放式问答和 subject-driven generation。实验表明规模扩展显著增强了不经任务专训的上下文学习和临时推理能力，说明统一序列建模具有可扩展性。
+
+局限是 37B 规模带来极高训练和推理成本，连续视觉 token 的长度仍限制长视频和多图交错；生成质量受 SDXL decoder 和回归目标约束。论文展示的是能力涌现而非机制解释，少样本结果也可能受提示模板影响。建议代表 Figure：Figure 2 的视觉编码—多模态建模—视觉解码结构，或论文的视觉 prompting 示例图。
 </ArxivRating>
 
 ## Chameleon
 
-<ArxivRating id='2405.09818' tldr='' rank={0}>
+<ArxivRating id='2405.09818' tldr='用早期融合的离散图文 token 和单一自回归 Transformer，支持任意顺序的图像、文本理解、生成及长篇交错文档。' rank={0}>
 
+![](https://pic.hana0721.top/chameleon-01.4ubnl6fras.webp)
+Chameleon 试图直接建模“图片—文字—图片—文字”的完整文档，而不是把视觉内容只放在上下文开头。图像被 tokenizer 转为离散 token，与文本 token 使用同一词表空间和 early-fusion Transformer；因果注意力允许模型在任意交错顺序中读写两种模态。论文还给出从预训练到对齐的稳定 recipe，并在 SFT 中加入文本、代码、视觉对话、图像生成、交错生成和安全数据。
+
+实验覆盖 VQA、caption、文本能力、文本生图、图像条件生成和长篇 mixed-modal generation。自动指标显示模型在 caption 和文本任务上有竞争力，图像生成虽不及专用扩散模型但已能生成非平凡结果；人评以自然用户提示比较长篇图文输出时，Chameleon 可与更大闭源模型竞争。结论是早期融合适合统一“多模态文档”接口。
+
+局限是离散化会在语义与像素细节之间取舍，图像 token 数量也迅速占满上下文；同一 Transformer 同时承担语言和图像生成，训练稳定性与任务配比敏感。长篇人评和安全评测依赖内部流程，自动基准尚不足以覆盖交错生成质量。建议代表 Figure：论文的 early-fusion token 序列/训练 recipe 示意图，以及长篇交错输出案例。
 </ArxivRating>
 
 ## Transfusion
 
-<ArxivRating id='2408.11039' tldr='' rank={0}>
+<ArxivRating id='2408.11039' tldr='在同一个 Transformer 中对文本做 next-token prediction、对连续图像 latent 做 diffusion，避免图像量化并验证统一模型的规模定律。' rank={0}>
 
+![](https://pic.hana0721.top/transfusion-01.92quv06054.webp)
+Transfusion 认为文本的离散概率建模和图像的连续扩散各有优势，强行把图像量化成语言 token 会造成信息损失。它把预训练 VAE 的图像 latent 切成 patch，使用共享 Transformer 建模交错序列：文本位置计算语言模型交叉熵，图像位置计算扩散噪声损失；模态专用的编码/解码层负责把 patch 映射进出 Transformer。因果掩码还允许同一图像的 patch 互相条件化。
+
+作者从头训练多个规模的 Transfusion，在文本困惑度和 Llama 评测集、MS-COCO 文生图/图像描述、VQA 等单模态与跨模态任务上比较离散 token 基线和扩散模型，并把最大模型扩展到多万亿级多模态 token。结果显示连续图像建模随模型和数据扩展更平滑，少量 patch 也能保留较好的生成质量，文本能力与图像能力可以在一个 backbone 中共存。
+
+局限是每个图像 patch 仍需扩散采样，推理速度和工程复杂度不等同于普通 LLM；低 patch 数会牺牲细节，增加 patch 又会拉长序列。实验主要从头训练，如何稳定地把 recipe 迁移到成熟 LLM、如何处理视频/音频尚未回答。建议代表 Figure：论文 Figure 1/3 的 VAE-patch、因果掩码及双损失统一训练图。
 </ArxivRating>
 
 ## Emu3
 
-<ArxivRating id='2409.18869' tldr='' rank={0}>
+<ArxivRating id='2409.18869' tldr='把图像、视频和文本都离散成 token，仅用 next-token prediction 训练 Emu3，证明单一自回归模型可以同时做感知、图像生成和视频生成。' rank={0}>
 
+![](https://pic.hana0721.top/emu3-01.2rvux4h6d4.webp)
+Emu3 直接挑战“视觉生成必须依赖扩散、视觉理解必须依赖 CLIP/LLM 组合”的惯例。模型先用离散视觉 tokenizer 表示图像和视频，再把视觉 token 与文本 token 放入同一因果序列，从头训练单一 Transformer；因此理解和生成都退化为预测下一个 token，视频则按帧和空间位置继续预测。
+
+训练混合图文、视频文本和交错多模态序列，随后通过指令微调得到 Emu3-Chat 等版本。论文在图像生成、视频生成、caption、VQA、OCR 和综合视觉理解上与 SDXL、LLaVA-1.6 等专用或组合模型比较，报告了统一模型在感知和生成两端都具竞争力，并能生成高保真视频。结论是 token 化与规模扩展足以构成一条简洁的统一路线。
+
+局限是离散码本决定上限：复杂纹理、细小文字和视频时序都可能在 tokenizer 阶段丢失；自回归生成长图像/视频 token 很慢，显存和上下文长度压力大。与成熟扩散模型的质量比较依赖分辨率、采样和数据配比，开放域安全与长视频稳定性也未充分验证。建议代表 Figure：论文的图像/视频 token 化和统一 next-token 训练流程图。
 </ArxivRating>
 
 ## MMAR
 
-<ArxivRating id='2410.10798' publication='CVPR2025' tldr='' rank={0}>
+<ArxivRating id='2410.10798' publication='CVPR2025' tldr='用连续图像 token 加轻量逐 patch diffusion head，避免图像离散化或末步去噪造成的信息损失，构建近似无损的多模态自回归概率模型。' rank={0}>
 
+![](https://pic.hana0721.top/mmar-01.2ksn1ov0z3.webp)
+MMAR 针对统一模型的表示瓶颈：离散视觉 token 会量化掉细节，扩散式视觉输入又常只保留最后去噪状态，导致图像理解时 backbone 看不到完整信息。它让自回归 Transformer 直接输出连续 image patch embedding，并在每个 patch 的 hidden state 上接轻量 diffusion head；文本仍由语言头做分类，图像生成由 diffusion head 负责。论文还给出数值稳定技巧和生成/理解损失的平衡策略。
+
+作者在 18 个图像理解基准上比较离散 token、预训练 CLIP encoder 和其他统一模型，同时评测文生图质量，并做模型/数据规模扩展实验。结果显示连续输入能显著改善理解，且生成质量保持在统一模型的强水平；随数据和模型扩大，MMAR 仍能稳定训练，说明 backbone 与扩散头解耦是可扩展的折中。
+
+局限是每个 patch 仍要进行扩散求解，推理成本和实现复杂度高于纯 token 模型；数值稳定与损失权重依赖经验设置，理论保证不等于有限算力下的鲁棒性。实验以图像为主，视频、音频及更长的交错序列尚未验证。建议代表 Figure：MMAR 的连续 patch 自回归骨干与多 diffusion head 结构图。
 </ArxivRating>
 
 ## Janus
 
-<ArxivRating id='2410.13848' publication='CVPR2025' tldr='' rank={0}>
+<ArxivRating id='2410.13848' publication='CVPR2025' tldr='将理解用语义视觉编码器、生成用离散图像 tokenizer 解耦，再由同一个自回归 Transformer 统一处理两条视觉路径。' rank={0}>
 
+![](https://pic.hana0721.top/janus-01.4n8fpqtm2d.webp)
+Janus 的出发点是理解和生成需要不同粒度：理解偏好 CLIP/SigLIP 的高层语义，生成需要保留局部纹理和像素布局；强迫一个视觉编码器兼顾二者会互相干扰。Janus 因而采用两条独立视觉编码路径，分别把语义特征和生成 token 投影到统一 Transformer；文本由语言头预测，图像生成由视觉 token 头预测，主干仍是一个自回归模型。
+
+论文提供 1B 级模型并进行多模态预训练、视觉理解指令微调和文生图训练，评测 MMBench、MMMU、GQA、MM-Vet 等理解基准以及 GenEval、DPG-Bench 等生成基准，并与 Chameleon、Emu 等统一模型及专用模型比较。解耦后模型在理解和生成之间的冲突明显减轻，以较小规模取得当时强统一结果；同时，替换任一路径的 encoder 也较灵活。
+
+局限是两套视觉路径增加参数和训练/部署维护成本，统一更多体现在 Transformer 而非完整视觉编码器；离散生成仍受 tokenizer 和分辨率影响，细小文字、复杂编辑不稳定。实验场景以静态图像为主，视频和多轮交错输出未充分展开。建议代表 Figure：论文 Figure 1 的双视觉编码路径与共享 Transformer 总览图。
 </ArxivRating>
 
 ## PUMA
 
-<ArxivRating id='2410.13861' publication='ICCV2025' tldr='' rank={0}>
+<ArxivRating id='2410.13861' publication='ICCV2025' tldr='用多尺度视觉特征和对应的 SDXL 解码器，让统一 MLLM 在文本生图、精细重建和图像编辑之间按需切换粒度。' rank={0}>
 
+![](https://pic.hana0721.top/puma-01.8l0t6f4mrf.webp)
+PUMA 观察到不同生成任务的粒度需求相反：文本生图只需粗粒度语义并保留随机性，图像编辑却需要细粒度结构和纹理。它用 CLIP 编码器提取从 256、64、16、4 到 1 个 token 的多尺度特征，为每个尺度训练一个条件 SDXL 解码器；LLaMA-3 8B 自回归地从粗到细预测多尺度视觉特征，并和文本 token 共同建模。
+
+训练分为视觉编码/解码预训练，以及多模态预训练和任务指令微调。实验在 ImageNet 重建、MS-COCO 多样文生图、Emu-Edit 条件编辑、条件生成和视觉语言理解上比较 SEED-X、Emu2、SDXL 等。细粒度特征重建更接近原图，粗粒度特征生成更多样，统一模型能以同一接口覆盖多种任务，验证了“粒度是可控轴”这一设计。
+
+局限是每个粒度都需要专用扩散解码器，模型体积与推理成本随之增加；CLIP 特征本身并非像素无损，粗细粒度之间的切换依赖训练好的尺度选择。复杂视频、长交错内容和真正端到端的单解码器方案尚未解决。建议代表 Figure：Figure 2/3 的多尺度特征从粗到细生成与对应解码器示意。
 </ArxivRating>
 
 ## Show-o
 
-<ArxivRating id='2408.12528' publication='ICLR2024' tldr='' rank={0}>
+<ArxivRating id='2408.12528' publication='ICLR2024' tldr='在单一 Transformer 内同时使用文本自回归和图像离散扩散，统一视觉问答、文生图、局部编辑与图文交错生成。' rank={0}>
 
+![](https://pic.hana0721.top/show-o-01.5trqyciirl.webp)
+Show-o 试图让一个模型根据模态选择合适的生成范式，而不是让文本和图像都被迫逐 token 或都被迫扩散。文本和图像先离散化到统一词表；Transformer 的文本路径采用 causal next-token prediction，图像路径使用 masked discrete diffusion，在同一上下文中可交错出现。统一 prompt 格式控制图像理解、生成、inpainting 和 extrapolation。
+
+训练数据包括 RefinedWeb 文本、ImageNet-1K 图像，以及来自 CC12M、SA-1B、LAION-Aesthetics 的约数千万图文对；训练中同时保留文本能力、视觉重建和多模态指令。论文在 VQA、caption、文本生图、图像编辑和混合生成上与同规模专用模型比较，结果显示 Show-o 在理解上保持竞争力，生成和编辑也能接近更大的专家模型。
+
+局限是离散图像 token 仍受码本和分辨率限制，masked diffusion 需要多轮迭代；不同任务的 prompt/mask 设计会影响结果，长视频和高保真文字不是重点。它的统一性是共享主干加两种目标，尚未证明所有模态都能以同样效率扩展。建议代表 Figure：论文 Figure 1/2 的 AR 与离散扩散在同一 Transformer 中协同的架构图。
 </ArxivRating>
 
 ## VILA-U
 
-<ArxivRating id='2409.04429' publication='ICLR2024' tldr='' rank={0}>
+<ArxivRating id='2409.04429' publication='ICLR2024' tldr='用同时接受对比学习和重建监督的统一视觉塔，把图像/视频离散 token 与文本放进同一 next-token 序列，形成 VILA-U。' rank={0}>
 
+![](https://pic.hana0721.top/vila-u-01.5moj2wwddx.webp)
+VILA-U 关注传统 VLM 把理解和生成拆成两套模块所造成的表示不一致。它训练 unified foundation vision tower：视觉特征一方面经残差量化产生离散 token 并重建图像，另一方面与文本编码器做图文对比学习，使 token 同时具备语义对齐和可解码性。视觉 token 与文本 token 直接拼接，由 LLaMA-2 类语言模型统一进行 next-token prediction。
+
+视觉塔先在 COYO-700M 上训练；多模态理解使用 ShareGPT4V 图文指令和 MMC4 交错数据，生成侧加入高质量图文和视频文本数据，并用 classifier-free guidance 采样。实验覆盖图像/视频理解、caption、VQA、OCR 和文生图，显示纯 token 自回归方案在理解上接近强 VLM，在生成上也能达到统一模型的较好水平。
+
+局限是残差量化会使高分辨率图像产生大量 token，生成速度和上下文长度都受限制；统一视觉塔仍需在语义与重建间折中，文本渲染、细粒度编辑和长视频质量未完全解决。生成质量也高度依赖专门筛选的数据。建议代表 Figure：论文 Figure 1 的视觉离散化、图文序列和解码流程图。
 </ArxivRating>
 
 ## MIO
 
-<ArxivRating id='2409.17692' publication='EMNLP2025' tldr='' rank={0}>
+<ArxivRating id='2409.17692' publication='EMNLP2025' tldr='以离散 multimodal tokens 和四阶段训练统一文本、图像、视频与语音的输入输出，探索开源 any-to-any 自回归基础模型。' rank={0}>
 
+![](https://pic.hana0721.top/mio-01.491zyvlbew.webp)
+MIO 针对 GPT-4o 式任意模态互转缺少开源、可交错输出方案的问题。模型用 SEED-Tokenizer 将图像/视频编码为离散 token，用 SpeechTokenizer 编码语音，文本沿用词表；因果 Transformer 在同一序列中预测四种模态 token，再由各自 detokenizer 还原。训练依次进行对齐预训练、交错多模态预训练、语音增强预训练和综合监督微调。
+
+实验覆盖图像 caption/VQA、视频理解、语音识别/合成和跨模态生成，并与双模态 VLM、any-to-any 基线及专用模型比较。除了标准指标，论文展示交错视频—文本生成、chain-of-visual-thought、视觉指南生成和指令图像编辑等案例，说明统一 token 序列可以表达复杂的多轮交互。
+
+局限是四种模态的 token 速率、质量和数据规模差异很大，训练配比与长序列显存压力会影响能力平衡；语音和视频解码器仍是模态专用组件，端到端质量受 tokenizer 上限限制。高级涌现能力主要是定性展示，系统安全、实时性和长上下文尚需更多评测。建议代表 Figure：论文 Figure 1 的四模态 tokenization、四阶段训练和 any-to-any 输出总览。
 </ArxivRating>
 
 ## JanusFlow
 
-<ArxivRating id='2411.07975' publication='CVPR2025' tldr='' rank={0}>
+<ArxivRating id='2411.07975' publication='CVPR2025' tldr='把自回归语言模型与 rectified flow 直接接合，并解耦理解/生成视觉编码器后做表示对齐，得到更简洁的 JanusFlow。' rank={0}>
 
+![](https://pic.hana0721.top/janusflow-01.3k8qeuxsgm.webp)
+JanusFlow 延续 Janus 的核心认识：理解和生成需要不同视觉表示，但不希望为生成再堆叠复杂的 Transformer。它在 DeepSeek-LLM 类自回归 backbone 上增加轻量生成 encoder/decoder 和 rectified-flow head：理解路径使用 SigLIP 语义特征，生成路径使用 SDXL-VAE latent，两个表示在统一训练中加入对齐约束，文本仍由语言头自回归预测。
+
+实验以 384 分辨率图像为主，评测 MMBench、MMMU、GQA、MM-Vet 等理解任务及 GenEval、DPG-Bench 等文生图任务，并消融共享/解耦 encoder、表示对齐和 flow 训练。结果显示 rectified flow 可以在 LLM 框架中直接训练，JanusFlow 在理解和生成两端都超过早期统一模型，接近各自专用系统。
+
+局限是 flow 采样仍需多步迭代，推理并未达到纯 next-token 模型的简单性；双视觉编码器和 latent decoder 仍增加系统组件。实验主要是静态图像，视频、编辑、长交错序列及更大语言模型规模的收益尚不确定。建议代表 Figure：论文 Figure 1 的 AR backbone、双视觉编码器和 rectified-flow head 总览。
 </ArxivRating>
 
 ## Orthus
 
-<ArxivRating id='2412.00127' tldr='' rank={0}>
+<ArxivRating id='2412.00127' tldr='以连续视觉特征配合语言头和逐 patch diffusion head，在自回归 Transformer 中生成图像、回答问题并输出长篇图文交错内容。' rank={0}>
 
+![](https://pic.hana0721.top/orthus-01.4xv9iw8ujd.webp)
+Orthus 直接处理连续图像特征，避免 VQ 量化和扩散输入末步带来的信息损失。文本 token 与连续 image patch embedding 进入同一个 causal Transformer；每个 hidden state 分别送入 LM head 预测下一个文本 token，或送入 diffusion head 预测下一个图像 patch。作者用可微视觉 embedding 替换现有统一 AR 模型中的 VQ 操作，再只调新增模块即可得到 Orthus-base，随后进行交错图文的后训练。
+
+实验覆盖视觉问答、图像描述、文本生成、文生图和长篇 mixed-modal generation；7B 设置在 GenEval、MME-Perception 等指标上与 Show-o、Chameleon 比较，并展示连续多图文输出。结果说明“共享 AR backbone + 模态专用头”能保留图像信息，同时让模态间相关性在一个上下文中建模，训练成本比从头设计大型统一系统低。
+
+局限是 diffusion head 仍使每个 patch 需要噪声采样，端到端推理速度和稳定性受影响；连续特征没有离散概率的严格校准，图像细节与高分辨率扩展仍是瓶颈。轻量构建 recipe 依赖已有 tokenizer/LLM，跨视频、音频和复杂编辑尚未验证。建议代表 Figure：论文 Figure 2 的连续视觉输入、共享骨干及双模态 head 架构。
 </ArxivRating>
 
 ## TokenFlow
 
-<ArxivRating id='2412.03069' publication='CVPR2025' tldr='' rank={0}>
+<ArxivRating id='2412.03069' publication='CVPR2025' tldr='用语义码本与像素码本组成双 codebook，并以共享映射保持索引对齐，让离散视觉 token 同时服务理解和生成。' rank={0}>
 
+![](https://pic.hana0721.top/tokenflow-01.4jots10jq7.webp)
+TokenFlow 针对 VQGAN 类 tokenizer 的根本冲突：为重建优化的 token 关注颜色和纹理，却缺少 VLM 需要的语义；只蒸馏 CLIP 又会丢掉生成所需的低层信息。它设计 semantic codebook 和 pixel codebook 两条表示，并用 shared mapping 让同一空间位置的索引保持对应，从而既能读高层语义，又能取回细节。
+
+tokenizer 在 LAION、COYO-700M 等图像上训练，生成模型再用约数千万高质量图文对进行自回归训练；理解实验使用 Vicuna/Qwen 等 LLM，覆盖 SEEDBench、MMVet、POPE、VQAv2、GQA、TextVQA、AI2D、MMMU 等，生成实验使用 GenEval、DPG-Bench，重建在 ImageNet 上评测。论文报告双码本在统一模型中显著缩小理解与生成的折中，并使离散视觉输入超过同规模 LLaVA 基线。
+
+局限是 tokenizer、映射和两个码本增加训练及存储复杂度，语义/像素对齐未必对所有域都成立；自回归生成仍受 token 数和采样速度限制。实验主要针对图像，视频和高分辨率文字细节没有系统覆盖。建议代表 Figure：论文 Figure 1 的双 codebook 与 shared mapping，或 Figure 4 的语义/像素聚类可视化。
 </ArxivRating>
 
 ## Liquid
 
-<ArxivRating id='2412.04332' tldr='' rank={0}>
+<ArxivRating id='2412.04332' tldr='把图像离散码和文本 token 放进共享特征空间，用单一 LLM 从头或继续预训练同时做视觉理解与生成，并观察到模型越大干扰越小。' rank={0}>
 
+![](https://pic.hana0721.top/liquid-01.1lcjoisaao.webp)
+Liquid 试图回答一个简单问题：是否必须依赖 CLIP 等外部视觉 encoder，才能把 LLM 变成统一多模态生成器。它把图像 tokenizer 的离散码映射到与文本相同的 embedding 空间，直接用一个 LLM 处理图文交错序列和 next-token 目标；因此视觉理解、文本能力和视觉生成共享参数，而不是由外接视觉塔提供理解特征。
+
+作者在混合多模态数据上持续预训练多个规模的 LLM，并系统比较从约 0.5B 到数十亿级模型的语言保持、视觉问答和文生图能力。实验使用 GenAI-Bench、MJHQ-30K、文本困惑度和通用语言任务，与 Chameleon、SD v2.1/XL 等比较；结果显示扩大模型后统一训练造成的语言/视觉性能下降会减弱，Liquid 在生成对齐和文本能力之间取得较好平衡。
+
+局限是共享离散空间仍受图像 tokenizer 质量和序列长度影响，小模型的模态干扰并未消失；继续预训练成熟 LLM 需要严格控制数据配比，否则语言能力会退化。模型主要覆盖图像，视频、音频和高精度编辑仍待扩展。建议代表 Figure：论文展示共享 token 空间与不同规模 scaling law 的总览图。
 </ArxivRating>
 
 ## MUSE-VL
 
-<ArxivRating id='2411.17762' publication='ICCV2025' tldr='' rank={0}>
+<ArxivRating id='2411.17762' publication='ICCV2025' tldr='在 VQ tokenizer 中加入 SigLIP 语义约束，提出 Semantic Discrete Encoding，让视觉 token 更像语言 token 并减少统一模型所需的训练数据。' rank={0}>
 
+![](https://pic.hana0721.top/muse-vl-01.9kgwjl7ece.webp)
+MUSE-VL 认为 VQGAN 主要为像素重建服务，视觉 token 与语言 token 的抽象层级不一致，导致统一自回归模型需要海量图文数据才能学会理解。它以 SigLIP 预训练视觉特征初始化 encoder，在原有量化—重建损失之外加入语义损失，得到 Semantic Discrete Encoding（SDE）；同一离散词表随后供 LLM 输入和图像生成使用。
+
+视觉 tokenizer 使用约千万图像训练，LLM 侧可接 Yi、Qwen 等不同规模 backbone；理解训练混合约数千万图像描述/指令样本，生成侧使用图像 caption 数据。实验比较 SDE、VQGAN、LaVIT 等 tokenizer，并在 MMBench、SEEDBench、MMStar、MME 等理解基准和图像生成基准上评测。论文报告在相同 LLM 规模下理解能力明显超过早期统一模型，并缩小与专用 VLM 的差距。
+
+局限是语义损失权重、SigLIP 域偏差与码本大小需要调节，过强语义约束可能牺牲纹理重建；生成仍依赖离散 token 的长度和 decoder，视频及高分辨率 OCR 未充分验证。建议代表 Figure：SDE tokenizer 的语义/重建双损失结构图，或比较不同 tokenizer 的聚类可视化。
 </ArxivRating>
 
 ## SILMM
 
-<ArxivRating id='2412.05818' publication='CVPR2025' tldr='' rank={0}>
+<ArxivRating id='2412.05818' publication='CVPR2025' tldr='让 LMM 自己生成组合式 prompt、采样多样图像并用视觉反馈构造偏好对，再用离散或连续 DPO 迭代提升文图对齐。' rank={0}>
 
+![](https://pic.hana0721.top/silmm-01.2a5t8jfter.webp)
+SILMM 针对组合式文生图中的颜色绑定、计数、空间关系和多对象组合错误。现有布局规划或人类/AI 反馈流程依赖手工 prompt 和昂贵标注，难以持续扩展。论文提出与具体 LMM 架构无关的自我改进循环：模型生成组合 prompt，采样多个视觉表示和图像，再用 VQA/检测式自反馈挑选 chosen/rejected 对，进行 DPO 并重复迭代。
+
+离散视觉 token 模型可直接用生成概率做 DPO；连续视觉特征没有天然 token 概率，作者用 DropDiv 在末端 MLP 引入多样性，再提出 kernel-based continuous DPO 对连续表示排序。实验基于 SEED-LLaMA 和 DreamLLM，构造四类组合 prompt，在 T2I-CompBench++、TIFA、DPG-Bench 上评测，迭代后各类属性、布局和关系对齐均有明显提升。
+
+局限是自反馈质量受 VQA/检测模型偏差影响，错误的 chosen/rejected 会被循环放大；生成多样样本和反复 DPO 的计算成本较高。连续 DPO 的核函数和多样性注入也带来额外超参数，尚未证明迁移到视频、编辑或闭源 LMM。建议代表 Figure：论文 Figure 2 的五步自我改进循环及离散/连续 DPO 分支。
 </ArxivRating>
 
 ## ILLUME
 
-<ArxivRating id='2412.06673' publication='ICCV2025' tldr='' rank={0}>
+<ArxivRating id='2412.06673' publication='ICCV2025' tldr='用带语义信息的视觉 tokenizer、渐进式训练和自评估图文一致性，把 15M 预训练数据转化为统一理解、生成和编辑能力。' rank={0}>
 
+![](https://pic.hana0721.top/illume-01.13mhzxqwva.webp)
+ILLUME 关注统一 MLLM 通常需要数倍于普通 VLM 的图文数据才能完成视觉对齐。作者在视觉 tokenizer 中加入语义约束，使离散 token 同时保留可生成细节和语言可读语义；训练采用渐进式多阶段课程，并提出 self-enhancing multimodal alignment，让模型比较文本描述与自己生成图像的一致性，再用该信号反向改善理解和生成。
+
+模型以 Vicuna-7B 为语言骨干，理解侧采用 UNIT 视觉编码器并用 patchify 支持高分辨率，生成侧使用离散码本。预训练仅使用约 1500 万样本，之后进行多模态指令微调和编辑训练；实验覆盖 MMBench、MMMU、OCR/文档问答、GenEval、MJHQ-30K 和图像编辑等。结果显示在更少预训练数据下，ILLUME 仍可与 Janus 等统一模型及部分专用模型竞争，自评估机制对幻觉和图文错配有帮助。
+
+局限是自评估仍依赖模型自身或外部视觉判断，可能形成确认偏差；离散码本限制高分辨率文字和纹理，patchify 带来长上下文。15M 数据规模的优势与具体数据清洗强相关，视频、语音和开放域安全尚未覆盖。建议代表 Figure：论文 Figure 1 的 tokenizer、渐进训练和 self-enhancing alignment 闭环。
 </ArxivRating>
 
 ## Visual Lexicon
 
-<ArxivRating id='2412.06774' publication='CVPR2025' tldr='' rank={0}>
+<ArxivRating id='2412.06774' publication='CVPR2025' tldr='把图像编码成文本词表空间中的 Visual Lexicon token，同时保留语义、布局和纹理细节，使预训练 T2I 模型能直接接受图像 token。' rank={0}>
 
+![](https://pic.hana0721.top/visual-lexicon-01.32ioq9wf8p.webp)
+Visual Lexicon（ViLex）要解决 CLIP 语义 embedding 缺少细节、文本描述又无法表达风格纹理的问题。模型以 SigLIP 图像编码器和 attention pooling 生成位于文本词表空间的视觉 token；训练时冻结 Imagen 等文本生图扩散模型，只优化视觉 token，使其重建输入图像并保持语义级一致。ViLex token 可以单独作为“视觉词”，也可以和自然语言 token 拼接后作为 T2I prompt。
+
+实验在重建保真度、图像条件生成和 vision encoder 迁移上评估：即使只有一个 ViLex token，重建也优于纯文本 embedding；不微调 T2I 模型即可做多种 DreamBooth 风格的主体/概念学习；将 ViLex 接入 VLM 后，在 15 个理解基准上相对 SigLIP baseline 持续提升。结论是把丰富视觉信息放进语言空间，可同时利用语言组合性和扩散模型先验。
+
+局限是 token 的语义解释性和跨模型可移植性尚不明确，训练依赖冻结的 Imagen/词表，换基础 T2I 模型可能需要重新适配；单 token 的细节容量有限，复杂多图交错和端到端自回归生成不在主要实验范围。建议代表 Figure：Figure 1 的 ViLex token 与文本组合生成示意，或视觉 token 重建/聚类图。
 </ArxivRating>
 
 ## LatentLM
 
-<ArxivRating id='2412.08635' tldr='' rank={0}>
+<ArxivRating id='2412.08635' tldr='用 σ-VAE 表示连续 latent，并以 next-token diffusion 逐位置自回归生成，使因果 Transformer 统一文本、图像、音频和视频。' rank={0}>
 
+![](https://pic.hana0721.top/latentlm-01.4n8fpqtmr7.webp)
+LatentLM 认为离散 token 会损失连续模态的信息，而把整幅图像交给一次扩散又难以与因果语言建模统一。它用 VAE 将图像、音频或视频压成连续 latent token；Transformer 按序读取这些 token，文本位置用分类头预测下一个离散 token，连续位置则由 diffusion head 进行 next-token diffusion。为避免自回归训练中的 variance collapse，作者提出 σ-VAE，让 latent 的方差保持可建模。
+
+图像生成实验在 ImageNet 上测试不同模型规模、分辨率、tokenizer 和推理吞吐；多模态实验覆盖交错图文、文本生图、图像描述和纯文本；语音实验则以文本和语音提示做 TTS，并与 VALL-E 2 比较。结果显示 LatentLM 的图像质量和扩展性优于若干 DiT/离散 token 基线，TTS 在说话人相似度、鲁棒性和解码步数上也有优势，且可复用 LLM 的 KV cache 与部署基础设施。
+
+局限是每个连续 token 仍需扩散采样，长视频/高分辨率会带来序列和计算压力；σ-VAE、噪声日程与 diffusion head 的稳定性需要精细调参。跨模态实验规模和数据覆盖不如成熟专用模型，统一接口的安全、编辑和交错生成能力仍待检验。建议代表 Figure：Figure 2 的连续/离散 token 统一建模与 next-token diffusion 流程。
 </ArxivRating>
 
 ## SynerGen-VL
 
-<ArxivRating id='2412.09604' publication='CVPR2025' tldr='' rank={0}>
+<ArxivRating id='2412.09604' publication='CVPR2025' tldr='用 token folding 压缩高分辨率视觉序列，并以 vision expert 渐进对齐，构建无需外接视觉 encoder 的统一理解—生成 MLLM。' rank={0}>
 
+![](https://pic.hana0721.top/synergen-vl-01.46emro5v3.webp)
+SynerGen-VL 试图简化 encoder-free 统一模型的训练：复杂的双编码器、特殊生成头和多阶段配比会增加扩展难度，而直接把高分辨率图像展平又会耗尽上下文。它提出 token folding，在保留局部结构的同时把视觉 token 折叠成更短序列；训练时引入 vision expert 的 progressive alignment，先用专家提供稳定视觉监督，再逐步让语言模型承担统一 next-token 预测。
+
+模型以 InternLM2 类 LLM 为骨干，在大规模混合图文数据上进行对齐预训练和指令微调，支持高分辨率图像理解、caption、VQA 及图像生成。实验覆盖 TextVQA、DocVQA、GQA、AI2D、ChartQA、InfoVQA 等细粒度理解，以及 GenEval/DPG-Bench 等生成指标；在相近或更少激活参数下，结果达到或超过现有 encoder-free 统一模型，并缩小与专用 VLM 的差距。
+
+局限是 token folding 的压缩比与视觉细节存在权衡，复杂文档、极小文字和多图交错仍可能丢信息；vision expert 在训练期增加计算且可能把偏差蒸馏进模型。统一模型的生成质量仍受离散 tokenizer 和自回归速度限制，视频/音频未覆盖。建议代表 Figure：论文展示 token folding 和 vision-expert progressive alignment 的架构/训练图。
 </ArxivRating>
 
 ## MetaMorph
 
-<ArxivRating id='2412.14164' publication='ICCV2025' tldr='' rank={0}>
+<ArxivRating id='2412.14164' publication='ICCV2025' tldr='用 Visual-Predictive Instruction Tuning 让预训练 LLM 预测文本与连续视觉 token，少量生成数据即可从视觉理解模型快速变成统一自回归模型。' rank={0}>
 
+![](https://pic.hana0721.top/metamorph-01.9kgwjl7enp.webp)
+MetaMorph 研究的是“统一能力是否能靠指令微调快速获得”，而非重新预训练一个多模态基础模型。VPiT 把图文交错样本整理成指令跟随格式，要求 LLaMA-3/3.1 同时预测离散文本 token 和连续视觉 token；视觉输入先由现成 encoder 提供，生成端用视觉 decoder 还原图像。作者先训练轻量 adapter，再解冻语言骨干做统一指令微调。
+
+实验通过控制理解数据、生成数据和两者配比，观察视觉生成是否伴随理解能力自然出现；最终 MetaMorph 使用 LLaMA-3.1 8B，在 MMBench、SEEDBench、MMMU、TextVQA、视频问答和 COCO/FID 等任务上，与 Janus、VILA-U、Emu3、Transfusion 等统一模型比较。结果支持两个结论：理解数据对两种能力的帮助更普遍，生成数据只需少量即可解锁视觉生成；LLM 的世界知识和推理先验能改善复杂 prompt 的图像生成。
+
+局限是方法依赖已有视觉 encoder、连续视觉 decoder 和高质量指令模板，并非完全从零的 any-to-any 模型；生成质量仍受视觉特征回归和固定分辨率限制。数据配比结论来自有限模型和任务，视频、编辑、安全及长交错输出尚缺系统评测。建议代表 Figure：VPiT 指令格式与“理解数据驱动生成涌现”的实验示意图。
 </ArxivRating>

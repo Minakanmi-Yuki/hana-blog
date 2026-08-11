@@ -70,6 +70,8 @@ OpenScene 关注的是开放词表 3D scene understanding，而不是单物体�
 
 <ArxivRating id='2306.13631' publication='NeurIPS2023' tldr='面向开放词表 3D 实例分割，用多视角 CLIP 特征聚合到 3D 实例 Mask 上。' rank={0}>
 
+![](https://pic.hana0721.top/openmask3d.232ld03d2j.webp)
+
 OpenMask3D 解决的是 OpenScene 的一个自然短板：OpenScene 学的是 per-point semantic feature，适合做语义热力图，但不能天然区分同类物体的多个 instance。
 OpenMask3D 因此提出 open-vocabulary 3D instance segmentation：先拿到 class-agnostic 3D instance masks，再给每个 mask 计算一个开放词表 CLIP feature。
 
@@ -91,6 +93,8 @@ ScanNet200 validation 上，OpenMask3D 达到 AP 15.4、AP50 19.9、AP25 23.1，
 
 <ArxivRating id='2503.11651' publication='CVPR2025' tldr='把相机、深度、点图和点轨迹统一成一次前馈预测，是 DUSt3R 系列向通用视觉几何模型扩展的重要一步。' rank={0}>
 
+![](https://pic.hana0721.top/vggt.wja4eehh3.webp)
+
 VGGT 的目标是把传统 3D pipeline 中分散的几何任务统一到一个前馈模型里。输入可以是一张、几张或上百张同一场景图像，输出包括每帧相机参数、深度图、point map，以及用于 3D point tracking 的 dense features。和 DUSt3R/MASt3R 依赖 pairwise prediction 再做全局对齐不同，VGGT 直接让多张图在一个大 Transformer 中交互，因此在很多任务上可以不经过 bundle adjustment 或 global alignment 就得到可用几何结果。
 
 模型结构刻意减少 3D inductive bias。每张图先用 DINO patchify 成 tokens，然后进入 Alternating-Attention Transformer：一层 frame-wise self-attention 只在单张图内部建模，下一层 global self-attention 在所有图像 tokens 间建模。这样既保留单帧局部表征，又允许跨视角传播几何关系。第一帧被指定为参考坐标系，camera token 和 register token 用不同 learnable token 标记第一帧，使相机、深度和 point map 都在第一帧坐标系下预测。
@@ -104,6 +108,8 @@ VGGT 的目标是把传统 3D pipeline 中分散的几何任务统一到一个�
 ## DUSt3R
 
 <ArxivRating id='2312.14132' publication='CVPR2024' tldr='直接从未标定图像对回归同一坐标系下的 3D point maps，把深度、匹配、相机和重建统一到一个表示中。' rank={0}>
+
+![](https://pic.hana0721.top/dust3r.5xbcvylc2h.webp)
 
 DUSt3R 的核心是把多视图几何问题改写成 dense point map regression。传统 SfM/MVS pipeline 通常要先做特征匹配、估计相机内外参、三角化，再做稠密重建；这些步骤彼此依赖，任何一步失败都会传递误差。DUSt3R 反过来：给两张 RGB 图像，不要求相机内参、外参或姿态初始化，直接预测两张图每个像素对应的 3D 点。
 
@@ -119,6 +125,8 @@ Point map 可以理解为一个 `H×W×3` 的 dense field：每个像素都对�
 
 <ArxivRating id='2406.09756' publication='ECCV2024' tldr='在 DUSt3R 的 point map 基础上增加 dense descriptor 和快速 reciprocal matching，让图像匹配真正 3D-grounded。' rank={0}>
 
+![](https://pic.hana0721.top/mast3r.1ow5m4v3bc.webp)
+
 MASt3R 可以看作 DUSt3R 面向图像匹配和视觉定位的增强版。DUSt3R 已经能从两张图预测同一坐标系下的 point maps，因此可以通过 3D 最近邻或 PnP 得到匹配和位姿；但 point map 本质是回归输出，噪声会让像素级对应不够精确，而且 DUSt3R 并没有显式用 matching loss 训练。MASt3R 的核心问题就是：如何保留 DUSt3R 对大视角变化的鲁棒性，同时提升匹配精度。
 
 方法上，MASt3R 仍然保留 DUSt3R 的两图 Transformer 框架，同时输出 3D point maps、confidence maps 和额外的 dense local descriptors。新增 descriptor head 是一个简单 MLP，对每个像素输出单位归一化的局部特征。训练时除 DUSt3R 的 confidence-aware 3D regression loss 外，还加入基于 ground-truth correspondence 的 InfoNCE matching loss。这个损失把匹配视作分类问题：正确像素必须在另一张图的候选像素中被选中，而不是只要落在附近即可，因此会显著鼓励高精度匹配。
@@ -132,6 +140,8 @@ MASt3R 可以看作 DUSt3R 面向图像匹配和视觉定位的增强版。DUSt3
 ## Spann3R
 
 <ArxivRating id='2408.16061' publication='3DV2025' tldr='用 Spatial Memory 把 DUSt3R 的 pairwise point maps 扩展为增量式全局重建，减少每个场景的全局优化。' rank={0}>
+
+![](https://pic.hana0721.top/spann3r.8okf417gah.webp)
 
 Spann3R 解决的是 DUSt3R 的一个直接瓶颈：DUSt3R 每次只处理图像对，pairwise point maps 都在局部坐标系中；如果要重建多图场景，必须再做 per-scene global alignment。这个步骤虽然比传统 BA 简洁，但对实时增量重建和长序列仍然不够友好。Spann3R 的目标是让模型直接输出全局坐标系下的 per-image point maps，从而减少甚至绕开优化式全局对齐。
 
@@ -147,6 +157,8 @@ Spann3R 解决的是 DUSt3R 的一个直接瓶颈：DUSt3R 每次只处理图像
 
 <ArxivRating id='2410.03825' publication='ICLR2025' tldr='把 DUSt3R 的 point map 表示扩展到动态视频，通过小规模微调和视频约束估计深度、位姿与 4D 几何。' rank={0}>
 
+![](https://pic.hana0721.top/monst3r.pg28yscln.webp)
+
 MonST3R 关注动态场景几何。DUSt3R 默认训练在静态场景上，当视频中存在运动物体时，pairwise point map 的对齐可能被前景运动干扰：模型有时会用运动物体作为对齐依据，导致静态背景错位；也可能把前景物体几何估错。MonST3R 的关键想法是，不显式建模 scene flow 或物体运动，而是继续使用 point map：每个时间步预测一个 point map，动态物体会在不同时刻出现在不同空间位置，这本身就能表示 4D 几何。
 
 模型架构基本沿用 DUSt3R：两帧输入经过共享 encoder 和 cross-attention decoder，输出两帧 point maps 和 confidence maps。区别在训练数据与策略。动态场景缺少同时具备 RGB、深度和相机位姿的数据，因此论文选择以 DUSt3R 为初始化，只微调 decoder 和 prediction heads，冻结 encoder 来保留原有几何特征；训练数据混合 PointOdyssey、TartanAir、Spring 和 Waymo，其中 PointOdyssey 权重最高。训练 pair 的 temporal stride 从 1 到 9 采样，并偏向更大 stride，以增加相机运动和物体运动多样性；同时用 FoV augmentation 增强内参泛化。损失仍使用 DUSt3R 的 confidence-aware regression loss。
@@ -160,6 +172,8 @@ MonST3R 关注动态场景几何。DUSt3R 默认训练在静态场景上，当�
 ## CUT3R
 
 <ArxivRating id='2501.12387' publication='CVPR2025' tldr='用可持续更新的 Transformer state 做在线 3D 感知，把单图、多图、视频和未观测视角查询统一起来。' rank={0}>
+
+![](https://pic.hana0721.top/cut3r.99u2qc1wyk.webp)
 
 CUT3R 继续沿着 DUSt3R 系列的 point map 表示发展，但重点从 pairwise / window-based reconstruction 转向 continuous online perception。它认为真实智能体不是拿到一整组图片后离线优化，而是随着新观测不断更新对场景的内部理解。因此 CUT3R 维护一个 persistent latent state：每来一张新图，图像 tokens 一边从 state 读取已有场景信息，一边把新的观测写回 state，然后输出当前视角的 metric-scale point map 和相机参数。
 
@@ -175,6 +189,8 @@ CUT3R 继续沿着 DUSt3R 系列的 point map 表示发展，但重点从 pairwi
 
 <ArxivRating id='2308.04079' publication='SIGGRAPH2023' tldr='用可优化 3D Gaussians 和可微 splatting 实现高质量实时新视角渲染，是 3D 表示与重建方向的核心转折点。' rank={0}>
 
+![](https://pic.hana0721.top/gaussian-splatting.4cllwho59p.webp)
+
 3D Gaussian Splatting 解决的是 NeRF 系列的核心痛点：神经辐射场质量高，但训练和渲染都慢，尤其在完整无界场景和 1080p 实时渲染上很难达到交互速度。3DGS 放弃用 MLP 隐式表示连续 radiance field，而是使用显式的 3D Gaussian primitives 表示场景。每个 Gaussian 带有位置、各向异性协方差、透明度和颜色/球谐系数；渲染时把这些 3D Gaussians 投影到屏幕上做 visibility-aware splatting。
 
 初始化通常来自 SfM/COLMAP 的 sparse point cloud。每个点初始化为一个 3D Gaussian，然后通过可微渲染和图像重建损失直接优化。Gaussian 的协方差是各向异性的，这一点很关键：各向同性球形 blob 很难贴合表面，而椭球形 Gaussian 可以沿着表面展开，用更少 primitives 表达复杂几何和细节。颜色用 spherical harmonics 表达视角相关外观，透明度参与 alpha compositing。
@@ -188,6 +204,8 @@ CUT3R 继续沿着 DUSt3R 系列的 point map 表示发展，但重点从 pairwi
 ## Depth Anything
 
 <ArxivRating id='2401.10891' publication='CVPR2024' tldr='用 1.5M 有标注图像和 62M 伪标注无标注图像训练通用单目深度模型，显著提升零样本泛化。' rank={0}>
+
+![](https://pic.hana0721.top/depth-anything.6t7ubev16s.webp)
 
 Depth Anything 的目标是训练一个 open-world monocular depth estimation 模型。传统深度估计依赖少量带深度标注的数据，跨域泛化差；MiDaS 通过多数据集混训改善了这一点，但标注数据仍然有限。Depth Anything 的核心思路是：先用 1.5M labeled images 训练 teacher，再给 62M unlabeled images 生成 pseudo depth labels，最后用 labeled + pseudo-labeled 数据训练 student。
 
@@ -203,6 +221,8 @@ Depth Anything 的目标是训练一个 open-world monocular depth estimation �
 
 <ArxivRating id='2406.09414' publication='NeurIPS2024' tldr='用高质量合成数据训练强 teacher，再伪标注真实图像训练 student，在细节、透明物体和效率上明显优于 V1/扩散式深度模型。' rank={0}>
 
+![](https://pic.hana0721.top/depth-anything-v2.3rbya6tp1w.webp)
+
 Depth Anything V2 的动机是修正 V1 的两个问题：V1 对复杂场景很鲁棒、速度也快，但细节不够细，透明/反射物体表现较弱；扩散式深度模型如 Marigold 细节好，但慢、重、迁移性差。V2 不追求复杂新结构，而是强调数据和训练策略：高质量 synthetic labels 比 noisy real labels 更适合训练 depth teacher，再用这个 teacher 给大规模真实图生成高质量 pseudo labels。
 
 整体 pipeline 分三步。第一，用 DINOv2-G 作为 teacher backbone，只在精确 synthetic images 上训练，避免真实深度标注中的噪声。第二，用这个强 teacher 给 62M unlabeled real images 生成 pseudo depth。第三，训练不同大小的 student models（ViT-S/B/L/G），主要使用 pseudo-labeled real images，而不是混入真实人工/传感器标注。论文的一个重要观察是：在 student 阶段，去掉 synthetic labeled images、只用 pseudo-labeled real images，很多时候反而更好；这说明 teacher 生成的 dense pseudo labels 在细节和一致性上比许多真实深度数据更干净。
@@ -216,6 +236,8 @@ Depth Anything V2 的动机是修正 V1 的两个问题：V1 对复杂场景很�
 ## Depth Anything 3
 
 <ArxivRating id='2511.10647' tldr='把 Depth Anything 从单目深度扩展到任意视角几何，用 depth-ray 表示统一深度、位姿和多视图空间一致性。' rank={0}>
+
+![](https://pic.hana0721.top/depth-anything-3.2dpf65in2s.webp)
 
 Depth Anything 3 的定位不再只是 monocular depth，而是 arbitrary visual inputs 下的 spatially consistent geometry。输入可以是一张图、多视角图像集合或视频，也可以选择是否提供已知相机位姿；模型输出每个视角的 depth map 和 ray map，从而恢复统一 3D 空间。论文的核心主张是 minimal modeling：不需要 VGGT 那样预测相机、深度、point map、track 等多个冗余任务，一个 plain Transformer 加一个合适的 depth-ray target 就足够覆盖 depth、pose 和 geometry。
 
@@ -231,6 +253,8 @@ Depth-ray representation 是关键。每个像素不直接预测 point map，而
 
 <ArxivRating id='2501.12375' publication='CVPR2025' tldr='面向超长视频的时序一致深度估计，在 Depth Anything V2 基础上解决逐帧深度闪烁问题。' rank={0}>
 
+![](https://pic.hana0721.top/video-depth-anything.6m4mfz8w5d.webp)
+
 Video Depth Anything 的目标是把 Depth Anything V2 从单图相对深度扩展到 temporally consistent video depth。它关注的问题不是单帧预测是否足够强，而是逐帧独立推理会在视频中产生明显闪烁，并且普通短窗口视频模型很难推广到分钟级长视频。论文因此保留 Depth Anything V2 的强图像先验，把时序建模尽量做成轻量、可零样本迁移的增量模块。
 
 架构上，模型冻结 Depth Anything V2 encoder，把视频帧维度折叠进 batch 后提取单帧特征，再用一个基于 DPT 的 spatiotemporal head 做融合。时序 self-attention 只插在低分辨率特征层，避免在高分辨率 token 上做昂贵视频注意力；因此模型既能利用预训练单图深度能力，又能通过少量时序层吸收跨帧一致性。对长视频，推理采用 overlapping windows 和 key frames，把新窗口的深度预测对齐到已有窗口，从而把短时一致性延展到超长序列。
@@ -244,6 +268,8 @@ Video Depth Anything 的目标是把 Depth Anything V2 从单图相对深度扩�
 ## Metric3D V2
 
 <ArxivRating id='2404.15506' tldr='面向零样本 metric depth 和 surface normal 的单目几何基础模型，强调从单图恢复可度量 3D 结构。' rank={0}>
+
+![](https://pic.hana0721.top/metric3d-v2.2dpf65indl.webp)
 
 Metric3D V2 的核心定位是 monocular geometric foundation model：单张图同时预测 metric depth 和 surface normal，并希望在未知测试域上保持可度量尺度。它要解决的主要矛盾是，单目图像中的尺度不仅受场景影响，也强烈受相机内参、焦距和视场角影响；如果把来自不同相机的数据直接混合训练，模型容易学到数据集偏差，而不是稳定几何规律。
 
@@ -259,6 +285,8 @@ Metric3D V2 的核心定位是 monocular geometric foundation model：单张图�
 
 <ArxivRating id='2403.18913' publication='CVPR2024' tldr='直接从单张图像预测 metric 3D points 和相机表示，目标是跨域泛化的通用单目 metric depth。' rank={0}>
 
+![](https://pic.hana0721.top/unidepth.szo6olfyy.webp)
+
 UniDepth 的目标是 universal monocular metric depth：推理时不要求用户提供相机内参，却仍希望从单张图恢复 metric 3D structure。相比只预测 depth map 的方法，它更直接地把输出写成每个像素对应的 3D points，因此问题不只是“这个像素多远”，还包括“这条成像射线朝哪里”。这使它和 Metric3D V2 一样关注相机建模，但选择了更端到端的自提示路线。
 
 方法上，UniDepth 使用 pseudo-spherical output representation，把输出分解为 azimuth、elevation 和 log-depth。直观理解是，前两项描述像素射线方向，后一项描述沿射线的距离；这样能把 camera rays 与 depth 分离，减少把相机差异混进深度回归里的风险。论文还提出 dense camera representation，用每个像素的角度射线表示相机，并通过 spherical harmonic encoding 嵌入到网络中。
@@ -272,6 +300,8 @@ UniDepth 的目标是 universal monocular metric depth：推理时不要求用�
 ## MoGe
 
 <ArxivRating id='2410.19115' publication='CVPR2025' tldr='开放域单目几何估计模型，用 point map 表示和几何监督提升单图 3D 恢复的细节与泛化能力。' rank={0}>
+
+![](https://pic.hana0721.top/moge.b9mi3k2ld.webp)
 
 MoGe 关注 open-domain monocular geometry estimation，目标是从单张任意图像恢复稠密 3D point map，而不只是 depth map。它的出发点是，开放域单目图像通常缺少可靠全局尺度和位移监督，如果强行要求模型预测真实世界坐标，数据噪声和尺度歧义会很严重；但如果只预测相对深度，又会丢掉更完整的三维几何结构。
 
@@ -287,6 +317,8 @@ MoGe 关注 open-domain monocular geometry estimation，目标是从单张任意
 
 <ArxivRating id='2501.09898' publication='CVPR2025' tldr='零样本 stereo matching 基础模型，通过大规模合成数据和单目深度先验提升跨场景立体深度泛化。' rank={0}>
 
+![](https://pic.hana0721.top/foundation-stereo.7w7jmaqvss.webp)
+
 FoundationStereo 的目标是做 stereo matching foundation model，让双目视差模型具备更强 zero-shot generalization。传统 stereo 网络经常在 Scene Flow、KITTI 或 Middlebury 这类特定数据上表现很好，但换到反光、低纹理、遮挡、不同基线和不同相机参数的真实场景就会明显退化。论文从模型和数据两侧同时处理这个问题：一边引入单目基础模型先验，一边构造更覆盖真实难例的合成训练集。
 
 模型上，FoundationStereo 通过 Side-Tuning Adapter 利用冻结的 Depth Anything V2 特征，把强单目深度先验注入 stereo matching，而不是完全依赖双目匹配纹理。与此同时，它保留多层 CNN 高频特征来处理局部边缘和细节。核心匹配模块是 Attentive Hybrid Cost Filtering：先构建 hybrid cost volume，再结合 Axial-Planar Convolution 和 Disparity Transformer，在空间维度和视差维度同时过滤代价体，最后通过 GRU 迭代细化视差。
@@ -300,6 +332,8 @@ FoundationStereo 的目标是做 stereo matching foundation model，让双目视
 ## Florence-2
 
 <ArxivRating id='2311.06242' publication='CVPR2024' tldr='统一 prompt-based 视觉基础模型，用 FLD-5B 标注体系支持 caption、detection、segmentation、OCR 等多种任务。' rank={0}>
+
+![](https://pic.hana0721.top/florence-2.9rk4ex3bhi.webp)
 
 Florence-2 的目标是把多种视觉任务统一成 prompt-based sequence-to-sequence learning。用户给一张图和一个文本任务提示，模型用文本形式输出结果；caption、object detection、grounding、segmentation、OCR 等任务都被改写成“输入提示到输出序列”的翻译问题。这里的关键不是提出某个新检测头，而是设计一个能表达不同空间层级和语义粒度的统一接口。
 
@@ -315,6 +349,8 @@ Florence-2 的目标是把多种视觉任务统一成 prompt-based sequence-to-s
 
 <ArxivRating id='2401.17270' publication='CVPR2024' tldr='实时开放词表检测模型，在 YOLO 框架中加入视觉语言预训练，兼顾开放类别识别和推理速度。' rank={0}>
 
+![](https://pic.hana0721.top/yolo-world.26m7apwijy.webp)
+
 YOLO-World 的问题意识很清楚：开放词表检测通常依赖大型视觉语言检测器，语义强但速度慢；YOLO 系列速度快，却只能检测训练集中固定类别。论文的目标是把 YOLOv8 这类 one-stage detector 扩展成 efficient open-vocabulary detector，让用户能用文本类别或短语定义待检测目标，同时保留实时部署能力。
 
 方法上，YOLO-World 用 CLIP text encoder 编码类别词或名词短语，用 YOLO image encoder 提取多尺度图像特征，然后通过 RepVL-PAN 做视觉语言融合。RepVL-PAN 里包括 Text-guided CSPLayer 和 Image-Pooling Attention：前者把文本信息注入图像特征金字塔，后者让文本 embedding 结合图像上下文更新。检测头不再输出固定类别 logits，而是输出 object embeddings，并用 region-text contrastive learning 让 object embedding 与对应文本 embedding 对齐。
@@ -328,6 +364,8 @@ YOLO-World 的问题意识很清楚：开放词表检测通常依赖大型视觉
 ## Grounding DINO 1.5
 
 <ArxivRating id='2405.10300' tldr='Grounding DINO 的增强版本，继续推进开放集检测在性能和边缘部署上的能力。' rank={0}>
+
+![](https://pic.hana0721.top/grounding-dino-1-5.13mhzu0orr.webp)
 
 Grounding DINO 1.5 是 Grounding DINO 的工程化增强版本，核心目标是同时推进 stronger generalization 和 faster deployment。它仍沿用“把开放集检测改写成 phrase grounding”的路线，用语言提示定义目标类别或短语，再输出对应 boxes；但 1.5 不只做一个模型，而是提供 Pro 和 Edge 两个方向：Pro 追求更强泛化，Edge 面向边缘设备速度。
 
@@ -343,6 +381,8 @@ Edge 版本则从计算瓶颈下手。原 Grounding DINO 的 multi-scale feature
 
 <ArxivRating id='2205.06230' publication='ECCV2022' tldr='经典开放词表检测模型，直接用图文预训练 ViT 做文本条件目标定位，是后续 open-vocabulary detection 的重要基线。' rank={0}>
 
+![](https://pic.hana0721.top/owl-vit.4g57u7h96a.webp)
+
 OWL-ViT 是 open-vocabulary detection 里非常干净的一条基线：先用 CLIP/LiT 风格的 image-text contrastive pre-training 得到图像和文本编码器，再把预训练 ViT 直接改造成检测器。它的核心假设是，大规模图文预训练已经学到开放词表语义，只需要一个轻量检测适配过程，就能把 image-level 语义迁移到 object-level localization。
 
 架构上，OWL-ViT 去掉 ViT 的 token pooling，把每个 image token 都看作一个潜在 object query，并在这些 token 上接轻量 box prediction head 和 objectness/classification head。文本查询由 text encoder 编码成 query embeddings，图像 token 与文本 embedding 做相似度匹配，从而得到 text-conditioned detection。由于图像和文本分支没有复杂融合，模型也可以把 query image patch 编码成 embedding，用同一套检测头做 one-shot image-conditioned detection。
@@ -356,6 +396,8 @@ OWL-ViT 是 open-vocabulary detection 里非常干净的一条基线：先用 CL
 ## GLIP
 
 <ArxivRating id='2112.03857' publication='CVPR2022' tldr='将目标检测和短语 grounding 统一为 grounded language-image pre-training，是开放词表检测的高引用代表工作。' rank={0}>
+
+![](https://pic.hana0721.top/glip.3rbya6tq7h.webp)
 
 GLIP 是开放词表检测和 phrase grounding 走向统一预训练的代表工作。它的基本观点是：传统检测的类别标签可以看作文本短语，phrase grounding 的文本短语也可以看作开放类别检测目标；因此两者可以统一成 region-word alignment 问题。这样做的好处是，检测数据、grounding 数据和大规模图文数据都能进入同一个 object-level language-aware pre-training 框架。
 
@@ -371,6 +413,8 @@ GLIP 是开放词表检测和 phrase grounding 走向统一预训练的代表工
 
 <ArxivRating id='2304.06718' publication='NeurIPS2023' tldr='通用交互式分割模型，支持点、框、scribble、mask、文本等多模态提示，拓展了 SAM 式分割接口。' rank={0}>
 
+![](https://pic.hana0721.top/seem.45ie122152.webp)
+
 SEEM 的目标是做一个 universal image segmentation interface，而不是只做 class-agnostic interactive segmentation。它支持没有 prompt 时的 semantic / instance / panoptic segmentation，也支持文本、点、框、scribble、mask、参考图像区域等多种 prompt。和 SAM 相比，SEEM 更强调 semantic-awareness：不仅给出 mask，还希望在开放词表语义空间里给 mask 贴上标签。
 
 方法上，SEEM 使用通用 encoder-decoder 架构，但把 text prompts、visual prompts 和 memory prompts 都送入同一个 decoder 交互。visual prompt 是关键统一接口：点、框、scribble、polygon 或另一张图中的参考区域，都通过 Visual Sampler 从图像特征中采样成同一类 visual embeddings。这样模型不需要为每种输入单独设计 prompt encoder，也能把用户的非文本交互映射到统一空间。
@@ -385,6 +429,8 @@ SEEM 的目标是做一个 universal image segmentation interface，而不是只
 
 <ArxivRating id='2212.11270' publication='CVPR2023' tldr='统一 pixel、image 和 language 的解码框架，把开放词表分割、referring segmentation 和视觉语言生成放到同一解码器中。' rank={0}>
 
+![](https://pic.hana0721.top/x-decoder.3gp4h1eige.webp)
+
 X-Decoder 是 SEEM 的重要前置工作，核心目标是用一个 generalized decoder 同时输出 pixel-level segmentation 和 language tokens。它把 segmentation、referring segmentation、image-text retrieval、captioning、VQA 等任务放到同一框架里，重点不在 prompt 交互，而在建立一个共享的 pixel-level visual-semantic space，让像素级理解和语言级生成互相增强。
 
 模型采用 image encoder、text encoder 加 X-Decoder。decoder 接收两类 query：generic non-semantic latent queries 和由文本输入诱导的 semantic queries；输出也分成 pixel-level masks 和 token-level semantic embeddings。generic segmentation 主要用 latent queries 预测 mask，再和类别文本 embedding 做 mask-text matching；referring segmentation 则把 referring phrase 作为 text query 调制 mask 解码；retrieval 和 captioning 则利用同一语义空间做跨模态匹配或生成。
@@ -398,6 +444,8 @@ X-Decoder 是 SEEM 的重要前置工作，核心目标是用一个 generalized 
 ## Sapiens
 
 <ArxivRating id='2408.12569' publication='ECCV2024' tldr='面向人体视觉的基础模型族，覆盖 2D pose、part segmentation、depth 和 normal，突出高分辨率人类中心视觉能力。' rank={0}>
+
+![](https://pic.hana0721.top/sapiens.6po8dp20a8.webp)
 
 Sapiens 是面向 human-centric vision 的基础模型族，覆盖 2D pose estimation、body-part segmentation、depth estimation 和 surface normal prediction 四类任务。它的核心判断是：人体视觉任务需要高分辨率、细粒度解剖结构和跨场景泛化；与其用通用视觉模型硬迁移，不如在大规模人类图像上做 domain-specific pretraining，再用相对有限但高质量的任务标注微调。
 

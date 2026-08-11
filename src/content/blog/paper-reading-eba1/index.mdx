@@ -186,7 +186,45 @@ UVA使用了灵活目标的掩码训练方法，有助于防止模型对特定�
 
 ## Genie Envisioner
 
-<ArxivRating id='2508.05635' tldr='' rank={0}>
+<ArxivRating id='2508.05635' tldr='Genie Envisioner 以视频生成世界模型 GE-Base 为核心，统一构建了动作策略 GE-Act、神经模拟器 GE-Sim 与具身世界模型评测基准 EWMBench。' rank={0}>
+
+![](https://pic.hana0721.top/genie-envisioner-platform.1e9bszfyjq.webp)
+
+Genie Envisioner 并不是单独提出一个 VLA，而是尝试使用同一个视频生成世界模型统一 Policy Learning、Simulation 与 Evaluation。
+不同于 OpenVLA 等方法将视觉观测映射到以语言为中心的语义空间，Genie Envisioner 选择构建以视觉为中心的 Latent Space，尽可能保留机器人交互中的空间、时间以及运动细节。
+
+整个平台的核心是 GE-Base，一个由 Language 与 Multi-View Observation 引导的视频 Diffusion World Model。
+GE-Base 以初始观测、Language Instruction 以及从历史视频中稀疏采样的 Memory Frames 为 Condition，自回归地生成下一个 Multi-View Video Chunk。
+Sparse Memory 能让模型在不保留全部历史 Frame 的情况下捕获 Long-Horizon 依赖，而跨视角 Attention 则用于维持头部相机与左右腕部相机之间的空间一致性。
+具体实现上，GE-Base 可以建立在 LTX-Video 2B 或 COSMOS2 2B 上，并使用冻结的 T5-XXL 编码 Language Instruction。
+
+GE-Base 在 AgiBot-World-Beta 上进行预训练，这份数据包含约 100 万条真实双臂机器人轨迹，共计 2967 小时。
+训练分为两个阶段：首先在 3Hz 到 30Hz 随机采样的 57 帧视频上进行 Multi-Resolution Temporal Adaptation，使模型适应不同速度的机器人运动；随后使用固定 5Hz 的 9 帧视频进行 Low-Frequency Policy Alignment，使视觉 Latent 的时间粒度与下游控制对齐。
+
+![](https://pic.hana0721.top/genie-envisioner-ge-act.4ubnl2plio.webp)
+
+在 GE-Base 的基础上，GE-Act 添加了一个轻量的 160M Action DiT 分支。
+Action DiT 与 Video DiT 具有对应的 Block 深度，但使用更小的 Hidden Dimension，并通过 Cross-Attention 读取 Video DiT 的视觉 Latent。
+它从 Noise Action 出发，使用 Flow Matching 生成结构化的 Action Chunk，因此部署时不需要真的把未来视频解码出来。
+GE-Act 先在大规模机器人数据上冻结 GE-Base、只预训练 Action Module，再依次进行 Task-Specific Video Adaptation 与 Action Specialization。
+
+为了满足实时控制，GE-Act 还采用了 Slow-Fast Asynchronous Inference。
+Video DiT 只进行一次去噪，并将得到的视觉表示 Cache；Action DiT 则复用这些表示进行五次去噪。
+同时，Video DiT 以 5Hz 更新，Action Model 以 30Hz 输出控制信号，在 RTX 4090 上可以在 200ms 内生成 54 步 Action。
+
+GE-Act 不仅能在 AgiBot G1 上完成家务与工业任务，还能使用约 1 小时、250 条新平台示范迁移到 Agilex Cobot Magic 与 Dual Franka，并在 Cloth Folding、Box Folding 等精细操作上超过 $\pi_0$、GR00T N1 与 UniVLA。
+消融实验也说明，通用视频模型本身并不足以直接学习 Policy；使用机器人领域的 GE-Base 预训练后，模型的 Step-wise Success Rate 与 End-to-End Success Rate 才会显著提升。
+
+![](https://pic.hana0721.top/genie-envisioner-ge-sim.77ea2a3eqy.webp)
+
+GE-Sim 则把 GE-Base 改造成 Action-Conditioned Video Simulator。
+它一方面将 End-Effector Pose 投影到图像空间，提供显式的空间 Condition；另一方面将相邻动作的位姿变化编码为 Motion Token，并与参考图像的 Style Token 一起注入 Video DiT。
+Policy 输出 Action 后，GE-Sim 生成对应的视频结果，再将生成结果送回 Policy，便可以形成 Closed-Loop Rollout；配合集群并行后，每小时可以评估数千条 Episode。
+
+最后，EWMBench 从 Scene Consistency、Spatial/Temporal Alignment、Dynamic Consistency、Instruction Alignment 与行为多样性等维度评估具身视频世界模型。
+这点很重要，因为通用视频指标主要关心画面质量，并不能可靠反映机器人动作是否合理、是否完成了 Instruction。
+
+Genie Envisioner 的局限也比较明显：预训练数据全部来自 AgiBot-World-Beta，Embodiment 与数据来源仍然单一；实验集中在平行夹爪的上半身桌面操作，没有覆盖灵巧手和全身运动；EWMBench 仍依赖 Proxy Metric 与有限的人工验证，距离完全可靠的自动 Task Success Evaluation 还有距离。
 
 </ArxivRating>
 
@@ -279,13 +317,90 @@ InstructVLA 的训练分为两个阶段，第一个阶段是动作预训练，�
 
 ## DinoV3
 
-<ArxivRating id='2508.10104' tldr='' rank={0}>
+<ArxivRating id='2508.10104' tldr='DINOv3 通过大规模无监督训练与 Gram Anchoring，在不依赖人工标注的情况下同时获得了强大的全局语义特征和高质量稠密特征。' rank={0}>
+
+![](https://pic.hana0721.top/dinov3-gram-anchoring.102w247j52.webp)
+
+DINOv3 是 DINOv2 的大规模续作，目标是训练一个冻结后就能直接服务于 Classification、Segmentation、Depth、Tracking 与 3D Geometry 等任务的通用视觉 Backbone。
+它真正解决的难点不只是把模型扩大到 7B，而是如何在长时间自监督训练中同时保住 Global Feature 与 Dense Feature。
+
+在数据方面，DINOv3 从约 170 亿张公开 Instagram 图片构成的 Raw Pool 出发。
+作者一方面使用基于 DINOv2 Embedding 的分层 K-Means 与 Balanced Sampling 构造了 16.89 亿张图片的 LVD-1689M，另一方面使用下游数据作为 Seed 进行 Retrieval Curation，并混入 ImageNet 与 Mapillary 等公开数据。
+训练时还特意保留 10% 的 ImageNet-1k Homogeneous Batch，以兼顾数据多样性与高质量视觉概念。
+
+训练目标基本继承了 DINOv2，由 Image-Level 的 DINO Loss、Patch-Level 的 iBOT Loss 以及用于分散特征的 Distributed KoLeo Regularization 组成。
+主模型是 6.7B 参数的 ViT-7B，共 40 个 Transformer Block，Embedding Dimension 为 4096，Patch Size 为 16，并保留 4 个 Register Token。
+位置编码改为带 Box Jitter 的 RoPE，使输入坐标范围在训练中随机缩放，从而提高模型对 Resolution、Scale 与 Aspect Ratio 的鲁棒性。
+优化上去掉了 Cosine Schedule，Learning Rate、Weight Decay 与 Teacher EMA Momentum 在 Warmup 后保持不变，因此不必在训练前确定最终的 Optimization Horizon。
+
+DINOv3 最重要的 Insight 是发现：随着训练继续，ImageNet Classification 等 Global Metric 会持续变好，但 Segmentation 等 Dense Task 在约 20 万 Iteration 后反而开始退化。
+从 Patch Similarity Map 可以看到，后期模型会让大量无关 Patch 具有很高的相似度，Patch Feature 逐渐失去 Locality。
+这并不是 DINOv2 中 High-Norm Outlier 的同一个问题，即使加入 Register Token，长训时的 Patch-Level Consistency 仍然会崩坏。
+
+为了解决这个问题，作者提出了 Gram Anchoring。
+具体来说，将同一张图中所有 L2-Normalized Patch Feature 两两做内积，得到描述 Patch 关系的 Gram Matrix；然后让当前 Student 的 Gram Matrix 去匹配一个训练早期、Dense Feature 更干净的 Gram Teacher。
+这样只约束 Patch 之间的相对结构，而不会强迫 Student 逐点复制 Teacher Feature，因此 Global Representation 仍然可以继续学习。
+在 100 万 Iteration 后加入 Gram Loss，也可以很快修复已经明显退化的 Dense Feature。
+
+![](https://pic.hana0721.top/dinov3-dense-features.6bhsmttq1q.webp)
+
+作者还让 Gram Teacher 处理两倍分辨率的图像，再将 Feature Map 下采样到 Student 的尺寸。
+这种方式可以把高分辨率下更平滑、更局部一致的 Patch 关系蒸馏回 Student，在 ADE20k 上相比普通 Gram Anchoring 又提高约 2 mIoU。
+随后，DINOv3 使用 512/768 等混合分辨率进行短暂的 High-Resolution Post-Training，使模型在训练分辨率之外、甚至 4K 图像上仍能产生稳定的 Feature Map。
+
+为了便于实际部署，作者又把 ViT-7B 蒸馏为 ViT-S、ViT-B、ViT-L、ViT-H+ 等不同规模的模型，并提出 Multi-Student Distillation，让多个 Student 共享一次昂贵的 Teacher Forward。
+此外，DINOv3 也可以冻结视觉 Backbone，仅训练 Text Encoder 与顶部两层 Transformer，通过拼接 \[CLS\] 与 Mean-Pooled Patch Feature 完成 Image-Text Alignment，从而获得 Zero-Shot 能力。
+
+实验中大多数场景都冻结 DINOv3 主干，只训练线性层或轻量 Decoder。
+仅使用 Linear Probe，DINOv3-7B 在 ADE20k、Cityscapes 与 VOC 上分别达到 55.9、81.1 与 86.6 mIoU，同时在 NYUv2 与 KITTI 的单目深度估计上超过 DINOv2。
+它的 Dense Feature 还在 3D Correspondence、Unsupervised Object Discovery 与 Video Segmentation Tracking 上取得了最优结果；例如 DAVIS 的 $J\&F$ 达到 83.3，比 DINOv2 高 6.7。
+将它作为冻结 Backbone 接入 Plain-DETR、Mask2Former 或 Depth Anything，也能达到或刷新 Object Detection、Semantic Segmentation 与 Relative Depth 的 SOTA。
+对于 Embodied AI 来说，这种稳定的高分辨率局部特征、几何对应关系和 Sim-to-Real 能力，可能比单纯提高 Image Classification Accuracy 更有价值。
+
+DINOv3 的代价是非常高的训练成本：单次 ViT-7B 预训练约消耗 47MWh，论文估计整个项目约使用 900 万 GPU Hours，并产生约 2600 吨二氧化碳当量。
+纯视觉自监督对文字与 Glyph 的建模仍弱于 Image-Text Supervision；公平性评估中，低收入地区相对高收入地区仍有约 23% 的性能差距，欧洲与非洲之间也存在超过 14% 的差距。
 
 </ArxivRating>
 
 ## FiS-VLA
 
-<ArxivRating id='2506.01953' tldr='' rank={0}>
+<ArxivRating id='2506.01953' tldr='FiS-VLA 将快速执行的 System 1 直接嵌入负责慢速推理的 VLM，通过异步多模态输入与双目标协同训练兼顾控制频率和操作性能。' rank={0}>
+
+![](https://pic.hana0721.top/fis-vla-overview.5flb7dk1s1.webp)
+
+现有 PI-like VLA 通常将 VLM 作为 System 2，再外挂一个独立的 Diffusion Policy 作为 System 1。
+虽然 Action Expert 很轻量，但它没有经过 Internet-Scale Pre-Training，只能被动接收 VLM 提取出的 Feature，无法直接继承 VLM 内部的知识。
+FiS-VLA 的核心想法是 Fast-in-Slow：保留完整 VLM 负责慢速推理，同时把 VLM 最后的若干个 Transformer Block 复用为快速执行模块，让 System 1 本身也来自预训练模型。
+
+![](https://pic.hana0721.top/fis-vla-architecture.4cllwho7ub.webp)
+
+FiS-VLA 从 Prismatic VLM 初始化，视觉编码器同时使用 SigLIP 与 DINOv2，分别提取高层语义与局部空间特征。
+它还加入了轻量的 3D Tokenizer，通过 FPS、KNN 与 Linear Layer 将单目 Depth 恢复出的 Point Cloud 转为 Token，再复用同一个 Vision Encoder 映射到 LLM Space。
+LLM Backbone 是具有 32 个 Block 的 LLaMA2-7B；论文默认从中间层读取 System 2 的 Latent，并将最后少量 Block 作为 System 1。
+Robot State、Diffusion Timestep 与 Noised Action 则分别经过 MLP 投影为连续 Token。
+
+两个系统使用不同的输入与运行频率。
+System 2 低频读取 2D Image 与 Language Instruction，依靠完整 VLM 进行场景理解和上下文推理，并输出 Intermediate Latent。
+System 1 高频读取最新的 2D Image、3D Point Cloud 与 Robot State，再结合一段时间内复用的 System 2 Latent，通过 Diffusion 生成连续 Action Chunk。
+训练时使用 Asynchronous Sampling，让 System 1 学会在 System 2 尚未更新的情况下，仍然正确理解较早的高层 Condition。
+
+由于 System 1 与 System 2 共享模型参数，只训练 Diffusion Action Loss 会破坏 VLM 原有的自回归能力。
+因此 FiS-VLA 提出了 Dual-Aware Co-Training：$L_{fast}$ 使用 Diffusion Denoising Loss 学习连续动作，$L_{slow}$ 使用 Next-Token Prediction 继续监督 System 2 输出离散动作或 Language Plan，最终联合优化两个目标。
+这种设计既让 System 1 学会实时控制，也降低了 System 2 发生灾难性遗忘的风险。
+
+预训练数据来自 OXE、DROID 与 RoboMIND 等跨 Embodiment 数据集，过滤后包含超过 86 万条轨迹。
+预训练阶段由于缺少 Subgoal Annotation，System 2 先学习离散 Action Token；在下游微调中再加入人工标注并自动增强的 Sub-Task Plan，使它获得更明确的语言推理监督。
+
+在 RLBench 的 10 个任务上，FiS-VLA 的平均成功率为 69%，高于 CogACT 的 61% 与 $\pi_0$ 的 55%。
+Action Chunk 为 1 时，它在 RTX 4090 上达到 21.9Hz，分别高于 CogACT 的 9.8Hz 和 $\pi_0$ 的 13.8Hz；Action Chunk 为 8 时，控制频率可以达到 117.7Hz。
+在真实双臂任务中，FiS-VLA 在 Agilex 与 AlphaBot 上分别取得 68% 与 74% 的平均成功率，而 $\pi_0$ 分别为 59% 与 61%。
+面对 Unseen Object、复杂背景以及光照扰动时，FiS-VLA 的性能下降也普遍小于 $\pi_0$。
+
+消融实验比较有说服力：将两个 VLM Block 用于 System 1 后性能基本趋于饱和；Robot State、2D Image 与 3D Point Cloud 都会带来增益；System 2 与 System 1 的 1:4 更新比例在速度与性能之间最好。
+如果移除 $L_{slow}$，平均成功率会从 69% 降到 62%，说明保留慢系统的推理表示确实会反过来改善快系统的控制。
+
+FiS-VLA 目前仍然静态指定 System 1 共享多少个 Block，以及两个系统以什么频率协作。
+不同任务对推理深度与反应速度的需求并不相同，因此如何根据任务难度与环境变化动态调整共享参数和更新频率，是这套架构下一步需要解决的问题。
 
 </ArxivRating>
 

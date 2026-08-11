@@ -59,66 +59,195 @@ RL菜鸡开始进军Embodied AI，慢慢积累，提升自己。
 
 ## Scale Balanced Grasp
 
-<ArxivRating id='2212.05275' publication='CoRL2022' tldr='' rank={0}>
+<ArxivRating
+  id='2212.05275'
+  publication='CoRL2022'
+  tldr='用多尺度局部特征、尺度均衡损失、按物体采样和噪声-干净混合训练，补足 GraspNet 对小物体与小部件的 6-DoF 抓取能力。'
+  rank={0}
+>
 
+![](https://pic.hana0721.top/scale-balanced-grasp-overview-trimmed.491zytlqr7.webp)
+
+这篇工作针对 GraspNet-1Billion 中一个很实际但容易被平均指标掩盖的问题：抓取宽度的分布严重偏向中、大尺度，模型在大箱子上有很多候选，却很少为螺栓、叉子或瓶盖等小部件产生高质量抓取。小物体本身几何信息少，深度传感器的缺失和噪声相对更大，直接在所有点上均匀学习会进一步放大这种不平衡。实验使用 GraspNet 的 190 个杂乱场景和 256 个视角，并把夹爪宽度划成 0–4 cm、4–7 cm、7–10 cm 三个尺度段。
+
+方法由四个互补模块组成。Multi-scale Cylinder Grouping（MsCG）用多个不同半径的圆柱感受野聚合局部点，再以 MLP 和 max-pooling 融合局部与场景上下文，避免单一半径无法同时覆盖窄夹爪和宽夹爪。Scale Balanced Learning（SBL）按尺度出现频率给低频样本更大权重，论文给出的权重为 `Wi = 1 - log(Ci/Cmax)`，负样本仍取 1。Object Balanced Sampling（OBS）借助辅助的 3D 实例分割掩码，在每个物体内部单独做 FPS，并在推理时提高小物体的采样比例；Noisy-clean Mix（NcM）则把 CAD 生成的干净点云按实例混入真实噪声场景，保留遮挡和缺失区域，减小仿真到真实的差距。
+
+在 RealSense 测试中，加入碰撞检测（CD）的完整模型 seen/similar/novel AP 为 63.83/58.46/24.63，明显高于不做尺度处理的 27.56/26.11/10.55 基线。小尺度 seen AP 从 9.44 提升到 13.47，再加入 OBS 后达到 18.29；真实机器人抓取孤立小物体的成功率为 80%，杂乱场景为 88.24%，场景完成率为 96.77%。论文也提醒，复杂物体上的细小几何组件仍然容易失败，平放在桌面上的薄小物体可用抓取很少，后续可能需要更精密的深度传感器和更细的标注/数据清洗。
 </ArxivRating>
 
 ## EconomicGrasp
 
-<ArxivRating id='2407.08366' publication='ECCV2024' tldr='' rank={0}>
+<ArxivRating
+  id='2407.08366'
+  publication='ECCV2024'
+  tldr='只保留每个视角中最好的抓取并用 focal representation 建模属性，让 6-DoF 抓取从近百亿稠密标签转向低成本、易收敛的经济监督。'
+  rank={0}
+>
 
+![](https://pic.hana0721.top/economicgrasp-framework-trimmed.73uo4m0xmx.webp)
+
+EconomicGrasp 关注的不是再堆一个更大的检测器，而是 GraspNet-1Billion 的监督方式本身。原始标注为每个点提供 300 个视角、每个视角 12 个平面角和 4 个深度，标签文件约 55 GB，训练时一个 batch 需要加载近 1 亿个标签，既拖慢数据处理，也让优化很难收敛。作者分析发现，同一点附近的候选抓取常常只在视角上不一致：原始视角标签的标准差约 46.81，而角度和深度分别只有 3.18 与 0.81，说明稠密监督并不等于信息都同样有用。
+
+经济监督保留每个点的全部 300 个视角，但每个视角只选一个最优抓取，先离线构建场景级标签，并删除摩擦系数低于 0.8 或发生碰撞的候选。这样标签存储从 55 GB 降到 1.6 GB（不到原来的三十分之一），损失函数再用 selective matching mask 忽略输入点与标签点未匹配的部分。模型侧引入 focal representation：交互式抓取头先用全局注意力交换区域点信息，再在视角、平面角、深度、宽度和质量等属性之间做局部注意力；质量不是直接回归，而是把分数划成 `[0, .2, .4, .6, .8, 1]` 六个区间，分类后取期望得到连续分数。
+
+实验仍在 GraspNet 的 100 个训练场景和 90 个测试场景上进行，骨干是 14 层 Minkowski 3D U-Net，batch size 为 4，Adam 初始学习率 `1e-3`、余弦衰减，训练 10 个 epoch。Kinect/RealSense 的 mAP 为 44.62/51.63，略高于 GSNet 的 42.53/47.81；资源表中训练时间为 8.3 小时、主存 4.2 GB、GPU 占用 5.81 GB，而 GSNet 分别为 37.8 小时、35.4 GB 和 9.15 GB。Franka 加 RealSense 的六个真实场景中，成功率为 92.3%，失败次数为 36/7680。它的边界也很明确：结果依赖 GraspNet 和固定平行夹爪的标签定义，以及“每视角选一个最好抓取”的启发式；论文没有覆盖动态目标、目标导向操作或更广泛的夹爪形态。
 </ArxivRating>
 
 ## RNGNet
 
-<ArxivRating id='2406.01767' publication='CoRL2024' tldr='' rank={0}>
+<ArxivRating
+  id='2406.01767'
+  publication='CoRL2024'
+  tldr='先用热图定位局部区域，再把 RGB-D patch 归一化到 Normalized Grasp Space，以轻量门控网络在不同物体尺度和夹爪宽度下生成区域抓取。'
+  rank={0}
+>
 
+![](https://pic.hana0721.top/rngnet-framework-trimmed.1zizfc10fz.webp)
+
+RNGNet 认为，直接对整幅场景点云做全局特征提取会把大量无关背景和重复几何混在一起；已有局部方法又常依赖固定裁剪尺度，换物体尺寸或夹爪后就需要重新训练。论文因此采用单视角 RGB-D 的区域流程：先找“哪里可能抓”，再在局部区域内解决 6-DoF 姿态，而不是让一个网络同时解释整张场景。
+
+核心是 Normalized Grasp Space（NGS）。以热图中心深度 `zi` 为依据，令 patch 半径约为 `ri = wref * F / zi`，将 RGB-D 转为 RGB-XYZ 后按参考夹爪宽度 `wref` 做平移和尺度归一化：`P*i = (Pi - pi) / wref`。只保留中心附近 `0.1*wref` 半径内的抓取，并同步归一化平移和夹爪宽度。这样同一几何形状在不同图像位置具有平移不变性，对绕相机 z 轴旋转等变，并对物体/夹爪尺度更鲁棒；训练时还把感受野随机化到 `[wref/2, 2*wref]`，避免模型记住单一尺寸。
+
+网络由 Grasp Heatmap Model、深度自适应网格提取器和多阶段 gated CNN 组成。Point-wise Gate 用 XYZ 特征经过共享 MLP 生成通道门控，选择性放大与几何有关的滤波器；区域头用非均匀旋转锚点预测 `gamma/beta`，并以二维热图表示旋转、回归归一化宽度和中心偏移。模型仅约 3.66M 参数，在 GraspNet-1Billion 上训练，RTX 3060Ti/AMD 5600X 上一次前向约 17 ms。RealSense/Kinect 总 AP 为 58.06/52.24，seen 为 75.20/72.23，novel 为 32.38/26.05；加入碰撞检测后为 59.13/52.81。真实杂乱清空成功率 90%（54/60），交接 82.5%，传送带抓取 67.5%。局限是单视角仍受深度噪声影响，实验主要针对刚体和平行夹爪；作者也把多视角场景信息和面向指令的操作作为后续方向。
 </ArxivRating>
 
 ## AnyGrasp
 
-<ArxivRating id='2212.08333' publication='TRO2022' tldr='' rank={0}>
+<ArxivRating
+  id='2212.08333'
+  publication='TRO2022'
+  tldr='在 GSNet 式几何模块上加入稳定性与时序关联，让单次前向同时输出稠密 7-DoF 抓取，并能在低成本深度相机下跟踪动态目标。'
+  rank={0}
+>
 
+![](https://pic.hana0721.top/anygrasp-architecture-trimmed.7w7jmchjfp.webp)
+
+AnyGrasp 面向两个常被分开讨论的要求：静态场景要快速、密集且准确地给出可执行抓取，动态场景还要连续跟踪并预测抓取位姿。传统采样-评分方法需要逐个候选调用网络，速度慢且候选稀疏；许多动态方法又没有公开的时序训练数据。AnyGrasp 使用单视角部分点云，一次前向约 100 ms 生成稠密 7-DoF 抓取，再在后处理中做碰撞检查和夹爪居中。
+
+几何处理模块基于 GSNet：先预测点的 objectness 和 graspable probability，用 Graspable FPS 选出 `M=1024` 个种子，再用 Graspable PVS 从 300 个候选视角中选高质量视角。沿视角做 cylinder grouping，以 12 个平面旋转和 5 个深度（额外加入 0.5 cm）预测得分与宽度。为减少“能夹住但提起会滑”的情况，作者定义 stable/COG score：假设物体密度均匀，计算夹爪平面到物体质心的归一化垂直距离，并用 `new score = original * (1 - stable)` 调整原始质量。
+
+时序关联模块从种子、抓取、RGB 特征和位姿构造 `M×C`（`C=256`）表示，在相邻帧间用余弦相似度和监督式对比损失寻找同一抓取；在物体坐标系中度量关联距离，并用 temporal buffer 保留历史位姿、预测下一步运动和动量。训练优先使用真实感知数据：GraspNet 场景之外增加 168 个场景和 104 个新物体，并补充密集标签。静态实验超过 300 个未见物体，尝试级成功率 93.3%、物体级 99.8%，单台 UR5 平均每小时超过 900 次抓取；动态“抓鱼”成功率 75.5%，系统约 7 Hz，D435 深度噪声达到 ±5 mm 时仍能工作。边界在于质心的均匀密度假设、单视角和固定平行夹爪；动态失败主要来自水中低摩擦、动量过时和相似目标的关联切换。
 </ArxivRating>
 
 ## GSNet
 
-<ArxivRating id='2406.11142' publication='ICCV2021' tldr='' rank={0}>
+<ArxivRating
+  id='2406.11142'
+  publication='ICCV2021'
+  tldr='先学习每个点“有多少抓取机会”的 graspness，再只在高价值点和视角上做姿态回归，避免把大部分算力浪费在不可抓区域。'
+  rank={0}
+>
 
+![](https://pic.hana0721.top/gsnet-architecture-trimmed.6m4mg0zk7i.webp)
+
+GSNet 把 6-DoF 抓取拆成“在哪里抓”和“如何抓”两个阶段。GraspNet 场景中真正可抓的点不到 10%，均匀采样会让网络花大量时间处理桌面、遮挡缝隙和不可达区域；如果只在最后回归姿态，网络又缺少显式的场景级筛选信号。论文通过对候选视角、平面角和深度做 look-ahead 搜索，用可行抓取的比例定义 point/view graspness，得到一个可学习的“抓取性地形”。
+
+模型的 cascaded graspness model 先用点编码器-解码器输出每个点的 graspable landscape，Graspable FPS 从高 graspness 区域选 `M=1024` 个种子；随后 Graspable PVS 依据预测概率在 Fibonacci sphere 的 300 个视角中采样/选择。第二阶段的 grasp operation model 对每个种子做 cylinder grouping 和 PointNet 局部聚合，预测 `A×D=12×4=48` 个视角-深度组合的抓取分数与夹爪宽度，并联合优化点级、视角级和操作级损失。
+
+训练使用 GraspNet-1Billion 的 190 个场景、256 视角，体素大小为 0.005 m，Adam、batch size 4、10 个 epoch，并在推理时可接碰撞检测。RealSense 的 seen/similar/novel AP 为 65.70/53.75/23.98，Kinect 为 61.19/47.39/19.01；加入碰撞检测后分别达到 67.12/54.81/24.31 和 63.50/49.18/19.78。推理约 0.10 s（CGM 0.08 s、GOM 0.02 s），相对早期基线 AP 近乎翻倍，真实 UR5+D435 杂乱抓取约 91.3%。代价是低 graspness 区域会被主动舍弃，抓取多样性依赖解析标签和既定质量指标；透明物体、严重缺失深度和非平行夹爪场景仍未充分覆盖。
 </ArxivRating>
 
 ## HGGD
 
-<ArxivRating id='2403.18546' tldr='' rank={0}>
+<ArxivRating
+  id='2403.18546'
+  tldr='用 2D RGB-D grasp heatmap 先定位高质量区域，再在局部点云中以非均匀锚点生成多抓取，获得较少标签和实时推理下的高质量 6-DoF 抓取。'
+  rank={0}
+>
 
+![](https://pic.hana0721.top/hggd-framework-trimmed.4jotrz0z95.webp)
+
+HGGD 观察到，很多点云抓取方法把整幅场景送入 3D 网络，却没有充分利用图像平面上很便宜的热图先验；相反，单纯从候选数据库投影抓取又难以覆盖新物体。它把任务拆成 Grasp Heatmap Model（GHM）和 Non-uniform Multi-Grasp Generator（NMG）：前者回答“哪些像素区域值得看”，后者只在这些区域聚合局部几何并输出多个 6-DoF 抓取。
+
+GHM 是输入 `640×360` RGB-D 的 ResNet-34 编解码器，输出高斯编码的置信热图 `Qc`，以及以 `r=8` 网格和 `ka=6` 定向锚点表示的角度、宽度、深度属性热图。NMG 取训练时 top-k 的 128 个、推理时 32/48 个热图中心，把中心按深度反投影到点云，以预测宽度决定 ball-query 半径，再做 FPS 保留最多 512 个局部点。语义特征和点特征融合后送入 PointNet；对 `beta/gamma` 使用非均匀锚点平移，并令 `kr=7` 的多标签组合最多产生 49 个抓取，同时回归中心偏移。
+
+训练在 GraspNet 外还使用 TS-ACRONYM：300 个 ShapeNetSem 物体、500 个场景、每场景 50 个视角，每场景约 500 个抓取，标签量约为 GraspNet 的 2%。论文报告单张 RTX 3090 约 4 小时即可训练。TS-ACRONYM 上 HGGD 的 CR/CFR/AS 为 0.503/98.2%/0.686，推理 28 ms；GraspNet RealSense/Kinect 的 seen/similar/novel AP 为 64.45/53.59/24.59 和 61.17/47.02/19.37，约 36 ms。UR5e+D435i 的 20 个日用品实验成功率 94%（62/66），7 个场景全部完成；透明玻璃因深度失真失败，说明热图并不能替代可靠的传感器几何。模型还受合成/真实域差异和固定平行夹爪设定限制。
 </ArxivRating>
 
 ## FlexLoG
 
-<ArxivRating id='2403.15054' tldr='' rank={0}>
+<ArxivRating
+  id='2403.15054'
+  tldr='把全局热图、graspness、目标检测、分割或点击统一成 guidance，只在局部规范坐标中用轻量 LoG 预测物体无关的高质量抓取。'
+  rank={0}
+>
 
+![](https://pic.hana0721.top/flexlog-framework-trimmed.32ioq7wunx.webp)
+
+FlexLoG 试图解决 scene-level 抓取和 target-oriented 抓取之间的割裂。只看全局点云时，网络容易被无关物体干扰；只为某个目标设计的模型又难以复用到热图、检测框、分割掩码或用户点击等不同入口。论文因此把“从哪里取局部区域”和“局部区域里如何生成抓取”分开，形成可插拔的 Flexible Guidance Module（FGM）和 Local Grasp Model（LoG）。
+
+FGM 接收全局 grasp heatmap/graspness，或局部目标检测、实例分割、点击和 affordance guidance，先选中心，再用 ball query 与 FPS 提取局部点。LoG 只看规范化的局部 XYZ，不依赖类别语义：PointMLP 编码器后，Collision Head 预测夹爪宽度相关碰撞，Orientation Head 先用 6 个 `theta` bin 加残差，再用 `7×7` 非均匀锚点预测 `beta/gamma`（最多 49 个姿态），Offset Head 回归三维中心修正。最终抓取表示为 `(Δx, Δy, Δz, θ, γ, β, w)`，把场景坐标中的尺度、位置和物体类别影响尽量消掉。
+
+作者从 GraspNet 生成约 650 万个 regional grasp-centric 样本，每个区域保留中心 2 cm 内的标签，默认每场景采样 48 个中心、每区域 512 点。热图 guidance 下 RealSense/Kinect 的 seen/similar/novel AP 为 72.81/65.21/30.04 和 69.44/59.01/23.67，平均 56.02/50.67，速度约 26 FPS；相对 Graspness 方法约快 2.6 倍，mAP 提高约 15%。目标导向评测中 LoG mean TOAP 为 39.25/33.36，接近 TOGNet 的 40.73/36.40。UR5e+D435i 在杂乱、随机摆放和 click-and-grasp 三种设置总成功率 95%（140/148），18 个场景全部完成。局限是仅用点云，透明/反光表面的深度缺失会导致低质量姿态，真实失败还包括光滑表面滑落和杂乱中的夹爪碰撞；作者计划加入更强的语义信息。
 </ArxivRating>
 
 ## GraNet
 
-<ArxivRating id='2312.03345' publication='IROS2023' tldr='' rank={0}>
+<ArxivRating
+  id='2312.03345'
+  publication='IROS2023'
+  tldr='用多层、多跳的场景图学习点之间的空间关系，再以物体前景、价值点筛选和局部抓取生成逐级缩小搜索空间。'
+  rank={0}
+>
 
+![](https://pic.hana0721.top/granet-framework-trimmed.2yz2si3s3s.webp)
+
+GraNet 认为，均匀采样和 PointNet++ 的局部层级池化都没有充分利用“哪些点彼此相关、哪些点对抓取更有价值”。在杂乱场景里，遮挡边界、同一物体的远距离表面和邻近物体之间的关系会直接影响抓取姿态。GraNet 只用 XYZ，不依赖纹理，端到端地把场景点云转成多层图，再逐步筛出最值得操作的点。
+
+Graph Feature Embedding（GFE）先对 `N=12000` 个点建立 `k=32` 的 KNN 场景图，用 SIGN 风格的扁平多跳图卷积传播 `p=4` 跳信息，并通过局部 hop/channel attention 和全局池化融合多尺度特征，同时加入位置编码。Grasp Point Selection（GPS）先做 OPS 前景/物体表面二分类，在 FPS 得到 `Nobj=2048` 个对象点后重建对象图；再由 VPS 依据每个点的平均标注抓取分数估计 Degree of Value，分成 10 个等级，取最高价值的 `Nval=512` 个点。最后 GPG 对预定义接近方向做分类，在局部圆柱中回归平面旋转、深度和宽度，不再额外堆第二个分割器。
+
+GraNet 只使用 GraspNet-1Billion 约 30% 的训练数据，在一张 10 GB RTX 3080 上以 batch size 2、Adam 训练 10 个 epoch，学习率从 `1e-3` 在第 8 个 epoch 后降到 `5e-4`。RealSense 的 seen/similar/novel 平均 AP 为 43.33/39.98/14.90，Kinect 为 41.48/35.29/11.57；相对 Li/TransGrasp 等基线，seen 和 similar split 分别有明显提升。PhoXi + UR5 的四个新物体杂乱场景中，平均成功率 84.2%，场景完成率 93.75%。代价是 KNN、多跳图和任务相关价值标签带来预处理与计算开销，真实机器人只覆盖少量场景，物体缺失、强噪声、动态目标和更大规模部署仍缺乏系统评估。
 </ArxivRating>
 
 ## TransGrasp
 
-<ArxivRating id='https://ieeexplore.ieee.org/document/9812001' publication='ICRA2022' tldr='' rank={0}>
+<ArxivRating
+  id='https://ieeexplore.ieee.org/document/9812001'
+  publication='ICRA2022'
+  tldr='用分层、多尺度点 Transformer 建模远距离几何关系，让单阶段网络直接预测 7-DoF 平行夹爪抓取姿态。'
+  rank={0}
+>
 
+![](https://pic.hana0721.top/transgrasp-overview.7lkptcwosb.webp)
+
+这篇 IEEE 论文针对 PointNet++ 式层级点网络的一个盲区：局部邻域很容易提取，但相距较远、却共同决定轮廓和碰撞的点之间缺少非局部交互。TransGrasp 以单阶段的 hierarchical point transformer 为核心，在整幅场景中建立多尺度形状感知，并用长距离相关性帮助网络理解细长结构、轮廓和夹爪避障。输出是 7-DoF 平行夹爪抓取（位置、旋转和宽度），属于 GraspNet-1Billion 的稀疏候选预测路线。
+
+从公开摘要和后续论文的对比描述来看，模型先在多个尺度构建局部点邻域，再用 Transformer 自注意力交换跨区域的几何特征；高层特征回流到细粒度点，最终由抓取头同时给出姿态与夹爪宽度。与只在局部圆柱内评分的方法相比，长距离注意力可以把同一物体的远端表面联系起来，也能在预测时显式感知潜在碰撞。由于原始 IEEE 版本没有公开完整实现和层数/损失细节，下面只保留可由摘要和公开实验确认的结构，不把未核实的模块名当成论文事实。
+
+在 GraspNet-1Billion 上，RealSense 的 seen/similar/novel AP 约为 39.81/29.32/13.83，平均 27.65；Kinect 约为 35.97/29.71/11.41，平均 25.70。EconomicGrasp 的资源对比表记录其训练约 41.2 小时、主存 4.8 GB、GPU 约 7.61 GB，Kinect/RealSense mAP 约 25.69/29.48。作者还在 ABB YuMi、Azure Kinect DK 和 ABB 双指夹爪上做了单物体与杂乱场景实验，说明点 Transformer 的全局关系建模能转化为较高的真实抓取成功率。实验边界是单视角、固定平行夹爪和静态 GraspNet 分布；论文闭源版本也使复现实验和精确的失败模式分析不如 arXiv 工作充分。
 </ArxivRating>
 
 ## S4G
 
-<ArxivRating id='1910.14218' publication='CoRL2019' tldr='' rank={0}>
+<ArxivRating
+  id='1910.14218'
+  publication='CoRL2019'
+  tldr='用物理仿真生成带接触质量的杂乱场景数据，再让 PointNet++ 对单视角点云逐点回归一个 SE(3) 抓取，兼顾遮挡、碰撞与姿态扰动鲁棒性。'
+  rank={0}
+>
 
+![](https://pic.hana0721.top/s4g-pipeline-trimmed.41ys3dzm2j.webp)
+
+S4G 处理的是单个廉价深度相机看到的“残缺世界”：点云只有一个视角，物体类别未知，遮挡和深度噪声会让传统 3/4-DoF 平面抓取无法绕开障碍。论文提出 Amodal Single-view Single-shot SE(3) Grasp Detection，直接为输入点云中的每个点预测一个 6-DoF 位姿和质量，不依赖先分割物体或逐候选调用评分器。
+
+为了获得足够可靠的标签，作者用 123 个 YCB 物体在 MuJoCo 中通过 V-HACD 分解碰撞网格，物理投放到桌面并让场景达到平衡，再用光线追踪生成单视角点云。深度加入 `D~ = (1 + N(0, 0.003^2))D` 噪声，并显式建模夹爪接触：两侧接触点用 `cos alpha1 cos alpha2` 计算抗摩擦质量，法线在夹爪有效半径 23 mm 内平滑，排除法线位移超过 3 mm 的邻点，同时检查占用、碰撞和姿态扰动鲁棒性，最后取多项指标的最小值作为监督。
+
+网络是单次前向的 PointNet++ 分割式架构，用连续 6D 旋转表示和对称性感知旋转损失，逐点输出一组抓取，再用 NMS 与加权随机采样保留候选。训练 100 个 epoch，Adam 初始学习率 `1e-3`，每 20 个 epoch 减半，输入 25,600 点。约 6000 个模拟场景（约 260 万抓取）中，近垂直方向只有 63.38% 的物体可抓，显示 SE(3) 搜索的必要性；噪声仿真抗摩擦分数为 0.7354、无碰撞率 53.32%。Kinova MOVO/Jaco2 加 KinectV2 的 30 个未见物体实验成功率 77.1%，场景完成率 92.5%，处理约 5.8 s、网络推理 12.6 ms。局限是仿真到真实仍有域差距，接触模型含启发式与均匀密度假设，单视角和固定平行夹爪对薄壁、非凸、深度缺失物体仍敏感。
 </ArxivRating>
 
 ## GtG 2.0
 
-<ArxivRating id='2505.02664' tldr='' rank={0}>
+<ArxivRating
+  id='2505.02664'
+  tldr='GtG 2.0 先用 Darboux frame 生成 7-DoF 候选，再在夹爪内外局部点图上用五个轻量 GNN 集成评分，提升真实杂乱抓取的精度与泛化。'
+  rank={0}
+>
 
+![](https://pic.hana0721.top/gtg2-overview-trimmed.4cllwjeuae.webp)
+
+GtG 2.0 是对 GtG 1.0 的一次现实化改造。旧版本假定点云完整、无噪声，随机生成 4-DoF 候选并在整场景图上评分；真实深度相机下，候选生成和全局图都会成为瓶颈。新版本把任务拆成“候选生成”和“候选质量评分”两阶段：前者尽量保留召回率，后者只在每个夹爪附近做精细几何判断。
+
+第一阶段的 GPG 从原始点云和 Navier–Stokes 深度补全点云中用 Darboux frame 生成 7-DoF 候选，关闭异常点剔除，合并两套候选后按 5 mm/1° 做 NMS。第二阶段对每个候选提取夹爪两指之间的 inside 点和外部 context 点，各用 FPS 最多保留 70 个，并把坐标变换到夹爪局部坐标系。每个节点只有 5 维特征 `[x,y,z, inside/outside one-hot]`，最多 140 个节点，以 `k=5` 的 kNN 建图；Position/Label encoder 后接 3 层 SAGEConv、逐元素变换、global max-pooling 和 MLP 输出质量分数。
+
+模型由 5 个独立训练的 GNN 组成，平均预测作为集成结果，总参数约 0.57M（单模型约 0.11M）。训练标签重新根据 GraspNet 几何检查修正：碰撞为 `-1`，高摩擦但不可执行为 `-0.5`，可行质量归一化到 `[0,1]`；每 10 个 epoch 动态重采样所有可行样本、5 万碰撞负样本和 5 万低质量负样本，Adam、学习率 `0.01`、MSE 训练 500 epoch。GraspNet hypothesis-and-test 的 RealSense/Kinect 平均 AP 为 53.42/47.00，明显高于同类轻量 GNN；inside-only、inside+outside、ensemble 的子集 AP 依次为 45.29、48.57、53.69。Kinect v1 加 Delta 机械臂的 9 个家居物体、5 个杂乱场景中成功 30/33（91%），场景完成率 100%。论文明确承认 novel split 仍落后 seen，GPG 产生大量低质量候选；更强候选生成、未见物体泛化和端到端单阶段模型是后续方向。
 </ArxivRating>

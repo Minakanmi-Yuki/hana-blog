@@ -21,42 +21,105 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 ## LMFusion
 
-<ArxivRating id='2412.15188' tldr='' rank={0}>
+<ArxivRating id='2412.15188' tldr='冻结 Llama-3 的文本分支，只训练新增的图像分支，用深层模态分离把 Transfusion 式连续图像扩散接入预训练语言模型。' rank={0}>
 
+![](https://pic.hana0721.top/lmfusion-overview.8dxlavsbqt.webp)
+
+LMFusion 针对统一理解与生成模型常见的训练矛盾：如果把一个已经学完海量文本的 Llama-3 直接用多模态数据微调，语言能力会发生灾难性遗忘；如果只把学习率调小，又会压制视觉能力。论文的出发点是尽量复用 Llama-3 的语言知识，同时把视觉训练限制在独立的参数子空间中。
+
+模型从 Llama-3 8B 初始化两套并行 Transformer 参数。文本和图像分别拥有独立的 QKV/O 投影、FFN 与归一化参数，但在注意力中拼接两种模态的 Q/K/V，因此跨模态信息仍能交换；文本 token 使用因果掩码，图像 token 使用双向掩码。图像由冻结 VAE 编为 `32×32×8` latent，再经 U-Net 下采样成 256 个 token，输出端用 U-Net 上采样器完成 Transfusion 式 DDPM 噪声预测；文本头优化交叉熵，图像路径优化扩散损失。主设置把文本分支学习率设为 0，仅更新图像分支和约 0.27B 参数的 U-Net。
+
+训练使用 3.8 亿 Shutterstock 图文对，统一到 `256×256`，并以 80%“文本在前、图像在后”和 20%反向顺序混合。与 Transfusion 相比，LMFusion 的半 FLOPs 配置不再额外消耗纯文本语料；虽然参数总量约为其两倍，但每个 token 只激活对应模态的一半参数。这个设计把“保持语言能力”和“让视觉模块学习”从同一组权重的竞争，改成了结构上的隔离与有限交互。
+
+在半 FLOPs 对比中，LMFusion 的 MS-COCO caption CIDEr 为 38.3（Transfusion 为 32.0），无 CFG 的 FID 为 13.9（14.4）；在扩展的 LLaVAFusion 实验中，MMMU 为 41.7、MME-P 为 1603.7。消融显示同时分离注意力投影和 FFN 的 deep separation 明显优于只分离 FFN 或完全共享参数。边界也很清楚：主实验只生成 `256×256` 图像，理解评估主要是 COCO caption 而非广泛 VQA，模型的两倍参数会增加存储成本；有 CFG 时生成优势基本与 Transfusion 持平，图像编辑也只有小规模定性验证。
 </ArxivRating>
 
 ## UniToken
 
-<ArxivRating id='2504.04423' publication='CVPR2025' tldr='' rank={0}>
+<ArxivRating id='2504.04423' publication='CVPR2025' tldr='用 SigLIP 连续语义特征与 VQ-GAN 离散细节 token 组成统一视觉序列，让同一个 Chameleon 式自回归模型同时做图像理解和生成。' rank={0}>
 
+![](https://pic.hana0721.top/unitoken-framework.2rvux0r110.webp)
+
+UniToken 试图解决两种统一视觉编码各自的短板。纯离散 token 经过量化后丢失语义，理解任务吸收视觉知识的效率较低；理解与生成各用一套编码器虽然有效，却需要在任务之间切换模式和预测头。论文因此让同一张图同时提供高层语义和低层细节，并让任务类型不再决定输入编码方式。
+
+具体做法是采用 SigLIP-SO400M 提取连续视觉特征，经两层 MLP 对齐到 LLM 空间；同时沿用 Chameleon 的 VQ-GAN tokenizer，把图像变成码本大小 16,384、下采样率 16 的离散 ID，并用 LLM 词表查询对应 embedding。序列写成 `[BOS][BOI]{image_d}[SEP]{image_c}[EOI]{text}[EOS]`，同一个 Chameleon-7B/Lumina-mGPT 初始化的 LLM 和统一预测头负责两种输出：理解只在答案文本 token 上算交叉熵，生成只在离散图像 token 上算交叉熵。为强化细粒度理解，SigLIP 使用网格切分支持最高 `768×768` 输入，并以较小的 `1e-5` 学习率端到端微调，避免 ViT 崩溃。
+
+训练分三阶段：Stage I 冻结 LLM，只用 250 万图像描述对齐 SigLIP 与 adapter；Stage II 解冻全部参数，混合约 1000 万理解数据和 1000 万 MidJourney 文生图数据；Stage III 再用 423K 高质量多轮对话和 100K 物体控制文生图样本做指令强化。论文的关键消融是任务干扰：纯离散 Chameleon 在理解与生成联合训练后 GenEval 从 51.2 降到 31.1，而 UniToken 仅从 51.1 降到 49.4；大规模训练时理解/生成数据约 1:1 也比 2:1 稳定。
+
+Stage III 的 GenEval 总分为 0.63，MMBench-EN 为 71.1、OCRBench 为 757，说明统一编码对 OCR 和多模态理解有明显帮助；但生成仍落后于 SD3、DALL-E 3 等扩散模型，在 Positions 和 Color Attribution 上尤其弱。论文还报告了能力权衡：OCR/指令强化后 MMMU、MathVista 等通用推理指标会下降，且 MidJourney 的 1000 万生成样本并非公开可复现实验数据；模型在问答中仍会出现幻觉，较大 ViT 学习率也容易训练崩溃。
 </ArxivRating>
 
 ## VARGPT
 
-<ArxivRating id='2501.12327' tldr='' rank={0}>
+<ArxivRating id='2501.12327' tldr='在一个 MLLM 内把视觉理解的 next-token prediction 与图像生成的 next-scale prediction 结合起来，并通过三阶段指令训练支持文字和图像交错输出。' rank={0}>
 
+![](https://pic.hana0721.top/vargpt-overview.1vzdhkhclv.webp)
+
+VARGPT 关注统一模型中两种视觉任务的建模范式差异：理解适合让语言模型逐 token 生成答案，生成则更适合按多尺度视觉 token 逐级预测。作者以 LLaVA-1.5-7B 为骨干，加入独立的视觉 decoder 和两组视觉特征投影器，在同一个因果语言模型中用 next-token 做理解、用 next-scale 做图像生成，并用特殊 token 在对话中切换两条路径。
+
+理解路径使用 CLIP ViT-L/14 和两层 projector，将图像特征映射到 Vicuna-7B 的输入空间；生成路径沿用 VAR 的多尺度 VQ tokenizer，LLM 生成每一层视觉特征后交给约 2B 参数、30 层的视觉 decoder，再由 VQ-VAE decoder 还原图像。文本 decoder 始终采用 causal attention，视觉 decoder 采用 block-causal attention；`<image_gen_start>`、`<image_gen>`、`<image_gen_end>` 标记图像生成区间，并以 classifier-free guidance 改善采样。
+
+训练由三阶段组成：Stage 1 用 128 万 ImageNet 指令对只训练生成投影器，先对齐文本和视觉生成空间；Stage 2 解冻 LLM、理解 projector，并混合 LLaVA-1.5 的 665K、LLaVA-OneVision 抽样的 508K 以及少量 ImageNet-Instruct 数据，强化多轮视觉理解；Stage 3 冻结其他部分、训练视觉 decoder 和生成投影器，用 140 万图像生成指令对提升 instruction-to-image。三阶段合计约 386 万样本，训练时同时保留理解和生成格式。
+
+在零样本多模态评测中，VARGPT 的 MMBench 为 67.6、SEEDBench 为 67.9、MMMU 为 36.44，GQA 为 62.3、SciQA-img 为 80.1；生成消融中完整三阶段达到 FID 12.6、CLIP 27.4。它还能在一轮对话里连续输出解释文字和图像，但生成数据主要来自 ImageNet，规模与质量都低于扩散模型常用语料，因此生成质量和细节仍受限；当前输出固定为 `256×256`，复杂指令中的细粒度属性也常不能完整呈现。
 </ArxivRating>
 
 ## Janus-Pro
 
-<ArxivRating id='2501.17811' tldr='' rank={0}>
+<ArxivRating id='2501.17811' tldr='Janus 的扩展版：保留理解/生成视觉编码解耦，同时扩大模型与数据、重做训练配比，让 7B 模型的多模态理解和文生图指令跟随同步提升。' rank={0}>
 
+![](https://pic.hana0721.top/janus-pro-architecture-trimmed.5c1p9nqzqf.webp)
+
+Janus-Pro 的核心仍是 Janus 提出的“解耦视觉编码”。同一套视觉表示很难同时满足理解所需的高层语义和生成所需的低层细节，因此模型不强行共享编码器，而是让两条路径在统一自回归 Transformer 中汇合。Pro 版本主要从训练策略、数据规模和语言模型规模三方面修补 Janus 在短 prompt 生成不稳定、画面细节不足的问题。
+
+理解路径用 SigLIP-L/16-384 提取语义特征，展平后经 understanding adaptor 接入 LLM；生成路径用 VQ tokenizer 得到离散 ID，经 generation adaptor 映射到同一输入空间，并额外使用图像预测头自回归预测视觉 token。两类 token 可以在一个序列中交错，文本由语言头预测，图像由生成头预测。Janus-Pro 提供 1B 和 7B 两种规模，基座是 1.5B/7B 的 DeepSeek-LLM，图像分辨率统一为 `384×384`。
+
+训练上，作者延长 Stage I 以充分学习 ImageNet 的像素依赖，Stage II 去掉低效的 ImageNet 子阶段，直接使用普通密集描述的文生图数据；Stage III 将多模态理解、纯文本和文生图数据比例从 7:3:10 调为 5:1:4。数据方面新增约 9000 万理解样本（包括图像描述、表格、图表和文档），并加入约 7200 万合成审美数据，使真实/合成生成数据约为 1:1；同时把 LLM 扩展到 7B 验证方法的可缩放性。
+
+Janus-Pro-7B 在 MMBench 达到 79.2，MMMU 41.0、MME-Perception 1567.1、MM-Vet 50.0；GenEval 总分 0.80、DPG-Bench 84.19，短 prompt 的稳定性和简单文字生成也明显改善。代价是输入仍限制在 `384×384`，细粒度 OCR 受分辨率影响；生成图像还会受到 VQ tokenizer 重建损失影响，小脸等小区域缺少细节。模型因此是统一能力的强基线，但并未消除高分辨率生成与精细文字理解的瓶颈。
 </ArxivRating>
 
 ## BLIP3-o
 
-<ArxivRating id='2505.09568' tldr='' rank={0}>
+<ArxivRating id='2505.09568' tldr='系统比较 VAE/CLIP 表示、MSE/Flow Matching 和联合/顺序训练后，选择 CLIP 特征加 Flow Matching、冻结理解骨干，构建开放的 BLIP3-o 统一模型。' rank={0}>
 
+![](https://pic.hana0721.top/blip3o-architecture.3gp4h1ek5a.webp)
+
+BLIP3-o 把统一模型的关键问题拆成三个可控轴：图像应该编码成低层 VAE latent 还是高层 CLIP feature，连续表示用 MSE 还是 Flow Matching 学习，以及理解与生成应联合训练还是顺序训练。论文发现 CLIP feature 更紧凑、训练更快，Flow Matching 能保留连续分布的随机性，而先训练理解再冻结自回归骨干、单独训练生成模块，最容易兼顾两种能力。
+
+模型以冻结的 Qwen2.5-VL-7B（另有完全开源数据训练的 4B 版本）为理解骨干。文本经过 Qwen2.5-VL，autoregressive backbone 先输出一组 learnable query 形成中间视觉特征；随后一个约 1.4B 参数的 Lumina-Next/DiT 扩散 Transformer，以这些 query 为条件，用 Flow Matching 生成固定长度的 64 个 CLIP image features，再由 CLIP-conditioned diffusion decoder 还原图像。相比 MSE 直接回归均值，Flow Matching 的噪声轨迹允许同一 prompt 采样出多种结果，但推理要经过“生成 CLIP latent”和“解码成像”两次扩散。
+
+训练阶段先用约 2500 万 CC12M、SA-1B、JourneyDB 图文对（8B 版本另加约 3000 万内部数据）训练图像生成模块，再用 GPT-4o 生成的 60K 高质量 instruction-tuning 对覆盖复杂手势、物体、地标和文字渲染。实验比较显示，CLIP+Flow Matching 在 prompt alignment 上优于 VAE 方案，顺序训练则在保持理解能力的同时获得更好的生成质量；8B 模型在 MME-P 为 1682.6、MMMU 为 50.6、GenEval 为 0.84、WISE 为 0.62，DPG-Bench 的自动指标虽非最高，但人评中视觉质量和 prompt alignment 都胜过 Janus-Pro。
+
+局限在于 8B 版本依赖额外的内部图像数据，4B 才是仅用公开数据的可复现版本；CLIP latent 生成和最终解码的双扩散过程增加推理成本。论文也承认联合训练对数据总量和理解/生成比例非常敏感，当前选择顺序训练更多是稳定、可控的工程折中，复杂图像编辑、交错生成等应用仍处于后续扩展阶段。
 </ArxivRating>
 
 ## Show-o2
 
-<ArxivRating id='2506.15564' tldr='' rank={0}>
+<ArxivRating id='2506.15564' tldr='在 3D causal VAE 中融合语义与低层视觉特征，用语言头自回归建模文本、用 flow head 生成图像/视频，得到可扩展的原生 Show-o2。' rank={0}>
 
+![](https://pic.hana0721.top/show-o2-overview.102w247ode.webp)
+
+Show-o2 的目标是把原先偏图像的统一模型扩展到图像、视频和交错多模态序列。作者认为理解需要语义特征，生成需要完整低层信息，直接复用单一视觉表示会互相牵制；因此从 Wan2.1 的 3D causal VAE latent 出发，设计双路径的 spatial（视频时再加 temporal）fusion，在同一表示中保留两种信息。
+
+语义路径由 SigLIP 权重初始化的 semantic layers 提取高层特征，并在干净或加噪 latent 上做蒸馏；projector 路径保留 VAE 的低层细节，二者拼接后经 RMSNorm 和 MLP 融合。文本 embedding 与统一视觉表示进入 Qwen2.5-Instruct，采用 omni-attention：跨序列保持因果，视觉块内部保持 full attention。语言头优化 next-token prediction，另一个带 adaLN-Zero 的 flow head 预测视觉 latent 的速度，联合损失为 `αL_NTP + L_FM`，所以同一模型能生成图像、视频和文字交错序列。
+
+训练分两阶段。Stage 1 只更新 projector、空间/时空 fusion 和 flow head，使用约 6600 万图文对，并逐步加入 WebVid/Panda 视频和 OmniCorpus 交错数据；Stage 2 再用 900 万高质量理解指令、1600 万筛选后的生成数据和 160 万视频理解样本微调整个模型。1.5B 模型的 flow head 可迁移到 7B，仅用轻量 MLP 对齐 hidden size；但 7B 训练因成本过高没有加入视频和交错数据。
+
+7B 版本在 MME-P 为 1620.5、GQA 63.1、MMMU 48.9、MMStar 56.6、AI2D 78.6；GenEval 为 0.76，DPG-Bench 为 86.14，2B 视觉生成总分在 VBench 达到 81.34。它还支持视频理解、文生视频、图生视频和图文交错故事生成。论文明确指出文字渲染仍弱，小物体细节受有限分辨率影响；高分辨率和 text-rich 数据虽能缓解，但视频/交错能力在大模型上尚未经过同等规模训练。
 </ArxivRating>
 
 ## Qwen-Image
 
-<ArxivRating id='2508.02324' tldr='' rank={0}>
+<ArxivRating id='2508.02324' tldr='以冻结 Qwen2.5-VL 做条件编码、20B MMDiT 做 flow matching，并用可扩展 MSRoPE、文本渲染课程和双编码编辑训练，强化复杂文字生成与图像编辑。' rank={0}>
 
+![](https://pic.hana0721.top/qwen-image-architecture.1zizfaaflg.webp)
+
+Qwen-Image 面向两个长期难点：复杂 prompt 中的多行/段落文字很难准确渲染，图像编辑又要求只改目标区域而保持身份、背景和纹理一致。它不是把理解和生成合并为一个自回归输出头，而是用多模态 Qwen2.5-VL 提取条件、用大规模 MMDiT 进行图像 latent 的 flow matching；因此更像一个由强视觉语言模型驱动的生成基础模型。
+
+架构由冻结的 Qwen2.5-VL-7B、兼容图像/视频的 VAE 和 20B 参数双流 MMDiT 组成。Qwen2.5-VL 的最后一层 hidden state提供文本或图文条件，VAE 采用共享 encoder、图像/视频双 decoder，并专门在文字密集图像上微调 image decoder 以提升小字重建。MMDiT 中引入 MSRoPE：从图像中心布置二维位置，把文本位置放到图像网格对角线上，既支持分辨率缩放，又保持文本侧近似一维 RoPE 的区分性。编辑时同时输入 Qwen2.5-VL 的语义表示和 VAE 的重建表示，分别负责语义一致性与像素保真。
+
+数据工程是论文的主体贡献。训练集按 Nature（约 55%）、Design（27%）、People（13%）和受控合成数据（5%）平衡，经过七阶段过滤、重标注和多尺度训练，从 `256` 逐步升到 `640`、`1328` 分辨率。文字渲染采用从无文字到文字、从简单字符到段落布局的课程，并合成 pure rendering、contextual compositing 和结构化模板三类样本；预训练后再做人工筛选 SFT，以及 DPO 和 GRPO 偏好优化。这样同时覆盖 T2I、I2I、TI2I、文本编辑、物体增删、姿态修改和 novel-view synthesis。
+
+在 GenEval 上，RL 后模型达到 0.91；OneIG-Bench 中英文轨道的总体表现和 Alignment/Text 维度均居前，GEdit、ImgEdit、GSO 新视角合成与多个深度数据集也取得领先或有竞争力结果。定性案例显示它能渲染英文长段落和中文对联，并在编辑时保持人物细节与背景结构。不过模型由 20B MMDiT 加 7B 条件编码器构成，训练依赖数十亿规模的数据工程、分布式 Producer–Consumer 基础设施和偏好优化，部署成本很高；深度估计仍未超过专门判别式模型，且其核心能力是图像生成/编辑而非原生的文本-图像统一自回归建模。
 </ArxivRating>

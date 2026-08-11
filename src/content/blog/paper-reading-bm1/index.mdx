@@ -3,7 +3,8 @@ title: 'Paper Reading: Basic Method 1'
 publishDate: 2025-12-26
 updatedDate: 2026-8-11
 description: 从基础开始吧！
-heroImage: { src: 'https://pic.hana0721.top/62423081_p0_master1200.3ns7nvxp9b.webp', color: '#8C8275' }
+heroImage:
+  { src: 'https://pic.hana0721.top/62423081_p0_master1200.3ns7nvxp9b.webp', color: '#8C8275' }
 category: 'research'
 pixivLink: '62423081'
 tags:
@@ -21,18 +22,48 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 ## VAE
 
-<ArxivRating id='1312.6114' publication='ICLR2014' tldr='' rank={0}>
+<ArxivRating id='1312.6114' publication='ICLR2014' tldr='用变分下界与重参数化技巧把不可微的潜变量采样改写为可端到端训练的概率编码器—解码器，奠定连续潜空间生成模型的基础。' rank={0}>
+
+![](https://pic.hana0721.top/vae-graphical-model.5trqy8sc6g.webp)
+
+VAE 解决的是连续潜变量生成模型中的推断与学习问题。生成模型先从先验 $p_\theta(z)$ 采样潜变量 $z$，再由条件分布 $p_\theta(x|z)$ 生成观测 $x$；但边缘似然 $p_\theta(x)=\int p_\theta(z)p_\theta(x|z)\,dz$ 通常无法直接计算，真实后验 $p_\theta(z|x)$ 也同样不可解。论文因此引入识别模型 $q_\phi(z|x)$ 近似真实后验：它接收样本并输出潜变量分布，所以可以视作概率 Encoder；$p_\theta(x|z)$ 则是概率 Decoder。和每个样本都单独运行迭代推断不同，所有样本共享参数 $\phi$，因此推断过程被摊销进一个神经网络中，并与生成模型参数 $\theta$ 联合学习。
+
+训练目标是观测对数似然的 Evidence Lower Bound（ELBO）：$\mathcal{L}(\theta,\phi;x)=\mathbb{E}_{q_\phi(z|x)}[\log p_\theta(x|z)]-D_{\mathrm{KL}}(q_\phi(z|x)\|p_\theta(z))$。第一项要求从潜变量中重建输入，可理解为负重建误差；第二项把近似后验约束到先验附近，使不同样本的编码共同形成可采样的连续潜空间。最大化 ELBO 一方面提高数据似然的下界，另一方面缩小 $q_\phi(z|x)$ 与真实后验 $p_\theta(z|x)$ 的差距，因此概率建模、表示学习和生成可以在同一个目标下完成。
+
+真正让这个目标能用反向传播训练的是 Reparameterization Trick。对于对角高斯后验 $q_\phi(z|x)=\mathcal{N}(\mu_\phi(x),\operatorname{diag}(\sigma_\phi^2(x)))$，不直接从依赖 $\phi$ 的分布中采样，而是先采样与参数无关的 $\epsilon\sim\mathcal{N}(0,I)$，再令 $z=\mu_\phi(x)+\sigma_\phi(x)\odot\epsilon$。这样随机性被移到计算图之外，$z$ 对 $\mu$ 和 $\sigma$ 仍然可微，可以得到低方差的 Monte Carlo 梯度。论文据此提出 SGVB 估计器与 minibatch AEVB 算法；实验中只要 minibatch 足够大，每个样本使用一次潜变量采样就能有效训练。
+
+论文在 MNIST 和 Frey Face 上比较了 AEVB、Wake-Sleep 与 Monte Carlo EM，展示了 AEVB 可以用在线 minibatch 优化更快地提升变分下界，并学习出可生成、可插值的低维连续表示。VAE 的长期影响不只是一个具体网络，而是把「神经网络参数化的近似后验 + 可微随机采样 + ELBO」组合成通用深度生成建模范式；后续的条件 VAE、层级 VAE、VQ-VAE 与潜空间扩散等方法都建立在这一概率 Encoder–Decoder 思路之上。
 
 </ArxivRating>
 
 ## Transformer
 
-<ArxivRating id='1706.03762' publication='NeurIPS2017' tldr='' rank={0}>
+<ArxivRating id='1706.03762' publication='NeurIPS2017' tldr='完全用自注意力取代循环与卷积，在保持全局依赖建模能力的同时实现序列位置并行计算，成为现代序列模型的基础架构。' rank={0}>
+
+![](https://pic.hana0721.top/transformer-architecture.1hsxqp90pa.webp)
+
+Transformer 针对的是 RNN 式序列建模的串行瓶颈。循环网络必须按位置依次更新隐藏状态，训练时无法在一个序列内部充分并行，而且两个远距离 token 之间的信息需要经过很长的计算路径。Transformer 去掉 recurrence 和 convolution，让每个位置通过 Self-Attention 直接与序列中的所有位置交互；任意两个 token 在一层内即可建立联系，训练阶段也可以同时处理所有位置。
+
+原论文仍采用标准 Encoder–Decoder 结构。Encoder 和 Decoder 都堆叠 $N=6$ 层，隐藏维度为 $d_{\text{model}}=512$。每个 Encoder 层包含 Multi-Head Self-Attention 和逐位置 Feed-Forward Network；每个 Decoder 层在这两部分之间增加一层 Encoder–Decoder Attention，并在 Decoder Self-Attention 中使用因果 Mask，防止当前位置读取未来输出。每个子层外都使用残差连接与 LayerNorm，即原论文的 $\operatorname{LayerNorm}(x+\operatorname{Sublayer}(x))$。逐位置 FFN 是共享到各个位置的两层 MLP，内部维度为 2048。
+
+注意力的核心计算是 $\operatorname{Attention}(Q,K,V)=\operatorname{softmax}(QK^\top/\sqrt{d_k})V$。Query 与 Key 的点积给出相关性，再对 Value 做加权聚合；除以 $\sqrt{d_k}$ 是为了避免维度较大时点积幅值过大、softmax 进入梯度很小的饱和区域。Multi-Head Attention 则把 $Q,K,V$ 投影到多个子空间并行计算，再拼接各个 Head 的输出。论文使用 8 个 Head，每个 Head 的 $d_k=d_v=64$，总计算量与单个完整维度 Head 相近，却能同时关注不同位置关系与表示子空间。Encoder Self-Attention 的 $Q,K,V$ 都来自 Encoder，Decoder Masked Self-Attention 都来自已生成前缀，而 Cross-Attention 的 Query 来自 Decoder、Key 和 Value 来自 Encoder 输出。
+
+由于网络本身没有顺序归纳偏置，输入 Embedding 还要加上不同频率的正弦、余弦 Positional Encoding。相较 RNN，每层 Self-Attention 的序列计算复杂度为 $O(n^2d)$，但顺序操作数和最大路径长度都是 $O(1)$；这使它特别适合 GPU 并行，也解释了其在长序列上内存开销较大的另一面。实验中 Transformer 在 WMT 2014 English-to-German 上达到 28.4 BLEU，在 English-to-French 上达到 41.8 BLEU，训练成本显著低于当时的循环与卷积强基线。更重要的是，这篇论文给出了可规模化的通用 Token 交互模块，后来的 BERT、GPT、ViT 与多模态大模型都可以看作对这一架构的不同取舍和扩展。
 
 </ArxivRating>
 
 ## Diffusion
 
-<ArxivRating id='2006.11239' publication='NeurIPS2020' tldr='' rank={0}>
+<ArxivRating id='2006.11239' publication='NeurIPS2020' tldr='固定高斯前向过程逐步破坏数据，再训练 U-Net 预测各噪声尺度中的噪声并反向去噪，确立了高质量 DDPM 与 ε-prediction 范式。' rank={0}>
+
+![](https://pic.hana0721.top/ddpm-forward-reverse-process.9kgwjhh7lu.webp)
+
+DDPM 把生成建模写成一对方向相反的 Markov Chain。固定的 Forward Process 从真实样本 $x_0$ 出发，在第 $t$ 步加入少量高斯噪声：$q(x_t|x_{t-1})=\mathcal{N}(\sqrt{1-\beta_t}x_{t-1},\beta_t I)$；当步数足够多时，$x_T$ 接近标准高斯。学习到的 Reverse Process 则从 $x_T\sim\mathcal{N}(0,I)$ 开始，用 $p_\theta(x_{t-1}|x_t)$ 一步步恢复数据。只要每一步的 $\beta_t$ 足够小，反向条件分布也可以建模为高斯，从而把复杂的数据分布拆成许多简单的局部去噪问题。
+
+前向过程最关键的性质是可以跳过中间链条直接采样任意时刻：令 $\alpha_t=1-\beta_t$、$\bar\alpha_t=\prod_{s=1}^t\alpha_s$，则 $x_t=\sqrt{\bar\alpha_t}x_0+\sqrt{1-\bar\alpha_t}\epsilon$，其中 $\epsilon\sim\mathcal{N}(0,I)$。因此训练时不必真的执行 $t$ 次加噪，只需随机采样一个时间步和一份噪声即可构造 $x_t$。原始变分下界可以分解为相邻高斯后验之间的 KL 项；论文进一步把反向均值重新参数化为预测噪声 $\epsilon_\theta(x_t,t)$，最终得到简单目标 $L_{\text{simple}}=\mathbb{E}_{t,x_0,\epsilon}\|\epsilon-\epsilon_\theta(x_t,t)\|^2$。这个 ε-prediction 目标是对标准变分下界的重新加权，实质上等价于在多个噪声尺度上进行 Denoising Score Matching。
+
+采样时先生成纯高斯噪声 $x_T$，然后按 $t=T,\ldots,1$ 反复用网络估计噪声、计算反向均值并加入对应方差的随机项，最终得到 $x_0$。论文所有实验使用 $T=1000$，$\beta_t$ 从 $10^{-4}$ 线性增加到 $0.02$；噪声预测器采用带 GroupNorm 的 U-Net，用正弦时间 Embedding 告知当前噪声尺度，并在 $16\times16$ 特征图上加入 Self-Attention。该参数化同时揭示了 DDPM 与 Annealed Langevin Dynamics 的联系：网络预测的噪声可以转换为不同尺度下的数据 Score，而反向链相当于一个由学习到的 Score 引导的随机去噪过程。
+
+实验中，使用 $L_{\text{simple}}$ 的无条件 CIFAR-10 模型达到 Inception Score 9.46 和 FID 3.17；在 CelebA-HQ 与 256×256 LSUN 上也生成了当时很强的样本。消融显示，直接优化完整变分下界能得到更好的负对数似然，但简化的 ε-prediction 目标明显提升视觉质量，说明 likelihood 与感知样本质量并不完全一致。DDPM 的主要代价是原始采样需要约 1000 次网络前向，速度远慢于 GAN；不过它证明了不依赖对抗训练的逐步去噪模型同样可以生成高质量图像，并奠定了后续快速采样、条件扩散和潜空间扩散的基础。
 
 </ArxivRating>

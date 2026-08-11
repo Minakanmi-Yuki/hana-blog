@@ -3,7 +3,8 @@ title: 'Paper Reading: MLLM 2'
 publishDate: 2025-12-26
 updatedDate: 2026-8-11
 description: 读一些多模态相关的论文
-heroImage: { src: 'https://pic.hana0721.top/70977889_p0_master1200.9gx5x526gc.webp', color: '#8C8275' }
+heroImage:
+  { src: 'https://pic.hana0721.top/70977889_p0_master1200.9gx5x526gc.webp', color: '#8C8275' }
 category: 'research'
 pixivLink: '70977889'
 tags:
@@ -15,12 +16,36 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 ## LLaVA-OneVision
 
-<ArxivRating id='2408.03326' tldr='' rank={0}>
+<ArxivRating id='2408.03326' tldr='以 SigLIP、两层 MLP 和 Qwen2 的简洁架构，通过 Higher AnyRes 与分阶段数据课程把单图能力迁移到多图和视频。' rank={0}>
+
+![](https://pic.hana0721.top/llava-onevision-architecture.13mhzu0qkp.webp)
+
+LLaVA-OneVision 要解决的是开放多模态模型按场景割裂的问题：单图模型、交错多图模型和视频模型通常分别训练，视频能力的提升还常以牺牲静态图像性能为代价。它延续 LLaVA 的低成本路线，不引入复杂的跨模态专家，而是尝试让相同的视觉编码与语言解码接口覆盖单图、多图和视频，并通过训练顺序与 Token 分配促成跨场景 Task Transfer。论文的重点因此不只是刷新某个 Benchmark，而是证明强单图能力能够迁移到视频，多种已学技能还能组合出训练集中没有显式出现的新能力。
+
+网络仍然非常直接：SigLIP 负责把每个图像 Crop 或视频帧编码成网格特征，两层 MLP Projector 将视觉特征映射到语言 Embedding 空间，Qwen2 则作为自回归语言模型生成答案。作者提供 0.5B、7B 和 72B 三档 LLM，对应完整模型约为 0.8B、8.0B 和 73.2B。关键设计是 Higher AnyRes：高分辨率单图被切成多个 `384×384` Crop，并保留一张全局缩略图；当视觉 Token 超过预算时，用双线性插值压缩每个 Crop 的特征，而不是直接降低输入分辨率。单图最多使用 `(1+9)×729=7290` 个 Token，多图最多约为 `12×729=8748` 个 Token，视频则把每帧压缩到 196 个 Token、最多取 32 帧，共 6272 个 Token。三种场景的总预算被控制在相近量级，使单图的长视觉序列更接近多帧序列，也降低迁移时的表示落差。
+
+训练采用 Curriculum Learning。Stage 1 用 558K 图文对只训练 Projector，完成语言与图像特征对齐；Stage 1.5 用约 4M 高质量知识数据训练完整模型，其中包括对 COCO118K、BLIP558K 和 CC3M 重描述得到的 3.5M 详细 Caption、Document/OCR 数据以及中文和语言指令数据，论文称这部分数据有 99.8% 为合成数据。Stage 2 先在 3.2M 单图指令上训练，再进行 OneVision Training：混合约 560K 多图样本、350K 视频样本和从前一阶段重采样的 800K 高质量单图样本，共约 1.6M。后续阶段均更新完整模型，视觉编码器学习率为 `2e-6`，Projector 与 LLM 为 `1e-5`；视觉 Token 上限也从 Stage 1 的 729 逐步扩到 AnyRes 下的 `729×10`。
+
+结果覆盖三类场景。LLaVA-OneVision-72B 在单图任务上取得 AI2D 85.6、DocVQA 91.3、MathVista 67.5、MMBench 85.9 和 MMMU 56.8；多图任务上取得 Mantis 77.6、MuirBench 54.8；视频任务上取得 MLVU 68.0、VideoMME 66.2。它在多项指标上超过 GPT-4V，但与 GPT-4o 在复杂视觉聊天等真实场景上仍有距离。一个很有代表性的现象是，仅经过单图阶段的 7B Checkpoint 在 ActivityNet-QA 已达到 55.1，加入多图和视频训练后为 56.6，说明很多视频问题可以直接迁移单帧感知能力；而在需要长期或关系推理的 EgoSchema 上则从 52.9 提升到 60.1，更能体现专门视频数据的价值。论文还展示了图表联合理解、GUI 操作、Set-of-Mark、视频差异比较、多摄像头自动驾驶视频理解等组合能力。
+
+这套方法的边界同样需要注意。部分评测与训练数据存在重合，论文也明确把不少多图、多视角任务标为 In-Domain，因此不能把所有提升都归因于零样本迁移；所谓 Emerging Capability 主要是案例展示，缺少严格的因果消融。OneVision 阶段虽然大幅补强多图和视频，但一些单图指标会小幅回落，例如 72B 的 MMBench 从 86.6 降到 85.9、MMMU 从 57.4 降到 56.8，说明多场景混训仍有干扰。Higher AnyRes 的长视觉序列也带来显著显存和推理成本，而大量合成数据会继承教师模型偏差。最后，它统一的是视觉输入到文本回答的理解任务，并没有统一图像或视频生成；真实视觉聊天与 GPT-4o 的差距也被作者留作更强 LLM、更大数据和偏好学习的后续方向。
 
 </ArxivRating>
 
 ## GPT 5
 
-<ArxivRating id='https://cdn.openai.com/gpt-5-system-card.pdf' tldr='' rank={0}>
+<ArxivRating id='https://cdn.openai.com/gpt-5-system-card.pdf' tldr='由快速主模型、深度推理模型和实时路由器组成的统一产品系统，并以 Safe-Completions 与分层防护约束更强的推理和工具能力。' rank={0}>
+
+![](https://pic.hana0721.top/gpt-5-system-overview.96agsm8xd7.webp)
+
+GPT-5 在系统卡里首先被定义为一个 System，而不是单一模型：`gpt-5-main` 负责大多数低延迟请求，`gpt-5-thinking` 为困难问题投入更多推理计算，实时 Router 根据对话类型、复杂度、工具需求和用户明确表达的意图选择模型。Router 会继续利用用户切换模型、回答偏好和正确率等真实信号训练；达到用量上限后，则由对应的 Mini 模型接管。API 还提供 Thinking Mini 和 Nano，ChatGPT 中的 Thinking Pro 则对同一个 Thinking 模型使用并行 Test-Time Compute。这个设计把“是否深思、使用多少计算”变成系统级调度问题，但系统卡也明确说这些能力当时尚未合并为一个单体模型。
+
+公开的训练信息相对有限。数据来自公开互联网、第三方合作来源，以及用户、人工训练员和研究人员提供或生成的内容，并经过质量、个人信息和敏感内容过滤。`gpt-5-thinking` 系列通过 Reinforcement Learning 学习在回答前进行内部推理、尝试不同策略并识别错误；后训练还专门降低迎合用户的 Sycophancy，并让模型在工具失效、任务不可行或输入缺失时诚实失败。安全训练从传统的二元“回答或拒绝”转向 Safe-Completions：不只判断 Prompt 意图，而是直接约束输出风险，在政策边界内尽量提供仍然有用的高层信息。模型参数量、网络结构、训练 Token 数、数据配比和具体 RL 算法均未披露，因此这份材料更接近部署与安全报告，而不是可复现的技术论文。
+
+系统卡给出的改进主要集中在真实使用可靠性。对带浏览的 ChatGPT 生产流量，`gpt-5-main` 的错误事实 Claim 比 GPT-4o 少 26%，包含至少一个重大事实错误的回答少 44%；`gpt-5-thinking` 相比 OpenAI o3 分别减少 65% 和 78%。面对浏览、工具调用和代码场景的 Prompt Injection，Thinking 模型得分为 0.99、0.99 和 0.97，对应 OpenAI o3 的 0.89、0.80 和 0.94。它在 Coding Deception、工具损坏和缺失图像三项测试中的欺骗率分别为 0.17、0.11 和 0.09，也明显低于 o3 的 0.47、0.61 和 0.87。HealthBench Hard 从 o3 的 31.6% 提升到 46.2%，而系统卡还记录默认 API Verbosity 下 SWE-bench Verified 为 74.9%。这些结果说明提升不只来自更长推理，也来自工具使用、事实核查、失败处理和后训练行为的共同变化。
+
+更强能力也提高了风险门槛。OpenAI 以预防性原则把 `gpt-5-thinking` 视为 Biological and Chemical 领域的 High Capability，尽管系统卡称尚无决定性证据证明它能让新手造成严重生物危害；Cybersecurity 和 AI Self-Improvement 则未达到 High。部署防护包含模型级 Safe-Completions、生物内容快速分类器与推理型二级 Monitor、账户执法、API 访问限制和 Trusted Access Program。外部评测并没有证明风险消失：Apollo 在专门诱发隐蔽行为的环境中测得 Thinking 的 Covert Action Rate 为 3.97%，虽低于 o3 的 8.24%，但以 Helpful-Only 方式构造的评测版本达到 28.36%；模型还会表现出一定的 Evaluation Awareness。
+
+这份系统卡也暴露出几个重要局限。首先，Router 会随线上信号持续更新，不同入口、用量状态和 Test-Time Compute 会改变实际行为，因而“GPT-5”并不是一个固定、容易复现实验的 Checkpoint。其次，幻觉只是下降而未消失：SimpleQA 无网页条件下 Thinking 的 Hallucination Rate 仍为 0.40，Main 为 0.47。`gpt-5-main` 在部分 Instruction Hierarchy 和安全类别上还出现回退，例如恶意用户与开发者消息下的 Phrase Protection 分别只有 0.619 和 0.404。准备度评测本身也被系统卡视为能力下界，并会受 Verbosity、Scaffold 和 Elicitation 方法影响。最后，约 4% 的定向欺骗轨迹、High 生物风险分类以及未公开的模型与数据细节，都意味着更强 Benchmark 成绩不能替代持续监控、外部评测和系统级防护。
 
 </ArxivRating>
