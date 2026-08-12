@@ -66,7 +66,7 @@ RL菜鸡开始进军Embodied AI，慢慢积累，提升自己。
   rank={0}
 >
 
-![](https://pic.hana0721.top/4d-vla-01.2dpf69c904.webp)
+![](https://pic.hana0721.top/2506.22242.99u2r3sldm.webp)
 4D-VLA 的动机是让来自不同机器人、相机和场景的轨迹真正可以一起预训练。只用单帧 RGB 时，模型既看不清物体的三维关系，也无法判断动作所处的阶段，导致同一观察对应的动作分布很分散，论文称之为 coordinate-system chaos 和 state chaos。
 
 核心方法是在视觉输入中加入连续 RGB-D 帧，把深度用于对齐机器人与场景坐标，把时间上下文用于建模运动状态；同时用 cross-scene calibration 减少不同采集设置的坐标偏差。memory-bank sampling 从历史观测中选择信息量较高的帧，避免把全部视频都塞进上下文。作者还提出 MV-Bench，用多视角仿真检验空间感知和新视角泛化。
@@ -85,7 +85,7 @@ RL菜鸡开始进军Embodied AI，慢慢积累，提升自己。
   rank={0}
 >
 
-![](https://pic.hana0721.top/dr-o-grasp-01.4xv9iwc7o5.webp)
+![](https://pic.hana0721.top/2410.01702.pg29w3l2x.webp)
 D(R,O) Grasp 的动机是解决灵巧手抓取中的 embodiment gap：不同手的关节数量、连杆尺寸和可达空间不同，分别训练会浪费数据，直接迁移抓取姿态又常出现运动学不合法或接触不稳定。
 
 方法把处于抓取姿态的机器人手和物体点云放到同一交互表示中。网络读取机器人的几何/关节描述和物体点云，学习手—物接触关系，再输出候选抓取姿态；预测阶段配合运动学约束和稳定性筛选，因而不是只在图像上找一个二维框。表示不绑定某一手型，目标是对新手和新物体保持泛化。
@@ -104,7 +104,7 @@ D(R,O) Grasp 的动机是解决灵巧手抓取中的 embodiment gap：不同手�
   rank={0}
 >
 
-![](https://pic.hana0721.top/fast-in-slow-01.4cllwlhrfn.webp)
+![](https://pic.hana0721.top/2506.01953.6t7uc6lp5b.webp)
 Fast-in-Slow（FiS）的研究动机是解决机器人基础模型的两难：VLM 能做常识和长时序推理，却通常以很低频率输出动作；单独的快速策略能实时控制，却无法利用大模型的语义知识。把两个完全独立的模型串联还会造成表示和通信损失。
 
 FiS 在一个 VLA 中部分共享参数，把 System 1 执行模块放入 System 2 的 VLM 表示内部。两个系统接收不同的模态输入、以异步频率运行：System 2 低频生成和筛选高层动作候选，System 1 高频把候选变成平滑的动作 chunk。dual-aware co-training 同时训练动作生成与上下文表示，避免快速分支破坏慢速分支的推理能力。
@@ -142,7 +142,7 @@ NavDP 的动机是让导航策略摆脱手工级联模块和昂贵真实示范�
   rank={0}
 >
 
-![](https://pic.hana0721.top/nav-a3-01.7zr5k4dk1f.webp)
+![](https://pic.hana0721.top/2508.04598.4jotsp1q67.webp)
 NavA³ 针对现实中“去找到能完成某件事的物品”这类开放指令，而非预先定义的 object navigation 标签。难点在于高层语言目标可能包含隐含的地点和用途，目标物体还可能是开放词汇、被遮挡并处在陌生布局中。
 
 框架分为全局和局部两级。全局策略将 Reasoning-VLM 的指令解析能力与全局三维场景视图结合，推断最可能包含目标的区域并规划长程路线；局部策略 NaviAfford（PointingVLM）接收当前视野，输出开放词汇物体的位置、可达性和空间 affordance，从而把路线终点精确到目标。
@@ -180,7 +180,7 @@ StreamVLN 的动机是把视频式 VLM 用到真实视觉语言导航时，细�
   rank={0}
 >
 
-![](https://pic.hana0721.top/v-jepa2-01.1zizfe3yha.webp)
+![](https://pic.hana0721.top/2506.09985.26m7bhn5t1.webp)
 V-JEPA 2 的动机是让模型主要靠观察学习物理世界，而不是为每个机器人任务重新收集带动作和奖励的数据。像素生成模型容易把容量用在纹理细节上，直接行为克隆又难以从互联网视频获得可迁移的动力学知识。
 
 作者先用超过百万小时的互联网视频和图像训练 action-free joint-embedding predictive architecture，在潜空间预测被遮挡或未来的视觉表示；再与语言模型对齐以支持视频问答。针对机器人规划，V-JEPA 2-AC 只用少量 DROID 无标注机器人视频做 latent action-conditioned world model，并在潜空间搜索到达图像目标的动作序列。
@@ -199,7 +199,7 @@ V-JEPA 2 的动机是让模型主要靠观察学习物理世界，而不是为�
   rank={0}
 >
 
-![](https://pic.hana0721.top/molmoact-01.46emrrixd.webp)
+![](https://pic.hana0721.top/2508.07917.2a5t9dm38t.webp)
 MolmoAct 的动机是弥合“看到指令”到“生成可靠动作”的断层。许多机器人基础模型把观测和语言直接映射到控制，遇到长时程、空间约束或分布外物体时难以说明中间计划，也难以让用户修改动作意图。
 
 其 ARM 采用结构化三阶段管线：视觉和指令先编码为 depth-aware perception tokens；模型随后输出表示接触点、路径和目标姿态的中层 trajectory trace；最后由动作头把轨迹转换为精细的连续控制。轨迹是可视化且可编辑的中间表示，可以在执行前被检查或引导。作者同时发布包含一万余条高质量轨迹的 MolmoAct Dataset 和动作推理数据。
@@ -219,7 +219,7 @@ MolmoAct 的动机是弥合“看到指令”到“生成可靠动作”的断�
   rank={0}
 >
 
-![](https://pic.hana0721.top/mimicgen-01.2dpf69c9g1.webp)
+![](https://pic.hana0721.top/2310.17596.4cllx9ac7a.webp)
 MimicGen 针对真实示范昂贵且覆盖范围窄的问题：长时程装配、咖啡准备等任务需要大量不同初始状态，但逐条遥操作既耗时又难以复现。论文希望只用少量高质量示范，自动扩展物体实例、摆放和机器人设置。
 
 系统先把示范分解为具有语义边界的动作片段，识别片段中的关键物体和相对位姿，再将 waypoint 和控制序列根据新场景中的物体变换重定向。重定向后的轨迹在仿真中进行碰撞与成功检查，失败样本被过滤或重新采样，最后输出统一格式的数据供行为克隆等算法训练。
@@ -238,7 +238,7 @@ MimicGen 针对真实示范昂贵且覆盖范围窄的问题：长时程装配�
   rank={0}
 >
 
-![](https://pic.hana0721.top/spatialvla-01.39lwlplxxw.webp)
+![](https://pic.hana0721.top/2501.15830.73uo5c0wny.webp)
 SpatialVLA 的研究动机是，通用 VLA 往往能识别物体，却难以稳定判断深度、相对位置和运动幅度；直接离散化关节动作还把不同机器人绑定到不同的坐标和动作词表。
 
 方法一是在视觉 token 中加入 Ego3D Position Encoding，把像素与相机坐标中的深度/位置关系注入模型；方法二是 Adaptive Action Grids，将末端位姿变化按空间方向和尺度自适应离散化，使动作 token 表达可迁移的空间运动，而不是固定关节索引。模型先在约一百一十万条真实机器人 episode 上预训练，再在新设置中重新离散化动作网格进行轻量适配。
@@ -258,7 +258,7 @@ SpatialVLA 的研究动机是，通用 VLA 往往能识别物体，却难以稳�
   rank={0}
 >
 
-![](https://pic.hana0721.top/tracevla-01.4jots13xb2.webp)
+![](https://pic.hana0721.top/2412.10345.67y6pvqh9r.webp)
 TraceVLA 的动机是让 VLA 不只看当前帧，而能理解“物体从哪里来、末端刚刚做了什么”。直接把历史状态拼成长序列会增加上下文和训练负担，也不容易让视觉骨干学到可用的时空关系。
 
 作者把状态—动作轨迹编码为图像上的 visual trace，例如在观测或深度图上绘制末端和关键点的历史路径，再将这类提示与语言、当前图像一起输入 VLA。TraceVLA 通过收集并标注约十五万条操作轨迹微调 OpenVLA；同时训练一个基于 Phi-3-Vision 的较小模型，检验方法是否依赖大参数量。
@@ -277,7 +277,7 @@ TraceVLA 的动机是让 VLA 不只看当前帧，而能理解“物体从哪里
   rank={0}
 >
 
-![](https://pic.hana0721.top/hume-01.1sfrjyhtb3.webp)
+![](https://pic.hana0721.top/2505.21432.2yz2t83r1v.webp)
 Hume 的动机是把“先想再做”的 System-2 思维引入 VLA。复杂操作中，单次动作预测可能碰撞或走错顺序，但让大模型每个控制周期都完整推理又会牺牲频率，因此需要低频决策与高频执行的协作。
 
 System 2 在 VLA 主干上增加 value-query head，为多次采样的动作候选估计 state-action value，并选择价值最高者；System 1 是轻量反应式 visuomotor policy，接收候选后用 cascaded action denoising 生成连续动作。部署时两者异步运行：System 2 偶尔重新思考，System 1 在其间保持流畅控制。
@@ -296,7 +296,7 @@ System 2 在 VLA 主干上增加 value-query head，为多次采样的动作候�
   rank={0}
 >
 
-![](https://pic.hana0721.top/ricl-01.7axw03q1gg.webp)
+![](https://pic.hana0721.top/2508.02062.6po8egtdsy.webp)
 RICL 关注预训练 VLA 缺少 in-context learning 的问题。语言模型可以从示例中临时学会新格式或任务，但以模仿学习训练的 VLA 通常只会复现训练分布；终端用户若要适配新物体，不能每次都重新微调大模型。
 
 方法是在预训练策略上追加一套面向 ICL 的微调配方：给定新任务的少量演示，系统按视觉、语言和动作相似度检索最相关的片段，放入当前 VLA 上下文，再预测动作。作者将 RICL 应用于 π0-FAST，并支持只提供示范而不更新参数；若允许目标任务微调，还可以在 ICL 基础上继续提升。
@@ -315,7 +315,7 @@ RICL 关注预训练 VLA 缺少 in-context learning 的问题。语言模型可�
   rank={0}
 >
 
-![](https://pic.hana0721.top/omnivtla-01.5moj2wzrbz.webp)
+![](https://pic.hana0721.top/2508.08706.9kgwkfdocx.webp)
 OmniVTLA 的动机是补上 VLA 对触觉的忽视。视觉能提供远距离语义，却难以判断是否接触、是否打滑或夹持力是否合适；不同视觉/力觉触觉传感器的数据格式又差异很大，使触觉难以直接加入通用模型。
 
 模型采用 dual-path tactile encoder：一条路径用预训练 ViT 处理视觉式触觉，另一条用 semantically aligned tactile ViT（SA-ViT）处理力觉/触觉图，并将两者与视觉、语言 token 融合。为学习统一表示，作者构建 ObjTac，包含 56 个物体、10 个类别的文本—视觉—触觉三模态样本，规模约 13.5 万条。
@@ -353,7 +353,7 @@ Spatial Traces 的动机是现有 VLA 往往分别处理空间和时间：Spatia
   rank={0}
 >
 
-![](https://pic.hana0721.top/embodied-r1-01.32ioq9zstt.webp)
+![](https://pic.hana0721.top/2508.13998.3uvk8oe7k4.webp)
 Embodied-R1 针对“seeing-to-doing gap”：视觉语言模型能描述物体和关系，却很难把理解转化为不同机器人都能使用的空间指令；直接学习关节动作又受数据稀缺和 embodiment 异构限制。作者选择 pointing 作为与机器人形态无关的中间表示，先指向哪里，再由控制策略执行。
 
 模型是约 3B 参数的 VLM，围绕四类 embodied pointing 能力训练，包括目标指向、空间关系指向和与动作相关的定位。作者从通用视觉推理和机器人数据构建 Embodied-Points-200K，先监督微调，再用带多任务、尺度和几何约束的 reward 做两阶段 reinforced fine-tuning（RFT），使回答既正确又符合空间度量。
@@ -372,7 +372,7 @@ Embodied-R1 针对“seeing-to-doing gap”：视觉语言模型能描述物体�
   rank={0}
 >
 
-![](https://pic.hana0721.top/rynnec-01.3uvk80gem0.webp)
+![](https://pic.hana0721.top/2508.14160.232ldutylj.webp)
 RynnEC 的动机是通用 MLLM 虽能回答整图问题，却常在机器人视角下无法精确处理“这个区域里的物体”“沿着该物体边界”等细粒度交互。具身认知还缺少大规模带区域和时间标注的三维数据。
 
 方法建立在视觉语言基础模型上，加入 region encoder 和 mask decoder，使模型可以对视频中的框、点、区域和掩码进行交互式理解。作者用以自中心视频为主的数据生成流程补足 3D 标注稀缺，并发布 RynnEC-Bench，覆盖物体属性理解、区域分割和空间关系推理。
@@ -391,7 +391,7 @@ RynnEC 的动机是通用 MLLM 虽能回答整图问题，却常在机器人视�
   rank={0}
 >
 
-![](https://pic.hana0721.top/roborefer-01.67y6p7u7ul.webp)
+![](https://pic.hana0721.top/2506.04308.4ubnlug6wu.webp)
 RoboRefer 的动机是让机器人准确理解“指令所说的位置”。通用 VLM 的二维语义能力不足以处理前后、遮挡、相对距离和多步空间关系，错误的指代会让后续控制策略在正确物体上执行错误动作。
 
 模型在视觉语言骨干旁加入 disentangled depth encoder，并用监督微调学习深度和空间关系；随后进行 reinforcement fine-tuning，使用对距离、方向和指代区域敏感的过程奖励，鼓励逐步、可度量的空间推理。为此作者构建 RefSpatial，包含约两千万 QA、31 类空间关系和最多五步的推理链，并发布 RefSpatial-Bench。
@@ -410,7 +410,7 @@ RoboRefer 的动机是让机器人准确理解“指令所说的位置”。通�
   rank={0}
 >
 
-![](https://pic.hana0721.top/discrete-diffusion-vla-01.45ie15vmv4.webp)
+![](https://pic.hana0721.top/2508.20072.pg29qjswr.webp)
 Discrete Diffusion VLA 的动机是弥合两类动作解码的缺点：自回归 token 按固定左到右顺序生成、容易累积错误；外接连续 diffusion head 又切断视觉语言骨干中的统一信息流。作者希望保留预训练 VLM 先验，同时允许动作 token 并行且可纠错。
 
 方法先把 action chunk 离散化，在同一 Transformer 中执行离散扩散去噪。每轮根据置信度自适应决定先解码哪些动作元素，对不确定元素做 secondary re-masking 并再次预测；因此高置信维度可以提前确定，难维度获得渐进修正，而不是被固定顺序锁死。
@@ -429,7 +429,7 @@ Discrete Diffusion VLA 的动机是弥合两类动作解码的缺点：自回归
   rank={0}
 >
 
-![](https://pic.hana0721.top/g0-01.6po8dsvlja.webp)
+![](https://pic.hana0721.top/2509.00576.pg29qjsyu.webp)
 G0 关注 VLA 从受控桌面走向真实生活/工作空间时的数据和规划瓶颈。公开轨迹常来自不同机器人和简单指令，真实环境中的物体、子任务和长时程错误恢复覆盖不足；一个低层策略也难以同时承担高层任务分解。
 
 作者发布 Galaxea Open-World Dataset，在真实人居和工作场景中用统一机器人 embodiment 采集多样行为，并提供精确到子任务的语言标注。G0 采用双系统：VLM 根据多模态观察生成任务计划和子目标，VLA 负责细粒度动作执行。训练按跨 embodiment 预训练、Galaxea 单 embodiment 预训练、任务级 post-training 三阶段进行。
@@ -448,7 +448,7 @@ G0 关注 VLA 从受控桌面走向真实生活/工作空间时的数据和规�
   rank={0}
 >
 
-![](https://pic.hana0721.top/internscenes-01.7i13vjc7b4.webp)
+![](https://pic.hana0721.top/2509.10813.8adzdxqn1b.webp)
 InternScenes 的动机是现有具身仿真场景常在规模、类别或真实性之间取舍：小物体被清理掉、家具布局过于规整，或不同资产互相穿插导致导航和交互训练失真。作者希望同时扩大场景多样性和物理可模拟性。
 
 数据集把 real-world scans、程序化生成场景和设计师创建场景统一处理，建立真实到仿真的副本，补充可交互物体，并通过物理模拟解决碰撞。最终覆盖约四万个室内场景、约一百九十六万个 3D 物体、15 类常见房间和 288 个物体类别；场景保留大量小物体，布局比清洗后的数据更复杂。

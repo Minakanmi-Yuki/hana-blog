@@ -23,7 +23,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='1706.05296' tldr='VDN 把团队 Q 值学习为各个智能体局部 Q 值之和，在集中训练、分散执行下缓解惰性智能体和联合动作空间爆炸。' rank={0}>
 
-![](https://pic.hana0721.top/vdn-01.4n8fpqedn1.webp)
+![](https://pic.hana0721.top/1706.05296.2oc902grkw.webp)
 VDN（Value-Decomposition Networks）针对合作任务只有一个团队回报、而每个智能体只能看到局部历史的问题。直接把所有观测和动作拼成一个中央 Q 网络会遭遇组合爆炸；独立学习又会把队友的探索误认为环境噪声，甚至出现“lazy agent”——一个智能体承担几乎全部工作，另一个因为尝试动作会降低团队回报而学会不行动。VDN 的出发点是仍然使用团队回报，但把信用分配交给一个可学习的价值分解。
 
 方法用每个智能体的循环 Q 网络产生 `Qi(τi, ai)`，再以简单加法构成 `Qtot = Σi Qi`。训练时用完整团队转移和总回报反向传播，隐式地学习每个局部 Q 的贡献；执行时只需每个智能体独立选择 `argmax Qi`，因为加法保证局部贪心与联合贪心一致。论文还将 LSTM、多步 TD、dueling 结构与参数共享、角色信息和低/高层通信作为可组合增强，而不是把额外奖励手工写给某个智能体。
@@ -37,7 +37,7 @@ VDN（Value-Decomposition Networks）针对合作任务只有一个团队回报�
 
 <ArxivRating id='1803.11485' publication='ICML2018' tldr='QMIX 用全局状态生成的单调混合网络组合局部 Q 值，保证集中训练得到的联合贪心策略可在分散执行时逐个求最大。' rank={0}>
 
-![](https://pic.hana0721.top/qmix-01.2rvux41y3e.webp)
+![](https://pic.hana0721.top/1803.11485.1sfrkm736s.webp)
 QMIX 解决的是 VDN 的加法限制与独立学习的非平稳性。实际系统可以在训练阶段访问全局状态，但部署时每个单位只能根据自己的观测历史行动；如果直接学习联合 Q，动作数量会随智能体数指数增长。论文提出用一个状态条件的混合器把局部价值组合起来，并通过结构约束让中央和局部决策严格一致。
 
 每个智能体由 DRQN 根据局部观测、上一步动作和隐藏状态输出 `Qi(τi, ai)`。混合网络以这些标量和全局状态为输入，权重由 hypernetwork 从状态生成，并对权重取绝对值，使 `∂Qtot/∂Qi ≥ 0`。因此联合最大化可以分解为每个智能体独立的 `argmax Qi`；全局状态只在训练时用于混合器，不会泄露到执行端。相较 VDN，非线性混合器能表达更丰富的状态依赖关系，同时保留线性复杂度的 TD 目标计算。
@@ -51,7 +51,7 @@ QMIX 解决的是 VDN 的加法限制与独立学习的非平稳性。实际系�
 
 <ArxivRating id='2002.03939' tldr='Qatten 从理论展开式出发，用多头注意力显式建模每个智能体对团队 Q 值的影响，同时保持单调性和 IGM 可分散执行。' rank={0}>
 
-![](https://pic.hana0721.top/qatten-01.58i3c18u28.webp)
+![](https://pic.hana0721.top/2002.03939.5trqz0b6t8.webp)
 Qatten 观察到 VDN 的加法和 QMIX 的黑盒单调混合都没有明确说明“某个智能体在当前状态有多重要”。论文先从联合 Q 对局部 Q 的隐式函数关系出发，推导在最优动作附近的展开：各阶交互项可以近似为带状态相关系数的局部 Q 加权和。这个视角既保留了可分散最大化，又为 agent-level credit assignment 提供了可解释接口。
 
 实际网络由每个智能体的 GRU Q 网络和多头 attention mixer 组成。全局状态嵌入作为 query，各智能体位置、单位类型或其他个体特征作为 key，softmax 相似度得到 `λi,h`，每个 head 对局部 `Qi` 做加权求和，再加上由状态产生的偏置；可选的 weighted-head 版本再用非负状态权重组合各头。由于所有权重非负，`Qtot` 对每个 `Qi` 单调，IGM 成立，训练时可高效求下一步联合最大值，执行时仍只需局部贪心。
@@ -65,7 +65,7 @@ Qatten 观察到 VDN 的加法和 QMIX 的黑盒单调混合都没有明确说�
 
 <ArxivRating id='1905.05408' publication='ICML2019' tldr='QTRAN 先把联合 Q 变换为与最优动作相同、但可加性分解的函数，以摆脱 VDN 的加法和 QMIX 的单调性限制。' rank={0}>
 
-![](https://pic.hana0721.top/qtran-01.8z78x9xpbv.webp)
+![](https://pic.hana0721.top/1905.05408.1sfrknjd8w.webp)
 QTRAN 针对一个核心表达问题：VDN 和 QMIX 只覆盖满足加法或单调条件的任务，但很多协作行为是非单调的，例如一个智能体单独追捕会受罚，必须等队友同时到位。论文用 Individual-Global-Max（IGM）描述真正需要的条件——联合最优动作等于各局部 Q 的贪心动作——并指出加法、单调性只是过强的充分条件。
 
 QTRAN 学习三个相互连接的网络：联合动作价值 `Qjt(τ, u)`、每个智能体的局部 `Qi(τi, ui)`，以及只依赖联合历史的状态值 `Vjt(τ)`。它将联合 Q 转换为 `Q'jt = Σi Qi`，再由 `Vjt` 修正，使最优联合动作处的等式成立、其他动作满足不等式约束。QTRAN-base 和 QTRAN-alt 对非最优动作的变换与损失不同；实践中用惩罚项软化约束，以避免枚举整个联合动作空间，并在执行时丢弃联合网络，只保留局部 Q。
@@ -79,7 +79,7 @@ QTRAN 学习三个相互连接的网络：联合动作价值 `Qjt(τ, u)`、每�
 
 <ArxivRating id='2008.01062' publication='ICLR2020' tldr='QPLEX 用双重 dueling 结构把 IGM 约束写进网络，对联合和局部优势函数做正权重混合，理论上覆盖完整 IGM 函数类。' rank={0}>
 
-![](https://pic.hana0721.top/qplex-01.64ekrhiimp.webp)
+![](https://pic.hana0721.top/2008.01062.1hsxrgsoha.webp)
 QPLEX 试图在可扩展性与表达能力之间取得比 QMIX、QTRAN 更稳的折中。IGM 只要求联合动作选择和局部贪心一致，并不要求 Q 值本身单调；QTRAN/WQMIX 通过软惩罚或加权投影近似这一条件，复杂任务中可能违反 IGM。QPLEX 的关键观察是，dueling Q 的状态值不影响动作选择，真正需要约束的是 advantage 的相对大小。
 
 网络先对每个局部 Q 做 `Qi = Vi + Ai`，Transformation 模块利用全局状态或联合历史以正权重变换局部值；Dueling Mixing 再以 `Vtot = ΣVi` 和 `Atot = Σi λi(τ,a) Ai` 构造联合 Q，其中 `λi > 0` 由多头注意力生成。正权重和优势范围约束保证局部与联合最大动作一致，且论文证明这种 duplex dueling 架构具有完整 IGM 表达能力。执行端移除 mixer，只运行各自的循环 Q 网络。
@@ -93,7 +93,7 @@ QPLEX 试图在可扩展性与表达能力之间取得比 QMIX、QTRAN 更稳的
 
 <ArxivRating id='2205.15245' tldr='RQN 用残差辅助网络重估各智能体 Q 值轨迹，在训练早期改善信用分配与收敛，达到目标后残差自动退化为零。' rank={0}>
 
-![](https://pic.hana0721.top/rqn-01.7axw037fab.webp)
+![](https://pic.hana0721.top/2205.15245.1e9btxcejp.webp)
 Residual Q-Networks（RQN）关注价值分解方法在复杂环境中的不稳定和信用分配。VDN、QMIX、QTRAN、QPLEX 都可能因结构限制或相对过度泛化而在训练后期掉回低回报；而完全依赖全局状态的 mixer 在某些现实设置也不可用。RQN 的思路不是再设计一个永久的 mixer，而是学习每个智能体一条 Q 值轨迹的相对重要性，暂时把有希望的历史放大，帮助局部网络形成正确分解。
 
 对每个 agent 的局部 Q，辅助网络接收当前输入和 episode 轨迹摘要，输出 residual/估计因子，构造 `Q+i = Qi + H(Qi)`（论文给出的形式是对 Q 轨迹做非线性变换）。训练目标仍遵循 IGM，使局部贪心可组合；当各 agent 已达到训练目标、轨迹不再需要校正时，残差因子趋于稳定，辅助网络不再改变主 Q，这就是“self-depreciation”。该机制不要求额外全局状态，主要通过 replay buffer 中的轨迹改善信用分配与稳定性。
@@ -107,7 +107,7 @@ Residual Q-Networks（RQN）关注价值分解方法在复杂环境中的不稳�
 
 <ArxivRating id='2010.04740' tldr='GraphMIX 把智能体建成带注意力边权的有向图，用单调 GNN 混合局部 Q，并显式学习团队回报在节点间的分配。' rank={0}>
 
-![](https://pic.hana0721.top/graphmix-01.5j4x56o2h1.webp)
+![](https://pic.hana0721.top/2010.04740.60uyufy633.webp)
 GraphMIX 认为 QMIX/VDN 的 mixer 把团队看成无结构的向量，难以表达“谁应该关注谁”。在多智能体微操、交通或机器人编队中，智能体之间的关系随观测和动作变化，且不同 agent 对当前团队回报的贡献不等。论文用完整有向图表示团队，让注意力学习边权，再把图消息传递用于价值分解和信用分配，同时保持集中训练、分散执行。
 
 每个节点先接收一个局部 `Qi(τi, ai)` 标量，边权由各 DRQN 隐状态的 query/key 注意力得到。多层 mixing GNN 用非负、单调的组合函数聚合邻居，图读出得到 `Qtot(s,a)`；非负约束保证 IGM，执行时各 agent 仍可独立贪心。节点最终嵌入还经 softmax 映射为有效的局部回报比例 `αi`，额外的 local TD loss 沿捷径更新局部 Q，和全局 TD loss 一起端到端训练。论文也展示了与 RODE 的组合，让角色层和动作层共用图信用分配。
@@ -121,7 +121,7 @@ GraphMIX 认为 QMIX/VDN 的 mixer 把团队看成无结构的向量，难以表
 
 <ArxivRating id='2006.10800v2' publication='NeurIPS2020' tldr='Weighted QMIX 用更关注高价值联合动作的加权投影修正 QMIX 的均匀拟合偏差，并提出 CW-QMIX 与 OW-QMIX。' rank={0}>
 
-![](https://pic.hana0721.top/weighted-qmix-01.232ld3efh1.webp)
+![](https://pic.hana0721.top/2006.10800v2.1lcjp6kybp.webp)
 Weighted QMIX 从一个反直觉现象出发：即使拥有真实最优 `Q*`，QMIX 把所有联合动作等权投影到单调函数类，也可能把最优动作的值压低，最终选错策略。问题不是单纯探索不足，而是表示类之外的 Q 值在均方误差下被平均拟合。作者因此把优化重点转向真正影响贪心策略的高价值动作。
 
 论文先在表格情形形式化 QMIX 的“Bellman 更新后投影”算子，再引入加权投影。Centrally-Weighted（CW）QMIX 用一个不受单调约束的集中 Q 估计权重，Optimistically-Weighted（OW）QMIX 用乐观的高值判别强调接近最优的联合动作；二者都保留一个可分散的单调 `Qtot`，并由 unrestricted `Q̂*` 提供投影目标。理论上合适的权重能恢复任意联合 Q 的最大动作，且执行端仍只需局部 Q。
@@ -135,7 +135,7 @@ Weighted QMIX 从一个反直觉现象出发：即使拥有真实最优 `Q*`，Q
 
 <ArxivRating id='1910.07483' publication='NeurIPS2019' tldr='MAVEN 用共享离散潜变量控制整条 episode 的行为模式，并以互信息鼓励多样、持续的联合探索。' rank={0}>
 
-![](https://pic.hana0721.top/maven-01.5trqyc3aqr.webp)
+![](https://pic.hana0721.top/1910.07483.8hh79d481k.webp)
 MAVEN 研究的是 CTDE 中经常被低估的探索问题。QMIX 等价值分解方法的 epsilon-greedy 只在每一步独立扰动，无法在需要长时间协同的任务中持续尝试一条完整策略；而单调表示限制又会把探索推向容易得到但次优的行为。作者希望让多智能体像层次策略一样“承诺”一个 episode 级的探索模式，同时不破坏分散执行。
 
 方法引入共享离散潜变量 `z`。高层策略根据全局状态采样 `z`，每个局部价值网络以自己的历史和同一个 `z` 为条件，因此固定 `z` 时会形成一个持续整局的联合行为模式。训练目标加入轨迹与 `z` 之间的互信息最大化，使不同潜变量产生可区分的行为；底层仍使用 QMIX 风格的单调 mixer 和 epsilon-greedy。潜变量只在 episode 开始或高层决策时改变，带来 committed、temporally extended exploration。
@@ -149,7 +149,7 @@ MAVEN 研究的是 CTDE 中经常被低估的探索问题。QMIX 等价值分解
 
 <ArxivRating id='2109.11251' publication='ICLR2021' tldr='HAPPO/HATRPO 将信赖域更新扩展到异构多智能体，通过优势分解与随机顺序逐个更新，给出联合策略单调改进保证。' rank={0}>
 
-![](https://pic.hana0721.top/happo-01.41ys3fjxwy.webp)
+![](https://pic.hana0721.top/2109.11251.54yhezoibk.webp)
 HAPPO 针对把单智能体 PPO/TRPO 直接复制到 MARL 时的理论漏洞：即使每个 agent 的局部更新都朝着正优势方向，多个更新叠加后联合回报仍可能下降。现有 MAPPO/IPPO 通常共享参数，适合同构单位却限制动作空间不同的团队，也没有严格的单调改进证明。论文的目标是在不假设 Q 函数可分解的前提下，为异构 cooperative MARL 建立 trust-region policy iteration。
 
 核心是 multi-agent advantage decomposition lemma：给定任意 agent 顺序，联合优势可写成按顺序条件化的局部优势之和。于是每次随机打乱顺序，只更新一个 agent，并让它在前面 agent 的新策略条件下优化自己的 TRPO/PPO surrogate；其余 agent 暂时固定。HATRPO 使用 KL 约束，HAPPO 用 clipped ratio 近似，二者都不要求参数共享。理论上这种 sequential update 对每次迭代保持联合性能不下降，并在适当条件下收敛到 Nash equilibrium。
@@ -163,7 +163,7 @@ HAPPO 针对把单智能体 PPO/TRPO 直接复制到 MARL 时的理论漏洞：�
 
 <ArxivRating id='2205.14953' publication='NeurIPS2022' tldr='MAT 把 cooperative MARL 转成 agent 序列建模，用 Transformer 编解码器并行训练自回归策略，兼顾线性复杂度、单调改进与跨任务 few-shot 泛化。' rank={0}>
 
-![](https://pic.hana0721.top/mat-01.4g57uas8ue.webp)
+![](https://pic.hana0721.top/2205.14953.362aonjsie.webp)
 MAT（Multi-Agent Transformer）把“多个 agent 同时决策”重新表述为“按一个任意顺序生成 agent 动作序列”。出发点是 HAPPO 使用的优势分解定理：前面 agent 的动作被条件化后，后续局部优势之和等于联合优势，因而可以安全地做序列化策略搜索。这样能利用 Transformer 的长程建模和可变序列长度，而不是给每个 agent 互相独立的策略。
 
 模型由 encoder-decoder 组成。Encoder 读取全局状态和所有 agent 的观测/历史，self-attention 建立 agent 间关系；decoder 以一个随机排列为顺序，使用 causal mask 自回归地产生每个 agent 的动作分布，训练时用 teacher forcing 将真实前序动作批量输入，所以不同 agent 的梯度仍可并行计算。PPO-style clipped objective 在顺序优势的条件下更新，作者证明其联合策略继承单调改进；MAT-Dec 则用独立 actor 作为 CTDE 对照。相较 HAPPO 的逐 agent 反复优化，Transformer 将复杂度从随 agent 数乘法增长降为线性。
@@ -177,7 +177,7 @@ MAT（Multi-Agent Transformer）把“多个 agent 同时决策”重新表述�
 
 <ArxivRating id='2010.01523' publication='ICLR2020' tldr='RODE 按动作对环境的效果聚类成受限 role action space，再以低频 role selector 和低层 role policy 分层学习协作任务。' rank={0}>
 
-![](https://pic.hana0721.top/rode-01.3k8qeuikgl.webp)
+![](https://pic.hana0721.top/2010.01523.et8gkwv6s.webp)
 RODE（Learning Roles to Decompose Multi-Agent Tasks）针对联合动作空间随 agent 数指数增长、探索难度高的问题。人类往往先分工再行动，但手工预设角色需要任务先验且难以迁移；从零学习角色又几乎等价于直接在完整联合空间探索。RODE 的关键是先按动作的功能效果划分动作空间，让角色发现变成一个更小的搜索问题。
 
 作者训练一个 forward/predictive action encoder，根据当前观测、其他 agent 动作预测下一观测和团队回报，使具有相似影响的动作在潜空间靠近；再用 k-means 将动作聚成若干 role action spaces。高层 role selector 每 `c` 步为 agent 选择一个 role，使用其动作表示的平均向量和 QMIX mixer 学习低频协调；低层 role policy 只在该 role 的受限动作集合中选择 primitive action，并以动作表示作为查询。两层都采用共享 GRU 和 CTDE，因而同时缩短时间跨度和动作/观测维度。
@@ -191,7 +191,7 @@ RODE（Learning Roles to Decompose Multi-Agent Tasks）针对联合动作空间�
 
 <ArxivRating id='2111.11032' publication='NeurIPS2021' tldr='EMC 用局部 Q 值预测误差产生兼顾新颖性与协作影响的内在奖励，再用 episodic memory 快速利用高回报轨迹。' rank={0}>
 
-![](https://pic.hana0721.top/emc-01.3uvk7zxso6.webp)
+![](https://pic.hana0721.top/2111.11032.7i13w733l5.webp)
 EMC（Episodic Multi-agent RL with Curiosity-driven Exploration）认为 MARL 探索不能简单照搬单智能体的全局 curiosity 或局部 novelty。全局状态空间随 agent 数指数增长，局部观测又看不到队友，二者都可能在需要同时到达/集火的任务中走偏。价值分解网络中的局部 `Qi` 是由全局 TD 梯度训练出的历史嵌入，既压缩了局部状态，又隐式携带队友影响，因此其动态变化可以作为协作相关的新颖性信号。
 
 EMC 在每个 agent 的 Q 网络旁训练预测器，以预测目标 `Qi`；预测误差作为 intrinsic reward，驱动 agent 访问尚未稳定、且可能包含高价值交互的历史。与简单 epsilon-greedy 相比，这种 curiosity 不需要显式枚举联合状态。为利用探索中偶然发现的成功轨迹，算法维护按全局状态 embedding 索引的 episodic memory，记录从该状态得到的最高回报，并将 memory TD target 与常规 TD loss 加权，促使价值网络快速回放和巩固这些轨迹。EMC 可插入 VDN、QMIX 或 QPLEX 等 mixer。
@@ -205,7 +205,7 @@ EMC 在每个 agent 的 Q 网络旁训练预测器，以预测目标 `Qi`；预�
 
 <ArxivRating id='2403.01112' publication='ICLR2024' tldr='EMU 用可学习的语义记忆嵌入扩大 episodic recall，并以只奖励可达高回报轨迹的 episodic incentive 避免局部最优。' rank={0}>
 
-![](https://pic.hana0721.top/emu-01.6wrg97z4xd.webp)
+![](https://pic.hana0721.top/2403.01112.13mi0lmw07.webp)
 EMU（Efficient episodic Memory Utilization）延续 episodic control 加速 MARL 的想法，但指出随机投影有两个问题：语义相近的全局状态未必在 embedding 中相近，窄距离阈值只能召回几乎相同的状态；若早期记到的是局部最优，反复利用记忆反而会阻止探索。论文因此同时改进“记忆怎样表示”和“记忆怎样施加奖励”。
 
 首先用带 timestep 条件的 encoder/decoder 学习全局状态的语义 embedding：decoder 预测该状态记忆中的最高回报，并通过 deterministic conditional autoencoder 额外重建状态，使相似回报和相似任务进度形成平滑空间。其次为每条记忆标注 desirability（例如 SMAC 击败全部敌人、GRF 进球），只对通往 desirable next state 的转移加 episodic incentive。该奖励按记忆中 desirable 轨迹比例和目标网络估计的价值差构造，论文证明其 TD 梯度在策略趋于最优时逼近真实最优梯度；EMU 可插在 QPLEX、CDS 等任意 MARL 框架上。
@@ -219,7 +219,7 @@ EMU（Efficient episodic Memory Utilization）延续 episodic control 加速 MAR
 
 <ArxivRating id='2203.05285' tldr='HPN/DPN 将实体排列的置换不变输入与置换等变输出写进策略网络，减少 MARL 状态空间并支持不同数量实体迁移。' rank={0}>
 
-![](https://pic.hana0721.top/hpn-01.5c1p9r1xja.webp)
+![](https://pic.hana0721.top/2203.05285.4g57uz1rk3.webp)
 这篇工作从表示而非损失函数入手处理 MARL 的维度诅咒。SMAC、足球和 MPE 的观测常是实体集合：把队友/敌人按任意顺序拼接并不会改变信息，但普通 MLP 会把每种排列当成不同样本；同时“攻击哪个敌人”“把球传给哪个队友”等动作又应随对应实体一起置换。论文把前者形式化为 permutation invariance（PI），后者形式化为 permutation equivariance（PE），目标是在不改变主干网络的情况下消除这些冗余排列。
 
 DPN（Dynamic Permutation Network）在输入层为每个实体用 module-selection network 选择对应模块，再求和得到 PI 表示；输出层用另一组选择器把同一实体映射到同一 action module，从而保证 PE。HPN（Hyper Policy Network）进一步让 hypernetwork 直接根据实体特征生成输入/输出模块参数，不受固定模块数量限制，提升表示能力。两者只改 policy/Q 网络的输入和输出层，主干可替换为 QMIX、VDN、MAPPO、QPLEX 或 MADDPG，并以端到端 RL loss 训练。

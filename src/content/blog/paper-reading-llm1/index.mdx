@@ -35,7 +35,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='1810.04805' publication='NAACL2019' tldr='BERT 用双向掩码语言模型预训练 Transformer encoder，并以几乎不改结构的微调刷新多项语言理解基准。' rank={0}>
 
-![](https://pic.hana0721.top/bert-01.4ubnl65huz.webp)
+![](https://pic.hana0721.top/1810.04805.2yz2t7vzug.webp)
 
 **动机。** 传统从左到右语言模型在预测词时看不到右侧上下文，不利于词级分类、抽取式问答等理解任务；同时，任务专用架构使迁移成本很高。
 
@@ -67,7 +67,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='1909.08053' tldr='Megatron-LM 以张量模型并行打破单 GPU 的参数上限，在 512 块 GPU 上高效训练 83 亿参数 Transformer。' rank={0}>
 
-![](https://pic.hana0721.top/megatron-01.58i3c1dsua.webp)
+![](https://pic.hana0721.top/1909.08053.4cllx971xb.webp)
 
 **动机。** 数据并行只能把不同 batch 分到多卡，每张卡仍须容纳完整模型；当 Transformer 大到单卡放不下时，训练瓶颈转为模型内部矩阵乘法和激活的显存与通信。
 
@@ -83,7 +83,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='1910.10683' publication='JMLR2020' tldr='T5 把所有 NLP 问题统一成“文本到文本”，并系统比较预训练目标、数据和迁移策略，给出可复用的规模化配方。' rank={0}>
 
-![](https://pic.hana0721.top/t5-01.51evglrngp.webp)
+![](https://pic.hana0721.top/1910.10683.szo7g4c8l.webp)
 
 **动机。** 预训练研究中的模型结构、目标、数据集与下游格式各不相同，难以公平比较。作者希望以单一框架做受控实验，并让分类、翻译、摘要、问答共享同一接口。
 
@@ -99,7 +99,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='1910.02054' tldr='ZeRO 通过在数据并行进程间分片优化器状态、梯度和参数，大幅削减冗余显存，使万亿参数训练成为可能。' rank={0}>
 
-![](https://pic.hana0721.top/zero-01.2rvux46x1l.webp)
+![](https://pic.hana0721.top/1910.02054.39lwmgedkm.webp)
 
 **动机。** 混合精度数据并行中，每张 GPU 仍复制参数、梯度及 Adam 的 FP32 主权重和一、二阶矩；这些模型状态的冗余很快耗尽显存，即使单步计算还能继续扩展。
 
@@ -115,7 +115,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2001.08361' tldr='Kaplan 等人用幂律拟合揭示语言模型损失随参数、数据和计算量平滑下降，并提出给定算力下应优先扩大模型的早期缩放配方。' rank={0}>
 
-![](https://pic.hana0721.top/scaling-law-01.9rk4f0j9xm.webp)
+![](https://pic.hana0721.top/2001.08361.58i3cpgqhe.webp)
 
 **动机。** 大模型训练成本高，若只能试少数规模，研究者需要可外推的规律来回答“模型、数据与训练步数应如何分配计算预算”。
 
@@ -131,7 +131,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2005.14165' publication='NeurIPS2020' tldr='175B 参数的 GPT-3 展示了上下文学习：不更新权重，只给少量示例也能完成多种语言任务。' rank={0}>
 
-![](https://pic.hana0721.top/gpt3-01.60uytruern.webp)
+![](https://pic.hana0721.top/2005.14165.pg29qb9pa.webp)
 
 **动机。** 微调为每个任务保存和训练一个模型，既昂贵又依赖标注。论文检验：单个极大自回归模型能否把任务描述和演示样例写入上下文，并在推理时完成适配。
 
@@ -147,7 +147,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2101.03961' publication='JMLR2022' tldr='Switch Transformer 以每个 token 只路由到一个专家的稀疏 MoE，显著扩大参数量，同时控制计算与通信开销。' rank={0}>
 
-![](https://pic.hana0721.top/switch-01.2dpf68ymbj.webp)
+![](https://pic.hana0721.top/2101.03961.5trqz0c0yc.webp)
 
 **动机。** 密集 Transformer 每个 token 都激活全部参数，扩容同时线性增加 FLOPs。MoE 可以增加专家容量，但传统 top-2 路由的通信、负载均衡和数值稳定性使超大训练困难。
 
@@ -163,7 +163,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2107.03374' tldr='Codex 将 GPT 的大规模代码预训练转化为自然语言到程序的能力，并以 HumanEval 建立函数级代码生成评测。' rank={0}>
 
-![](https://pic.hana0721.top/codex-01.102w27nkc9.webp)
+![](https://pic.hana0721.top/2107.03374.32ioqxpx6r.webp)
 
 **动机。** 编程语言既有严格语法又要求语义正确，通用文本模型即使能补全代码，也不等于能按自然语言规格编写可执行函数。作者希望量化代码预训练与规模对这一能力的影响。
 
@@ -179,7 +179,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2201.11903' publication='NeurIPS2022' tldr='链式思维提示把中间推理步骤写进示例，使足够大的语言模型在算术、常识和符号推理上显著提升。' rank={0}>
 
-![](https://pic.hana0721.top/cot-01.60uytruewy.webp)
+![](https://pic.hana0721.top/2201.11903.9o0ii1wa53.webp)
 
 **动机。** 标准 few-shot 示例只给“问题 → 答案”，模型必须在一次跳跃中完成多步计算；这在数学、符号和组合推理中容易失败。作者考察显式自然语言推导是否能充当可迁移的推理脚手架。
 
@@ -195,7 +195,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2203.02155' publication='NeurIPS2022' tldr='InstructGPT 以人类示范、偏好排序和 PPO 组成 RLHF 流程，让小得多的模型也比 GPT-3 更符合用户意图。' rank={0}>
 
-![](https://pic.hana0721.top/instructgpt-01.8adzd9f5fi.webp)
+![](https://pic.hana0721.top/2203.02155.7zr5ks4ha7.webp)
 
 **动机。** 仅最大化互联网文本似然会让模型模仿错误、偏见和不希望的行为，且“预测下一词”不等于“遵循用户指令”。论文将对齐目标概括为 helpful、honest、harmless。
 
@@ -211,7 +211,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2204.02311' publication='JMLR2023' tldr='PaLM 用 Pathways 系统训练 540B 参数稠密 Transformer，在少样本推理、语言和代码任务展示显著的规模化能力。' rank={0}>
 
-![](https://pic.hana0721.top/palm-01.1sfrjy467t.webp)
+![](https://pic.hana0721.top/2204.02311.86udg7qmwm.webp)
 
 **动机。** 更大模型在 few-shot 学习上持续进步，但训练系统、数值稳定性和跨任务能力仍限制规模。PaLM 试图同时验证 500B 级稠密语言模型的可训练性及其泛化边界。
 
@@ -227,7 +227,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2302.13971' tldr='LLaMA 证明只用公开数据并不必然输给闭源巨型模型：经过充分训练的 7B–65B 模型在许多基准上可匹敌甚至超过更大的系统。' rank={0}>
 
-![](https://pic.hana0721.top/llama-01.1vzdhnx8zd.webp)
+![](https://pic.hana0721.top/2302.13971.8vnn08exc4.webp)
 
 **动机。** 当时最强的语言模型通常依赖不公开的训练数据、代码和算力，研究者难以复现或分析。作者希望用公开可获得的语料训练一组相对小的模型，探索“更多高质量 token 是否能以较小参数换取同等能力”。
 
@@ -243,7 +243,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2303.08774' tldr='GPT-4 技术报告展示了文本与图像输入、对齐后模型的广泛能力，但刻意不公开架构规模和训练细节，重点转向能力评估与安全部署。' rank={0}>
 
-![](https://pic.hana0721.top/gpt4-001.lwgbcf9qf.webp)
+![](https://pic.hana0721.top/2303.08774.32ioqxrh71.webp)
 
 **动机。** GPT-3.5 之后，模型是否能稳定达到专业考试和复杂推理所需的水平，以及多模态输入能否纳入同一系统，成为主要问题。作者还希望系统评估事实性、偏见、滥用和安全缓解，而不只报告单一语言建模损失。
 
@@ -259,7 +259,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2305.18290' publication='NeurIPS2023' tldr='DPO 将 RLHF 的奖励最大化目标改写成偏好对上的直接分类损失，不再单独训练奖励模型和运行 PPO，显著简化语言模型对齐。' rank={0}>
 
-![](https://pic.hana0721.top/dpo-01.4qs1ngcfuu.webp)
+![](https://pic.hana0721.top/2305.18290.41ys43u9di.webp)
 
 **动机。** 传统 RLHF 需要监督微调、奖励模型、在线采样和 PPO，工程链条长、超参数多且训练不稳定。作者观察到，在固定参考策略和 KL 约束下，最优奖励函数可以由策略与参考模型的对数概率表示，因此无需显式学习奖励模型。
 
@@ -275,7 +275,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2305.10601' publication='NeurIPS2023' tldr='Tree of Thoughts 将 Chain-of-Thought 扩展为可搜索的思路树，让语言模型生成、评估并回溯多个中间解，而非押注一条线性推理链。' rank={0}>
 
-![](https://pic.hana0721.top/tot-01.msp1ktjb.webp)
+![](https://pic.hana0721.top/2305.10601.3yf66e16fh.webp)
 
 **动机。** 普通 CoT 一旦在早期生成错误步骤，后续 token 往往只能沿错误路径继续；它也缺少对候选解的比较、规划和回溯。许多需要组合搜索的任务更像在状态空间中寻找解，而不是一次性续写。
 
@@ -291,7 +291,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2307.09288' tldr='Llama 2 在约 2T 公开 token 上训练更长上下文的开放模型，并以 SFT、拒绝采样和 PPO 组成可用的 Chat 对齐流程。' rank={0}>
 
-![](https://pic.hana0721.top/llama2-01.45ie15hznu.webp)
+![](https://pic.hana0721.top/2307.09288.7q0l5d5rq.webp)
 
 **动机。** LLaMA 展示了开放基础模型的潜力，但未对齐的权重不适合直接服务用户；同时需要更长上下文、更高质量数据和系统性的安全评估。Llama 2 试图同时提升基础模型能力，并公开一套可复用的对话对齐配方。
 
@@ -323,7 +323,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2312.00752' tldr='Mamba 让状态空间模型的状态更新依赖输入，并用硬件友好的 selective scan 实现线性序列复杂度，在长序列上替代注意力。' rank={0}>
 
-![](https://pic.hana0721.top/mamba-01.icudmm79i.webp)
+![](https://pic.hana0721.top/2312.00752.2h914mxx5m.webp)
 
 **动机。** Transformer 的注意力需要随序列长度增长的 KV cache 和二次计算；早期线性 SSM 虽高效，却难以进行基于内容的选择与复制。作者希望同时获得 Transformer 的内容选择能力和 SSM 的线性扩展、常数状态解码。
 
@@ -339,7 +339,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2405.21060' publication='ICML2024' tldr='Mamba-2 以结构化状态空间对偶统一 SSM 与注意力的递归、矩阵形式，在更适合并行的 SSD 层上取得更高速度和更好语言模型折中。' rank={0}>
 
-![](https://pic.hana0721.top/mamba2-01.9rk4f0jamh.webp)
+![](https://pic.hana0721.top/2405.21060.3yf66e22v0.webp)
 
 **动机。** Mamba 的选择性扫描高效但实现复杂，且 SSM 与注意力之间的关系不清晰，限制了并行化和架构设计。作者寻找一个既能递归处理长序列、又能利用矩阵乘法硬件的统一表示。
 
@@ -355,7 +355,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2412.15115' tldr='Qwen2.5 通过 18T token 预训练和大规模后训练，覆盖从 0.5B 到 72B 的开放权重模型，并强化长文本、代码、数学和工具调用。' rank={0}>
 
-![](https://pic.hana0721.top/qwen25-01.wja4hui89.webp)
+![](https://pic.hana0721.top/2412.15115.2rvuxsgu9b.webp)
 
 **动机。** 开放模型在长文档、结构化输出、数学代码和多语言指令上仍不稳定，且不同参数规模的性价比差异很大。Qwen 团队希望用更大、更干净的数据和统一后训练，把能力下放到小模型，同时保留 72B 的高端表现。
 
@@ -371,7 +371,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2412.19437' tldr='DeepSeek-V3 以 671B 总参数、每 token 激活约 37B 的 MoE，结合 MLA、无辅助损失负载均衡、FP8 和 DualPipe，把前沿能力的训练成本压到较低水平。' rank={0}>
 
-![](https://pic.hana0721.top/deepseekv3-01.58i3c1dtsb.webp)
+![](https://pic.hana0721.top/2412.19437.1zizg20zbo.webp)
 
 **动机。** 超大稠密模型的训练和推理成本随参数线性增长，而 MoE 虽能降低每 token 计算，却带来专家失衡、跨节点通信和显存压力。作者希望在保持大模型容量的同时，建立可扩展、稳定且成本透明的训练系统。
 
@@ -387,7 +387,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2501.12948' tldr='DeepSeek-R1 证明可从纯强化学习中诱导出反思、验证和策略切换，再用少量冷启动推理数据与迭代 RL/SFT 将能力整理成通用推理模型。' rank={0}>
 
-![](https://pic.hana0721.top/deepseekr1-01.3k8qeunjnt.webp)
+![](https://pic.hana0721.top/2501.12948.5moj3kwrue.webp)
 
 **动机。** 仅靠模仿短答案或人工 CoT 可能限制模型发现新解法；作者想测试规则可验证的奖励能否让模型自行发展长链推理，并将这种能力迁移到更广泛的帮助性任务。
 
@@ -403,7 +403,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2507.20534' tldr='Kimi K2 是约 1T 参数、每 token 激活 32B 的开放 MoE，配合 MuonClip、代理数据合成和联合 RL，重点优化真实工具使用与软件工程任务。' rank={0}>
 
-![](https://pic.hana0721.top/kimi-k2-01.41ys3foxal.webp)
+![](https://pic.hana0721.top/2507.20534.77ea31urd0.webp)
 
 **动机。** 语言模型在真实工作流中不仅要回答问题，还要规划、调用工具、读写文件并验证结果；静态指令数据难以覆盖这些长程交互。K2 以 agentic 能力为目标，尝试在超大 MoE 上稳定训练并降低开放模型的使用门槛。
 
@@ -419,7 +419,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2508.05629' tldr='Dynamic Fine-Tuning 在 SFT 损失中按当前模型的 token 概率动态重加权，用一行改动缓解低概率专家 token 的过大梯度，并提升数学、代码和多模态泛化。' rank={0}>
 
-![](https://pic.hana0721.top/dft-01.70b26xx6tn.webp)
+![](https://pic.hana0721.top/2508.05629.6po8egte2j.webp)
 
 **动机。** 标准 SFT 等价于对专家序列做精确匹配，模型对低概率 token 的逆概率权重会产生过大的梯度，导致过拟合和比 RL 更差的泛化。作者希望保留 SFT 的离线、简单和高效，同时让更新信号更接近带验证奖励的 RL。
 

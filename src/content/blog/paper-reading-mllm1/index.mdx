@@ -19,7 +19,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2103.00020' publication='ICML2021' tldr='用大规模图文对比学习把图像和自然语言映射到同一空间，从而支持零样本分类与跨任务迁移。' rank={0}>
 
-![](https://pic.hana0721.top/clip-01.7w7jmebxnr.webp)
+![](https://pic.hana0721.top/2103.00020.13mi0lkes8.webp)
 
 研究动机：传统视觉模型依赖固定类别和人工标注，换任务就要重新训练；网络上已有大量带自然语言描述的图像，论文希望直接利用这些弱标注学习通用视觉概念。
 
@@ -38,7 +38,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2303.15343' publication='ICCV2023' tldr='以逐对 sigmoid 损失替代 CLIP 的批内 softmax，对小批量训练更友好，同时保持强大的图文检索与零样本迁移能力。' rank={0}>
 
-![](https://pic.hana0721.top/siglip-01.491zyvg584.webp)
+![](https://pic.hana0721.top/2303.15343.41ys4a5fwn.webp)
 
 研究动机：CLIP 的 softmax 对比损失需要在整个 batch 内归一化，扩大 batch 才能提供足够多的负样本，训练通信和显存成本较高。论文希望让每个图文对独立判断是否匹配，降低对超大 batch 的依赖。
 
@@ -57,7 +57,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2502.14786' tldr='在 SigLIP 上加入描述生成、图文匹配、自蒸馏和掩码预测等目标，并支持原生宽高比与多语种数据，强化定位和密集视觉特征。' rank={0}>
 
-![](https://pic.hana0721.top/siglipv2-01.8adzd9k8mx.webp)
+![](https://pic.hana0721.top/2502.14786.1zizg20zun.webp)
 
 研究动机：原始 SigLIP 的全局对齐已经很强，但在局部定位、密集预测和多语种语义上仍有限；固定方形缩放也会损失文档、网页和宽幅图像中的空间信息。论文希望用统一训练配方改善这些能力。
 
@@ -76,7 +76,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2104.14294' publication='ICCV2021' tldr='用自蒸馏和多裁剪增强训练 ViT，在没有人工标签的情况下学习具有语义结构的通用视觉特征。' rank={0}>
 
-![](https://pic.hana0721.top/dino-v1-01.51evglwr2d.webp)
+![](https://pic.hana0721.top/2104.14294.96agtdslk8.webp)
 
 研究动机：监督预训练依赖昂贵标签，而无监督方法常只学到纹理或实例相似度。DINO 研究自蒸馏能否让视觉 Transformer 自己发现物体和部件的语义组织。
 
@@ -95,7 +95,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2304.07193' tldr='通过大规模数据筛选、DINO/iBOT 自蒸馏和 KoLeo 正则训练通用视觉骨干，使无标签特征可迁移到分类、分割和深度估计。' rank={0}>
 
-![](https://pic.hana0721.top/dino-v2-01.2yz2sjy62z.webp)
+![](https://pic.hana0721.top/2304.07193.6m4mgqu7i7.webp)
 
 研究动机：DINO 等自监督模型已经显示出迁移潜力，但数据规模、长训练稳定性和跨域鲁棒性仍不足。DINOv2 的目标是训练一个不依赖下游微调、可作为视觉基础模型的高质量特征提取器。
 
@@ -114,7 +114,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2508.10104' tldr='用更大规模数据和模型训练 DINO 系列，并以 Gram anchoring 防止长训练中的 dense feature 退化，再通过后处理适配分辨率和文本对齐。' rank={0}>
 
-![](https://pic.hana0721.top/dino-v3-01.102w27snta.webp)
+![](https://pic.hana0721.top/2508.10104.99u2r3tcwr.webp)
 
 研究动机：自监督视觉模型在长训练和大规模扩展时，patch 级特征可能逐渐退化，导致密集任务收益停滞；同时同一骨干还要适应不同分辨率、模型大小和跨模态应用。DINOv3 试图把这些问题纳入一个可扩展的基础模型方案。
 
@@ -133,7 +133,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2102.03334' publication='ICML2021' tldr='直接把图像 patch 和文字 token 送入 Transformer，去掉区域检测器与卷积骨干，形成轻量的视觉语言预训练模型。' rank={0}>
 
-![](https://pic.hana0721.top/vilt-01.5flb7h5235.webp)
+![](https://pic.hana0721.top/2102.03334.6po8eglpfi.webp)
 
 研究动机：当时主流视觉语言模型依赖 Faster R-CNN 区域特征，预处理慢、系统复杂且难以端到端扩展。ViLT 探索只用 patch embedding 是否足以完成图文理解。
 
@@ -152,7 +152,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2107.07651' publication='NeurIPS2021' tldr='先用双编码器对齐图像和文本，再用跨模态 Transformer 融合，并以动量蒸馏缓解网页图文噪声。' rank={0}>
 
-![](https://pic.hana0721.top/albef-01.lwgbckd1x.webp)
+![](https://pic.hana0721.top/2107.07651.pg29qc418.webp)
 
 研究动机：直接在 cross-modal encoder 中融合会把模糊或错配的网页字幕传播到表示中；但只做独立编码又缺乏细粒度交互。ALBEF 提出先对齐、后融合的训练顺序来稳定学习。
 
@@ -171,7 +171,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2111.02358' publication='NeurIPS2021' tldr='用共享注意力加模态专属专家的 MoME Transformer，统一图像、文本和图文联合预训练。' rank={0}>
 
-![](https://pic.hana0721.top/vlmo-01.60uytrzihk.webp)
+![](https://pic.hana0721.top/2111.02358.4n8fqenwi1.webp)
 
 研究动机：视觉语言预训练通常为单模态和跨模态任务维护不同网络，参数重复且难以联合扩展；完全共享又会让视觉和语言的统计规律互相干扰。VLMo 试图用一个可切换的 Transformer 兼顾二者。
 
@@ -190,7 +190,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2201.12086' publication='ICML2022' tldr='用统一的图文编码器/解码器处理理解与生成，并用 CapFilt 生成和过滤字幕，降低网页图文噪声的影响。' rank={0}>
 
-![](https://pic.hana0721.top/blip-01.7axw03hhuh.webp)
+![](https://pic.hana0721.top/2201.12086.pg29qcw87.webp)
 
 研究动机：网页图文对经常错配、字幕简短或包含无关信息；同时已有模型往往只擅长检索/问答或只擅长描述生成。BLIP 希望在同一个预训练框架中兼顾两类能力并清理训练信号。
 
@@ -209,7 +209,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2205.01917' tldr='在一个模型中同时做图文对比学习和自回归字幕生成，让同一视觉表示兼顾检索对齐与语言生成。' rank={0}>
 
-![](https://pic.hana0721.top/coca-01.54yhebpu5b.webp)
+![](https://pic.hana0721.top/2205.01917.96agtdte43.webp)
 
 研究动机：对比学习擅长学习全局语义但不能生成文字，自回归 captioning 能生成却未必保持跨模态检索结构。CoCa 探索用共享图像编码器和文本解码器把两种训练信号结合起来。
 
@@ -228,7 +228,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2208.10442' tldr='把图像离散 token 与文字 token 视为同一种“外语”，用共享注意力和模态专家进行统一掩码建模。' rank={0}>
 
-![](https://pic.hana0721.top/beit3-01.8adzd9k93x.webp)
+![](https://pic.hana0721.top/2208.10442.8adzdxjqg5.webp)
 
 研究动机：图像和文字通常由两套预训练骨干处理，跨模态模型难以共享大规模表示学习；论文希望用统一 Transformer 同时吸收纯图像、纯文本和图文数据。
 
@@ -247,7 +247,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2301.12597' publication='ICML2023' tldr='冻结强大的图像编码器和大语言模型，只训练轻量 Q-Former 作为视觉到语言的瓶颈，低成本获得通用多模态能力。' rank={0}>
 
-![](https://pic.hana0721.top/blip2-01.6bhsmxeqtz.webp)
+![](https://pic.hana0721.top/2301.12597.4ubnlua3fi.webp)
 
 研究动机：端到端更新视觉模型和大语言模型需要巨大算力，并容易破坏语言能力。BLIP-2 试图在两者之间学习一个小而通用的接口，让已有单模态模型直接协同工作。
 
@@ -266,7 +266,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2304.08485' publication='NeurIPS2023' tldr='用一个视觉投影层把 CLIP 图像特征接入 Vicuna，并以 GPT-4 生成的视觉指令数据训练可对话、可推理的开源 MLLM。' rank={0}>
 
-![](https://pic.hana0721.top/llava-01.8dxlazdbxa.webp)
+![](https://pic.hana0721.top/2304.08485.8okf4ssskf.webp)
 
 研究动机：已有视觉语言预训练模型在固定任务上很强，却不能像通用聊天模型一样遵循自然语言指令。LLaVA 研究能否用简单视觉接口和高质量指令数据，把语言模型的对话与推理能力迁移到图像场景。
 
@@ -285,7 +285,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2204.14198' publication='NeurIPS2022' tldr='冻结视觉编码器和语言模型，在中间插入 Perceiver Resampler 与门控跨注意力，使模型能从交错图文/视频上下文中进行少样本学习。' rank={0}>
 
-![](https://pic.hana0721.top/flamingo-01.32ioq9r9b3.webp)
+![](https://pic.hana0721.top/2204.14198.3k8qfltlzv.webp)
 
 研究动机：大语言模型通常只看文本，视觉模型又需要每个任务单独训练；更现实的多模态场景还包含图文交错和视频。Flamingo 希望尽量冻结已有模型，只增加少量模块，就能在新任务上用几个示例完成适应。
 
@@ -304,7 +304,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2304.08485' publication='NeurIPS2023' tldr='以视觉指令调优为核心，把图像描述、问答和推理样本统一成对话格式，让 LLaVA 学会遵循人类对视觉输入的自然语言请求。' rank={0}>
 
-![](https://pic.hana0721.top/llava-01.8dxlazdbxa.webp)
+![](https://pic.hana0721.top/2304.08485.8okf4ssskf.webp)
 
 研究动机：视觉问答数据往往只覆盖单一问题类型，不能训练出可交互的通用助手；同时高质量人工多轮视觉指令数据稀缺。该工作把“如何构造指令数据并调优语言模型”作为视觉语言助手的关键问题。
 
@@ -323,7 +323,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2308.12966' tldr='在 Qwen 语言模型上接入高分辨率视觉编码器，并加入位置、OCR 和框级监督，使模型兼具中文多模态对话与视觉 grounding。' rank={0}>
 
-![](https://pic.hana0721.top/qwen-vl-01.wja4hzllk.webp)
+![](https://pic.hana0721.top/2308.12966.9rk4fophci.webp)
 
 研究动机：早期 MLLM 多把图像压成低分辨率全局特征，中文、多图、文字识别和目标定位能力不足。Qwen-VL 希望在保持大语言模型对话能力的同时，显式学习视觉空间信息。
 
@@ -380,7 +380,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2308.00692' publication='CVPR2024' tldr='让大语言模型用特殊分割 token 表达复杂指代和推理结果，再由 SAM 解码为像素掩码，统一视觉问答与 reasoning segmentation。' rank={0}>
 
-![](https://pic.hana0721.top/lisa-01.8l0t6ezhhq.webp)
+![](https://pic.hana0721.top/2308.00692.4ubnm0dyq8.webp)
 
 研究动机：传统 referring segmentation 处理“图中左边的狗”这类短指令，却难以回答包含常识、属性比较或多步推理的指代问题；纯 LLM 又只能生成文字，无法给出像素级区域。LISA 将语言推理和分割输出放到同一对话中。
 
@@ -399,7 +399,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2406.16860' publication='NeurIPS2024' tldr='从视觉编码器、连接器和数据三方面做“vision-centric”设计，用多编码器特征与空间聚合提升开源 MLLM 的高分辨率感知。' rank={0}>
 
-![](https://pic.hana0721.top/cambrian-1-01.4cllwl98ra.webp)
+![](https://pic.hana0721.top/2406.16860.wja562zmz.webp)
 
 研究动机：许多 MLLM 把主要容量和调参放在语言模型，视觉输入却被压缩成少量低分辨率 token，导致细节、文字和空间关系不足。Cambrian-1 反过来系统研究视觉编码器选择、特征层级和视觉—语言连接器。
 
@@ -418,7 +418,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2409.12191' tldr='用动态分辨率视觉输入和多模态旋转位置编码处理任意尺寸图像与视频，并加入时间戳、OCR 和 grounding 训练。' rank={0}>
 
-![](https://pic.hana0721.top/qwen2-vl-01.491zyvg63b.webp)
+![](https://pic.hana0721.top/2409.12191.70b27m5okf.webp)
 
 研究动机：固定分辨率会裁掉文档和长宽幅图像的内容，均匀采样视频又难以表达时间关系；同时 MLLM 需要更可靠的坐标和细粒度文字理解。Qwen2-VL 以“任意分辨率与时间”作为核心设计目标。
 
@@ -437,7 +437,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2502.13923' tldr='在 Qwen2-VL 基础上强化动态分辨率、长视频时间建模、文档/OCR 和视觉代理能力，支持框点定位与电脑操作等任务。' rank={0}>
 
-![](https://pic.hana0721.top/qwen25-vl-01.4ubnl6amfs.webp)
+![](https://pic.hana0721.top/2502.13923.5flb85ammg.webp)
 
 研究动机：真实应用不仅需要看懂单张图片，还要处理长视频、密集文字、复杂文档和带坐标的操作指令。Qwen2.5-VL 试图把这些能力统一到一个可对话模型，而不是依赖多个专用工具。
 
@@ -456,7 +456,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2305.06500' publication='NeurIPS2023' tldr='把用户指令作为 Q-Former 的查询条件，让视觉特征提取随任务变化，再用多任务指令数据训练通用视觉语言模型。' rank={0}>
 
-![](https://pic.hana0721.top/instructblip-01.6po8dsn23e.webp)
+![](https://pic.hana0721.top/2305.06500.8okf4ssspw.webp)
 
 研究动机：BLIP-2 的 Q-Former 用固定 query 抽取视觉信息，但不同任务需要关注不同区域和语义；同时仅靠图文预训练不能保证模型遵循自然语言指令。InstructBLIP 将指令注入视觉抽取阶段。
 
@@ -475,7 +475,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2303.16199' tldr='在冻结 LLaMA 上插入零初始化视觉适配器和可学习提示，只训练少量参数就实现视觉指令跟随。' rank={0}>
 
-![](https://pic.hana0721.top/llama-adapter-01.9o0ihavbmh.webp)
+![](https://pic.hana0721.top/2303.16199.7axw0rhq0q.webp)
 
 研究动机：全量微调大语言模型成本高且容易破坏原有语言能力，研究者需要在有限显存下快速把 LLaMA 扩展到图像对话。LLaMA-Adapter 探索参数高效的视觉注入方式。
 
@@ -494,7 +494,7 @@ import { ArxivRating, RatingCriteria } from '@/components/advanced'
 
 <ArxivRating id='2305.11175' publication='NeurIPS2023' tldr='把语言模型当作视觉任务的开放式解码器，用自然语言指令统一输出分类、检测、分割和姿态等结果。' rank={0}>
 
-![](https://pic.hana0721.top/visionllm-01.70b26y2ac9.webp)
+![](https://pic.hana0721.top/2305.11175.b9miv5e2v.webp)
 
 研究动机：检测、分割、姿态和问答通常各自维护模型与输出头，任务扩展和人机交互成本高。VisionLLM 试图用语言指令描述任务，让一个 LLM 负责多种视觉输出并支持开放式组合。
 

@@ -319,7 +319,7 @@ InstructVLA 的训练分为两个阶段，第一个阶段是动作预训练，�
 
 <ArxivRating id='2508.10104' tldr='DINOv3 通过大规模无监督训练与 Gram Anchoring，在不依赖人工标注的情况下同时获得了强大的全局语义特征和高质量稠密特征。' rank={0}>
 
-![](https://pic.hana0721.top/dinov3-gram-anchoring.102w247j52.webp)
+![](https://pic.hana0721.top/2508.10104.99u2r3tcwr.webp)
 
 DINOv3 是 DINOv2 的大规模续作，目标是训练一个冻结后就能直接服务于 Classification、Segmentation、Depth、Tracking 与 3D Geometry 等任务的通用视觉 Backbone。
 它真正解决的难点不只是把模型扩大到 7B，而是如何在长时间自监督训练中同时保住 Global Feature 与 Dense Feature。
@@ -366,7 +366,7 @@ DINOv3 的代价是非常高的训练成本：单次 ViT-7B 预训练约消耗 4
 
 <ArxivRating id='2506.01953' tldr='FiS-VLA 将快速执行的 System 1 直接嵌入负责慢速推理的 VLM，通过异步多模态输入与双目标协同训练兼顾控制频率和操作性能。' rank={0}>
 
-![](https://pic.hana0721.top/fis-vla-overview.5flb7dk1s1.webp)
+![](https://pic.hana0721.top/2506.01953.6t7uc6lp5b.webp)
 
 现有 PI-like VLA 通常将 VLM 作为 System 2，再外挂一个独立的 Diffusion Policy 作为 System 1。
 虽然 Action Expert 很轻量，但它没有经过 Internet-Scale Pre-Training，只能被动接收 VLM 提取出的 Feature，无法直接继承 VLM 内部的知识。

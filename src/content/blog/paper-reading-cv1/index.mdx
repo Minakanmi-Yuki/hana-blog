@@ -102,7 +102,7 @@ MAE 做的事情很简单，就是把图像随机遮挡掉大部分 Patch 后让
 ## DINO
 
 <ArxivRating id='2104.14294' publication='ICCV2021' tldr='Self-Distillation 的自监督 ViT，展示了无监督特征中自然涌现的语义分割能力。' rank={4}>
-![](https://pic.hana0721.top/DINO.6f1bqri3zj.webp)
+![](https://pic.hana0721.top/2104.14294.96agtdslk8.webp)
 DINO 提出了一种无需标签的自监督训练方法，即 Self-Distillation with No Labels，并将其应用到 ViT 架构中。它的核心思想是用教师网络（Teacher） $g_{\theta_t}$ 为学生网络（Student） $g_{\theta_s}$ 提供软目标，让学生在不同增强视图下预测与教师一致的输出分布。具体来说，输入图像 $x$ 会先经过 Multi-crop augmentation，生成多个不同尺度的视图：较大的全局视图 $x_\text{global}$ 和较小的局部视图 $x_\text{local}$。教师网络只接收全局视图，因此能够看到相对完整的图像语义；学生网络则接收全局视图与局部视图，需要在只观察局部区域时也预测出与教师相近的语义分布。两者的输出经过 DINO Head 映射到一个高维空间后，通过 softmax 得到概率分布，并使用交叉熵作为训练目标，使学生分布尽可能接近教师分布。训练过程中，学生网络通过反向传播更新，而教师网络不直接接收梯度，而是由学生参数的指数移动平均（EMA）得到。为了避免模型输出塌缩，DINO 还对教师输出引入 centering 和 sharpening：前者通过滑动平均的中心项抑制某些维度长期占优，后者通过较低的温度系数使教师分布更加尖锐。DINO 的重要发现是，在没有任何人工标注的情况下，ViT 的 attention maps 会自然关注前景物体，呈现出类似语义分割的结构。这说明 DINO 不仅能学到可迁移的视觉表征，也展示了自监督 ViT 中自然涌现的 object-centric 特性，推动了后续基于自蒸馏的视觉预训练方法发展。
 </ArxivRating>
 
@@ -110,7 +110,7 @@ DINO 提出了一种无需标签的自监督训练方法，即 Self-Distillation
 
 <ArxivRating id='2304.07193' publication='TMLR2024' tldr='通过大规模精选数据和蒸馏训练得到通用视觉特征，是近几年最常用的冻结视觉 Backbone 之一。' rank={4}>
 
-![](https://pic.hana0721.top/DINOv2.4g550rsa3m.webp)
+![](https://pic.hana0721.top/2304.07193.6m4mgqu7i7.webp)
 DINOv2 可以看作是 DINO 的规模化与工程化升级版本，目标不再只是验证 self-distillation 在 ViT 上的有效性，而是训练出一组可以直接作为冻结视觉 Backbone 使用的通用特征模型。在数据层面，DINOv2 不再局限于 ImageNet 这类标准数据集，而是从大规模无标签图像中进行去重、过滤、检索和聚类，构建出包含 1.42 亿张图像的 LVD-142M 数据集，从而获得覆盖更广、质量更高的视觉概念分布。在方法层面，DINOv2 仍然沿用教师-学生自蒸馏框架，但将训练目标从 DINO 中偏图像级的表示学习进一步扩展到 patch-level 表示学习：除了使用 DINO loss 对齐全局视图的语义分布，还引入 iBOT 风格的 masked patch prediction，让学生网络在部分 patch 被 mask 的情况下预测教师网络给出的 patch-level 目标。这样模型不仅能学到 image-level 的全局语义，也能学到适合分割、深度估计和视觉对应等任务的 dense features。为了在更大数据和更大模型上稳定训练，DINOv2 还强化了防塌缩机制，包括 Sinkhorn-Knopp centering 和 KoLeo regularization，使特征分布更加均衡、输出空间利用更加充分。总体来看，DINOv2 的核心贡献在于把 DINO 的自监督 ViT 路线扩展为一套可规模化训练、可蒸馏到不同模型尺寸、且能在多种下游任务中直接迁移的通用视觉特征体系。
 
 </ArxivRating>
@@ -119,7 +119,7 @@ DINOv2 可以看作是 DINO 的规模化与工程化升级版本，目标不再�
 
 <ArxivRating id='2508.10104' tldr='DINOv2 的大规模升级版本，通过 LVD-1689M、7B Teacher 和 Gram Anchoring 训练更强的通用视觉特征。' rank={0}>
 
-![](https://pic.hana0721.top/dinov3-gram-anchoring.102w247j52.webp)
+![](https://pic.hana0721.top/2508.10104.99u2r3tcwr.webp)
 
 DINOv3 可以看作是 DINOv2 路线的进一步规模化与 dense feature 强化版本，目标是训练一个可以直接作为冻结视觉 Backbone 使用的通用视觉基础模型。数据层面，DINOv3 使用 LVD-1689M 数据集进行训练，共包含 16.89 亿张无标注图像。这些图像来自约 170 亿张 Instagram 公开帖子图像构成的大规模候选池，随后通过内容过滤、去重、DINOv2 特征聚类、均衡采样和检索式筛选得到最终训练集，从而在保证规模的同时尽量提升视觉概念覆盖和数据质量。模型层面，DINOv3 继续沿用教师-学生自监督蒸馏框架，并将 Teacher 扩展到约 7B 参数规模，同时通过蒸馏得到 ViT 和 ConvNeXt 的多种小模型，方便在不同计算预算下部署。DINOv3 最关键的新方法是 Gram Anchoring：论文发现，在继续放大 DINOv2 并延长训练后，图像级分类能力仍会提升，但 patch-level dense features 可能出现退化，影响分割、深度估计和视觉对应等任务。Gram Anchoring 用早期 dense feature 更干净的模型作为约束对象，通过对齐 patch 特征之间的 Gram 相似性结构，帮助模型在继续学习全局语义的同时保留局部几何关系和空间一致性。总体来看，DINOv3 的核心贡献不在于提出全新的自监督范式，而在于证明 DINOv2 风格的自蒸馏视觉模型可以在更大数据、更大模型和更长训练下继续扩展，并通过 Gram Anchoring 解决 dense feature 质量保持的问题。
 
