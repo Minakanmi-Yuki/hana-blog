@@ -2,6 +2,10 @@ import { getCollection, type CollectionEntry, type CollectionKey } from 'astro:c
 
 type Collections = CollectionEntry<CollectionKey>[]
 
+function compareCollectionIds(a: Collections[number], b: Collections[number]) {
+  return a.id.localeCompare(b.id, 'en', { numeric: true, sensitivity: 'base' })
+}
+
 export interface SidebarCollection {
   key: string
   title: string
@@ -99,7 +103,10 @@ export function sortMDByDate(collections: Collections): Collections {
     }
     const aPublishDate = a.data.publishDate ? new Date(a.data.publishDate).valueOf() : 0
     const bPublishDate = b.data.publishDate ? new Date(b.data.publishDate).valueOf() : 0
-    return bPublishDate - aPublishDate
+    if (aPublishDate !== bPublishDate) {
+      return bPublishDate - aPublishDate
+    }
+    return compareCollectionIds(b, a)
   })
 }
 
@@ -112,7 +119,10 @@ export function sortMDByDateAsc(collections: Collections): Collections {
     }
     const aPublishDate = a.data.publishDate ? new Date(a.data.publishDate).valueOf() : 0
     const bPublishDate = b.data.publishDate ? new Date(b.data.publishDate).valueOf() : 0
-    return aPublishDate - bPublishDate
+    if (aPublishDate !== bPublishDate) {
+      return aPublishDate - bPublishDate
+    }
+    return compareCollectionIds(a, b)
   })
 }
 
@@ -176,6 +186,19 @@ const sidebarCollectionRules = [
     },
     slugPrefix: 'rl-note-',
     entryHref: '/blog/rl-note-1'
+  },
+  {
+    key: 'robotic-grasp-detection',
+    title: {
+      zh: 'Robotic Grasp Detection 技术笔记',
+      en: 'Robotic Grasp Detection Notes'
+    },
+    description: {
+      zh: '平行夹爪抓取检测的几何、表示、数据、语义与执行',
+      en: 'Geometry, representations, data, semantics, and execution for parallel-jaw grasp detection'
+    },
+    slugPrefix: 'robotic-grasp-detection-',
+    entryHref: '/blog/robotic-grasp-detection-0'
   },
   {
     key: 'embodied-paper-reading',

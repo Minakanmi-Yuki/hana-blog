@@ -1,0 +1,237 @@
+---
+title: 'Robotic Grasp Detection (5): 稠密、接触中心与体素抓取表示'
+publishDate: 2026-08-14
+updatedDate: 2026-08-14
+description: '比较点级、接触中心、抓取区域、图结构与体素抓取场，解释稠密预测如何摊销候选搜索，以及分辨率和解码如何决定实际覆盖率。'
+heroImage:
+  { src: 'https://pic.hana0721.top/72072963_p0_master1200.mo0d1wsi.webp', color: '#8C8275' }
+tags:
+  - 'Robotic Grasping'
+  - 'Robotic Grasp Detection'
+  - 'Dense Grasping'
+  - 'Technical Notes'
+category: 'daily'
+pixivLink: '72072963'
+---
+
+## 从逐候选评分到共享计算（From Per-Candidate Scoring to Amortized Search）
+
+采样式六自由度（Six Degrees of Freedom, 6-DoF）检测需要为大量候选分别提取局部几何并计算分数。稠密预测（Dense Prediction）采用另一种思路：先对整幅图像、整片点云或整个体素空间计算共享特征，再在多个空间位置同时解码抓取质量、方向和夹爪宽度。
+
+设编码器产生特征场 $F$，抓取头在位置 $x$ 输出：
+
+$$
+(q_x,R_x,w_x)=\operatorname{Head}(F_x),
+$$
+
+其中 $q_x$ 是抓取质量（Grasp Quality），$R_x$ 是旋转（Rotation），$w_x$ 是夹爪宽度（Jaw Width）。候选搜索被摊销（Amortized）到一次特征提取中，但候选覆盖仍由采样点、体素分辨率、姿态离散和解码规则决定。
+
+---
+
+## 点级抓取预测（Point-Wise Grasp Prediction）
+
+PointNet++ Grasping 从稀疏点云中提取分层特征，并在点附近预测空间抓取 [1]。点级表示（Point-Wise Representation）天然保留度量几何，不需要把局部点云逐个投影成图像。
+
+点级预测通常包含：
+
+- 抓取性（Graspability）或前景概率；
+- 接近方向（Approach Direction）；
+- 平面内角度（In-Plane Rotation）；
+- 深度偏移（Depth Offset）；
+- 夹爪宽度与质量。
+
+这些变量通常不是一次性联合回归，而是按条件分解：
+
+$$
+p(g\mid P)
+=p(x\mid P)
+p(a\mid x,P)
+p(\theta,d,w,q\mid a,x,P),
+$$
+
+其中 $x$ 是种子点，$a$ 是接近方向，$\theta$ 是绕接近轴旋转，$d$ 是沿接近轴的深度偏移。第一项负责“在哪里解码”，第二项从方向桶或球面分布中选方向，最后一项回归桶内残差、宽度和质量。分阶段头部减少了直接回归 $SE(3)$ 的多模态冲突，但任一前级的 top-$k$ 截断都会限制后级召回。
+
+方向常被离散成 $B_a$ 个视角，绕轴角离散成 $B_\theta$ 个桶。分类损失选择桶，平滑 $L_1$ 损失（Smooth-$L_1$ Loss）回归桶中心附近的残差。若标签只监督一个“最近桶”，相邻方向会被当作完全不同类别；软标签或邻桶监督能减轻这个边界问题，但会让峰值解码与候选去重更复杂。
+
+它的有效分辨率受输入点采样影响。小物体、细把手或远距离表面可能只占很少的点；均匀下采样（Uniform Downsampling）会优先保留大平面，导致小尺度抓取模式消失。
+
+---
+
+## 接触中心表示（Contact-Centric Representation）
+
+完整夹爪位姿可以从一个接触点、局部方向和宽度恢复。Contact-GraspNet 将候选锚定在可见接触点上，并在场景点云中稠密预测六自由度抓取 [2]。与在整个三维特殊欧氏群（Special Euclidean Group, $SE(3)$）中无结构采样相比，接触锚点显著缩小了搜索范围。
+
+接触中心解码需要从局部量构造正交坐标系。设可见接触为 $c$，预测的夹爪基线方向为 $b$，接近方向为 $a$，则先投影并归一化：
+
+$$
+\tilde b=\frac{b-(a^{\mathsf T}b)a}
+{\lVert b-(a^{\mathsf T}b)a\rVert},
+\qquad
+l=a\times\tilde b,
+\qquad
+R=[a\ \tilde b\ l].
+$$
+
+再根据预测宽度把另一侧接触放在 $c+w\tilde b$ 附近，并沿接近轴加入夹爪中心偏移。若 $a$ 与 $b$ 几乎平行，正交化分母接近零，候选旋转会数值不稳定；实现中需要拒绝该候选或回退到局部切平面方向。最终姿态还要验证第二接触是否落在物体表面、两指之间是否含有物体点，以及手掌是否与场景碰撞。
+
+接触中心表示的优点包括：
+
+- 输出与局部表面直接对应；
+- 容易过滤离物体较远的候选；
+- 可以在杂乱场景中产生多个物体的抓取；
+- 接触点为碰撞与宽度估计提供几何参照。
+
+它的主要假设是关键接触区域在观测中可见。若有效夹指接触位于遮挡背面，模型只能依赖学习到的几何先验或额外补全模块。
+
+---
+
+## Graspness：先判断哪里值得解码（Graspness as a Proposal Prior）
+
+Graspness Discovery 将点云中的“哪里可能存在好抓取”建模为抓取性分数（Graspness Score）[3]。模型先筛出高抓取性点，再在这些区域预测完整姿态。
+
+点级抓取性标签通常由与该点关联的有效抓取集合聚合而来。一个简单形式是：
+
+$$
+y_i^{\text{graspness}}
+=\max_{g\in\mathcal G(i)} q(g),
+$$
+
+也可以统计超过质量阈值的抓取比例。$\mathcal G(i)$ 的关联半径、是否排除碰撞抓取、质量是否按摩擦档位平均，都会改变“可抓区域”的监督。训练时常用回归或分桶分类学习该值；推理时先取高分点，再使用最远点采样或随机采样保持空间多样性。单纯取全局 top-$k$ 容易让所有种子集中到同一大片平面。
+
+这相当于学习一个候选先验：
+
+$$
+p(g\mid P)=p(g\mid x,P)\,p(x\mid P),
+$$
+
+其中 $p(x\mid P)$ 选择抓取区域，$p(g\mid x,P)$ 负责局部姿态。分解后，昂贵的方向和宽度解码只在少量高价值点上进行。
+
+风险在于前级召回率（Proposal Recall）。一旦真正可抓区域被低分过滤，后级无法恢复。Graspness 阈值和采样预算因此是模型的一部分，不是无关的后处理参数。
+
+---
+
+## 区域与层次表示（Region-Based and Hierarchical Representation）
+
+REGNet 先提取抓取区域，再在区域内预测姿态 [4]。TransGrasp 使用多尺度层次点 Transformer（Multi-Scale Hierarchical Point Transformer）聚合不同尺度的局部与全局关系 [5]。
+
+区域级表示位于“单点”和“整场景”之间：
+
+- 单点特征精细，但上下文不足；
+- 整场景特征包含关系，但容易稀释局部接触；
+- 区域特征可以覆盖夹爪闭合范围和邻近碰撞物。
+
+区域尺寸同样是隐含假设。固定半径在不同物体尺度上代表不同物理范围，多尺度结构则增加计算与融合复杂度。
+
+Normalized Grasp Space 将区域定位与局部姿态预测分开，在归一化抓取空间中学习区域内结构 [8]。归一化有利于跨尺度学习，但坐标变换误差会传递到最终六自由度姿态。
+
+---
+
+## 体素抓取场（Volumetric Grasp Field）
+
+Volumetric Grasping Network（VGN）将深度观测融合为截断符号距离场（Truncated Signed Distance Field, TSDF），并在每个体素预测质量、旋转和夹爪宽度 [6]：
+
+$$
+V_{ijk}\longmapsto (q_{ijk},R_{ijk},w_{ijk}).
+$$
+
+TSDF 同时编码已观测表面、自由空间和截断范围内的距离。与原始点云相比，它便于三维卷积（3D Convolution）共享邻域计算，也能在固定工作空间内快速重复更新。
+
+设体素中心为 $x$，沿相机射线得到观测表面的符号距离 $d(x)$，截断距离为 $\tau$，归一化 TSDF 为：
+
+$$
+D(x)=\operatorname{clip}\!\left(\frac{d(x)}{\tau},-1,1\right).
+$$
+
+多帧融合时，每个体素维护加权平均距离与累计权重；新深度帧只更新相机视锥和表面附近的体素。VGN 的三维卷积头为每个体素输出质量、旋转与宽度，训练标签则把已知抓取变换到体素坐标，并只在抓取中心附近监督姿态 [6]。旋转若用单位四元数 $r$ 表示，损失必须处理 $r$ 与 $-r$ 等价，例如：
+
+$$
+\mathcal L_R=\min\left(
+\lVert\hat r-r^*\rVert_2,
+\lVert\hat r+r^*\rVert_2
+\right).
+$$
+
+推理时先在质量体素中取三维局部极大值，再反体素化为世界坐标、归一化旋转、截断宽度并做碰撞检查。因而一个高分体素不是最终抓取，它只是一个待解码的姿态锚点。
+
+体素化的代价是内存与分辨率：体素边长减半，三维网格数量近似增加到八倍。粗体素会抹平薄物体、窄缝和精细接触；细体素则提高显存和推理成本。固定体素工作空间也会绑定相机和机器人布局。
+
+---
+
+## 图结构表示（Graph Representation）
+
+点云中的候选不是独立的。它们可能属于同一物体、共享接触区域，或者受到相邻物体碰撞影响。GraNet 构造多层图网络（Multi-Level Graph Network），在场景、物体与抓取点之间传播关系 [7]。
+
+图神经网络（Graph Neural Network, GNN）适合表达：
+
+- 点与局部区域的几何关系；
+- 候选与物体实例的归属；
+- 多物体之间的空间上下文；
+- 相似抓取之间的互补或冗余。
+
+图结构并非免费获得。节点如何定义、边如何连接、邻域大小和实例分割质量都会改变信息传播；错误的物体分组可能比不使用实例信息造成更大偏差。
+
+---
+
+## 关键点与概率对应（Keypoints and Probabilistic Correspondence）
+
+KGN-Pro 在红绿蓝—深度图像（Red–Green–Blue and Depth Image, RGB-D Image）中预测二维关键点，再通过概率二维—三维对应（Probabilistic 2D–3D Correspondence）和可微分透视 n 点求解（Differentiable Perspective-n-Point, PnP）恢复六自由度姿态 [9]。
+
+给定夹爪模型中的三维关键点 $X_j$、图像关键点 $u_j$ 与相机内参 $K$，PnP 求解满足：
+
+$$
+u_j\sim K(RX_j+t)
+$$
+
+的 $R,t$。确定性实现只取热图峰值，而概率对应会从关键点热图或离散深度分布中采样多组对应，得到一组姿态及其重投影误差。可微分 PnP 则让三维重投影损失回传到二维热图。关键点置信度应进入加权重投影，而不是所有点等权；否则一个被遮挡的错误关键点足以拉偏整个刚体位姿。
+
+关键点接口计算高效，也能利用成熟的二维特征网络。概率对应显式表达关键点不确定性，使三维重投影误差能够反向监督二维预测。它的瓶颈是对应质量：遮挡、重复纹理或小物体会让少量像素误差转化为明显姿态偏差。
+
+---
+
+## 解码决定实际候选分布（Decoding Defines the Effective Distribution）
+
+稠密网络输出的是参数场，机器人执行的是有限候选集合。中间通常需要：
+
+1. 按质量阈值筛选；
+2. 在空间和旋转上做非极大值抑制（Non-Maximum Suppression, NMS）；
+3. 解码多个方向、深度与宽度；
+4. 进行夹爪与场景碰撞检测；
+5. 按机器人可达性重新排序。
+
+因此，网络分辨率、峰值提取、每点保留姿态数和 NMS 阈值共同决定覆盖率。两个方法即使使用相同编码器，只要候选预算不同，也不能只比较最终 top-$k$ 成功率。
+
+空间 NMS 可以使用带对称性的位姿距离：
+
+$$
+d(g_i,g_j)=
+\frac{\lVert t_i-t_j\rVert_2}{\sigma_t}
++\frac{\min_{S\in\mathcal S}
+d_R(R_i,R_jS)}{\sigma_R},
+$$
+
+其中 $\mathcal S$ 包含平行夹爪的等价 $180^\circ$ 旋转，$\sigma_t,\sigma_R$ 分别控制平移和旋转邻域。只按中心距离做 NMS 会删除同一点上的侧抓与顶抓；只按旋转做 NMS 又会保留大量空间重复姿态。工程上常先按物体或接触区域分组，再在组内进行 $SE(3)$ NMS。
+
+| 表示     | 搜索单位      | 主要瓶颈                  |
+| :------- | :------------ | :------------------------ |
+| 点级     | 输入点/采样点 | 点密度与小物体召回        |
+| 接触中心 | 可见接触点    | 背面接触与遮挡            |
+| 区域级   | 局部抓取区域  | 区域尺度与定位误差        |
+| 体素场   | 三维网格单元  | 分辨率、内存与固定空间    |
+| 图结构   | 节点与关系    | 图构造和实例错误          |
+| 关键点   | 二维/三维对应 | 对应不确定性与 PnP 敏感性 |
+
+稠密表示降低了逐候选推理成本，却没有消除候选选择问题；它把搜索成本转移到了空间离散、表示分辨率和解码策略中。
+
+---
+
+## 参考文献（References）
+
+1. P. Ni, W. Zhang, X. Zhu, and Q. Cao, “PointNet++ Grasping: Learning an End-to-End Spatial Grasp Generation Algorithm from Sparse Point Clouds,” _2020 International Conference on Robotics and Automation_, 2020. [DOI](https://doi.org/10.1109/ICRA40945.2020.9196740)
+2. M. Sundermeyer, A. Mousavian, R. Triebel, and D. Fox, “Contact-GraspNet: Efficient 6-DoF Grasp Generation in Cluttered Scenes,” _2021 IEEE International Conference on Robotics and Automation_, 2021. [DOI](https://doi.org/10.1109/ICRA48506.2021.9561877)
+3. C. Wang et al., “Graspness Discovery in Clutters for Fast and Accurate Grasp Detection,” _2021 IEEE/CVF International Conference on Computer Vision_, 2021. [DOI](https://doi.org/10.1109/ICCV48922.2021.01566)
+4. B. Zhao et al., “REGNet: Region-Based Grasp Network for End-to-End Grasp Detection in Point Clouds,” _2021 IEEE International Conference on Robotics and Automation_, 2021. [DOI](https://doi.org/10.1109/ICRA48506.2021.9561920)
+5. Z. Liu, Z. Chen, S. Xie, and W.-S. Zheng, “TransGrasp: A Multi-Scale Hierarchical Point Transformer for 7-DoF Grasp Detection,” _2022 International Conference on Robotics and Automation_, 2022. [DOI](https://doi.org/10.1109/ICRA46639.2022.9812001)
+6. M. Breyer, J. J. Chung, L. Ott, R. Siegwart, and J. Nieto, “Volumetric Grasping Network: Real-Time 6 DOF Grasp Detection in Clutter,” _Proceedings of the Conference on Robot Learning_, PMLR 155, 2021. [PMLR](https://proceedings.mlr.press/v155/breyer21a.html)
+7. H. Wang, W. Niu, and C. Zhuang, “GraNet: A Multi-Level Graph Network for 6-DoF Grasp Pose Generation in Cluttered Scenes,” _2023 IEEE/RSJ International Conference on Intelligent Robots and Systems_, 2023. [DOI](https://doi.org/10.1109/IROS55552.2023.10341549)
+8. S. Chen et al., “Region-Aware Grasp Framework with Normalized Grasp Space for Efficient 6-DoF Grasping,” _Proceedings of the 8th Conference on Robot Learning_, 2024. [PMLR](https://proceedings.mlr.press/v270/chen25c.html)
+9. B. Chen, B. Li, J. Yang, Y. Liu, and G. Zhai, “KGN-Pro: Keypoint-Based Grasp Prediction through Probabilistic 2D–3D Correspondence Learning,” _2025 IEEE/RSJ International Conference on Intelligent Robots and Systems_, 2025. [DOI](https://doi.org/10.1109/IROS60139.2025.11246850)

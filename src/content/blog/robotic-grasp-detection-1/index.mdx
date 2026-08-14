@@ -1,0 +1,207 @@
+---
+title: 'Robotic Grasp Detection (1): 问题定义与分类体系'
+publishDate: 2026-08-14
+updatedDate: 2026-08-14
+description: '从观测、抓取表示、候选生成、质量信号、条件信息与评价层级六个正交维度，建立平行夹爪抓取检测的统一分类体系。'
+heroImage:
+  { src: 'https://pic.hana0721.top/66119164_p0_master1200.3d5duqih46.webp', color: '#8C8275' }
+tags:
+  - 'Robotic Grasping'
+  - 'Robotic Grasp Detection'
+  - 'Parallel-Jaw Gripper'
+  - 'Technical Notes'
+category: 'daily'
+pixivLink: '66119164'
+---
+
+## 从“一个姿态”到条件决策（From Pose Prediction to Conditional Decision）
+
+机器人抓取检测（Robotic Grasp Detection）常被简写为“输入图像或点云，输出抓取姿态”。这个描述省略了几个决定方法能力的变量：机器人看到多少几何信息、抓取针对哪个目标、使用什么夹爪、候选如何产生，以及最终分数究竟代表标注一致性还是物理成功。
+
+更完整的形式是：给定观测（Observation）$o$、目标或任务条件（Target or Task Condition）$z$、夹爪几何（Gripper Geometry）$h$ 和机器人状态（Robot State）$r$，产生有限候选集合或连续姿态分布：
+
+$$
+G(o,z,h,r)=\{g_i\}_{i=1}^{N},
+\qquad \text{or} \qquad
+p(g\mid o,z,h,r).
+$$
+
+对于平行夹爪（Parallel-Jaw Gripper），一个空间抓取可以写成：
+
+$$
+g=(T,w), \qquad T\in SE(3),
+$$
+
+其中 $T$ 是夹爪相对相机、物体或机器人基座的刚体位姿（Rigid-Body Pose），$SE(3)$ 是三维特殊欧氏群（Special Euclidean Group），$w$ 是夹爪宽度（Jaw Width）。平面方法则常使用旋转矩形（Oriented Rectangle）：
+
+$$
+g=(x,y,\theta,l,w).
+$$
+
+两种方法都可以输出“抓取”，但它们覆盖的接近方向、碰撞关系和机器人约束完全不同。Jiang 等人的矩形表示使抓取成为图像空间检测问题 [1]；Contact-GraspNet 则从场景点云中的可见接触位置生成六自由度（Six Degrees of Freedom, 6-DoF）候选 [2]。因此，输出维度只是分类的一部分。
+
+实际实现中，有限候选集合通常存成一个 $N\times d$ 张量。以显式空间抓取为例，每行至少包含：
+
+$$
+g_i=(t_i,r_i,w_i,q_i),
+$$
+
+其中 $t_i\in\mathbb{R}^3$ 是平移，$r_i$ 可以是四元数（Quaternion）、旋转矩阵的六维连续表示（6D Continuous Rotation Representation）或离散方向索引，$w_i$ 是物理开口，$q_i$ 是分数。不同旋转编码对应不同的归一化与损失：四元数需要处理 $q$ 与 $-q$ 的双重覆盖；六维表示需要在解码时用 Gram–Schmidt 正交化；离散方向则需要分类后再回归桶内残差。
+
+候选通过几何与机器人约束后，可以写成二值可行性掩码（Feasibility Mask）：
+
+$$
+m_i=
+\mathbf 1[\text{collision-free}]
+\mathbf 1[w_{\min}\leq w_i\leq w_{\max}]
+\mathbf 1[\text{IK-feasible}].
+$$
+
+最终选择是在 $m_i=1$ 的候选中排序，而不是先取网络最高分再祈望它可执行。若一个方法把碰撞和可达性作为后处理，另一个方法把它们放进训练损失，两者即使使用相同姿态表示，也属于不同的决策接口。
+
+---
+
+## 维度一：观测与信息（Observation and Information）
+
+### 被动部分观测（Passive Partial Observation）
+
+单帧红绿蓝图像（Red–Green–Blue Image, RGB Image）、深度图（Depth Image）、RGB-D 图像或点云（Point Cloud）是最常见输入。RGB 提供纹理、类别和边界，深度提供度量几何（Metric Geometry），但它们的失效方式不同：
+
+- 透明或高反光表面可能没有可靠深度；
+- 遮挡（Occlusion）使背面和接触区域不可见；
+- 远距离、小物体和倾斜表面会产生稀疏点云；
+- RGB 能识别物体，却不能直接恢复隐藏几何和真实尺度。
+
+### 补全或隐式几何（Completed or Implicit Geometry）
+
+形状补全（Shape Completion）、占据场（Occupancy Field）、神经辐射场（Neural Radiance Field, NeRF）和隐式表面（Implicit Surface）尝试表示未观测区域。它们增加了潜在抓取区域，也引入补全不确定性（Completion Uncertainty）：生成出来的背面并不等于真实背面。
+
+### 主动与多视角观测（Active and Multi-View Observation）
+
+主动感知（Active Perception）把“看哪里”纳入抓取决策。移动相机或机械臂可以减少遮挡，但需要额外时间、标定和运动规划。信息增益（Information Gain）与抓取收益之间的权衡，和被动单帧检测是不同问题。
+
+### 接触后信息（Post-Contact Information）
+
+触觉（Tactile Sensing）、力/力矩（Force/Torque）、滑移（Slip）和物体刚度（Stiffness）在夹爪接触后才出现。Calandra 等人表明，视觉可以提出初始抓取，而触觉能够判断是否需要重新抓取（Regrasp）[5]。这种方法不一定改变离线姿态精度，却可能提高执行可靠性。
+
+---
+
+## 维度二：抓取表示（Grasp Representation）
+
+| 表示                          | 典型输出                   | 主要优势                   | 主要缺失                                                           |
+| :---------------------------- | :------------------------- | :------------------------- | :----------------------------------------------------------------- |
+| 平面/2.5-D（Planar / 2.5-D）  | 中心、角度、开口、质量     | 输出紧凑、推理快、适合闭环 | 任意俯仰/滚转、三维碰撞                                            |
+| 显式 6-DoF（Explicit 6-DoF）  | $SE(3)$ 位姿与宽度         | 任意接近方向、便于三维检查 | 搜索空间大、候选覆盖困难                                           |
+| 接触中心（Contact-Centric）   | 接触点、方向与姿态         | 贴近局部几何、减少无效搜索 | 依赖可见表面和接触标注                                             |
+| 稠密场（Dense Field）         | 像素/点/体素上的质量与姿态 | 共享计算、适合实时推理     | 分辨率、解码与非极大值抑制（Non-Maximum Suppression, NMS）影响覆盖 |
+| 隐式函数（Implicit Function） | 查询位置或方向的连续质量   | 可表示连续抓取族           | 查询、采样与标定成本                                               |
+| 概率分布（Pose Distribution） | $p(g\mid o)$ 或生成样本    | 表达多解性和不确定性       | 多样性不等于校准或可执行性                                         |
+
+Volumetric Grasping Network（VGN）把质量、旋转和夹爪宽度附着在截断符号距离场（Truncated Signed Distance Field, TSDF）的体素上 [3]。SE(3)-DiffusionFields 则把抓取与运动代价表示成可优化的扩散代价场（Diffusion Cost Field）[4]。两者都避免传统候选逐个分类，但一个是稠密体素预测，另一个是分布与优化接口。
+
+---
+
+## 维度三：候选生成（Candidate Generation）
+
+抓取表示说明“一个候选长什么样”，候选生成（Candidate Generation）说明“候选从哪里来”。常见机制包括：
+
+1. **解析采样（Analytic Sampling）**：根据表面法线、接触对、摩擦锥和碰撞规则生成；
+2. **直接回归（Direct Regression）**：网络一次输出一个或一组姿态；
+3. **稠密预测（Dense Prediction）**：在像素、点或体素上预测抓取参数；
+4. **生成式采样（Generative Sampling）**：从变分模型、扩散模型或流模型中采样多个姿态；
+5. **混合生成（Hybrid Generation）**：几何采样、神经评分与解析过滤共同组成流水线。
+
+候选生成和质量估计必须分开理解。一个评分器即使非常准确，也无法恢复生成器从未提出的抓取模式；生成器覆盖很广，也可能产生大量碰撞或不可达候选。
+
+### 候选预算如何进入结果
+
+设标注或高质量参考集合为 $G^*$，预测的前 $k$ 个候选为 $G_k$，在位姿距离阈值 $ au$ 下可以定义集合召回率：
+
+$$
+\operatorname{Recall@}k(\tau)
+=\frac{1}{|G^*|}
+\sum_{g^*\in G^*}
+\mathbf 1\!\left[
+\min_{g\in G_k}d(g,g^*)<\tau
+\right].
+$$
+
+这里的 $d$ 不能把米和弧度直接相加。常见做法是分别设置平移阈值与旋转阈值，或使用加权距离；平行夹爪还要把相差 $180^\circ$ 的等价闭合方向视为同一模式。报告 Recall@$k$ 时，$k$、非极大值抑制半径、每个点/体素保留多少方向都必须固定，否则“模型覆盖更好”可能只表示它输出了更多近重复候选。
+
+---
+
+## 维度四：质量与约束（Quality and Constraints）
+
+评分函数可以统一写成：
+
+$$
+s(g)=f(g,o,z,h,r),
+$$
+
+但 $s(g)$ 并不是通用标尺。它可能表示：
+
+- 力闭合（Force Closure）或 Ferrari–Canny 指标；
+- 与环境无碰撞（Collision-Free）；
+- 仿真器中的抓取成功；
+- 学习得到的物理抬升概率；
+- 任务效用（Task Utility）；
+- 机器人可达性（Robot Reachability）。
+
+同一个候选在解析指标下可能稳定，却可能因相机外参误差、夹爪指尖厚度或逆运动学失败而无法执行。质量分数的语义、训练标签和过滤规则必须一起报告。
+
+---
+
+## 维度五：条件与泛化（Conditioning and Generalization）
+
+条件信息改变“什么是好抓取”：
+
+- 场景级（Scene-Level）：只要求从杂乱场景中抓走任意物体；
+- 目标条件（Target-Conditioned）：必须抓指定物体；
+- 部件条件（Part-Conditioned）：必须抓把手、边缘或功能部位；
+- 任务条件（Task-Conditioned）：抓取要适合倒水、放置或工具使用；
+- 物理属性条件（Physical-Property-Conditioned）：质量、材料、脆弱性或刚度影响接触位置；
+- 具身条件（Embodiment-Conditioned）：夹爪尺寸、指尖形状和机器人工作空间参与预测。
+
+泛化（Generalization）也不能只写成“未见物体”。未见实例、未见类别、新场景、传感器变化、材料变化、视角变化和夹爪变化分别测试不同能力。GraspGen-X 将夹爪扫掠体积（Swept Volume）作为条件，尝试在不同平行夹爪之间迁移，但目前仍属于 arXiv 预印本证据 [7]。
+
+---
+
+## 维度六：评价层级（Evaluation Level）
+
+抓取评测可以排列成一条逐级增加现实约束的阶梯：
+
+```text
+离线姿态匹配（Offline Pose Metric）
+    ↓
+几何与碰撞有效（Geometric / Collision Validity）
+    ↓
+仿真成功（Simulated Success）
+    ↓
+物理抬升或清空（Physical Lift / Clearing）
+    ↓
+稳定、滑移与可达（Stability / Slip / Reachability）
+    ↓
+任务完成与失败恢复（Task Completion / Recovery）
+```
+
+GraspNet-1Billion 的平均精度（Average Precision, AP）为场景级六自由度检测建立了统一协议 [6]，但 AP 不等于真实抬升、长期稳定或任务成功。比较论文时，必须同时固定输入、数据划分、夹爪、指标和物理执行层级。
+
+---
+
+## 正交分类而不是单一标签（Orthogonal Taxonomy）
+
+一个方法通常同时占据多个类别。例如，VGN 是“深度输入 + TSDF 体素表示 + 稠密生成 + 学习质量 + 固定夹爪 + 物理闭环”；Contact-GraspNet 是“场景点云 + 接触中心表示 + 稠密候选 + 碰撞过滤”；SE(3)-DiffusionFields 是“姿态分布 + 扩散代价 + 抓取与运动联合优化”。
+
+因此，卷积神经网络（Convolutional Neural Network, CNN）、Transformer、图神经网络（Graph Neural Network, GNN）或扩散模型不适合作为唯一分类轴。正交分类法关心六个问题：看到了什么、输出什么、如何生成、如何评分、在什么条件下工作，以及证据到达了哪一层。
+
+---
+
+## 参考文献（References）
+
+1. Y. Jiang, S. Moseson, and A. Saxena, “Efficient Grasping from RGBD Images: Learning Using a New Rectangle Representation,” _2011 IEEE International Conference on Robotics and Automation_, 2011. [DOI](https://doi.org/10.1109/ICRA.2011.5980145)
+2. M. Sundermeyer, A. Mousavian, R. Triebel, and D. Fox, “Contact-GraspNet: Efficient 6-DoF Grasp Generation in Cluttered Scenes,” _2021 IEEE International Conference on Robotics and Automation_, 2021. [DOI](https://doi.org/10.1109/ICRA48506.2021.9561877)
+3. M. Breyer, J. J. Chung, L. Ott, R. Siegwart, and J. Nieto, “Volumetric Grasping Network: Real-Time 6 DOF Grasp Detection in Clutter,” _Proceedings of the Conference on Robot Learning_, PMLR 155, 2021. [PMLR](https://proceedings.mlr.press/v155/breyer21a.html)
+4. J. Urain, N. Funk, J. Peters, and G. Chalvatzaki, “SE(3)-DiffusionFields: Learning Smooth Cost Functions for Joint Grasp and Motion Optimization Through Diffusion,” _2023 IEEE International Conference on Robotics and Automation_, 2023. [DOI](https://doi.org/10.1109/ICRA48891.2023.10161569)
+5. R. Calandra et al., “More Than a Feeling: Learning to Grasp and Regrasp Using Vision and Touch,” _IEEE Robotics and Automation Letters_, 2018. [DOI](https://doi.org/10.1109/LRA.2018.2852779)
+6. H.-S. Fang, C. Wang, M. Gou, and C. Lu, “GraspNet-1Billion: A Large-Scale Benchmark for General Object Grasping,” _2020 IEEE/CVF Conference on Computer Vision and Pattern Recognition_, 2020. [DOI](https://doi.org/10.1109/CVPR42600.2020.01146)
+7. B. Han et al., “GraspGen-X: Cross-Embodiment 6-DOF Diffusion-Based Grasping,” _arXiv preprint arXiv:2606.00998_, 2026. [arXiv](https://arxiv.org/abs/2606.00998)

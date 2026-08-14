@@ -1,0 +1,195 @@
+---
+title: 'Robotic Grasp Detection (6): 数据集与基准评测协议'
+publishDate: 2026-08-14
+updatedDate: 2026-08-14
+description: '比较 Cornell、Jacquard、Dex-Net、ACRONYM、GraspNet、REGRAD 与执行型数据集，解释标签、划分、夹爪和物理层级如何改变分数含义。'
+heroImage:
+  { src: 'https://pic.hana0721.top/72300463_p0_master1200.83amt5a3ia.webp', color: '#8C8275' }
+tags:
+  - 'Robotic Grasping'
+  - 'Robotic Grasp Detection'
+  - 'Grasp Datasets'
+  - 'Technical Notes'
+category: 'daily'
+pixivLink: '72300463'
+---
+
+## 数据集定义了问题（Datasets Define the Problem）
+
+抓取检测中的数据集（Dataset）不只是训练样本集合。它同时规定观测模态、夹爪、标签生成方式、场景分布、泛化划分和评价指标。两个方法都输出六自由度（Six Degrees of Freedom, 6-DoF）姿态，并不代表它们的分数可以直接比较。
+
+在比较结果前，至少需要固定六个字段：
+
+1. 输入（Input）：红绿蓝图像（Red–Green–Blue Image, RGB Image）、深度图（Depth Image）、红绿蓝—深度图像（Red–Green–Blue and Depth Image, RGB-D Image）、点云、多视角、语言或触觉；
+2. 标签（Label）：矩形、姿态、解析质量、碰撞、目标或真实结果；
+3. 划分（Split）：物体、类别、场景、视角、遮挡或夹爪；
+4. 夹爪（Gripper）：开口、指尖、碰撞体与机器人平台；
+5. 指标（Metric）：交并比（Intersection over Union, IoU）、平均精度（Average Precision, AP）、覆盖率、抬升、稳定或任务成功；
+6. 物理层级（Physical Level）：离线、仿真、规划、真实执行或完整任务。
+
+---
+
+## 平面抓取基准（Planar Grasp Benchmarks）
+
+### Cornell Grasp Dataset
+
+Cornell 使用真实 RGB-D 桌面图像和旋转抓取矩形。Redmon 等人使用的版本包含 885 张图像和 240 个物体 [1]。常见划分包括：
+
+- 图像划分（Image-Wise Split）：测试不同图像；
+- 物体划分（Object-Wise Split）：测试未见物体实例。
+
+典型矩形判据同时要求方向误差小于阈值，并与某个人工标注具有足够交并比（Intersection over Union, IoU）。它测量图像空间标注一致性，而不是完整三维特殊欧氏群（Special Euclidean Group, $SE(3)$）中的碰撞、可达性或抬升稳定性。
+
+### Jacquard
+
+Jacquard 使用合成 RGB-D/深度图和大规模矩形标注 [2]。合成场景能够扩大形状、姿态和抓取数量，但训练与真实相机之间存在渲染域差距（Rendering Domain Gap）。Cornell 和 Jacquard 都使用平面矩形，数据来源和泛化协议仍然不同。
+
+---
+
+## 解析与仿真六自由度数据（Analytic and Simulated 6-DoF Data）
+
+### Dex-Net
+
+Dex-Net 2.0 从三维物体模型采样平行夹爪候选，使用鲁棒准静态质量（Robust Quasi-Static Quality）生成 670 万个合成样本，并在 ABB YuMi 上进行物理验证 [3]。它适合研究解析质量学习和仿真到现实迁移（Sim-to-Real Transfer），但主要假设刚性、单物体、固定夹爪和特定深度视角。
+
+Dex-Net 的数据生成单元不是一张独立深度图，而是一组共享潜在状态的变量：物体网格、稳定放置姿态、相机姿态、候选抓取、渲染深度和鲁棒质量。生成流程可以拆成：
+
+```text
+清理并缩放物体网格
+    → 枚举/采样稳定放置姿态
+    → 在物体表面采样平行夹爪候选
+    → 对物体、夹爪与摩擦扰动计算鲁棒准静态质量
+    → 从相机视角渲染带噪深度图
+    → 将候选投影为局部深度图块并训练 GQ-CNN
+```
+
+训练/测试划分必须在物体模型层完成，而不是在渲染图像层随机切分；否则同一网格的不同相机视图会同时出现在训练与测试中。网格尺度、稳定姿态分布和相机采样范围共同定义了合成数据分布。
+
+### ACRONYM
+
+ACRONYM 包含 17.744M 个仿真平行夹爪抓取，覆盖 8,872 个物体和 262 个类别 [4]。标签来自物理仿真（Physics Simulation），适合训练生成式六自由度模型和研究候选多样性。
+
+ACRONYM 把对象网格与抓取姿态分开存储：姿态位于对象坐标系中，训练场景可以在加载时把它变换到任意对象位姿。仿真标签通过把夹爪放到候选预抓取位置、闭合夹指并检查物体是否被稳定持有得到。这样得到的是指定仿真器、摩擦、质量与控制器下的二值结果；若下游网络把所有成功抓取视为同质量，它不会自动学习成功集合内部的鲁棒余量。
+
+大规模仿真标签不等于真实测量。网格质量、摩擦参数、质量分布、碰撞模型和仿真器接触求解都会进入标签。
+
+---
+
+## 场景级真实 RGB-D 基准（Scene-Level Real RGB-D Benchmark）
+
+GraspNet-1Billion 包含 88 个日常物体、190 个杂乱场景和 97,280 张 RGB-D 图像，并提供超过 11 亿个解析标注抓取 [5]。场景划分为 100 个训练场景和 90 个测试场景；测试集进一步包含 Seen、Similar 和 Novel 三类各 30 个场景。
+
+GraspNet 的密集标注不是逐图手工放置夹爪。它先在单物体网格上均匀采样抓取点；对每个点采样球面观察方向，再在夹爪深度集合 $D$ 与平面内角集合 $A$ 的二维网格中搜索候选，并根据物体几何确定不空抓且不碰撞的宽度。力闭合检查逐步改变摩擦系数 $\mu$，原论文用：
+
+$$
+s=1.1-\mu
+$$
+
+把较低摩擦下仍成立的抓取赋予更高分数。随后用物体位姿把对象坐标候选变换到场景：
+
+$$
+G_i^{(w)}={}^{w}T_{O_i}G_i^{(o)},
+$$
+
+并用简化平行夹爪模型检查候选是否与场景中其他物体碰撞。相机标定和逐帧相机位姿再把首帧对象标注传播到其余视角。因此，标注密度来自“对象网格采样 × 解析变换 × 场景碰撞”，不是 11 亿次独立物理实验。
+
+GraspNet 使用摩擦阈值下的平均精度（Average Precision, AP）评价预测姿态与标注抓取之间的匹配。它统一了场景级六自由度评测，但 AP 仍是离线指标：
+
+- 标注质量主要来自解析几何与碰撞；
+- 预测是否被机械臂实际执行是另一个协议；
+- Seen/Similar/Novel 测试物体泛化，不等于传感器、夹爪或机器人泛化。
+
+原始协议先对预测做姿态 NMS，再取每个场景的前 50 个候选。给定摩擦系数 $\mu$，预测候选通过夹爪内部点确定关联对象，并在线计算力闭合标签。定义：
+
+$$
+\operatorname{Precision@}k_\mu=\frac{\operatorname{TP}_\mu(k)}{k},
+\qquad
+\operatorname{AP}_\mu=\frac{1}{50}\sum_{k=1}^{50}
+\operatorname{Precision@}k_\mu.
+$$
+
+总 AP 再对 $\mu\in\{0.2,0.4,0.6,0.8,1.0\}$ 的 $\operatorname{AP}_\mu$ 取平均，同时常单独报告 $\operatorname{AP}_{0.4}$ 与 $\operatorname{AP}_{0.8}$。这里的 AP 与目标检测中对召回率积分的 AP 并不完全相同；它更接近“不同候选截断 $k$ 下前缀精度的平均”。候选数、NMS 和排序校准会直接改变结果。
+
+GraspNet 的期刊扩展进一步研究不同传感器质量与采集条件 [6]，说明同一场景在不同深度相机下并不是等价输入。
+
+---
+
+## 关系、目标与部件条件数据（Relational, Target, and Part Conditioning）
+
+### REGRAD
+
+REGRAD 将对象关系、目标抓取和碰撞安全加入场景数据，包含约 111.8k 个生成场景，训练/验证/测试分别约为 46.9k、32.1k 和 32.8k，并区分 Seen 与 Unseen 分支 [7]。
+
+它评价的不只是“哪里能抓”，还包括“抓哪个对象”以及对象之间的关系。关系识别错误和抓取几何错误需要分开统计。
+
+### LangSHAPE
+
+LangSHAPE 面向语言与部件可供性（Part Affordance），包含 16 个物体类别、35 个部件类别，并使用对象级和部件级 8:1:1 划分 [8]。这类数据需要同时评价部件定位与部件约束抓取，不能只报告最终姿态分数。
+
+### TARGO
+
+TARGO 将目标身份和遮挡程度作为显式变量。TARGO-Real 使用 21 个物体和 1,000 个筛选后的真实场景，研究目标驱动六自由度抓取随遮挡变化的鲁棒性 [9]。目标成功率与对象无关的 GraspNet AP 回答的是不同问题。
+
+---
+
+## 执行感知数据（Execution-Aware Data）
+
+### Supermarket-6DoF
+
+Supermarket-6DoF 记录 20 个超市物体上的 1,500 次真实抓取尝试，并同时标注抓取成功与抓取后稳定性 [10]。它把“抬起来”和“稳定拿住”分开，但规模较小，主要面向特定真实平台；目前仍是 arXiv 预印本。
+
+### GraspIT
+
+GraspIT 报告约 316k 组 RGB-D 帧、1,035 个仿真场景和 100 个真实场景，以及约 230 万个经过滑移测试（Slip Test）验证的候选 [11]。它加入可达性和滑移质量，但并非每个候选都经过真实机器人执行；目前同样属于预印本证据。
+
+### GCA-Bench
+
+GCA-Bench 将检测、抓取、规划和任务执行拆成阶段指标，定义 102 个复杂任务场景 [12]。它能够定位失败发生在语义理解、姿态检测还是执行，但总分也会耦合感知、规划和硬件；当前为 arXiv 预印本。
+
+---
+
+## 评价阶梯（Evaluation Ladder）
+
+同一个预测姿态可以在不同层级被称为“成功”：
+
+| 层级       | 典型指标                           | 它能证明什么             | 它不能证明什么         |
+| :--------- | :--------------------------------- | :----------------------- | :--------------------- |
+| 矩形匹配   | 角度 + IoU                         | 与二维标注一致           | 任意三维接近与碰撞安全 |
+| 姿态检测   | AP / 前 $k$ 项召回率（Recall@$k$） | 与解析姿态集合匹配       | 真实抬升和可达性       |
+| 几何有效   | Force Closure / Collision          | 满足给定接触模型         | 传感器与执行误差下成功 |
+| 仿真执行   | Simulated Success                  | 在指定仿真参数下成功     | 真实材料和接触         |
+| 物理抓取   | Lift / Clearing Rate               | 特定机器人完成抬升或清空 | 长期稳定和任务适配     |
+| 稳定与可达 | Slip / Stability / Reachability    | 接触和机器人约束更完整   | 开放世界任务成功       |
+| 完整任务   | Task Success / Recovery            | 系统级闭环效果           | 单独检测器的因果贡献   |
+
+跨论文比较时，数据集名称、划分、夹爪、候选预算和物理层级都应写清。一个在 Cornell 上更高的矩形准确率、一个在 GraspNet 上更高的 AP 和一个更高的真实清空率，不能排列成同一张无条件排行榜。
+
+复现实验时，还应把评测前处理固定下来：
+
+| 环节         | 必须记录的实现参数                        |
+| :----------- | :---------------------------------------- |
+| 工作空间裁剪 | 桌面/箱体边界、深度范围、是否使用真值分割 |
+| 点云处理     | 体素下采样尺寸、点数、法线与颜色是否使用  |
+| 候选截断     | 每点方向数、总候选数、top-$k$             |
+| 姿态 NMS     | 平移、旋转、夹爪对称与按物体分组规则      |
+| 碰撞检查     | 夹爪尺寸、体素大小、空抓与碰撞阈值        |
+| 分数         | 是否重标定、与碰撞/可达性如何组合         |
+
+这些参数位于模型输出与官方评测 API 之间。若只公布网络权重而没有公布该段解码配置，表中的 AP 仍难以复现。
+
+---
+
+## 参考文献（References）
+
+1. J. Redmon and A. Angelova, “Real-Time Grasp Detection Using Convolutional Neural Networks,” _2015 IEEE International Conference on Robotics and Automation_, 2015. [DOI](https://doi.org/10.1109/ICRA.2015.7139361)
+2. A. Depierre, E. Dellandrea, and L. Chen, “Jacquard: A Large Scale Dataset for Robotic Grasp Detection,” _2018 IEEE/RSJ International Conference on Intelligent Robots and Systems_, 2018. [DOI](https://doi.org/10.1109/IROS.2018.8593950)
+3. J. Mahler et al., “Dex-Net 2.0: Deep Learning to Plan Robust Grasps with Synthetic Point Clouds and Analytic Grasp Metrics,” _Robotics: Science and Systems XIII_, 2017. [DOI](https://doi.org/10.15607/RSS.2017.XIII.058)
+4. C. Eppner, A. Mousavian, and D. Fox, “ACRONYM: A Large-Scale Grasp Dataset Based on Simulation,” _2021 IEEE International Conference on Robotics and Automation_, 2021. [DOI](https://doi.org/10.1109/ICRA48506.2021.9560844)
+5. H.-S. Fang, C. Wang, M. Gou, and C. Lu, “GraspNet-1Billion: A Large-Scale Benchmark for General Object Grasping,” _2020 IEEE/CVF Conference on Computer Vision and Pattern Recognition_, 2020. [DOI](https://doi.org/10.1109/CVPR42600.2020.01146)
+6. H.-S. Fang, M. Gou, C. Wang, and C. Lu, “Robust Grasping across Diverse Sensor Qualities: The GraspNet-1Billion Dataset,” _The International Journal of Robotics Research_, 2023. [DOI](https://doi.org/10.1177/02783649231193710)
+7. H. Zhang et al., “REGRAD: A Large-Scale Relational Grasp Dataset for Safe and Object-Specific Robotic Grasping in Clutter,” _IEEE Robotics and Automation Letters_, 2022. [DOI](https://doi.org/10.1109/LRA.2022.3142401)
+8. Y. Song et al., “Learning 6-DoF Fine-Grained Grasp Detection Based on Part Affordance Grounding,” _IEEE Transactions on Automation Science and Engineering_, 2025. [DOI](https://doi.org/10.1109/TASE.2025.3566461)
+9. Y. Xia et al., “TARGO and TARGO-Net: Benchmarking Target-Driven Object Grasping under Occlusions,” _International Journal of Computer Vision_, 2026. [DOI](https://doi.org/10.1007/s11263-025-02716-9)
+10. J. Toskov and A. Cosgun, “Supermarket-6DoF: A Real-World Grasping Dataset and Grasp Pose Representation Analysis,” _arXiv preprint arXiv:2502.16311_, 2025. [arXiv](https://arxiv.org/abs/2502.16311)
+11. P. Koch, A. Karakurt, and A. Sers, “GraspIT: A Dataset Bridging the Sim-to-Real Gap and Back for Validated Grasping SE(3) Pose Generation,” _arXiv preprint arXiv:2607.05869_, 2026. [arXiv](https://arxiv.org/abs/2607.05869)
+12. H. Zhang et al., “Beyond Visual Grasping: Benchmarking Complex Grasping from Detection to Execution,” _arXiv preprint arXiv:2607.14341_, 2026. [arXiv](https://arxiv.org/abs/2607.14341)

@@ -1,0 +1,240 @@
+---
+title: 'Robotic Grasp Detection (10): 多模态感知与闭环抓取优化'
+publishDate: 2026-08-14
+updatedDate: 2026-08-14
+description: '解释视觉、时间信息、触觉、力矩、滑移与刚度如何在接近、接触和抬升阶段更新抓取，并讨论闭环系统的状态估计与评价方法。'
+heroImage:
+  { src: 'https://pic.hana0721.top/76117294_p0_master1200.2rvq8fo0ul.webp', color: '#8C8275' }
+tags:
+  - 'Robotic Grasping'
+  - 'Robotic Grasp Detection'
+  - 'Multimodal Perception'
+  - 'Closed-Loop Grasping'
+category: 'daily'
+pixivLink: '76117294'
+---
+
+## 为什么单次视觉预测不够（Why One-Shot Vision Is Insufficient）
+
+开环抓取（Open-Loop Grasping）在运动前预测一次姿态，随后假设物体、相机和机器人状态不再变化。真实执行中，深度噪声、手眼标定误差、物体移动、接触偏差和滑移会在预测后继续累积。
+
+闭环抓取（Closed-Loop Grasping）根据连续观测更新状态与动作：
+
+$$
+g_{t+1}=\pi(o_{0:t},a_{0:t},f_{0:t}),
+$$
+
+其中 $o$ 是视觉或触觉观测，$a$ 是已执行动作，$f$ 是力与接触反馈。不同模态在不同时间点有效：视觉擅长接触前定位，触觉和力觉在接触后提供直接证据，滑移则在抬升时暴露稳定性。
+
+更完整的闭环系统维护隐藏状态 $x_t$，例如物体位姿、接触位置、是否滑移和夹紧力，而不是直接把所有历史帧拼接后回归姿态。贝叶斯滤波（Bayesian Filtering）写成：
+
+$$
+\underbrace{p(x_t\mid o_{0:t},a_{0:t-1})}_{b_t(x_t)}
+\propto
+p(o_t\mid x_t)
+\int p(x_t\mid x_{t-1},a_{t-1})b_{t-1}(x_{t-1})\,dx_{t-1}.
+$$
+
+视觉、触觉和力觉分别提供不同的观测似然。控制器根据当前信念 $b_t$ 选择短时动作，并在下一观测到来后重算，这就是滚动时域（Receding Horizon）而非“一次检测后完整执行”。工程实现可以用卡尔曼滤波（Kalman Filter）、粒子滤波（Particle Filter）或神经状态编码器（Neural State Encoder）近似该更新，但都要明确状态、时间戳和坐标系。
+
+---
+
+## 视觉闭环与时间一致性（Visual Closed Loop and Temporal Consistency）
+
+闭环不一定需要触觉。低延迟视觉检测器可以在机械臂接近时反复修正目标。Grasping in the Wild 从低成本示范学习六自由度（Six Degrees of Freedom, 6-DoF）闭环抓取 [1]；Real-Time Generative Grasping 使用时空稀疏卷积（Spatio-Temporal Sparse Convolution）融合连续深度帧 [2]；AnyGrasp 则关注空间和时间域中的鲁棒抓取感知 [3]。
+
+时间融合（Temporal Fusion）可以：
+
+- 平滑单帧姿态抖动；
+- 累积不同视角看到的表面；
+- 跟踪移动物体和候选；
+- 删除与当前场景不一致的旧抓取。
+
+融合前必须先把不同帧注册到同一坐标系。若第 $t$ 帧点云位于相机坐标系，机器人状态提供 ${}^{B}T_{C_t}$，则：
+
+$$
+P_B^t={}^{B}T_{C_t}P_C^t.
+$$
+
+随后才能用体素哈希（Voxel Hashing）、迭代最近点（Iterative Closest Point, ICP）或对象跟踪关联新旧表面。候选也要随被跟踪物体更新：若估计物体从 $T_O^{t-1}$ 移到 $T_O^t$，旧抓取应变换为 $T_O^t(T_O^{t-1})^{-1}g_{t-1}$。直接平均两个三维特殊欧氏群（Special Euclidean Group, $SE(3)$）矩阵不是合法姿态平均；平移可加权，旋转需用四元数平均或李代数增量。
+
+它也会引入时延（Latency）和状态过期（Stale State）。若物体运动快于估计更新，融合更多历史反而可能降低准确性。
+
+---
+
+## 接触前的不确定性处理（Pre-Contact Uncertainty）
+
+夹爪位姿误差会让解析高分抓取在执行时错过接触面。Johns 等人学习稠密抓取函数，再与夹爪位姿不确定性卷积 [4]：
+
+$$
+\tilde Q(g)=\int Q(g+\delta)\,p(\delta)\,d\delta.
+$$
+
+尖锐但对误差敏感的高分候选会被降低，周围都较稳定的候选得到更高鲁棒分数。这种方法在接触前处理预测与控制误差，但不观察实际接触结果。
+
+vMF-Contact 使用 von Mises–Fisher 分布（von Mises–Fisher Distribution, vMF）和证据学习（Evidential Learning）表示噪声杂乱场景中的接触方向不确定性 [9]。概率表示的价值在于让候选分数随观测质量变化，而不是对所有姿态输出同样尖锐的置信度。
+
+对单位方向 $n\in\mathbb S^2$，vMF 密度为：
+
+$$
+p(n\mid\mu,\kappa)=C_3(\kappa)
+\exp(\kappa\mu^{\mathsf T}n),
+$$
+
+其中 $\mu$ 是平均方向，集中参数 $\kappa$ 控制尖锐程度；$\kappa\to0$ 时接近球面均匀分布，$\kappa$ 大时集中在 $\mu$ 附近。网络不仅预测方向，还预测它有多确定。解码时可从分布采样多个接触方向，或用 $\kappa$ 降低不确定候选的排序分数。若始终只取均值 $\mu$，则概率头的大部分信息没有进入决策。
+
+---
+
+## 视觉—触觉重新抓取（Visuo-Tactile Regrasping）
+
+触觉感知（Tactile Sensing）提供指尖压力分布、接触位置和局部纹理。More Than a Feeling 将视觉与触觉共同用于初始抓取和重新抓取（Regrasp）[5]。
+
+典型流程是：
+
+```text
+视觉提出初始候选
+    ↓
+夹爪闭合并获得触觉图
+    ↓
+预测当前抓取是否稳定
+    ↓
+若不稳定，预测调整方向或新候选
+    ↓
+重新夹持并验证
+```
+
+触觉不能完全替代视觉：它只在接触后覆盖很小区域，也无法提前判断远处碰撞。它的优势是能够直接观察视觉最难判断的接触状态。
+
+视觉—触觉重新抓取通常包含两个不同输出头：稳定性分类器估计当前接触是否足以抬升，调整策略预测平移、旋转或重新张开夹爪的动作。原始触觉图先做空载基线校正，再计算压力/形变差分；左右指尖图像应保留其夹爪侧别，不能无条件堆叠成同一通道。一个简化决策为：
+
+$$
+a_t=
+\begin{cases}
+\text{lift}, & p_{\text{stable}}>\eta,\\
+\Delta g_t, & p_{\text{stable}}\leq\eta
+\text{ 且调整在安全范围内},\\
+\text{release and replan}, & \text{otherwise}.
+\end{cases}
+$$
+
+重新抓取训练数据必须包含“调整前触觉、所执行调整、调整后结果”三元组；只有静态成功/失败触觉图，最多能训练评估器，不能监督应该向哪个方向移动。
+
+---
+
+## 力、力矩与质心（Force, Torque, and Center of Mass）
+
+腕部力/力矩传感器（Wrist Force/Torque Sensor）和触觉可以估计物体受力及质心偏移。Center-of-Mass-Based Robust Grasp Planning 使用触觉—视觉传感器调整未知物体抓取 [6]。
+
+若夹持点远离质心（Center of Mass, CoM），重力会产生较大力矩：
+
+$$
+\tau=(p_{\text{CoM}}-p_{\text{grasp}})\times mg.
+$$
+
+系统可以根据抬升后的力矩选择重新抓取，使夹持点更接近质心。这个信号在物体被拿起后才可靠，因此评价需要允许多次尝试和状态变化。
+
+在准静态悬持、已知重力方向的条件下，腕部测得的力 $F$ 与力矩 $\tau$ 满足：
+
+$$
+F\approx mg,\qquad
+\tau\approx r_{\text{CoM}}\times F+\tau_0,
+$$
+
+其中 $\tau_0$ 包含传感器偏置、夹爪自重和安装误差。先用空夹爪姿态标定 $\tau_0$，再在一个或多个手腕方向上测量，才能解出质心在垂直于 $F$ 平面内的分量；单个静态姿态无法观测沿重力方向的质心位置。机器人加速时还会出现惯性力矩，因此应在短暂停稳窗口估计，或显式使用加速度补偿。
+
+---
+
+## 滑移检测与稳定控制（Slip Detection and Stable Control）
+
+滑移（Slip）是接触面相对运动，可能由夹紧力不足、质心偏移、材料摩擦变化或机器人加速度引起。滑移检测可以基于：
+
+- 触觉图像变化；
+- 高频振动与剪切力；
+- 腕部力/力矩；
+- 视觉中的物体相对运动。
+
+检测到滑移后，控制器可以增加夹紧力、改变手腕运动、放慢加速度或重新抓取。稳定性评价（Stability Evaluation）应与首次抬升成功分开：物体离开桌面并不代表能够安全搬运。
+
+滑移检测一般使用时间窗而不是单帧阈值。设触觉或剪切特征为 $z_t$，可以比较短窗变化：
+
+$$
+s_t=\frac{1}{L}\sum_{k=0}^{L-1}
+\lVert z_{t-k}-z_{t-k-1}\rVert,
+$$
+
+或用一维卷积/循环网络区分接触建立、正常形变和持续滑移。阈值过低会把机械臂振动当作滑移，过高则在物体明显移动后才响应。夹紧力控制可采用带上限的增量律 $F_{t+1}=\operatorname{clip}(F_t+K s_t,F_{\min},F_{\max})$；脆弱物体还需要由材料或力限制决定 $F_{\max}$，不能检测到滑移就无限加力。
+
+---
+
+## 刚度与形变感知（Stiffness and Deformation Awareness）
+
+柔性物体的几何会随夹持力改变。Deformation-Aware Grasp Synthesis 将刚度和形变加入抓取选择 [7]。对软物体，质量函数可能同时包含稳定性和形变惩罚：
+
+$$
+Q(g)=Q_{\text{hold}}(g)-\lambda D_{\text{deform}}(g).
+$$
+
+夹得更紧可能减少滑移，却增加损伤。视觉形状、材料先验、触觉接触和力控制需要共同决定抓取，而不是只优化静态力闭合。
+
+---
+
+## 少样本物理学习与示范（Sample-Efficient Physical Learning and Demonstration）
+
+真实抓取试验昂贵。Sample Efficient Grasp Learning 使用等变模型（Equivariant Model）复用旋转和平移对称性，提高有限物理数据的利用率 [8]。自监督增强现实遥操作（Self-Supervised Augmented-Reality Teleoperation）则使用人类示范生成六自由度抓取训练信号 [10]。
+
+示范可以快速提供可执行姿态，但会继承操作者偏好、机器人平台和相机设置。自监督也不意味着无偏标签：成功检测、轨迹规划和硬件保护机制都会筛选数据。
+
+---
+
+## 多模态融合发生在哪里（Where Multimodal Fusion Happens）
+
+| 阶段                      | 可用信息                                                               | 典型决策                 |
+| :------------------------ | :--------------------------------------------------------------------- | :----------------------- |
+| 接触前（Pre-Contact）     | 红绿蓝—深度（Red–Green–Blue and Depth, RGB-D）、点云、语言、机器人状态 | 目标、姿态、接近轨迹     |
+| 接近中（During Approach） | 连续视觉、位姿反馈                                                     | 修正姿态、停止或重新规划 |
+| 闭合时（At Closure）      | 触觉、夹爪电流、力                                                     | 判断是否接触、调整夹紧力 |
+| 抬升中（During Lift）     | 滑移、力矩、视觉跟踪                                                   | 增力、减速、放回或重抓   |
+| 任务中（During Task）     | 物体状态、语言、放置约束                                               | 保持、重新定向、恢复失败 |
+
+早期融合（Early Fusion）把多模态输入送入同一网络，便于学习联合特征，但要求同步和大量配对数据；后期融合（Late Fusion）让各模态独立估计，再在质量或控制层合并，模块更清晰但可能丢失细粒度相关性。
+
+早期融合可以写成 $h=F([e_v,e_t,e_f])$，其中视觉、触觉和力特征在编码后拼接；后期融合则先产生各自证据 $q_m$，再按可靠度组合：
+
+$$
+q=\frac{\sum_m w_m q_m}{\sum_m w_m},
+\qquad
+w_m\propto\frac{1}{\sigma_m^2+\epsilon}.
+$$
+
+这里 $\sigma_m^2$ 是模态不确定性。深度大面积缺失时，视觉权重应下降；触觉尚未接触时，触觉分支应被掩码为不可用，而不是输入全零后让网络自行猜测。异步传感器还要把每个特征关联到采样时间，并把机器人状态插值到同一时刻，否则高速接近时几十毫秒偏差就会对应明显空间误差。
+
+---
+
+## 闭环系统应如何评价（Evaluating Closed-Loop Systems）
+
+只报告第一次尝试成功率会忽略反馈价值。闭环评测至少应包含：
+
+- 首次成功率（First-Attempt Success）；
+- 给定尝试预算下的累计成功率（Cumulative Success）；
+- 平均重新抓取次数（Average Regrasp Count）；
+- 达成稳定所需时间（Time to Stable Grasp）；
+- 滑移率和恢复率（Slip and Recovery Rate）；
+- 接触力、物体损伤和安全终止；
+- 传感器与控制循环频率。
+
+多模态系统的核心不是模态数量，而是每个新观测是否减少了决策相关不确定性，并在有限时间与尝试预算下改善真实执行。
+
+---
+
+## 参考文献（References）
+
+1. S. Song, A. Zeng, J. Lee, and T. Funkhouser, “Grasping in the Wild: Learning 6DoF Closed-Loop Grasping from Low-Cost Demonstrations,” _IEEE Robotics and Automation Letters_, 2020. [DOI](https://doi.org/10.1109/LRA.2020.3004787)
+2. T. R. Player, D. Chang, F. Li, and G. A. Hollinger, “Real-Time Generative Grasping with Spatio-Temporal Sparse Convolution,” _2023 IEEE International Conference on Robotics and Automation_, 2023. [DOI](https://doi.org/10.1109/ICRA48891.2023.10161529)
+3. H.-S. Fang et al., “AnyGrasp: Robust and Efficient Grasp Perception in Spatial and Temporal Domains,” _IEEE Transactions on Robotics_, 2023. [DOI](https://doi.org/10.1109/TRO.2023.3281153)
+4. E. Johns, S. Leutenegger, and A. J. Davison, “Deep Learning a Grasp Function for Grasping under Gripper Pose Uncertainty,” _2016 IEEE/RSJ International Conference on Intelligent Robots and Systems_, 2016. [DOI](https://doi.org/10.1109/IROS.2016.7759657)
+5. R. Calandra et al., “More Than a Feeling: Learning to Grasp and Regrasp Using Vision and Touch,” _IEEE Robotics and Automation Letters_, 2018. [DOI](https://doi.org/10.1109/LRA.2018.2852779)
+6. Q. Feng et al., “Center-of-Mass-Based Robust Grasp Planning for Unknown Objects Using Tactile-Visual Sensors,” _2020 IEEE International Conference on Robotics and Automation_, 2020. [DOI](https://doi.org/10.1109/ICRA40945.2020.9196815)
+7. T. N. Le, J. Lundell, F. J. Abu-Dakka, and V. Kyrki, “Deformation-Aware Data-Driven Grasp Synthesis,” _IEEE Robotics and Automation Letters_, 2022. [DOI](https://doi.org/10.1109/LRA.2022.3146551)
+8. X. Zhu et al., “Sample Efficient Grasp Learning Using Equivariant Models,” _Robotics: Science and Systems XVIII_, 2022. [DOI](https://doi.org/10.15607/RSS.2022.XVIII.071)
+9. Y. Shi, E. Welte, M. Gilles, and R. Rayyes, “vMF-Contact: Uncertainty-Aware Evidential Learning for Probabilistic Contact-Grasp in Noisy Clutter,” _2025 IEEE International Conference on Robotics and Automation_, 2025. [DOI](https://doi.org/10.1109/ICRA55743.2025.11127888)
+10. X. Dengxiong, X. Wang, S. Bai, and Y. Zhang, “Self-Supervised 6-DoF Robot Grasping by Demonstration via Augmented Reality Teleoperation System,” _2024 IEEE International Conference on Robotics and Automation_, 2024. [DOI](https://doi.org/10.1109/ICRA57147.2024.10611721)

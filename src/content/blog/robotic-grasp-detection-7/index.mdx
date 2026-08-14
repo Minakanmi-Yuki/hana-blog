@@ -1,0 +1,218 @@
+---
+title: 'Robotic Grasp Detection (7): 不完整几何与主动感知'
+publishDate: 2026-08-14
+updatedDate: 2026-08-14
+description: '分析单视角点云缺失、形状补全、隐式重建、多视角融合、透明物体深度失效与主动视角选择，并区分推断几何和获取新观测。'
+heroImage:
+  { src: 'https://pic.hana0721.top/74378589_p0_master1200.5j4sgia4w5.webp', color: '#8C8275' }
+tags:
+  - 'Robotic Grasping'
+  - 'Robotic Grasp Detection'
+  - 'Active Perception'
+  - '3D Reconstruction'
+category: 'daily'
+pixivLink: '74378589'
+---
+
+## 抓取需要接触不可见区域（Grasping Requires Hidden Contact Geometry）
+
+单视角红绿蓝—深度观测（Red–Green–Blue and Depth, RGB-D）只测到朝向相机的表面。对平行夹爪而言，两个夹指往往需要接触物体相对两侧，其中至少一侧可能被自遮挡（Self-Occlusion）或其他物体遮挡（Inter-Object Occlusion）。
+
+观测点云可以写成真实表面 $S$ 的一个子集：
+
+$$
+P_{\text{obs}} \subset S.
+$$
+
+缺失几何不是普通随机噪声。它与视角、材质、遮挡关系和传感器原理相关：
+
+- 背面因为视线不可达而缺失；
+- 透明或反光表面因为深度测量失效而缺失；
+- 薄结构和远距离小物体因分辨率不足而稀疏；
+- 杂乱场景中的接触区域可能完全不可见。
+
+解决方案主要分为两类：根据已有观测推断隐藏几何，或者主动获取新的观测。二者承担的风险不同。
+
+---
+
+## 场景与点云补全（Scene and Point-Cloud Completion）
+
+形状补全（Shape Completion）学习条件分布：
+
+$$
+p(S_{\text{hidden}}\mid P_{\text{obs}}).
+$$
+
+实际系统常输出一个确定性补全结果 $\hat S$，再运行抓取检测器。Beyond Top-Grasps Through Scene Completion 使用场景补全支持非顶抓姿态 [1]；CompletePoints 通过模拟完整点表示改善单视角六自由度（Six Degrees of Freedom, 6-DoF）检测 [2]。
+
+不同补全表示对应不同的训练和查询接口。
+
+**点集补全（Point-Set Completion）**直接预测缺失点 $\hat P$，常用双向倒角距离（Chamfer Distance, CD）：
+
+$$
+\mathcal L_{\text{CD}}=
+\frac{1}{|\hat P|}\sum_{x\in\hat P}\min_{y\in P^*}\lVert x-y\rVert_2^2
++\frac{1}{|P^*|}\sum_{y\in P^*}\min_{x\in\hat P}\lVert y-x\rVert_2^2.
+$$
+
+第一项防止预测点远离真表面，第二项鼓励覆盖全部真值点。但 CD 不直接约束法线、薄结构或空闲空间；两片靠得很近的平行表面可以具有较小 CD，却让夹指碰撞判断完全不同。
+
+**占据场（Occupancy Field）**对任意查询点输出满足 $0\leq o_\theta(x,z)\leq1$ 的占据概率，用二元交叉熵（Binary Cross-Entropy, BCE）监督空间内外。它能连续查询和提取等值面，但训练查询点如何分布很关键：均匀采样大多落在远离表面的简单空区，通常还要在真表面附近增加扰动采样。**截断符号距离场（Truncated Signed Distance Field, TSDF）**进一步给出到表面的有符号距离，适合碰撞与梯度优化，但符号在开放或不完整网格上可能不可靠。
+
+无论哪种表示，训练损失优化的是平均几何，而抓取关心的是接触附近的局部最坏错误。更有针对性的训练会在候选闭合区、接近通道或高曲率部位提高采样权重，并把占据不确定性作为抓取评分输入。
+
+补全的优势是无需移动相机，代价是模型可能在最不确定的背面生成“看似完整但错误”的表面。平均形状误差较小，并不保证接触区域正确。抓取评价应关注：
+
+- 补全是否提高有效候选覆盖率；
+- 候选是否依赖虚构表面；
+- 补全不确定性是否传递到抓取分数；
+- 改进来自几何还是类别先验。
+
+PCF-Grasp 不直接把补全点当作真值，而是将补全转换为几何特征辅助检测 [6]。这种设计承认补全结果是条件信息，而不是精确测量。
+
+---
+
+## 联合重建与抓取（Joint Reconstruction and Grasping）
+
+CenterGrasp 使用对象中心隐式表示（Object-Centric Implicit Representation）同时进行形状重建和六自由度抓取估计 [3]。联合学习的动机是：纯重建损失关注所有表面，而抓取更关注可接触、可接近和稳定区域。
+
+隐式函数可以表示为：
+
+$$
+f_\theta(x,z)\rightarrow
+(\text{occupancy},\text{surface},\text{grasp quality}),
+$$
+
+其中 $z$ 是观测编码。连续查询能够避免固定点数，但推理仍需要采样查询位置、估计对象坐标系并选择候选。
+
+Local Occupancy-Enhanced Grasping 使用多平面投影（Multiple Triplanar Projection）增强局部占据几何 [7]。局部占据适合补足接触附近结构，却不一定恢复全局物体和场景关系。
+
+---
+
+## 神经渲染与多视角几何（Neural Rendering and Multi-View Geometry）
+
+神经辐射场（Neural Radiance Field, NeRF）和相关神经表面表示可以融合多张 RGB 图像，从不同视角恢复几何与外观。GraspNeRF 使用可泛化 NeRF 处理透明和高反光物体的多视角六自由度抓取 [4]。
+
+NeRF 沿相机射线 $r(t)=o+td$ 查询密度 $\sigma_i$ 与颜色 $c_i$。离散体渲染为：
+
+$$
+\hat C(r)=\sum_i T_i\alpha_i c_i,
+\qquad
+T_i=\prod_{j<i}(1-\alpha_j),
+\qquad
+\alpha_i=1-e^{-\sigma_i\delta_i}.
+$$
+
+期望深度可类似写成 $\hat D(r)=\sum_iT_i\alpha_i t_i$。抓取系统通常从密度场提取网格/点云，或直接在三维查询点读取 NeRF 特征来评分。光度重建准确不保证密度表面就是物理接触面，透明介质尤其可能在前后表面之间产生分散密度；因此需要尺度标定、占据阈值和夹爪碰撞余量。
+
+Any-View 6DoF Grasping 通过神经表面渲染，使模型能够从不同观察视角推断抓取 [5]。NeRF Grasp Pose Optimization 则利用 NeRF 特征评价和优化已有候选 [8]。
+
+多视角方法引入新的系统变量：
+
+- 相机外参标定（Extrinsic Calibration）；
+- 视角数量与采集时间；
+- 场景在采集期间是否静止；
+- 重建更新速度；
+- 相机轨迹是否与机器人动作冲突。
+
+You Only Scan Once 面向动态场景构建一次扫描与重建流水线，再生成六自由度抓取 [9]。动态重建要求几何更新速度跟得上物体和相机变化，不能只比较静态网格质量。
+
+---
+
+## 透明与高反光物体（Transparent and Specular Objects）
+
+普通结构光或双目深度相机可能在玻璃、透明塑料和高反光金属上产生孔洞或错误深度。此时物体在 RGB 中可见，在点云中却不存在可靠接触表面。
+
+主动立体（Active Stereo）相机投射红外纹理并通过左右图匹配估计视差，深度近似满足 $z=fb/d$，其中 $f$ 是焦距、$b$ 是双目基线、$d$ 是视差。透明表面会折射投影纹理，使匹配位置不再对应同一物理表面；高反光表面则可能饱和。简单的孔洞填充只能让深度图更连续，不能恢复正确折射几何。透明物体方法因此常同时利用 RGB 轮廓、多视角一致性、专用主动照明或神经渲染，而不是只在普通深度图上做插值。
+
+GraspNeRF 通过多视角神经渲染恢复透明/高反光几何 [4]；ASGrasp 使用 RGB-D 主动立体相机（Active Stereo Camera）进行可泛化透明物体重建和抓取 [10]。两者都解决“深度失效”，但依赖的硬件和信息来源不同。
+
+透明物体评测至少应报告：
+
+- 光照与背景；
+- 相机类型和主动投射设置；
+- 视角数量；
+- 重建误差与抓取成功分别如何测量；
+- 方法在普通不透明物体上的代价。
+
+透明性改变的是观测模型（Observation Model），不能简单归入“更难的物体类别”。
+
+---
+
+## 主动感知不是形状补全（Active Perception Is Not Completion）
+
+形状补全在固定观测下推断隐藏几何；主动感知（Active Perception）通过动作获得新证据。设当前历史为 $H_t$，候选视角为 $v$，主动策略可以选择最大化预期抓取收益的视角：
+
+$$
+v^*=\arg\max_v
+\mathbb{E}\left[U(G\mid H_t,o_{t+1}(v))-C(v)\right],
+$$
+
+其中 $U$ 是抓取效用，$C(v)$ 是移动、时间与风险成本。
+
+一个好的下一视角（Next-Best View, NBV）不必生成最完整的全局模型，只要能减少抓取相关不确定性。例如，它可以专门暴露目标把手、被遮挡接触面或夹爪接近通道。
+
+实际 NBV 通常从有限相机位姿集合 $\mathcal V$ 中选择，而不是连续优化任意视点。对每个 $v\in\mathcal V$，可以用当前占据模型射线投影出预期可见体素，并估计熵下降：
+
+$$
+\operatorname{IG}(v)=
+H(S\mid H_t)-
+\mathbb E_{o_{t+1}\sim p(o\mid v,H_t)}
+[H(S\mid H_t,o_{t+1})].
+$$
+
+抓取相关策略还会只统计候选接触区和接近通道内的熵，或者直接估计观测后最高可行抓取分数的提升。最终目标可写成 $\operatorname{IG}(v)-\lambda_tT(v)-\lambda_mC_{\text{motion}}(v)$。候选视角若不可达、相机会撞场景或移动时间过长，应在打分前删除，而不是选择后再交给规划器失败。
+
+VISO-Grasp 将视觉语言目标、对象中心空间表示、主动视角规划和六自由度抓取结合起来，用于杂乱与不可见目标 [11]。Cross-View Fusion 则通过跨视角融合增强姿态估计，目前仍是 arXiv 预印本 [12]。
+
+---
+
+## 不确定性应当传递到候选（Propagating Uncertainty to Grasps）
+
+无论补全还是主动观测，核心都不是得到一张“更漂亮”的点云，而是改变抓取候选的可靠性。理想系统应区分：
+
+- 传感器噪声（Sensor Noise）；
+- 未观测区域的不确定性（Occlusion Uncertainty）；
+- 补全模型不确定性（Model Uncertainty）；
+- 多视角标定误差（Calibration Error）；
+- 执行过程中的姿态误差（Execution Error）。
+
+如果多个隐藏形状都合理，生成器应保留多个抓取模式或降低依赖隐藏表面的候选分数。把单一补全结果当作真值，会让后端碰撞检测显得过度确定。
+
+一种直接传播方式是让补全模型产生 $S$ 个表面样本 $\{\hat S_s\}$。对同一候选 $g$，分别计算质量与碰撞：
+
+$$
+\bar q(g)=\frac{1}{S}\sum_{s=1}^{S}q(g;\hat S_s),
+\qquad
+p_{\text{coll}}(g)=\frac{1}{S}\sum_{s=1}^{S}
+\mathbf 1[\operatorname{collision}(g,\hat S_s)].
+$$
+
+选择时可以要求 $p_{\text{coll}}<\delta$，再按 $\bar q$ 排序。样本可来自显式生成模型、网络集成（Deep Ensemble）或测试时随机失活（Monte Carlo Dropout）。关键是每个样本都要重新执行接触与碰撞检查；只对网络最终分数求方差，无法发现隐藏表面导致的离散碰撞变化。
+
+| 方法             | 是否改变传感器状态 | 获得的信息       | 新引入的风险           |
+| :--------------- | :----------------- | :--------------- | :--------------------- |
+| 点云补全         | 否                 | 推断隐藏表面     | 幻觉与过度置信         |
+| 隐式联合重建     | 否                 | 连续几何与抓取场 | 查询、坐标系和训练先验 |
+| 被动多视角融合   | 是/预采集          | 更多真实表面     | 标定、时间与动态物体   |
+| 主动视角规划     | 是/在线选择        | 抓取相关新证据   | 运动成本与策略误差     |
+| 透明物体专用感知 | 依硬件而定         | 材质失效区域     | 硬件和光照依赖         |
+
+几何完整性不是二值属性。真正需要评价的是：在固定观测和动作预算下，方法是否减少了抓取相关的不确定性，并把剩余不确定性保留到候选排序和执行决策中。
+
+---
+
+## 参考文献（References）
+
+1. J. Lundell, F. Verdoja, and V. Kyrki, “Beyond Top-Grasps through Scene Completion,” _2020 IEEE International Conference on Robotics and Automation_, 2020. [DOI](https://doi.org/10.1109/ICRA40945.2020.9197320)
+2. Z. Liu, Z. Chen, and W.-S. Zheng, “Simulating Complete Points Representations for Single-View 6-DoF Grasp Detection,” _IEEE Robotics and Automation Letters_, 2024. [DOI](https://doi.org/10.1109/LRA.2024.3358757)
+3. E. Chisari, N. Heppert, T. Welschehold, W. Burgard, and A. Valada, “CenterGrasp: Object-Aware Implicit Representation Learning for Simultaneous Shape Reconstruction and 6-DoF Grasp Estimation,” _IEEE Robotics and Automation Letters_, 2024. [DOI](https://doi.org/10.1109/LRA.2024.3388850)
+4. Q. Dai et al., “GraspNeRF: Multiview-Based 6-DoF Grasp Detection for Transparent and Specular Objects Using Generalizable NeRF,” _2023 IEEE International Conference on Robotics and Automation_, 2023. [DOI](https://doi.org/10.1109/ICRA48891.2023.10160842)
+5. S. Jauhri, I. Lunawat, and G. Chalvatzaki, “Learning Any-View 6DoF Robotic Grasping in Cluttered Scenes via Neural Surface Rendering,” _Robotics: Science and Systems XX_, 2024. [DOI](https://doi.org/10.15607/RSS.2024.XX.046)
+6. Y. Cheng et al., “PCF-Grasp: Converting Point Completion to Geometry Feature to Enhance 6-DoF Grasp,” _IEEE Transactions on Systems, Man, and Cybernetics: Systems_, 2025. [DOI](https://doi.org/10.1109/TSMC.2025.3628946)
+7. K. Ma, H. Dong, and Y. Mu, “Local Occupancy-Enhanced Object Grasping with Multiple Triplanar Projection,” _Computer Vision – ECCV 2024_, 2024. [DOI](https://doi.org/10.1007/978-3-031-72904-1_1)
+8. G. Soti, X. Huang, C. Wurll, and B. Hein, “6-DoF Grasp Pose Evaluation and Optimization via Transfer Learning from NeRFs,” _2024 IEEE International Conference on Robotics and Automation_, 2024. [DOI](https://doi.org/10.1109/ICRA57147.2024.10610402)
+9. L. Zhou et al., “You Only Scan Once: A Dynamic Scene Reconstruction Pipeline for 6-DoF Robotic Grasping of Novel Objects,” _2024 IEEE International Conference on Robotics and Automation_, 2024. [DOI](https://doi.org/10.1109/ICRA57147.2024.10611371)
+10. J. Shi et al., “ASGrasp: Generalizable Transparent Object Reconstruction and 6-DoF Grasp Detection from RGB-D Active Stereo Camera,” _2024 IEEE International Conference on Robotics and Automation_, 2024. [DOI](https://doi.org/10.1109/ICRA57147.2024.10611152)
+11. Y. Shi et al., “VISO-Grasp: Vision-Language Informed Spatial Object-Centric 6-DoF Active View Planning and Grasping in Clutter and Invisibility,” _2025 IEEE/RSJ International Conference on Intelligent Robots and Systems_, 2025. [DOI](https://doi.org/10.1109/IROS60139.2025.11246329)
+12. K. Zhu, H. Jiang, J. Qian, and J. Xie, “A Cross-View Fusion Framework for Robust 6-DoF Grasp Pose Estimation,” _arXiv preprint arXiv:2606.06878_, 2026. [arXiv](https://arxiv.org/abs/2606.06878)

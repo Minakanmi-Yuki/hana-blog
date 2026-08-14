@@ -1,0 +1,288 @@
+---
+title: 'Robotic Grasp Detection (12): 执行感知评估与开放问题'
+publishDate: 2026-08-14
+updatedDate: 2026-08-14
+description: '建立从离线姿态、碰撞、仿真、抬升、稳定和可达到任务成功的评价阶梯，并讨论不确定性、迁移、困难物体与失败恢复。'
+heroImage:
+  { src: 'https://pic.hana0721.top/78391247_p0_master1200.5j4sgia4wg.webp', color: '#8C8275' }
+tags:
+  - 'Robotic Grasping'
+  - 'Robotic Grasp Detection'
+  - 'Execution-Aware Evaluation'
+  - 'Open Problems'
+category: 'daily'
+pixivLink: '78391247'
+---
+
+## 检测分数与执行成功之间的距离（From Detection Score to Execution）
+
+抓取检测器输出的高分姿态还要经过碰撞检查（Collision Checking）、逆运动学（Inverse Kinematics, IK）、轨迹规划（Trajectory Planning）、夹爪闭合、抬升和任务执行。任一阶段失败，机器人都无法完成操作。
+
+一条典型链路是：
+
+```text
+目标/场景理解
+    ↓
+抓取姿态检测
+    ↓
+夹爪与环境碰撞检查
+    ↓
+逆运动学与运动规划
+    ↓
+接触、闭合与抬升
+    ↓
+稳定保持与任务执行
+    ↓
+失败检测与恢复
+```
+
+离线平均精度（Offline Average Precision, AP）只覆盖其中一部分。一个姿态可以与数据集标注一致，却与特定机器人的手腕碰撞；也可以成功抬升，却在加速时滑落或不适合后续放置。
+
+---
+
+## 评价阶梯（Evaluation Ladder）
+
+### 1. 离线姿态评价（Offline Pose Evaluation）
+
+常见指标包括矩形交并比（Intersection over Union, IoU）、姿态距离、AP、前 $k$ 项召回率（Recall@$k$）和候选覆盖率（Candidate Coverage）。它们适合重复比较算法，但依赖标注集合、匹配阈值和候选预算。
+
+空间姿态匹配通常分别计算平移与旋转误差：
+
+$$
+d_t=\lVert\hat t-t^*\rVert_2,
+\qquad
+d_R=\min_{S\in\mathcal S}
+\cos^{-1}\!\left(
+\frac{\operatorname{tr}((R^*S)^{\mathsf T}\hat R)-1}{2}
+\right),
+$$
+
+其中 $\mathcal S$ 是夹爪对称集合。预测在 $d_t<\tau_t$ 且 $d_R<\tau_R$ 时与真值匹配；一对一匹配还要防止多个近重复预测同时占用同一真值。若数据集标注不完备，远离标注的预测不一定物理错误，这也是解析在线评估和真实执行仍然必要的原因。
+
+### 2. 几何与解析有效性（Geometric and Analytic Validity）
+
+力闭合（Force Closure）、对向条件（Antipodal Condition）和碰撞检测（Collision Checking）验证候选在给定模型下是否合理。它们不包含真实摩擦、柔性、感知和执行误差。
+
+几何有效性至少要拆成四个布尔量：闭合区是否有物体、夹指/手掌终点是否碰撞、预抓取到终点的扫掠体积是否碰撞、候选宽度是否在硬件范围。把它们合成一个 `valid` 会丢失失败原因。解析稳定性还要记录采用的摩擦系数、法线来源、质心和力矩归一化；否则同一姿态在不同实现中可能得到相反标签。
+
+### 3. 仿真执行（Simulated Execution）
+
+物理仿真可以加入重力、动力学、碰撞和扰动，但结果依赖网格、接触求解器、控制器和随机化范围。仿真成功不是自动的真实成功。
+
+一个可重复的仿真试验应明确状态机：移动到预抓取位姿、沿接近轴进入、闭合到力/位置阈值、抬升指定高度、保持指定时间，并在每一步记录碰撞、接触和物体高度。初始位姿、摩擦、质量和控制噪声应按固定分布随机化。只把夹爪瞬移到终点再闭合，会绕过真实接近路径和控制误差，得到更乐观的成功率。
+
+### 4. 物理抬升与清空（Physical Lift and Clearing）
+
+抬升成功率（Lift Success Rate）检查物体是否离开支撑面，清空率（Clearing Rate）评价杂乱场景中连续抓取。AnyGrasp 在其动态场景协议中报告超过 300 个未见物体上的 93.3% 箱体清空成功率 [1]；该数字只在论文的机器人、传感器和场景定义下成立。
+
+### 5. 稳定、滑移与可达（Stability, Slip, and Reachability）
+
+稳定性关注物体在扰动或运动后是否仍被持有；滑移评价接触相对运动；可达性评价机器人是否存在合法关节配置和轨迹。它们比首次抬升更接近部署。
+
+### 6. 任务成功与恢复（Task Success and Recovery）
+
+最终任务可能包括放置、递交、倾倒、清理指定目标或避开脆弱部件。任务成功率同时包含语义、抓取、规划和控制。恢复策略还允许机器人在失败后获取新信息并再次尝试。
+
+---
+
+## 保留失败归因（Preserving Failure Attribution）
+
+端到端总成功率（End-to-End Success Rate）无法解释系统为何失败。执行日志应保留：
+
+- 所有候选及原始分数；
+- 碰撞和可达性过滤结果；
+- 最终选择与运动规划结果；
+- 接触、夹紧力、滑移和抬升轨迹；
+- 目标或部件是否正确；
+- 失败类别与恢复动作。
+
+如果检测器提出了正确姿态但规划器失败，不应把它记录为纯检测错误；反过来，规划成功也不能掩盖接触不稳定。
+
+日志最好为每个尝试分配唯一 `attempt_id`，并保存候选表而不是只保存最后姿态。候选表的每一行包含原始分数、NMS 前后索引、碰撞原因、IK 解、规划代价与是否被选中；执行表再保存时间戳、夹爪宽度/电流、腕部力矩、物体高度和失败标签。这样可以离线重放“如果使用另一排序器会选哪个候选”，而无需重新执行所有机器人试验。
+
+---
+
+## 执行感知数据集（Execution-Aware Benchmarks）
+
+Supermarket-6DoF 在 20 个物体、1,500 次真实尝试上分别标注抬升成功和抓取后稳定性 [2]。它说明“拿起来”和“稳定拿住”应当分开，但规模和场景仍较有限，目前为预印本。
+
+GraspIT 提供滑移测试与可达性质量，报告约 316k 组红绿蓝—深度帧（Red–Green–Blue and Depth Frame, RGB-D Frame）、1,035 个仿真和 100 个真实场景，以及约 230 万个候选 [3]。其大部分候选通过仿真验证，不等于逐个真实执行；目前为预印本。
+
+GCA-Bench 将语义理解、姿态检测、规划和任务结果分阶段评价，并包含 102 个复杂任务场景 [4]。它更接近完整系统评估，但结果也会耦合硬件与模块组合；目前为预印本。
+
+TARGO 将目标身份和遮挡程度加入真实与合成协议，用于研究目标驱动抓取随遮挡变化的可靠性 [5]。它补足对象无关 AP 难以表达的目标可见性问题。
+
+---
+
+## 开放问题一：校准不确定性（Calibrated Uncertainty）
+
+模型需要区分：
+
+- 传感器噪声引起的偶然不确定性（Aleatoric Sensor Uncertainty）；
+- 未见物体与分布偏移（Distribution Shift）；
+- 隐藏形状的不确定性（Shape Uncertainty）；
+- 姿态和接触不确定性（Pose and Contact Uncertainty）；
+- 规划与执行不确定性（Planning and Execution Uncertainty）。
+
+vMF-Contact 使用概率接触方向与证据学习处理噪声杂乱场景 [6]；Shape Completion Uncertainty 将补全不确定性用于改善抓取质量 [7]；ActiveGrasp 用校准能量模型和信息选择主动观测，目前为预印本 [8]。
+
+未来评价不能只比较准确率，还应使用可靠性图（Reliability Diagram）、期望校准误差（Expected Calibration Error, ECE）和风险—覆盖曲线（Risk–Coverage Curve），并把置信度连接到真实执行结果。
+
+把预测成功概率分成 $M$ 个置信区间 $B_m$，ECE 定义为：
+
+$$
+\operatorname{ECE}=\sum_{m=1}^{M}
+\frac{|B_m|}{n}
+\left|
+\operatorname{acc}(B_m)-\operatorname{conf}(B_m)
+\right|.
+$$
+
+其中 $\operatorname{acc}$ 是该桶真实执行成功率，$\operatorname{conf}$ 是平均预测概率。分桶数和边界会影响 ECE，因此还应画可靠性图，并报告负对数似然或 Brier 分数（Brier Score）等适当评分规则。校准要在碰撞/可达性过滤前后分别计算：过滤改变候选分布，原始分类器在保留子集上未必仍校准。
+
+---
+
+## 开放问题二：跨传感器与跨具身迁移（Cross-Sensor and Cross-Embodiment Transfer）
+
+Seen/Novel 物体划分通常固定相机、夹爪和机器人。部署变化还包括：
+
+- 深度相机类型与噪声；
+- 视角、安装高度和手眼标定；
+- 夹爪开口、指尖厚度和摩擦；
+- 机械臂工作空间和关节限制；
+- 场景尺度与运动速度。
+
+真正的迁移协议应独立改变这些因素，并区分零样本（Zero-Shot）、少样本校准（Few-Shot Calibration）和完整微调（Full Fine-Tuning）。只改变物体类别不能证明跨硬件泛化。
+
+---
+
+## 开放问题三：语义与物理兼容（Semantic–Physical Compatibility）
+
+语言模型可能正确定位“把手”，但候选仍可能：
+
+- 超出夹爪开口；
+- 与遮挡物碰撞；
+- 对机械臂不可达；
+- 在重力下不稳定；
+- 不适合后续放置。
+
+ThinkGrasp 使用视觉语言推理选择部件或清理动作，再调用几何抓取模块 [9]。PhyGrasp 将材料、质量、脆弱性和语言偏好加入部件级选择 [10]。下一步需要把语义明确转换为目标区域、禁区、力限制和任务轨迹，并逐级评价。
+
+---
+
+## 开放问题四：透明、柔性与关节物体（Transparent, Deformable, and Articulated Objects）
+
+这些对象不能合并成一个“困难物体”类别：
+
+- 透明物体改变传感器观测；
+- 柔性物体使接触改变几何；
+- 关节物体让状态、部件和动作语义耦合。
+
+需要在共享协议中独立控制材质、状态和遮挡，并报告改进究竟来自专用相机、类别先验、几何补全还是接触反馈。
+
+---
+
+## 开放问题五：统一检测到执行基准（Linked Detection-to-Execution Benchmark）
+
+理想基准应在同一场景和候选集合上保存：
+
+$$
+\text{observation}
+\rightarrow \text{candidates}
+\rightarrow \text{filters}
+\rightarrow \text{planner}
+\rightarrow \text{contact trace}
+\rightarrow \text{outcome}.
+$$
+
+这样才能计算条件概率，例如：
+
+$$
+P(\text{task success})
+=P(D)P(F\mid D)P(P\mid F,D)P(E\mid P,F,D),
+$$
+
+其中 $D$ 是检测正确，$F$ 是物理可行，$P$ 是规划成功，$E$ 是执行成功。该分解不是假设阶段独立，而是强调应保留条件失败统计。
+
+实际报告可以直接给出条件计数：
+
+$$
+\hat P(F\mid D)=\frac{n_{D\cap F}}{n_D},\qquad
+\hat P(P\mid D,F)=\frac{n_{D\cap F\cap P}}{n_{D\cap F}},
+$$
+
+以及 $\hat P(E\mid D,F,P)$。分母必须同时给出，因为后级可能只在很小的高分子集上评估。对所有候选计算离线几何、只执行最高分候选时，不能把后者成功率冒充为整套候选的物理有效率。
+
+---
+
+## 开放问题六：闭环恢复与安全适应（Closed-Loop Recovery and Safe Adaptation）
+
+许多评测在第一次候选失败后结束，但机器人还能观察未接触、碰撞、滑移或场景变化。恢复策略应报告：
+
+- 尝试次数与时间预算；
+- 每次失败获得的信息；
+- 累计成功率；
+- 是否改变候选分布；
+- 是否存在安全回退（Safe Fallback）；
+- 对脆弱物体和环境的风险。
+
+重复执行固定候选不等于闭环学习。真正的恢复需要根据新证据改变下一次动作。
+
+给定最多 $K$ 次尝试，可以报告经验累计成功率：
+
+$$
+\widehat S_k=
+\frac{1}{N}\sum_{i=1}^{N}
+\mathbf 1[\text{第 }i\text{ 个场景在前 }k\text{ 次内成功}],
+\qquad k=1,\ldots,K.
+$$
+
+同时报告条件恢复率 $P(\text{success at }k\mid\text{failed before }k)$，才能区分“第一次就很强”和“初次失败后善于恢复”。场景在失败后已被移动，后续尝试不再是独立同分布样本；因此不能简单用 $1-(1-p)^K$ 从单次成功率推导累计成功率，必须真实运行闭环协议。
+
+---
+
+## 可复现执行报告（Reproducible Execution Reporting）
+
+真实抓取结果至少应记录：
+
+| 类别     | 必要信息                                                           |
+| :------- | :----------------------------------------------------------------- |
+| 夹爪     | 型号、开口、指尖、指垫、力限制                                     |
+| 相机     | 型号、视角、标定、深度过滤                                         |
+| 候选     | 数量、阈值、非极大值抑制（Non-Maximum Suppression, NMS）、碰撞模型 |
+| 机器人   | IK、规划器、速度、加速度、工作空间                                 |
+| 成功定义 | 抬升高度、保持时间、稳定/滑移阈值                                  |
+| 试验     | 物体、重置方式、重复次数、置信区间（Confidence Interval）          |
+| 失败     | 感知、碰撞、不可达、未接触、滑移、任务错误                         |
+| 计算     | 推理、过滤、规划和总循环时间                                       |
+
+抓取检测的进步不应只由一个离线排行榜定义。更可靠的标准是：方法是否在正确的位置表达了不确定性和约束，并通过与其声明相匹配的物理层级验证这些信息。
+
+### 成功率也需要不确定区间
+
+若 $n$ 次独立试验中成功 $x$ 次，点估计 $\hat p=x/n$ 在小样本下很不稳定。95% Wilson 置信区间（Wilson Confidence Interval）为：
+
+$$
+\frac{
+\hat p+\frac{z^2}{2n}
+\pm z\sqrt{\frac{\hat p(1-\hat p)}{n}+\frac{z^2}{4n^2}}
+}{1+\frac{z^2}{n}},
+\qquad z=1.96.
+$$
+
+例如“10 次成功 9 次”和“100 次成功 90 次”点估计同为 90%，证据强度却不同。比较两个检测器时，最好在相同物体—场景重置上做配对试验（Paired Trial），随机化执行顺序，并用配对差异或自助法（Bootstrap）置信区间报告改进。否则物体难度、摆放和磨损差异可能大于算法差异。
+
+---
+
+## 参考文献（References）
+
+1. H.-S. Fang et al., “AnyGrasp: Robust and Efficient Grasp Perception in Spatial and Temporal Domains,” _IEEE Transactions on Robotics_, 2023. [DOI](https://doi.org/10.1109/TRO.2023.3281153)
+2. J. Toskov and A. Cosgun, “Supermarket-6DoF: A Real-World Grasping Dataset and Grasp Pose Representation Analysis,” _arXiv preprint arXiv:2502.16311_, 2025. [arXiv](https://arxiv.org/abs/2502.16311)
+3. P. Koch, A. Karakurt, and A. Sers, “GraspIT: A Dataset Bridging the Sim-to-Real Gap and Back for Validated Grasping SE(3) Pose Generation,” _arXiv preprint arXiv:2607.05869_, 2026. [arXiv](https://arxiv.org/abs/2607.05869)
+4. H. Zhang et al., “Beyond Visual Grasping: Benchmarking Complex Grasping from Detection to Execution,” _arXiv preprint arXiv:2607.14341_, 2026. [arXiv](https://arxiv.org/abs/2607.14341)
+5. Y. Xia et al., “TARGO and TARGO-Net: Benchmarking Target-Driven Object Grasping under Occlusions,” _International Journal of Computer Vision_, 2026. [DOI](https://doi.org/10.1007/s11263-025-02716-9)
+6. Y. Shi, E. Welte, M. Gilles, and R. Rayyes, “vMF-Contact: Uncertainty-Aware Evidential Learning for Probabilistic Contact-Grasp in Noisy Clutter,” _2025 IEEE International Conference on Robotics and Automation_, 2025. [DOI](https://doi.org/10.1109/ICRA55743.2025.11127888)
+7. N. F. Duarte et al., “Measuring Uncertainty in Shape Completion to Improve Grasp Quality,” _2025 IEEE/RSJ International Conference on Intelligent Robots and Systems_, 2025. [DOI](https://doi.org/10.1109/IROS60139.2025.11245992)
+8. B. Lei, W. Jiang, and K. Daniilidis, “ActiveGrasp: Information-Guided Active Grasping with Calibrated Energy-Based Model,” _arXiv preprint arXiv:2511.12795_, 2025. [arXiv](https://arxiv.org/abs/2511.12795)
+9. Y. Qian et al., “ThinkGrasp: A Vision-Language System for Strategic Part Grasping in Clutter,” _Proceedings of the 8th Conference on Robot Learning_, 2024. [PMLR](https://proceedings.mlr.press/v270/qian25c.html)
+10. D. Guo et al., “PhyGrasp: Generalizing Robotic Grasping with Physics-Informed Large Multimodal Models,” _2025 IEEE/RSJ International Conference on Intelligent Robots and Systems_, 2025. [DOI](https://doi.org/10.1109/IROS60139.2025.11246481)

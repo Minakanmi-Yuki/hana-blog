@@ -1,0 +1,226 @@
+---
+title: 'Robotic Grasp Detection (2): 抓取几何与质量评价'
+publishDate: 2026-08-14
+updatedDate: 2026-08-14
+description: '从接触法线、摩擦锥、对向抓取和力闭合出发，解释解析抓取质量、鲁棒质量、学习评分与真实执行成功之间的区别。'
+heroImage:
+  { src: 'https://pic.hana0721.top/66952181_p0_master1200.6ikvtocw16.webp', color: '#8C8275' }
+tags:
+  - 'Robotic Grasping'
+  - 'Robotic Grasp Detection'
+  - 'Grasp Quality'
+  - 'Technical Notes'
+category: 'daily'
+pixivLink: '66952181'
+---
+
+## 抓取质量评价的对象（What Does Grasp Quality Measure?）
+
+抓取质量（Grasp Quality）并不是一个天然存在的唯一数值。它可能描述接触是否满足力闭合、候选是否无碰撞、仿真中是否成功抬升，或者真实机器人是否在扰动后仍能稳定夹持。不同标签训练出的评分器回答的是不同问题。
+
+对于平行夹爪（Parallel-Jaw Gripper），最基础的几何关系来自两个夹指与物体表面的接触。设接触位置为 $p_i$，接触法线（Contact Normal）为 $n_i$，接触力为 $f_i$。抓取是否稳定，取决于这些接触能否产生抵抗外部扰动的合力与合力矩，而不只是夹爪中心是否靠近物体。
+
+---
+
+## 摩擦锥与对向抓取（Friction Cone and Antipodal Grasp）
+
+### 摩擦锥（Friction Cone）
+
+在库仑摩擦模型（Coulomb Friction Model）中，接触力可分解为法向分量 $f_n$ 和切向分量 $f_t$：
+
+$$
+\lVert f_t \rVert \leq \mu f_n,
+$$
+
+其中 $\mu$ 是摩擦系数（Friction Coefficient）。满足该不等式的力方向构成摩擦锥（Friction Cone）。摩擦系数越大，锥角越大，接触能够抵抗的切向扰动也越多。
+
+计算机通常不会直接优化连续圆锥，而是用 $m$ 条边组成的多面锥（Polyhedral Cone）近似它。给定接触法线 $n_i$ 与切平面正交基 $(t_{i1},t_{i2})$，第 $k$ 条单位边可以写成：
+
+$$
+f_{ik}=n_i+\mu\left[
+\cos\!\left(\frac{2\pi k}{m}\right)t_{i1}
++\sin\!\left(\frac{2\pi k}{m}\right)t_{i2}
+\right],\qquad k=0,\ldots,m-1.
+$$
+
+$m$ 越大，离散锥越接近真实圆锥，但后续凸包的顶点数与计算量也越大。实现时还要统一法线朝向：点云法线若随机翻转，原本朝向物体内部的接触力会被解释成“把物体向外拉”。常见处理是先用相机视点定向法线，再根据候选夹爪中心检查并翻转接触法线。
+
+真实物体的摩擦系数通常未知，而且会随材料、表面灰尘、夹指胶垫和法向夹紧力变化。许多数据集使用固定或分档的 $\mu$ 生成标签，因此所谓“高质量”首先是相对于该摩擦假设成立。
+
+### 对向抓取（Antipodal Grasp）
+
+平行夹爪最常见的稳定几何是对向抓取（Antipodal Grasp）：两个接触点位于物体相对两侧，连接方向落在两侧摩擦锥允许的范围内。直观地说，两根夹指能够沿近似相反的法线方向压住物体。
+
+对向条件适合快速生成候选，但它仍然是局部条件。候选可能与桌面碰撞、夹不到足够深、接近方向不可达，或者在重力作用下产生过大力矩。
+
+---
+
+## 从接触力到物体扰动（From Contact Force to Object Wrench）
+
+力与力矩合称力旋量（Wrench）。接触力通过抓取映射（Grasp Map）转换到物体坐标系：
+
+$$
+\mathcal{W}=Gf,
+$$
+
+其中 $f$ 堆叠所有接触力，$G$ 由接触位置和方向决定，$\mathcal{W}$ 包含三维合力与三维合力矩。一个抓取能产生的扰动集合（Grasp Wrench Space, GWS）决定它能够抵抗哪些外力和外力矩。
+
+若物体质心为 $c$，单个接触的抓取映射块为：
+
+$$
+G_i=
+\begin{bmatrix}
+I_3\\
+[p_i-c]_{\times}
+\end{bmatrix},
+\qquad
+G=\begin{bmatrix}G_1&G_2&\cdots&G_n\end{bmatrix},
+$$
+
+其中 $[p_i-c]_{\times}$ 是叉乘矩阵（Skew-Symmetric Cross-Product Matrix）。于是接触力产生的力旋量为：
+
+$$
+w_i=
+\begin{bmatrix}
+f_i\\
+(p_i-c)\times f_i
+\end{bmatrix}.
+$$
+
+力的单位是牛顿，力矩的单位是牛顿米，二者不能在没有尺度约定时直接计算欧氏距离。常见实现用物体半径或特征长度 $\rho$ 归一化力矩，即把 $w=[f;\tau/\rho]$ 送入凸包计算。不同 $\rho$ 会改变 Ferrari–Canny 分数，因此复现实验时必须记录尺度归一化。
+
+### 力闭合（Force Closure）
+
+如果接触力在摩擦约束下能够抵抗任意方向的有限扰动，则抓取满足力闭合（Force Closure）。离散化摩擦锥后，可以把各接触产生的原始扰动取凸包（Convex Hull）；若原点位于该凸包内部，便得到常见的力闭合判据。
+
+力闭合回答“理论上是否存在一组接触力抵抗扰动”，却不保证机器人能够准确达到接触点，也不保证所需夹紧力、摩擦与物体模型符合真实情况。
+
+---
+
+## 常见解析质量指标（Analytic Quality Metrics）
+
+Roa 和 Suárez 对抓取质量指标进行了系统综述 [1]。常见指标可以分为几类：
+
+### Ferrari–Canny 指标
+
+Ferrari–Canny epsilon 指标（Ferrari–Canny Epsilon Metric）通常定义为扰动凸包中以原点为中心的最大内接球半径。半径越大，表示最弱方向上仍可抵抗更强的归一化扰动。
+
+它的离散计算过程是：先把每个摩擦锥边 $f_{ik}$ 变换成原始力旋量 $w_{ik}$，再对所有 $w_{ik}$ 求凸包；若原点不在凸包内部，则不满足力闭合，$\epsilon$ 通常记为零；若原点在内部，则计算原点到每个凸包面的有符号距离，并取最小值：
+
+$$
+\epsilon=\min_{F_j\in\partial\operatorname{conv}(\{w_{ik}\})}
+d(0,F_j).
+$$
+
+因此，$\epsilon$ 不是“两个接触点距离越远越好”的几何启发式，而是最弱扰动方向的余量。摩擦锥边数、每个接触允许的最大法向力、软指接触（Soft-Finger Contact）是否允许绕法线力矩，都会改变凸包。
+
+它比二值力闭合提供了连续排序，但数值依赖摩擦锥离散、力/力矩归一化和物体尺度。不同实现的 epsilon 值不能直接混合成统一排行榜。
+
+### 体积与各向同性（Volume and Isotropy）
+
+扰动空间体积（Wrench-Space Volume）衡量整体覆盖范围，各向同性指标（Isotropy Metric）关注最强和最弱方向之间的差异。体积较大的抓取可能在某个关键方向上仍然薄弱，因此它们与 epsilon 指标强调的性质不同。
+
+### 几何与任务指标
+
+接触到质心距离、夹爪闭合余量、表面平坦度、重力方向和碰撞距离也常被组合为质量。Hybrid Physical Metric 将力闭合、平坦度、重力和碰撞等因素联合起来 [6]，说明单一解析量往往不能覆盖场景级抓取的全部风险。
+
+---
+
+## 鲁棒抓取质量（Robust Grasp Quality）
+
+解析指标通常在精确物体模型和精确夹爪位姿上计算。现实中存在姿态误差、深度噪声、摩擦不确定性和执行偏差。鲁棒抓取质量（Robust Grasp Quality）关注扰动变量 $\xi$ 下的期望或最坏情况：
+
+$$
+Q_{\text{robust}}(g)
+=\mathbb{E}_{\xi\sim p(\xi)}[Q(g,\xi)],
+$$
+
+或者：
+
+$$
+Q_{\text{worst}}(g)=\min_{\xi\in\Xi} Q(g,\xi).
+$$
+
+Dex-Net 1.0 将物体与抓取模型、相关奖励和选择过程组织在统一数据库中 [2]。Johns 等人进一步将学习到的抓取函数与夹爪位姿不确定性卷积，使对小位姿误差敏感的尖锐高分区域被平滑 [3]。
+
+鲁棒性取决于不确定性模型。如果 $p(\xi)$ 只包含平移噪声，它无法代表透明物体导致的系统性深度缺失，也无法代表柔性物体在夹持后的形变。
+
+### 鲁棒质量如何用采样估计
+
+当解析积分不可得时，可以对物体位姿、夹爪位姿、摩擦和质心做蒙特卡洛采样（Monte Carlo Sampling）：
+
+```text
+输入：候选 g，不确定性分布 p(ξ)，样本数 S
+for s = 1 ... S:
+    ξ_s ~ p(ξ)
+    扰动物体/夹爪/摩擦参数
+    重新计算接触、碰撞与解析质量 Q_s
+返回：mean(Q_s)、低分位数 quantile_α(Q_s)、失败比例
+```
+
+均值适合风险中性排序，低分位数或条件风险价值（Conditional Value at Risk, CVaR）更偏向拒绝“平均很好、偶尔灾难性失败”的候选。样本数 $S$ 太小时，排序会受随机种子影响；只扰动最终姿态而不重新计算接触，则会低估接触点跳变带来的不连续失败。
+
+---
+
+## 从解析标签到学习评分（From Analytic Labels to Learned Scoring）
+
+Dex-Net 2.0 使用渲染深度图和解析鲁棒质量生成 670 万个合成样本，再训练抓取质量卷积神经网络（Grasp Quality Convolutional Neural Network, GQ-CNN）[4]。它说明解析模型可以提供大规模监督，但神经网络学习到的是该标签模型及其数据分布。
+
+GQ-CNN 的处理接口比“输入深度、输出成功率”更具体。候选首先在深度图中确定中心、平面角、夹爪深度和开口；局部深度区域旋转到夹爪闭合轴对齐的坐标，再裁剪并缩放成固定尺寸图块。网络接收这个候选对齐深度图块以及候选深度等标量，输出鲁棒质量超过阈值的概率。推理时的完整流程仍然是：
+
+```text
+在分割/工作空间内采样平面候选
+    → 删除无深度或明显碰撞的候选
+    → 为每个候选构造对齐深度图块
+    → GQ-CNN 批量评分
+    → 对最高分候选做最终碰撞和可达性检查
+```
+
+旋转并裁剪局部图块让网络看到“夹指将从左右闭合”的规范视图，降低了旋转学习难度；代价是每个候选都要单独构造输入，而且网络无法为采样器遗漏的位置补充候选。训练标签来自解析鲁棒质量阈值，因此输出经分类损失优化后只是相对于该标签定义的置信度，不能在没有真实校准实验时直接称为物理成功概率。
+
+ACRONYM 将规模扩展到 17.744M 个平行夹爪抓取、8,872 个物体和 262 个类别，并使用物理仿真产生成功标签 [5]。仿真结果比纯静态力闭合加入了动态信息，但仍受网格、质量、摩擦、接触求解器和夹爪模型影响。
+
+标签来源可以概括为：
+
+| 质量信号                          | 优势                       | 主要风险                 |
+| :-------------------------------- | :------------------------- | :----------------------- |
+| 解析指标（Analytic Metric）       | 快、可重复、便于大规模生成 | 简化摩擦、刚体与接触     |
+| 仿真结果（Simulation Outcome）    | 可加入动力学与扰动         | 仿真器和参数偏差         |
+| 人工标注（Human Annotation）      | 可表达语义偏好             | 昂贵且不一定符合物理     |
+| 真实执行（Physical Outcome）      | 与部署最接近               | 数据少、噪声大、硬件耦合 |
+| 多模态反馈（Multimodal Feedback） | 能发现滑移和接触失败       | 依赖传感器与闭环策略     |
+
+---
+
+## 可执行质量不只来自接触（Execution Quality Beyond Contact）
+
+一个抓取要进入机器人系统，还要满足：
+
+- 夹爪与场景无碰撞（Collision-Free）；
+- 开口宽度处于硬件范围；
+- 逆运动学存在可行解（Inverse-Kinematics Feasibility）；
+- 接近轨迹可规划（Motion-Planning Feasibility）；
+- 抓取部位适合后续任务（Task Compatibility）。
+
+柔性物体进一步破坏刚体假设。Deformation-Aware Grasp Synthesis 使用物体刚度和形变信息选择抓取 [7]，说明在软物体上“几何稳定”与“不过度变形”可能是冲突目标。视觉触觉重新抓取则利用接触后的新证据修正初始选择 [8]。
+
+因此，抓取质量最好被理解成带语义的条件量：
+
+$$
+Q = Q(g \mid \text{geometry, friction, sensor, gripper, robot, task}).
+$$
+
+任何不说明条件的单一分数，都不足以代表普遍的真实抓取能力。
+
+---
+
+## 参考文献（References）
+
+1. M. A. Roa and R. Suárez, “Grasp Quality Measures: Review and Performance,” _Autonomous Robots_, 2014. [DOI](https://doi.org/10.1007/s10514-014-9402-3)
+2. J. Mahler et al., “Dex-Net 1.0: A Cloud-Based Network of 3D Objects for Robust Grasp Planning Using a Multi-Armed Bandit Model with Correlated Rewards,” _2016 IEEE International Conference on Robotics and Automation_, 2016. [DOI](https://doi.org/10.1109/ICRA.2016.7487342)
+3. E. Johns, S. Leutenegger, and A. J. Davison, “Deep Learning a Grasp Function for Grasping under Gripper Pose Uncertainty,” _2016 IEEE/RSJ International Conference on Intelligent Robots and Systems_, 2016. [DOI](https://doi.org/10.1109/IROS.2016.7759657)
+4. J. Mahler et al., “Dex-Net 2.0: Deep Learning to Plan Robust Grasps with Synthetic Point Clouds and Analytic Grasp Metrics,” _Robotics: Science and Systems XIII_, 2017. [DOI](https://doi.org/10.15607/RSS.2017.XIII.058)
+5. C. Eppner, A. Mousavian, and D. Fox, “ACRONYM: A Large-Scale Grasp Dataset Based on Simulation,” _2021 IEEE International Conference on Robotics and Automation_, 2021. [DOI](https://doi.org/10.1109/ICRA48506.2021.9560844)
+6. Y. Lu et al., “Hybrid Physical Metric for 6-DoF Grasp Pose Detection,” _2022 International Conference on Robotics and Automation_, 2022. [DOI](https://doi.org/10.1109/ICRA46639.2022.9811961)
+7. T. N. Le, J. Lundell, F. J. Abu-Dakka, and V. Kyrki, “Deformation-Aware Data-Driven Grasp Synthesis,” _IEEE Robotics and Automation Letters_, 2022. [DOI](https://doi.org/10.1109/LRA.2022.3146551)
+8. R. Calandra et al., “More Than a Feeling: Learning to Grasp and Regrasp Using Vision and Touch,” _IEEE Robotics and Automation Letters_, 2018. [DOI](https://doi.org/10.1109/LRA.2018.2852779)

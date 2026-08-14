@@ -1,0 +1,278 @@
+---
+title: 'Robotic Grasp Detection (0): 系列范围、发展脉络与抓取决策流程'
+publishDate: 2026-08-14
+updatedDate: 2026-08-14
+description: '本系列的导论：界定平行夹爪抓取检测的研究范围，统一 planar、2.5-D 与 6-DoF 表示，并梳理从图像抓取框到执行感知系统的发展主线。'
+heroImage:
+  { src: 'https://pic.hana0721.top/65089776_p0_master1200.5c1kl2nzfo.webp', color: '#8C8275' }
+tags:
+  - 'Robotic Grasping'
+  - 'Robotic Grasp Detection'
+  - 'Parallel-Jaw Gripper'
+  - 'Technical Notes'
+category: 'daily'
+pixivLink: '65089776'
+---
+
+## 引言（Introduction）
+
+**机器人抓取检测（Robotic Grasp Detection）**研究的是：给定传感器观测（Sensor Observation），机器人应当在什么位置、以什么姿态、使用多大的夹爪开口接近并夹持物体。它处在感知（Perception）与控制（Control）之间：上游可能是相机、触觉传感器或自然语言指令，下游则连接碰撞检测（Collision Checking）、逆运动学（Inverse Kinematics, IK）、运动规划（Motion Planning）和物理执行（Physical Execution）。
+
+这个定义看似直接，实际包含几个不同层次的问题。图像中的一个抓取框可能在二维指标（2D Metric）上完全正确，但对应的三维姿态（3D Pose）可能与桌面碰撞；一个几何上稳定的抓取可能超出机械臂工作空间（Robot Workspace）；一个成功抬起物体的抓取，也未必适合后续倾倒、放置或工具使用。因此，“检测到一个姿态”和“完成一次抓取”不是同一件事。
+
+本文以**平行夹爪（Parallel-Jaw Gripper）**为研究对象，从早期图像空间的抓取矩形（Grasp Rectangle）出发，逐步讨论基于点云（Point Cloud）的六自由度抓取（6-DoF Grasp）、稠密抓取场（Dense Grasp Field）、生成式模型（Generative Model）、主动感知（Active Perception）、多模态反馈（Multimodal Feedback）、语义条件（Semantic Conditioning）以及执行评估（Execution-Aware Evaluation）。理解这些方法的关键不是寻找一个脱离条件的“最佳网络”，而是回答：
+
+> 一个方法表示了哪些几何、语义与物理约束？这些约束在抓取决策流程的哪个阶段生效？最终证据测量的是离线检测，还是机器人真正能够执行的抓取？
+
+---
+
+## 系列范围（Scope）
+
+### 为什么限定平行夹爪？
+
+平行夹爪通常由两个近似平行运动的夹指组成，依靠闭合产生的接触力夹持物体。与多指灵巧手相比，它的自由度更低、控制接口更稳定，也更容易将抓取写成一个几何姿态加夹爪宽度。这使它成为工业抓取和通用抓取检测中最常用的末端执行器（End-Effector）之一。
+
+平行夹爪抓取检测主要包含以下任务：
+
+- **抓取候选生成（Grasp Candidate Generation）**：产生一个或多个可能的抓取姿态；
+- **抓取质量估计（Grasp Quality Estimation）**：预测候选是否稳定、是否抗扰动或是否容易执行；
+- **抓取排序与选择（Grasp Ranking and Selection）**：从候选集合中选择最终执行的抓取；
+- **抓取姿态优化（Grasp Pose Refinement）**：利用几何、梯度、触觉或执行约束修正候选；
+- **闭环抓取（Closed-Loop Grasping）**：根据新的视觉、接触、滑移或力反馈持续更新决策。
+
+抓取检测不应把“视觉”作为硬边界。只要一种信息会改变候选抓取、质量分数或最终选择，它就是抓取决策的一部分。例如：
+
+- 主动感知（Active Perception）和多视角感知（Multi-View Perception）；
+- 触觉感知（Tactile Sensing）与力/力矩反馈（Force/Torque Feedback）；
+- 滑移检测（Slip Detection）和刚度感知（Stiffness-Aware Perception）；
+- 目标、任务、部件和语言条件（Target-, Task-, Part-, and Language-Conditioning）；
+- 夹爪几何、机械臂可达性和工作空间约束（Embodiment and Reachability Constraints）。
+
+纯吸盘抓取（Suction-Only Grasping）、纯多指灵巧手抓取（Dexterous-Hand Grasping）以及不输出机器人抓取的通用物体可供性检测（Affordance Detection），与平行夹爪抓取检测具有不同的输出空间和物理约束。对于混合末端执行器方法，需要将其中的平行夹爪分支单独分析，才能进行有意义的比较。
+
+---
+
+## 抓取检测的问题形式（Problem Formulation）
+
+可以把抓取检测器抽象为一个映射：
+
+$$
+\mathcal{D}: (\mathcal{O}, c, e) \longmapsto
+\mathcal{G} = \left\{(g_i, q_i)\right\}_{i=1}^{N},
+$$
+
+其中：
+
+- $\mathcal{O}$ 是观测（Observation），例如 RGB 图像（RGB Image）、深度图（Depth Image）、RGB-D 图像（RGB-D Image）、点云（Point Cloud）或触觉信号（Tactile Signal）；
+- $c$ 是条件信息（Condition），例如目标物体、任务、语言指令或材料属性；
+- $e$ 是具身信息（Embodiment），例如夹爪尺寸、机械臂构型和工作空间；
+- $g_i$ 是第 $i$ 个抓取候选（Grasp Candidate）；
+- $q_i$ 是对应的抓取质量（Grasp Quality）或置信度（Confidence）；
+- $\mathcal{G}$ 是候选抓取集合（Grasp Set）。
+
+这里的“检测”采用较宽的定义：它既包括从输入直接回归（Direct Regression）一个抓取，也包括生成候选、估计质量、过滤碰撞和优化姿态。运动规划器（Motion Planner）如何驱动机械臂到达该姿态通常是后续模块，但运动学可达性（Kinematic Reachability）可以反过来参与候选选择。
+
+### 平面抓取表示（Planar Grasp Representation）
+
+早期视觉方法通常把抓取表示成图像中的旋转矩形 [1]：
+
+$$
+g_{\text{planar}} = (u, v, \theta, w, h),
+$$
+
+其中 $(u,v)$ 是图像中心，$\theta$ 是平面内旋转角，$w$ 和 $h$ 描述夹爪开口与矩形尺度。该表示使抓取检测可以借用图像分类（Image Classification）、候选框排序（Proposal Ranking）和回归（Regression）方法。Lenz 等人使用深度网络（Deep Network）为大量候选打分 [2]，Redmon 和 Angelova 则进一步展示了单次前向传播（Single Forward Pass）的实时潜力 [3]。
+
+平面表示的代价是，它通常预设相机与夹爪接近方向之间的关系，不能直接表达任意三维接近方向。若再加入深度或高度信息，但仍保留受限接近方向，常被称为 **2.5-D 抓取（2.5-D Grasp）**。
+
+### 六自由度抓取表示（6-DoF Grasp Representation）
+
+完整三维抓取通常使用刚体位姿（Rigid-Body Pose）表示：
+
+$$
+T =
+\begin{bmatrix}
+R & t \\
+0 & 1
+\end{bmatrix}
+\in SE(3),
+$$
+
+其中 $R \in SO(3)$ 是三维旋转（3D Rotation），$t \in \mathbb{R}^3$ 是三维平移（3D Translation），$SE(3)$ 表示三维特殊欧氏群（Special Euclidean Group）。对平行夹爪而言，还需要夹爪宽度 $w$，所以可以记为：
+
+$$
+g_{6\text{DoF}} = (R, t, w).
+$$
+
+六自由度（Six Degrees of Freedom, 6-DoF）恢复了任意接近方向，也让三维碰撞检测（3D Collision Checking）更自然，但输出空间从图像平面扩展到了连续的 $SE(3)$。候选覆盖（Candidate Coverage）、旋转表示（Rotation Representation）、点云缺失（Point-Cloud Incompleteness）和计算成本（Computational Cost）由此成为核心问题。高精度抓取姿态检测工作建立了“生成候选再分类（Generate-Then-Classify）”的经典流程 [4]，6-DOF GraspNet 则将多解抓取建模为可采样的概率分布（Probability Distribution）[6]。
+
+### 从相机坐标到机器人命令
+
+论文中的 $T$ 必须带坐标系下标才足以执行。若检测器在相机坐标系 ${C}$ 中输出夹爪位姿 ${}^{C}T_G$，手眼标定给出相机到机器人基座 ${B}$ 的外参变换（Extrinsic Transform）${}^{B}T_C$，发送给运动规划器的目标是：
+
+$$
+{}^{B}T_G={}^{B}T_C,{}^{C}T_G.
+$$
+
+矩阵乘法次序不能互换；把 ${}^{C}T_G$ 误当成 ${}^{B}T_G$，得到的并不是轻微姿态误差，而是完全不同的空间位置。执行接口还要约定夹爪坐标轴：通常一条轴表示接近方向（Approach Direction），一条轴表示夹指闭合方向（Closing Direction），第三条轴由叉乘确定。论文只报告“一个 $SE(3)$ 位姿”而不说明轴定义时，代码之间仍可能相差固定旋转。
+
+平面抓取还需要一次反投影（Back-Projection）。给定深度 $z=D(u,v)$ 和相机内参矩阵（Camera Intrinsic Matrix）$K$，像素中心对应的相机坐标为：
+
+$$
+p_C=zK^{-1}
+\begin{bmatrix}u&v&1\end{bmatrix}^{\mathsf T}.
+$$
+
+若中心像素没有有效深度，常见实现会在矩形中心邻域取中位数、寻找最近有效像素，或直接丢弃候选。这个看似很小的实现选择会改变透明物体、边缘像素和细长物体上的实际召回率。
+
+### 质量最高不等于可以执行
+
+最终选择可以写成一个带约束优化问题（Constrained Optimization Problem）：
+
+$$
+g^* = \arg\max_{g \in \mathcal{G}} q(g \mid \mathcal{O}, c, e)
+$$
+
+同时要求：
+
+$$
+\operatorname{collision}(g)=0, \qquad
+\operatorname{reachable}(g)=1, \qquad
+w_{\min} \leq w(g) \leq w_{\max}.
+$$
+
+也就是说，高分候选仍需要通过碰撞检测（Collision Checking）、可达性检查（Reachability Checking）和夹爪宽度约束（Gripper-Width Constraint）。如果任务还要求放置方向、易碎部件保护或特定接触位置，目标函数中还要加入任务兼容性（Task Compatibility）与物理属性约束（Physical-Property Constraint）。
+
+---
+
+## 统一抓取决策流程（Unified Grasp Decision Pipeline）
+
+不同抓取方法可以放入下面的统一决策流程中理解：
+
+```text
+观测（Observation）
+    ↓
+目标或可抓区域识别（Target / Graspable-Region Identification）
+    ↓
+几何表示、补全或主动获取（Geometry Representation / Completion / Acquisition）
+    ↓
+抓取候选或姿态分布生成（Candidate / Pose-Distribution Generation）
+    ↓
+质量、不确定性与任务兼容性估计（Quality / Uncertainty / Compatibility）
+    ↓
+夹爪与机器人可行性过滤（Gripper / Robot Feasibility Filtering）
+    ↓
+执行与反馈（Execution and Feedback）
+    └──────────────────────────────↺
+```
+
+这个流程比“输入点云、输出姿态”更长，因为一次抓取可能在不同层级失败：
+
+| 层级 | 典型失败                                   | 对应英文概念                       |
+| :--- | :----------------------------------------- | :--------------------------------- |
+| 感知 | 深度缺失、目标被遮挡、透明表面不可见       | Sensor Failure / Occlusion         |
+| 表示 | 平面抓取无法表达侧向接近，姿态分布覆盖不足 | Representation / Coverage Failure  |
+| 几何 | 夹爪与桌面或相邻物体碰撞                   | Collision Failure                  |
+| 物理 | 接触不稳定、摩擦不足、抬升后滑落           | Contact / Stability / Slip Failure |
+| 具身 | 机械臂不可达或轨迹规划失败                 | Reachability / Planning Failure    |
+| 任务 | 抓住了物体，但位置不适合后续操作           | Task-Compatibility Failure         |
+
+不同论文可能只解决其中一个环节。Contact-GraspNet 将候选与可见接触点绑定，以提高杂乱场景中的生成效率 [8]；Volumetric Grasping Network（VGN）在截断符号距离场（Truncated Signed Distance Field, TSDF）中稠密预测抓取质量、旋转和宽度 [9]；AnyGrasp 则进一步关注空间与时间域中的鲁棒抓取感知 [10]。这些方法都输出六自由度抓取，但它们处理的瓶颈并不相同。
+
+一个可执行候选因此不应只保存“姿态 + 分数”。更完整的记录至少包括：
+
+| 字段              | 处理细节                                    | 缺失后的问题                 |
+| :---------------- | :------------------------------------------ | :--------------------------- |
+| `frame_id`        | 位姿属于相机、物体还是基座坐标系            | 无法正确组合外参             |
+| `pose`            | 平移、旋转表示及夹爪轴约定                  | 等价旋转和固定轴偏差混在一起 |
+| `width`           | 物理单位、最大开口与安全余量                | 网络输出不能直接下发硬件     |
+| `score_type`      | 解析质量、分类置信度或成功概率              | 不同分数被错误比较           |
+| `collision_state` | 指尖、手掌、手腕和接近路径的检查结果        | “末端姿态无碰撞”掩盖路径碰撞 |
+| `uncertainty`     | 深度、位姿或接触的协方差（Covariance）/样本 | 只能按点估计做脆弱排序       |
+| `provenance`      | 候选来自哪个点、体素、物体或语言目标        | 失败后无法回溯生成阶段       |
+
+这个数据结构也解释了闭环更新应改什么：新的视觉可以更新 `pose` 与 `collision_state`，触觉可以更新 `score_type` 对应的稳定概率，机器人规划失败则应更新可达性，而不是把所有失败都压回一个抓取分数。
+
+---
+
+## 发展脉络（Historical Development）
+
+### 阶段一：图像空间中的抓取矩形
+
+2011 年的矩形表示把平行夹爪抓取转化为 RGB-D 图像中的结构化检测（Structured Detection）问题 [1]。随后，深度学习（Deep Learning）方法分别沿“候选排序（Candidate Ranking）”和“直接回归（Direct Regression）”两条路线发展 [2,3]。这一阶段建立了重要的视觉学习范式，但对接近方向和三维碰撞的表达有限。
+
+### 阶段二：解析质量与合成监督
+
+真实机器人抓取数据昂贵，而且一次成功或失败往往受感知、规划和硬件共同影响。Dex-Net 2.0 使用三维模型（3D Model）、渲染深度图（Rendered Depth Image）和解析抓取指标（Analytic Grasp Metric）构造大规模合成监督（Synthetic Supervision），再学习鲁棒抓取质量模型（Robust Grasp-Quality Model）[5]。这条路线说明：抓取学习不仅依赖人工标注（Manual Annotation），也可以利用接触几何（Contact Geometry）与物理近似（Physical Approximation）产生训练信号。
+
+但解析质量（Analytic Grasp Quality）并不等于真实成功。摩擦系数、物体质量、传感器噪声和执行误差只要与模拟假设不同，就会产生仿真到现实差距（Sim-to-Real Gap）。
+
+### 阶段三：点云中的采样式 6-DoF 检测
+
+三维点云（3D Point Cloud）使方法能够围绕局部表面生成任意方向的夹爪姿态。典型系统先产生大量六自由度候选，再使用卷积神经网络（Convolutional Neural Network, CNN）或点云网络（Point-Cloud Network）评价局部几何 [4]。这一范式恢复了任意接近方向，却引入了新的矛盾：采样越密，候选覆盖率（Candidate Coverage）越高，计算和排序成本也越大。
+
+生成式模型（Generative Model）开始直接学习多模态抓取分布（Multimodal Grasp Distribution）。6-DOF GraspNet 使用变分生成模型（Variational Generative Model）产生多个可能的抓取 [6]，使“一个物体存在多个正确答案”成为显式建模目标。
+
+### 阶段四：稠密预测、接触表示与统一基准
+
+GraspNet-1Billion 建立了面向一般物体与杂乱场景的大规模六自由度抓取基准（6-DoF Grasping Benchmark），并推动已见、相似与未见物体（Seen / Similar / Novel Objects）上的统一比较 [7]。与此同时，方法从显式候选列表（Explicit Candidate List）走向接触中心表示（Contact-Centric Representation）、点级抓取区域（Point-Wise Graspable Region）和体素抓取场（Volumetric Grasp Field）：Contact-GraspNet 从可见接触点生成候选 [8]，VGN 在体素空间（Voxel Space）中进行实时稠密预测（Dense Prediction）[9]。
+
+这一阶段的进步不只是网络结构（Network Architecture）变化。数据划分（Dataset Split）、碰撞标签（Collision Label）、传感器输入（Sensor Input）和真实机器人协议（Real-Robot Protocol）开始成为方法能否比较的前提。
+
+### 阶段五：不确定性、语义、具身与执行
+
+当前抓取检测正在从独立的几何模块（Geometric Module）扩展为条件化决策系统（Conditional Decision System）。方法开始显式建模传感器不确定性（Sensor Uncertainty）与姿态不确定性（Pose Uncertainty）[11]，利用语言或任务确定目标与接触部位，通过主动视角（Active View）减少遮挡，并根据夹爪形状、机械臂可达性和后续任务重新排序候选。
+
+评测也逐渐从离线抓取姿态指标（Offline Grasp-Pose Metric）转向检测到执行（Detection-to-Execution）的完整链路。近期的 GCA-Bench 尝试分别评估语义理解（Semantic Understanding）、姿态检测（Pose Detection）、规划（Planning）与实际执行，但目前仍是新近预印本（Preprint）证据 [12]。这提醒我们：单一检测分数无法说明失败究竟发生在哪个模块。
+
+---
+
+## 理解抓取检测的三个维度（Three Analysis Axes）
+
+卷积神经网络（Convolutional Neural Network, CNN）、Transformer 或扩散模型（Diffusion Model）只是实现手段。判断一个抓取检测方法的能力，需要同时考察下面三个维度。
+
+### 1. 表示与生成（Representation and Generation）
+
+- 输出是平面矩形、接触点、关键点、体素场，还是 $SE(3)$ 上的概率分布？
+- 候选来自解析采样（Analytic Sampling）、直接回归（Direct Regression）、稠密预测（Dense Prediction），还是扩散模型与流模型（Diffusion and Flow Models）？
+- 表示是否处理夹爪对称性、碰撞、宽度和多解性？
+
+### 2. 信息与条件（Information and Conditioning）
+
+- 输入是 RGB、深度、点云、体素、多视角，还是触觉和力觉？
+- 方法是否知道目标、任务、部件、材料或语言指令？
+- 夹爪尺寸、机器人构型和工作空间是固定假设，还是模型输入？
+
+### 3. 证据与评价（Evidence and Evaluation）
+
+- 结果是离线姿态精度、解析稳定性、仿真成功率，还是物理抬升成功率？
+- 是否评价滑移、可达性、轨迹规划和最终任务完成？
+- 数据集、划分、夹爪和成功定义是否允许公平比较？
+
+这三个维度分别回答“模型输出什么”“模型知道什么”和“结果证明了什么”。只有把三者放在一起，才能判断一个方法是在特定数据集上获得更高分数，还是确实提高了真实机器人抓取的可靠性。
+
+---
+
+## 总结（Conclusion）
+
+平行夹爪抓取检测最初可以被表述为图像中的旋转矩形预测，随后扩展为点云和体素空间中的六自由度候选生成。随着数据集、生成模型和机器人系统的发展，它的研究对象进一步扩展到不确定性、目标语义、材料属性、夹爪具身约束和真实执行。
+
+由此可以得到一个核心观点：
+
+> 抓取检测不是孤立的姿态回归，而是在不完整观测下生成候选、估计质量、满足几何与具身约束，并通过执行反馈验证的决策过程。
+
+---
+
+## 参考文献（References）
+
+1. Y. Jiang, S. Moseson, and A. Saxena, “Efficient Grasping from RGBD Images: Learning Using a New Rectangle Representation,” _2011 IEEE International Conference on Robotics and Automation_, 2011. [DOI](https://doi.org/10.1109/ICRA.2011.5980145)
+2. I. Lenz, H. Lee, and A. Saxena, “Deep Learning for Detecting Robotic Grasps,” _The International Journal of Robotics Research_, 34(4–5):705–724, 2015. [DOI](https://doi.org/10.1177/0278364914549607)
+3. J. Redmon and A. Angelova, “Real-Time Grasp Detection Using Convolutional Neural Networks,” _2015 IEEE International Conference on Robotics and Automation_, pp. 1316–1322, 2015. [DOI](https://doi.org/10.1109/ICRA.2015.7139361)
+4. M. Gualtieri, A. ten Pas, K. Saenko, and R. Platt, “High Precision Grasp Pose Detection in Dense Clutter,” _2016 IEEE/RSJ International Conference on Intelligent Robots and Systems_, pp. 598–605, 2016. [DOI](https://doi.org/10.1109/IROS.2016.7759114)
+5. J. Mahler et al., “Dex-Net 2.0: Deep Learning to Plan Robust Grasps with Synthetic Point Clouds and Analytic Grasp Metrics,” _Robotics: Science and Systems XIII_, 2017. [DOI](https://doi.org/10.15607/RSS.2017.XIII.058)
+6. A. Mousavian, C. Eppner, and D. Fox, “6-DOF GraspNet: Variational Grasp Generation for Object Manipulation,” _2019 IEEE/CVF International Conference on Computer Vision_, pp. 2901–2910, 2019. [DOI](https://doi.org/10.1109/ICCV.2019.00299)
+7. H.-S. Fang, C. Wang, M. Gou, and C. Lu, “GraspNet-1Billion: A Large-Scale Benchmark for General Object Grasping,” _2020 IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pp. 11441–11450, 2020. [DOI](https://doi.org/10.1109/CVPR42600.2020.01146)
+8. M. Sundermeyer, A. Mousavian, R. Triebel, and D. Fox, “Contact-GraspNet: Efficient 6-DoF Grasp Generation in Cluttered Scenes,” _2021 IEEE International Conference on Robotics and Automation_, pp. 13438–13444, 2021. [DOI](https://doi.org/10.1109/ICRA48506.2021.9561877)
+9. M. Breyer, J. J. Chung, L. Ott, R. Siegwart, and J. Nieto, “Volumetric Grasping Network: Real-Time 6 DOF Grasp Detection in Clutter,” _Proceedings of the Conference on Robot Learning_, PMLR 155:1602–1611, 2021. [PMLR](https://proceedings.mlr.press/v155/breyer21a.html)
+10. H.-S. Fang et al., “AnyGrasp: Robust and Efficient Grasp Perception in Spatial and Temporal Domains,” _IEEE Transactions on Robotics_, 39(5):3929–3945, 2023. [DOI](https://doi.org/10.1109/TRO.2023.3281153)
+11. N. Marlier, O. Bruls, and G. Louppe, “Grasping Under Uncertainties: Sequential Neural Ratio Estimation for 6-DoF Robotic Grasping,” _IEEE Robotics and Automation Letters_, 2024. [DOI](https://doi.org/10.1109/LRA.2024.3416773)
+12. H. Zhang et al., “Beyond Visual Grasping: Benchmarking Complex Grasping from Detection to Execution,” _arXiv preprint arXiv:2607.14341_, 2026. [arXiv](https://arxiv.org/abs/2607.14341)

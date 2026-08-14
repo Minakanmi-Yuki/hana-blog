@@ -1,0 +1,230 @@
+---
+title: 'Robotic Grasp Detection (4): 基于点云的采样式 6-DoF 抓取检测'
+publishDate: 2026-08-14
+updatedDate: 2026-08-14
+description: '拆解点云中的表面采样、候选坐标系构造、局部几何编码、抓取评分、碰撞过滤与聚类，分析采样式 6-DoF 检测的覆盖率瓶颈。'
+heroImage: { src: 'https://pic.hana0721.top/71849616_p0.1sfmv9l9of.webp', color: '#8C8275' }
+tags:
+  - 'Robotic Grasping'
+  - 'Robotic Grasp Detection'
+  - '6-DoF'
+  - 'Point Cloud'
+category: 'daily'
+pixivLink: '71849616'
+---
+
+## 为什么需要空间抓取（Why Spatial Grasps?）
+
+平面抓取（Planar Grasp）通常假设夹爪沿固定方向接近桌面。对于堆叠、货架、箱体或侧面可抓物体，这个假设会排除大量可行姿态。六自由度抓取（Six-Degrees-of-Freedom Grasp, 6-DoF Grasp）使用三维特殊欧氏群（Special Euclidean Group, $SE(3)$）位姿表示任意三维位置和旋转：
+
+$$
+g=(R,t,w), \qquad R\in SO(3),\quad t\in\mathbb{R}^3,
+$$
+
+其中 $SO(3)$ 是三维特殊正交群（Special Orthogonal Group），$w$ 是夹爪开口。点云（Point Cloud）提供带度量尺度的表面样本，适合构造三维接触与碰撞关系，但它只包含相机可见部分，并带有噪声、遮挡和法线估计误差。
+
+采样式检测通常采用“生成—评价—过滤”（Generate–Evaluate–Filter）结构。Gualtieri 等人和后续抓取姿态检测（Grasp Pose Detection, GPD）系统建立了这一经典范式 [1,2]。
+
+---
+
+## 标准流水线（Standard Pipeline）
+
+```text
+场景点云（Scene Point Cloud）
+    ↓
+预处理与法线估计（Preprocessing / Normal Estimation）
+    ↓
+表面与接近方向采样（Surface / Approach Sampling）
+    ↓
+构造夹爪候选坐标系（Candidate Frame Construction）
+    ↓
+提取夹爪闭合区域（Closing-Region Crop）
+    ↓
+几何或神经质量评价（Geometric / Learned Scoring）
+    ↓
+碰撞过滤与非极大值抑制（Collision Filtering / Non-Maximum Suppression, NMS）
+    ↓
+机器人可达性与最终选择（Reachability / Selection）
+```
+
+每个阶段都会改变最终候选分布。评分网络只是其中一环。
+
+---
+
+## 表面与法线采样（Surface and Normal Sampling）
+
+设场景点云为 $P=\{p_j\}$。候选生成器首先从可见表面选取种子点（Seed Point），估计局部法线（Surface Normal），再围绕法线或切平面采样接近方向（Approach Direction）和夹爪绕轴角（Roll Angle）。
+
+法线通常由局部主成分分析（Principal Component Analysis, PCA）得到。对种子点 $p$ 的邻域 $\mathcal N(p)$，先计算协方差矩阵：
+
+$$
+C(p)=\frac{1}{|\mathcal N(p)|}
+\sum_{x\in\mathcal N(p)}(x-\bar x)(x-\bar x)^{\mathsf T}.
+$$
+
+$C$ 的最小特征值（Eigenvalue）对应的特征向量（Eigenvector）近似表面法线，另外两个特征向量张成局部切平面。最小特征值与另外两个特征值接近时，局部几何接近球形或噪声很大，法线方向不稳定；在边缘处，邻域还可能同时包含两个表面。因而实现中常按曲率比值拒绝不可靠法线，并使用相机视点统一法线正负方向。
+
+一种局部夹爪坐标系可以由三条轴构成：
+
+- 接近轴（Approach Axis）：夹爪向物体移动的方向；
+- 闭合轴（Closing Axis）：两个夹指相向运动的方向；
+- 横向轴（Lateral Axis）：由前两者叉乘得到。
+
+在噪声点云上，法线方向可能翻转或被遮挡边缘污染。邻域半径过小会放大噪声，过大则会抹平小物体和尖锐结构。采样参数因此同时决定精度和计算量。
+
+### 从一个表面点枚举夹爪位姿
+
+仅有法线还不能确定六自由度姿态。一个常见枚举过程是：
+
+1. 选择接近轴 $a$，它可以沿 $-n$，也可以在法线附近的圆锥中采样；
+2. 在与 $a$ 正交的平面内离散闭合轴 $b$；
+3. 令横向轴 $c=a\times b$，组成旋转矩阵 $R=[a\ b\ c]$；
+4. 沿 $a$ 改变夹爪插入深度，沿 $b$ 改变闭合中心；
+5. 根据局部点投影估计刚好包围物体的开口 $w$；
+6. 把候选变换到夹爪坐标系后执行碰撞与接触检查。
+
+若每个种子点采样 $N_a$ 个接近方向、$N_r$ 个绕轴角和 $N_d$ 个深度，原始候选量就是 $N_{\text{seed}}N_aN_rN_d$。因此“使用 2,048 个点”不能说明候选预算，还必须给出每点方向数、深度数和前级拒绝比例。
+
+---
+
+## 候选几何有效性（Geometric Validity）
+
+一个候选夹爪放入场景后，可以检查：
+
+1. 闭合区域内是否包含足够物体点；
+2. 两个夹指路径是否与物体或环境碰撞；
+3. 指尖之间是否存在近似对向接触（Antipodal Contact）；
+4. 开口宽度是否处于硬件范围；
+5. 手掌和腕部扫掠体积（Swept Volume）是否安全。
+
+解析过滤（Analytic Filtering）可以快速删除明显无效候选，但可见点云中的“无碰撞”不等于完整场景无碰撞。未观测背面和桌面边缘仍可能造成执行失败。
+
+碰撞检查通常把夹爪拆成左指、右指、手掌和内部闭合区域四个长方体。把场景点 $x$ 变换到候选夹爪坐标系：
+
+$$
+x_G=R^{\mathsf T}(x-t),
+$$
+
+即可用轴对齐区间（Axis-Aligned Interval）判断点属于哪个体积。有效候选需要两个夹指和手掌体积中的点数低于碰撞阈值，同时闭合区域内存在足够物体点。为了容忍深度噪声，碰撞盒常向外膨胀几毫米；膨胀过小会漏掉真实碰撞，过大则会错误删除狭窄空间中的可行姿态。
+
+接近路径还要检查从预抓取位姿到最终位姿的扫掠体积（Swept Volume）。只在终点放置一次夹爪模型，无法发现手掌沿途撞到邻物体的情况。
+
+---
+
+## 局部几何表示（Local Geometry Representation）
+
+GPD 将夹爪闭合区域中的点投影成适合卷积神经网络（Convolutional Neural Network, CNN）的局部表示，再把候选分类为可抓或不可抓 [1,2]。关键思想是把每个候选转换到自己的夹爪坐标系，从而让网络关注接触附近的相对几何。
+
+候选规范化后，GPD 类方法把闭合区域投影到多个正交平面，在栅格中编码占据情况与表面法线统计，得到固定尺寸的“手部图像”（Hand Image）。同一个物体在世界坐标中旋转后，只要候选相对接触几何相同，规范化图像就近似一致。CNN 因而不必同时学习全局物体姿态与局部夹持关系。
+
+这一步也会丢失信息：投影把不同深度的点压到同一像素，固定栅格分辨率会抹平薄片和小间隙，而只裁剪闭合区域又看不到手腕外部的场景。实际流水线通常让局部网络负责接触评分，再让独立的全场景碰撞模块检查环境。
+
+局部表示需要平衡：
+
+- 保留接触形状与空闲空间；
+- 对全局物体姿态不敏感；
+- 对点数和遮挡变化具有鲁棒性；
+- 能区分夹指碰撞、掌部碰撞和有效闭合。
+
+如果只看很小的局部区域，模型可能无法判断候选属于哪个物体或是否会撞到邻居；如果输入整个场景，候选级评价成本又会显著上升。
+
+---
+
+## PointNetGPD：直接编码点集（Direct Point-Set Encoding）
+
+PointNetGPD 将每个候选闭合区域内的原始点集直接送入 PointNet 风格编码器 [4]。点集网络通过对称聚合获得排列不变性（Permutation Invariance），避免手工投影和固定栅格。
+
+具体地，候选点先用 $x_G=R^{\mathsf T}(x-t)$ 变换到夹爪坐标系，再按闭合盒裁剪。由于每个候选包含的点数不同，训练批次通常随机采样或重复补齐到固定点数 $M$，并按夹爪尺寸归一化坐标。PointNet 编码可写成：
+
+$$
+h=\max_{j=1,\ldots,M}\phi(x_{Gj}),
+\qquad
+\hat q=\sigma(\psi(h)),
+$$
+
+其中 $\phi$ 是逐点多层感知机（Multi-Layer Perceptron, MLP），最大池化提供排列不变性，$\psi$ 输出可抓概率。若闭合区点数很少，重复补点不会创造几何信息；因此最小点数阈值仍是模型输入定义的一部分。
+
+这种方法提升了局部表示的通用性，但仍是候选评价器（Candidate Evaluator），不是完整生成器。如果前端没有采到正确接近方向，PointNetGPD 无法从评分阶段创造新候选。
+
+---
+
+## 从确定性采样到概率生成（From Deterministic Sampling to Generative Poses）
+
+6-DOF GraspNet 使用变分自编码器（Variational Autoencoder, VAE）学习物体点云条件下的抓取分布 [3]。给定不同潜变量（Latent Variable），模型可以产生多个六自由度姿态，再由评价网络和碰撞检查筛选。
+
+它改变了候选来源，但没有消除候选预算问题。采样数量太少会遗漏分布中的有效模式；采样太多仍需要大量评价与碰撞检测。生成分布的多样性（Diversity）、覆盖率（Coverage）和物理成功率是不同指标。
+
+---
+
+## 数据规模与标签来源（Data Scale and Label Source）
+
+ACRONYM 提供 17.744M 个物理仿真平行夹爪抓取，覆盖 8,872 个物体和 262 个类别 [5]。大规模仿真使生成器能够看到更多形状和姿态，但标签继承了网格、摩擦、质量、接触求解器和夹爪模型的假设。
+
+采样式检测器常混合三种监督：
+
+- 解析对向/力闭合标签（Analytic Antipodal / Force-Closure Label）；
+- 仿真抓取结果（Simulation Outcome）；
+- 真实机器人成功或失败（Physical Outcome）。
+
+训练标签决定评分器学习的“质量”语义，不能仅用网络结构名称概括。
+
+---
+
+## 候选去重与选择（Candidate Deduplication and Selection）
+
+大量候选会集中在同一物体表面。常见后处理包括：
+
+- 非极大值抑制（Non-Maximum Suppression, NMS）；
+- $SE(3)$ 距离聚类（SE(3) Distance Clustering）；
+- 按物体或接触区域保留多样候选；
+- 碰撞、可达性和轨迹代价重新排序。
+
+在 $SE(3)$ 中，平移与旋转没有天然统一量纲，距离函数需要人为设置权重。平行夹爪还具有约 $180^\circ$ 平面对称性，相同物理抓取可能有两个旋转表示。如果不处理对称性，聚类和损失都会重复计算等价姿态。
+
+Efficient and Accurate Candidate Generation 进一步优化了 $SE(3)$ 候选生成效率 [6]；Automatic Grasp Pose Generation 则通过解析接触、摩擦与聚类保留多样候选 [7]。这些方法强调：候选生成本身就是独立研究问题。
+
+---
+
+## 覆盖率—质量—成本三角（Coverage–Quality–Cost Triangle）
+
+采样式 6-DoF 检测的核心矛盾可以写成：
+
+$$
+\text{Coverage}\uparrow
+\quad\Longrightarrow\quad
+N_{\text{candidate}}\uparrow
+\quad\Longrightarrow\quad
+\text{Scoring and Collision Cost}\uparrow.
+$$
+
+提高评分器准确率不能解决候选缺失；扩大候选集合又会增加计算和多重比较。实用系统通常需要在下面几项之间折中：
+
+| 变量         | 过低的后果         | 过高的后果           |
+| :----------- | :----------------- | :------------------- |
+| 表面采样密度 | 漏掉小物体和窄接触 | 候选爆炸             |
+| 方向采样数   | 接近方向覆盖不足   | 旋转评价成本高       |
+| 局部区域大小 | 缺少上下文         | 输入冗余、混入邻物体 |
+| 碰撞模型精度 | 执行碰撞           | 过滤耗时             |
+| 聚类阈值     | 重复姿态多         | 删除不同抓取模式     |
+
+采样式方法的价值在于可解释、易结合解析约束，并能明确观察候选覆盖和碰撞过程。它的局限也同样清晰：前端采样质量决定了后端模型能力的上限。
+
+若把每个候选独立命中某个可行模式的概率粗略记为 $p$，采样 $N$ 次至少命中一次的概率为：
+
+$$
+P(\text{hit})=1-(1-p)^N.
+$$
+
+真实候选并不独立：相邻种子点、相近法线和小角度步长会产生大量相关样本，因此实际覆盖增长慢于上式。非极大值抑制删除重复候选时，又可能把同一位置但不同接近方向的两个有效模式合并。复现实验最好同时报告原始候选数、解析过滤后数量、NMS 后数量、评分耗时与最终 Recall@$k$，这样才能判断瓶颈发生在生成、过滤还是排序。
+
+---
+
+## 参考文献（References）
+
+1. M. Gualtieri, A. ten Pas, K. Saenko, and R. W. Platt, “High Precision Grasp Pose Detection in Dense Clutter,” _2016 IEEE/RSJ International Conference on Intelligent Robots and Systems_, 2016. [DOI](https://doi.org/10.1109/IROS.2016.7759114)
+2. A. ten Pas, M. Gualtieri, K. Saenko, and R. W. Platt, “Grasp Pose Detection in Point Clouds,” _The International Journal of Robotics Research_, 2017. [DOI](https://doi.org/10.1177/0278364917735594)
+3. A. Mousavian, C. Eppner, and D. Fox, “6-DOF GraspNet: Variational Grasp Generation for Object Manipulation,” _2019 IEEE/CVF International Conference on Computer Vision_, 2019. [DOI](https://doi.org/10.1109/ICCV.2019.00299)
+4. H. Liang et al., “PointNetGPD: Detecting Grasp Configurations from Point Sets,” _2019 International Conference on Robotics and Automation_, 2019. [DOI](https://doi.org/10.1109/ICRA.2019.8794435)
+5. C. Eppner, A. Mousavian, and D. Fox, “ACRONYM: A Large-Scale Grasp Dataset Based on Simulation,” _2021 IEEE International Conference on Robotics and Automation_, 2021. [DOI](https://doi.org/10.1109/ICRA48506.2021.9560844)
+6. A. ten Pas, C. Keil, and R. W. Platt, “Efficient and Accurate Candidate Generation for Grasp Pose Detection in SE(3),” _2021 IEEE/RSJ International Conference on Intelligent Robots and Systems_, 2021. [DOI](https://doi.org/10.1109/IROS51168.2021.9636215)
+7. K. Kleeberger, F. Roth, R. Bormann, and M. F. Huber, “Automatic Grasp Pose Generation for Parallel Jaw Grippers,” _Lecture Notes in Networks and Systems_, 2022. [DOI](https://doi.org/10.1007/978-3-030-95892-3_45)

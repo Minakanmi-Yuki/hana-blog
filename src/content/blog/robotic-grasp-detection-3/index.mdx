@@ -1,0 +1,204 @@
+---
+title: 'Robotic Grasp Detection (3): 平面与 2.5-D 抓取检测'
+publishDate: 2026-08-14
+updatedDate: 2026-08-14
+description: '梳理从旋转抓取矩形、候选分类和直接回归到稠密抓取图与关键点表示的发展，并解释平面评测与真实执行之间的边界。'
+heroImage:
+  { src: 'https://pic.hana0721.top/70217040_p0_master1200.77e5dp0f1s.webp', color: '#8C8275' }
+tags:
+  - 'Robotic Grasping'
+  - 'Robotic Grasp Detection'
+  - 'Planar Grasping'
+  - 'Technical Notes'
+category: 'daily'
+pixivLink: '70217040'
+---
+
+## 平面抓取的基本表示（Planar Grasp Representation）
+
+平面抓取检测（Planar Grasp Detection）把平行夹爪在图像中的投影表示为旋转矩形（Oriented Rectangle）：
+
+$$
+g=(x,y,\theta,h,w),
+$$
+
+其中 $(x,y)$ 是抓取中心，$\theta$ 是图像平面内旋转角，$w$ 表示夹爪开口方向上的尺度，$h$ 表示夹指覆盖范围。该表示由 Jiang 等人的红绿蓝—深度（Red–Green–Blue and Depth, RGB-D）抓取工作系统化，并成为 Cornell Grasp Dataset 的经典接口 [1]。
+
+执行时，系统利用深度和相机内参把二维中心反投影到三维空间，再将平面角转换为末端执行器旋转。相机视线方向或桌面法线通常决定夹爪接近方向（Approach Direction）。因此，矩形不是完整的六自由度位姿（Six-Degrees-of-Freedom Pose, 6-DoF Pose），而是一个带强几何先验的低维控制接口。
+
+如果在矩形之外加入深度、高度或有限的倾角，但接近方向仍受场景设定约束，通常称为 **2.5-D 抓取（2.5-D Grasp）**。
+
+### 从矩形恢复三维末端位姿
+
+矩形中心不是直接的机器人坐标。给定相机内参 $f_x,f_y,c_x,c_y$ 和中心深度 $z$，首先做反投影：
+
+$$
+x_C=\frac{(u-c_x)z}{f_x},\qquad
+y_C=\frac{(v-c_y)z}{f_y},\qquad
+p_C=(x_C,y_C,z)^{\mathsf T}.
+$$
+
+在竖直接近协议中，夹爪接近轴固定为相机光轴或桌面法线，$\theta$ 只决定绕该轴的偏航角（Yaw Angle）。设固定工具对齐旋转为 $R_0$，则可写成 $R_{CG}=R_z(\theta)R_0$，再通过手眼外参得到基座位姿。若相机光轴与桌面法线不平行，直接把 $R_z(\theta)$ 当作机器人末端旋转会产生系统性倾斜。
+
+矩形宽度也要从像素换成物理开口。局部近似下：
+
+$$
+w_{\text{meter}}\approx \frac{z}{f_x}w_{\text{pixel}}.
+$$
+
+因此，相同像素宽度在不同深度对应不同夹爪开口。实现中还会乘以安全系数并截断到硬件范围；中心深度、宽度换算和夹爪指尖偏置共同决定最终命令，而不仅是网络预测的五个矩形参数。
+
+---
+
+## 候选分类：先提议，再打分（Proposal and Classification）
+
+Lenz 等人的方法将抓取检测拆成两级级联网络（Cascaded Network）[2]：
+
+1. 第一阶段快速扫描大量位置和角度，排除明显不可抓区域；
+2. 第二阶段使用更大的网络精细评价少量高分候选；
+3. 最终将最高分矩形转换成机器人抓取。
+
+这类方法的核心变量是候选覆盖率（Proposal Coverage）。如果候选生成阶段没有提出正确位置，后续分类器无法补救；如果扫描过密，旋转和尺度枚举会显著增加计算。
+
+两级分类器的候选通常来自位置、尺度与角度的离散网格。第一阶段使用较小感受野（Receptive Field）快速过滤，第二阶段将保留矩形对应的 RGB-D 区域旋转、裁剪到规范尺寸后精排。训练时正负样本数量高度不平衡：大多数滑窗都不可抓，因此需要负样本下采样（Negative-Sample Downsampling）或困难负样本挖掘（Hard-Negative Mining）。否则，一个总是预测“不可抓”的分类器也能获得很高的普通分类准确率。
+
+候选角度步长为 $\Delta\theta$ 时，最坏量化误差约为 $\Delta\theta/2$；尺度和位置网格也有同样的量化上限。增加网格密度降低离散误差，却按位置数 $\times$ 角度数 $\times$ 尺度数放大候选量，这正是级联结构存在的原因。
+
+候选分类的优势是容易结合先验和多阶段特征，也可以输出多个抓取。缺点是推理成本随搜索预算增加，而且候选分布本身会影响最终结果。
+
+---
+
+## 直接回归：一次预测完整矩形（Direct Regression）
+
+Redmon 和 Angelova 将抓取矩形直接回归（Direct Regression）为位置、角度和尺度 [3]。其 MultiGrasp 版本能够在同一图像中预测多个候选。论文在 Cornell 的 885 张 RGB-D 图像、240 个物体上报告 88% 检测准确率和每秒 13 帧（Frames Per Second, FPS）；这些数字对应论文的矩形匹配协议和图形处理器（Graphics Processing Unit, GPU）配置，不是物理抓取成功率。
+
+直接回归避免显式滑窗，但会面对两个问题：
+
+- 同一物体存在多个正确抓取，单一回归目标容易平均不同模式；
+- 角度具有周期性，$\theta$ 与 $\theta+\pi$ 对平行夹爪通常表示等价方向。
+
+后续方法通过多候选输出、离散角度分类、正余弦编码或关键点表示缓解这些歧义。
+
+平行夹爪方向满足 $\theta\equiv\theta+\pi$。若直接最小化 $(\hat\theta-\theta)^2$，标签在 $-\pi/2$ 与 $\pi/2$ 边界附近会产生人为的大误差。常见连续编码预测双角：
+
+$$
+a=\cos 2\theta,\qquad b=\sin 2\theta,
+\qquad
+\hat\theta=\frac{1}{2}\operatorname{atan2}(\hat b,\hat a).
+$$
+
+双角把相差 $\pi$ 的两个等价方向映射到同一点，同时避免角度边界不连续。解码前应把 $(\hat a,\hat b)$ 归一化；否则向量模长会无意中混入角度置信度。
+
+---
+
+## 更深的视觉表示（Deeper Visual Representation）
+
+Kumra 和 Kanan 使用残差网络（Residual Network, ResNet）分别处理 RGB 与深度，再融合两种特征 [4]。论文报告 89.21% Cornell 准确率，但这个数字仍受数据划分和矩形判定规则约束。
+
+RGB 与深度的作用并不相同：
+
+- RGB 提供纹理、颜色和语义边界；
+- 深度提供表面形状、相对高度和可接近空间；
+- 早期融合（Early Fusion）简单，但两种模态统计差异大；
+- 后期融合（Late Fusion）能保留独立特征，但计算更重。
+
+这条路线提高了二维表示的视觉表达能力，却没有改变接近方向受限这一结构性边界。
+
+---
+
+## 稠密抓取图与闭环控制（Dense Grasp Map and Closed-Loop Control）
+
+生成式抓取卷积神经网络（Generative Grasping Convolutional Neural Network, GG-CNN）不再枚举矩形，而是在每个深度像素上预测：
+
+$$
+\mathbf{G}=(Q,\Phi,W),
+$$
+
+其中 $Q$ 是抓取质量图（Grasp Quality Map），$\Phi$ 是角度图（Angle Map），$W$ 是夹爪宽度图（Gripper-Width Map）[6]。最终抓取可从高质量区域直接解码。
+
+稠密输出共享了整幅图像的计算，使控制器能够随着相机或物体运动反复更新抓取。论文报告 19 ms 前向传播、最高 50 Hz 闭环运行，并在其竖直接近协议下报告多组真实抓取结果 [6]。这些结果支持低延迟闭环能力，但不能外推到任意六自由度接近。
+
+稠密训练不是对所有像素一视同仁。典型标注把每个正抓取矩形内部写入质量掩码 $Q^*$，并在正区域监督角度与宽度；背景像素只监督质量。使用掩码 $M$ 后，一个常见的多头损失形式是：
+
+$$
+\mathcal L=
+\lambda_q\lVert Q-Q^*\rVert_2^2
++\lambda_\theta\lVert M\odot(A-A^*)\rVert_2^2
++\lambda_w\lVert M\odot(W-W^*)\rVert_2^2,
+$$
+
+其中 $A=(\cos2\theta,\sin2\theta)$。若在背景上也回归角度和宽度，大量没有物理含义的零标签会压过正样本。多个人工抓取矩形重叠时，质量图可以取最大值，角度则需要按局部实例写入或用向量平均，不能直接平均 $\theta$。
+
+推理时通常先平滑质量图并取峰值 $(u^*,v^*)=\arg\max Q$，再读取该像素的角度和宽度。闭环控制不会每帧都从零执行完整抓取，而是把当前峰值变成末端速度或短视界目标；当质量低于阈值、深度失效或峰值跳变过大时停止。控制频率、相机延迟和峰值滤波共同决定闭环稳定性，网络前向时间只是其中一项。
+
+闭环（Closed Loop）是平面方法的重要优势。即使单帧深度存在误差，机器人在接近过程中仍可根据新观测修正 $(x,y,\theta,w)$。相比之下，一个耗时较长的三维生成器若只运行一次，可能无法应对动态目标。
+
+---
+
+## 关键点表示（Keypoint Representation）
+
+抓取矩形也可以由关键点（Keypoint）间接表示。几何感知关键点网络（Geometry-Aware Keypoint Network, GKNet）将抓取建模为成对关键点和中心信息 [7]，避免直接回归角度的周期不连续，并可从几何关系恢复矩形方向与开口。
+
+关键点表示的误差结构与矩形不同：角度误差来自点对方向，宽度误差来自点间距离。当目标很小或两个关键点接近时，像素级偏差会被放大；遮挡和对称纹理也可能造成配对错误。
+
+---
+
+## 数据集与矩形匹配（Datasets and Rectangle Matching）
+
+### Cornell Grasp Dataset
+
+Cornell 提供真实 RGB-D 图像和多个正负抓取矩形。常见评测使用：
+
+- 图像划分（Image-Wise Split）：同一物体的不同图像可能分布在训练与测试中；
+- 物体划分（Object-Wise Split）：测试物体不出现在训练中；
+- 角度阈值（Angle Threshold）与交并比（Intersection over Union, IoU）共同判断是否命中。
+
+物体划分更接近实例泛化，但两种划分的结果不能混用。矩形与任一人工标注重叠即可算正确，也不代表该姿态无三维碰撞。
+
+常用矩形判据要求同时满足：
+
+$$
+\min\left(|\hat\theta-\theta^*|,\pi-|\hat\theta-\theta^*|\right)<30^\circ,
+\qquad
+\operatorname{IoU}(\hat R,R^*)>0.25,
+$$
+
+其中旋转矩形交并比为：
+
+$$
+\operatorname{IoU}(A,B)=\frac{|A\cap B|}{|A\cup B|}.
+$$
+
+只要预测与任意一个正标注匹配就记为成功，因此它测量“是否命中标注集合中的一个模式”，而不是预测集合的完整覆盖率。角度正确但宽度略偏的候选可能因 IoU 失败；二维重叠通过的矩形则仍可能在真实夹爪厚度、接近路径或桌面碰撞上失败。
+
+### Jacquard
+
+Jacquard 使用合成 RGB-D/深度图扩大平面抓取监督 [5]。合成数据便于覆盖姿态与物体，但渲染、噪声、材质和真实相机之间存在域差距（Domain Gap）。数据规模与现实真实性是两个独立维度。
+
+---
+
+## 平面表示的能力边界（Capability Boundary）
+
+| 能力               | 平面/2.5-D 方法的表现    |
+| :----------------- | :----------------------- |
+| 快速定位与角度预测 | 强，输出低维且可稠密计算 |
+| 竖直桌面抓取       | 强，和相机/桌面先验匹配  |
+| 动态闭环修正       | 强，低延迟方法可高频运行 |
+| 任意接近方向       | 弱，俯仰与滚转通常未建模 |
+| 三维夹爪/手腕碰撞  | 间接，需要额外几何模块   |
+| 遮挡背面接触       | 弱，矩形不表示隐藏表面   |
+| 跨机器人可达性     | 不直接表示               |
+
+平面抓取并不是被六自由度方法简单淘汰的旧表示。对于固定相机、桌面、竖直接近和高频控制，它仍然是高效接口。真正需要区分的是：任务是否允许固定接近方向，以及评价指标是否覆盖了系统实际面对的碰撞和执行约束。
+
+---
+
+## 参考文献（References）
+
+1. Y. Jiang, S. Moseson, and A. Saxena, “Efficient Grasping from RGBD Images: Learning Using a New Rectangle Representation,” _2011 IEEE International Conference on Robotics and Automation_, 2011. [DOI](https://doi.org/10.1109/ICRA.2011.5980145)
+2. I. Lenz, H. Lee, and A. Saxena, “Deep Learning for Detecting Robotic Grasps,” _The International Journal of Robotics Research_, 2015. [DOI](https://doi.org/10.1177/0278364914549607)
+3. J. Redmon and A. Angelova, “Real-Time Grasp Detection Using Convolutional Neural Networks,” _2015 IEEE International Conference on Robotics and Automation_, 2015. [DOI](https://doi.org/10.1109/ICRA.2015.7139361)
+4. S. Kumra and C. Kanan, “Robotic Grasp Detection Using Deep Convolutional Neural Networks,” _2017 IEEE/RSJ International Conference on Intelligent Robots and Systems_, 2017. [DOI](https://doi.org/10.1109/IROS.2017.8202237)
+5. A. Depierre, E. Dellandrea, and L. Chen, “Jacquard: A Large Scale Dataset for Robotic Grasp Detection,” _2018 IEEE/RSJ International Conference on Intelligent Robots and Systems_, 2018. [DOI](https://doi.org/10.1109/IROS.2018.8593950)
+6. D. Morrison, J. Leitner, and P. Corke, “Closing the Loop for Robotic Grasping: A Real-Time, Generative Grasp Synthesis Approach,” _Robotics: Science and Systems XIV_, 2018. [DOI](https://doi.org/10.15607/RSS.2018.XIV.021)
+7. R. Xu, F.-J. Chu, and P. A. Vela, “GKNet: Grasp Keypoint Network for Grasp Candidates Detection,” _The International Journal of Robotics Research_, 2022. [DOI](https://doi.org/10.1177/02783649211069569)
