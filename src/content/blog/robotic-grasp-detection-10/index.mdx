@@ -1,7 +1,7 @@
 ---
 title: 'Robotic Grasp Detection (10): 多模态感知与闭环抓取优化'
 publishDate: 2026-08-14
-updatedDate: 2026-08-14
+updatedDate: 2026-08-20
 description: '解释视觉、时间信息、触觉、力矩、滑移与刚度如何在接近、接触和抬升阶段更新抓取，并讨论闭环系统的状态估计与评价方法。'
 heroImage:
   { src: 'https://pic.hana0721.top/76117294_p0_master1200.2rvq8fo0ul.webp', color: '#8C8275' }
@@ -14,19 +14,22 @@ category: 'daily'
 pixivLink: '76117294'
 ---
 
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+
 ## 为什么单次视觉预测不够（Why One-Shot Vision Is Insufficient）
 
 开环抓取（Open-Loop Grasping）在运动前预测一次姿态，随后假设物体、相机和机器人状态不再变化。真实执行中，深度噪声、手眼标定误差、物体移动、接触偏差和滑移会在预测后继续累积。
 
-闭环抓取（Closed-Loop Grasping）根据连续观测更新状态与动作：
+闭环抓取（Closed-Loop Grasping）根据连续观测更新状态、抓取和控制动作。设平行夹爪抓取为 $g_t=(R_t,\vec t_t,w_t)$，其中 $R_t\in SO(3)$、$\vec t_t\in\mathbb R^3$、$w_t\in\mathbb R_{\geq0}$，闭环策略可以写成：
 
 $$
-g_{t+1}=\pi(o_{0:t},a_{0:t},f_{0:t}),
+(g_{t+1},a_t)=\pi(o_{0:t},a_{0:t-1},f_{0:t}),
 $$
 
-其中 $o$ 是视觉或触觉观测，$a$ 是已执行动作，$f$ 是力与接触反馈。不同模态在不同时间点有效：视觉擅长接触前定位，触觉和力觉在接触后提供直接证据，滑移则在抬升时暴露稳定性。
+其中 $o_{0:t}$ 是视觉与触觉观测历史，$a_{0:t-1}$ 是已执行动作，$f_{0:t}$ 是力与接触反馈，$a_t$ 是下一段短时控制动作。不同模态在不同时间点有效：视觉用于接触前定位，触觉和力觉在接触后观测接触状态，滑移信号在抬升和搬运阶段更新稳定性。
 
-更完整的闭环系统维护隐藏状态 $x_t$，例如物体位姿、接触位置、是否滑移和夹紧力，而不是直接把所有历史帧拼接后回归姿态。贝叶斯滤波（Bayesian Filtering）写成：
+闭环系统可以维护隐藏状态 $x_t\in\mathbb R^{d_x}$，例如物体位姿、接触位置、滑移状态和夹紧力。贝叶斯滤波（Bayesian Filtering）写成：
 
 $$
 \underbrace{p(x_t\mid o_{0:t},a_{0:t-1})}_{b_t(x_t)}
@@ -35,7 +38,17 @@ p(o_t\mid x_t)
 \int p(x_t\mid x_{t-1},a_{t-1})b_{t-1}(x_{t-1})\,dx_{t-1}.
 $$
 
-视觉、触觉和力觉分别提供不同的观测似然。控制器根据当前信念 $b_t$ 选择短时动作，并在下一观测到来后重算，这就是滚动时域（Receding Horizon）而非“一次检测后完整执行”。工程实现可以用卡尔曼滤波（Kalman Filter）、粒子滤波（Particle Filter）或神经状态编码器（Neural State Encoder）近似该更新，但都要明确状态、时间戳和坐标系。
+其中 $b_t(x_t)$ 是时刻 $t$ 的状态信念，$p(x_t\mid x_{t-1},a_{t-1})$ 是动作后的状态转移，$p(o_t\mid x_t)$ 是多模态观测模型。控制器根据 $b_t$ 选择短时动作，并在下一观测到来后更新；工程实现可使用卡尔曼滤波（Kalman Filter）、粒子滤波（Particle Filter）或神经状态编码器（Neural State Encoder）。
+
+## 多模态闭环的状态接口（State Interfaces in the Closed Loop）
+
+| 执行阶段                   | 主要传感器                      | 状态估计               | 控制输出                 |
+| :------------------------- | :------------------------------ | :--------------------- | :----------------------- |
+| 接触前（Pre-Contact）      | RGB-D、点云、关节编码器         | 物体与夹爪相对位姿     | 候选更新、接近速度       |
+| 接近中（Approach）         | 连续视觉、机器人位姿            | 目标运动与标定残差     | 末端位姿修正、停止       |
+| 闭合时（Closure）          | 指尖触觉、夹爪电流、力          | 左右接触位置与接触强度 | 继续闭合、平移或旋转调整 |
+| 抬升中（Lift）             | 触觉时间序列、腕部力/力矩、视觉 | 滑移、质心偏移与稳定性 | 增力、减速、放回或重抓   |
+| 任务执行（Task Execution） | 多模态状态与任务反馈            | 物体姿态和任务进度     | 搬运、放置与恢复         |
 
 ---
 
@@ -50,15 +63,26 @@ $$
 - 跟踪移动物体和候选；
 - 删除与当前场景不一致的旧抓取。
 
-融合前必须先把不同帧注册到同一坐标系。若第 $t$ 帧点云位于相机坐标系，机器人状态提供 ${}^{B}T_{C_t}$，则：
+融合前先把不同帧注册到同一坐标系。若第 $t$ 帧中的点 $\vec p_C^{\,t}\in\mathbb R^3$ 位于相机坐标系，机器人状态提供相机到机器人基座的齐次变换 ${}^{B}T_{C_t}\in SE(3)$，则：
 
 $$
-P_B^t={}^{B}T_{C_t}P_C^t.
+\begin{bmatrix}\vec p_B^{\,t}\\1\end{bmatrix}
+={}^{B}T_{C_t}
+\begin{bmatrix}\vec p_C^{\,t}\\1\end{bmatrix}.
 $$
 
-随后才能用体素哈希（Voxel Hashing）、迭代最近点（Iterative Closest Point, ICP）或对象跟踪关联新旧表面。候选也要随被跟踪物体更新：若估计物体从 $T_O^{t-1}$ 移到 $T_O^t$，旧抓取应变换为 $T_O^t(T_O^{t-1})^{-1}g_{t-1}$。直接平均两个三维特殊欧氏群（Special Euclidean Group, $SE(3)$）矩阵不是合法姿态平均；平移可加权，旋转需用四元数平均或李代数增量。
+随后使用体素哈希（Voxel Hashing）、迭代最近点（Iterative Closest Point, ICP）或对象跟踪关联新旧表面。候选也随被跟踪物体更新：若物体位姿从 ${}^{B}T_O^{t-1}$ 变化到 ${}^{B}T_O^t$，则旧抓取齐次变换 ${}^{B}T_G^{t-1}$ 更新为：
 
-它也会引入时延（Latency）和状态过期（Stale State）。若物体运动快于估计更新，融合更多历史反而可能降低准确性。
+$$
+{}^{B}T_G^t
+={}^{B}T_O^t
+\left({}^{B}T_O^{t-1}\right)^{-1}
+{}^{B}T_G^{t-1}.
+$$
+
+平移可在 $\mathbb R^3$ 中加权，旋转则用四元数平均或李代数增量进行时间平滑。
+
+时间窗口长度决定平滑程度与时延（Latency）。实现中可按时间戳衰减旧帧权重，并在估计残差超过阈值时丢弃过期状态（Stale State）。
 
 ---
 
@@ -70,7 +94,7 @@ $$
 \tilde Q(g)=\int Q(g+\delta)\,p(\delta)\,d\delta.
 $$
 
-尖锐但对误差敏感的高分候选会被降低，周围都较稳定的候选得到更高鲁棒分数。这种方法在接触前处理预测与控制误差，但不观察实际接触结果。
+其中位姿扰动 $\delta\in\mathbb R^6$ 表示局部平移和旋转误差，$p(\delta)$ 是标定与控制误差模型。卷积后的 $\tilde Q(g)$ 偏向邻域内都保持较高质量的候选，用于接触前排序。
 
 vMF-Contact 使用 von Mises–Fisher 分布（von Mises–Fisher Distribution, vMF）和证据学习（Evidential Learning）表示噪声杂乱场景中的接触方向不确定性 [9]。概率表示的价值在于让候选分数随观测质量变化，而不是对所有姿态输出同样尖锐的置信度。
 
@@ -81,7 +105,7 @@ p(n\mid\mu,\kappa)=C_3(\kappa)
 \exp(\kappa\mu^{\mathsf T}n),
 $$
 
-其中 $\mu$ 是平均方向，集中参数 $\kappa$ 控制尖锐程度；$\kappa\to0$ 时接近球面均匀分布，$\kappa$ 大时集中在 $\mu$ 附近。网络不仅预测方向，还预测它有多确定。解码时可从分布采样多个接触方向，或用 $\kappa$ 降低不确定候选的排序分数。若始终只取均值 $\mu$，则概率头的大部分信息没有进入决策。
+其中 $n,\mu\in\mathbb R^3$ 是单位向量，$\kappa\in\mathbb R_{\geq0}$ 是集中参数，$C_3(\kappa)$ 是三维归一化常数；$\kappa\to0$ 时接近球面均匀分布，$\kappa$ 增大时方向集中在 $\mu$ 附近。解码时可以从分布采样多个接触方向，或用 $\kappa$ 调整候选排序。
 
 ---
 
@@ -89,23 +113,9 @@ $$
 
 触觉感知（Tactile Sensing）提供指尖压力分布、接触位置和局部纹理。More Than a Feeling 将视觉与触觉共同用于初始抓取和重新抓取（Regrasp）[5]。
 
-典型流程是：
+视觉负责生成接触前候选和检查远距离碰撞，触觉负责在闭合后测量局部接触。二者通过当前夹爪姿态和指尖侧别关联到同一抓取状态。
 
-```text
-视觉提出初始候选
-    ↓
-夹爪闭合并获得触觉图
-    ↓
-预测当前抓取是否稳定
-    ↓
-若不稳定，预测调整方向或新候选
-    ↓
-重新夹持并验证
-```
-
-触觉不能完全替代视觉：它只在接触后覆盖很小区域，也无法提前判断远处碰撞。它的优势是能够直接观察视觉最难判断的接触状态。
-
-视觉—触觉重新抓取通常包含两个不同输出头：稳定性分类器估计当前接触是否足以抬升，调整策略预测平移、旋转或重新张开夹爪的动作。原始触觉图先做空载基线校正，再计算压力/形变差分；左右指尖图像应保留其夹爪侧别，不能无条件堆叠成同一通道。一个简化决策为：
+视觉—触觉重新抓取通常包含两个输出头：稳定性分类器估计当前接触是否足以抬升，调整策略预测平移、旋转或重新张开夹爪的动作。原始触觉图先做空载基线校正，再计算压力或形变差分；左右指尖图像保留夹爪侧别。一个简化决策为：
 
 $$
 a_t=
@@ -117,7 +127,22 @@ a_t=
 \end{cases}
 $$
 
-重新抓取训练数据必须包含“调整前触觉、所执行调整、调整后结果”三元组；只有静态成功/失败触觉图，最多能训练评估器，不能监督应该向哪个方向移动。
+稳定性头使用带成功/失败标签的静态触觉样本；调整头使用“调整前触觉、所执行调整、调整后结果”三元组学习动作对接触状态的影响。
+
+<Algorithm number={1} title='视觉—触觉闭环重新抓取' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>连续 RGB-D、左右指尖触觉、腕部力/力矩、机器人位姿和平行夹爪状态</div>
+  <div slot='output'>稳定抓取，或安全终止状态</div>
+  <AlgorithmStep keyword='require'>由当前视觉观测生成初始抓取，并规划接近轨迹</AlgorithmStep>
+  <AlgorithmStep keyword='for'>在给定重新抓取预算内循环</AlgorithmStep>
+  <AlgorithmStep indent={1}>执行短时接近，根据新视觉帧更新目标和抓取姿态</AlgorithmStep>
+  <AlgorithmStep indent={1}>闭合夹爪，校正左右触觉基线并提取接触特征</AlgorithmStep>
+  <AlgorithmStep indent={1}>预测稳定概率、滑移风险和局部姿态调整 $\Delta g_t$</AlgorithmStep>
+  <AlgorithmStep indent={1}>若稳定概率超过阈值，则抬升并进入滑移监测</AlgorithmStep>
+  <AlgorithmStep indent={1}>若调整在安全范围内，则释放部分夹紧力并执行 $\Delta g_t$</AlgorithmStep>
+  <AlgorithmStep indent={1}>否则放回物体，并由更新后的场景重新检测抓取</AlgorithmStep>
+  <AlgorithmStep keyword='end for'>直到稳定持有或耗尽尝试预算</AlgorithmStep>
+  <AlgorithmStep keyword='return'>稳定抓取或安全终止</AlgorithmStep>
+</Algorithm>
 
 ---
 
@@ -125,22 +150,25 @@ $$
 
 腕部力/力矩传感器（Wrist Force/Torque Sensor）和触觉可以估计物体受力及质心偏移。Center-of-Mass-Based Robust Grasp Planning 使用触觉—视觉传感器调整未知物体抓取 [6]。
 
-若夹持点远离质心（Center of Mass, CoM），重力会产生较大力矩：
+设质心和抓取参考点分别为 $\vec p_{\text{CoM}},\vec p_{\text{grasp}}\in\mathbb R^3$，物体质量 $m\in\mathbb R_{>0}$，重力加速度 $\vec g\in\mathbb R^3$。夹持点远离质心（Center of Mass, CoM）时会产生力矩：
 
 $$
-\tau=(p_{\text{CoM}}-p_{\text{grasp}})\times mg.
+\vec\tau
+=(\vec p_{\text{CoM}}-\vec p_{\text{grasp}})
+\times m\vec g,
+\qquad \vec\tau\in\mathbb R^3.
 $$
 
-系统可以根据抬升后的力矩选择重新抓取，使夹持点更接近质心。这个信号在物体被拿起后才可靠，因此评价需要允许多次尝试和状态变化。
+系统以抬升后的力矩作为重新抓取反馈，使夹持点逐步接近质心；执行协议记录每次调整后的状态变化。
 
-在准静态悬持、已知重力方向的条件下，腕部测得的力 $F$ 与力矩 $\tau$ 满足：
+在准静态悬持、已知重力方向的条件下，腕部测得的力 $\vec F$ 与力矩 $\vec\tau$ 满足：
 
 $$
-F\approx mg,\qquad
-\tau\approx r_{\text{CoM}}\times F+\tau_0,
+\vec F\approx m\vec g,\qquad
+\vec\tau\approx \vec r_{\text{CoM}}\times\vec F+\vec\tau_0,
 $$
 
-其中 $\tau_0$ 包含传感器偏置、夹爪自重和安装误差。先用空夹爪姿态标定 $\tau_0$，再在一个或多个手腕方向上测量，才能解出质心在垂直于 $F$ 平面内的分量；单个静态姿态无法观测沿重力方向的质心位置。机器人加速时还会出现惯性力矩，因此应在短暂停稳窗口估计，或显式使用加速度补偿。
+其中 $\vec F,\vec\tau\in\mathbb R^3$ 是腕部测得的力和力矩，$\vec r_{\text{CoM}}\in\mathbb R^3$ 是质心相对传感器原点的位置，$\vec\tau_0\in\mathbb R^3$ 包含传感器偏置、夹爪自重和安装误差。先用空夹爪标定 $\vec\tau_0$，再在一个或多个手腕方向上测量，可以解出质心在垂直于 $\vec F$ 平面内的分量；运动阶段则加入加速度补偿。
 
 ---
 
@@ -153,7 +181,7 @@ $$
 - 腕部力/力矩；
 - 视觉中的物体相对运动。
 
-检测到滑移后，控制器可以增加夹紧力、改变手腕运动、放慢加速度或重新抓取。稳定性评价（Stability Evaluation）应与首次抬升成功分开：物体离开桌面并不代表能够安全搬运。
+检测到滑移后，控制器可以增加夹紧力、改变手腕运动、放慢加速度或重新抓取。稳定性评价（Stability Evaluation）分别记录首次抬升和搬运过程中的持续持有。
 
 滑移检测一般使用时间窗而不是单帧阈值。设触觉或剪切特征为 $z_t$，可以比较短窗变化：
 
@@ -162,7 +190,14 @@ s_t=\frac{1}{L}\sum_{k=0}^{L-1}
 \lVert z_{t-k}-z_{t-k-1}\rVert,
 $$
 
-或用一维卷积/循环网络区分接触建立、正常形变和持续滑移。阈值过低会把机械臂振动当作滑移，过高则在物体明显移动后才响应。夹紧力控制可采用带上限的增量律 $F_{t+1}=\operatorname{clip}(F_t+K s_t,F_{\min},F_{\max})$；脆弱物体还需要由材料或力限制决定 $F_{\max}$，不能检测到滑移就无限加力。
+其中 $z_t\in\mathbb R^{d_z}$ 是触觉或剪切特征，$L$ 是时间窗长度，$s_t\in\mathbb R_{\geq0}$ 是滑移分数。也可以用一维卷积或循环网络区分接触建立、正常形变和持续滑移。夹紧力控制采用带上限的增量律：
+
+$$
+F_{t+1}
+=\operatorname{clip}(F_t+K_s s_t,F_{\min},F_{\max}),
+$$
+
+其中 $F_t$ 是夹紧力，$K_s\geq0$ 是控制增益，$F_{\min}$ 和 $F_{\max}$ 由夹爪与物体材料共同确定。
 
 ---
 
@@ -174,7 +209,7 @@ $$
 Q(g)=Q_{\text{hold}}(g)-\lambda D_{\text{deform}}(g).
 $$
 
-夹得更紧可能减少滑移，却增加损伤。视觉形状、材料先验、触觉接触和力控制需要共同决定抓取，而不是只优化静态力闭合。
+$Q_{\text{hold}}$ 评价持有稳定性，$D_{\text{deform}}$ 评价预测形变或损伤，$\lambda\geq0$ 控制二者权衡。视觉形状和材料先验用于初始候选，触觉与力反馈在闭合后更新形变估计。
 
 ---
 
@@ -182,7 +217,7 @@ $$
 
 真实抓取试验昂贵。Sample Efficient Grasp Learning 使用等变模型（Equivariant Model）复用旋转和平移对称性，提高有限物理数据的利用率 [8]。自监督增强现实遥操作（Self-Supervised Augmented-Reality Teleoperation）则使用人类示范生成六自由度抓取训练信号 [10]。
 
-示范可以快速提供可执行姿态，但会继承操作者偏好、机器人平台和相机设置。自监督也不意味着无偏标签：成功检测、轨迹规划和硬件保护机制都会筛选数据。
+示范数据同时记录操作者选择、机器人平台和相机设置；自监督执行数据还记录成功检测、规划过滤和硬件保护触发状态，便于分析训练样本是如何产生的。
 
 ---
 
@@ -206,13 +241,13 @@ q=\frac{\sum_m w_m q_m}{\sum_m w_m},
 w_m\propto\frac{1}{\sigma_m^2+\epsilon}.
 $$
 
-这里 $\sigma_m^2$ 是模态不确定性。深度大面积缺失时，视觉权重应下降；触觉尚未接触时，触觉分支应被掩码为不可用，而不是输入全零后让网络自行猜测。异步传感器还要把每个特征关联到采样时间，并把机器人状态插值到同一时刻，否则高速接近时几十毫秒偏差就会对应明显空间误差。
+其中 $q_m\in\mathbb R$ 是第 $m$ 个模态给出的质量证据，$\sigma_m^2\in\mathbb R_{>0}$ 是对应不确定性，$\epsilon>0$ 防止除零。深度大面积缺失时降低视觉权重；触觉尚未接触时用可用性掩码关闭触觉分支。异步传感器为每个特征保留采样时间，并将机器人状态插值到同一时刻。
 
 ---
 
 ## 闭环系统应如何评价（Evaluating Closed-Loop Systems）
 
-只报告第一次尝试成功率会忽略反馈价值。闭环评测至少应包含：
+闭环评测同时记录首次尝试、反馈调整和最终结果：
 
 - 首次成功率（First-Attempt Success）；
 - 给定尝试预算下的累计成功率（Cumulative Success）；
@@ -222,7 +257,7 @@ $$
 - 接触力、物体损伤和安全终止；
 - 传感器与控制循环频率。
 
-多模态系统的核心不是模态数量，而是每个新观测是否减少了决策相关不确定性，并在有限时间与尝试预算下改善真实执行。
+这些指标把检测精度、反馈收益、循环速度和安全代价连接到同一个执行协议中。
 
 ---
 

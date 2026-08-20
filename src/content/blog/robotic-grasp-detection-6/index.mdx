@@ -1,183 +1,347 @@
 ---
 title: 'Robotic Grasp Detection (6): 数据集与基准评测协议'
 publishDate: 2026-08-14
-updatedDate: 2026-08-14
-description: '比较 Cornell、Jacquard、Dex-Net、ACRONYM、GraspNet、REGRAD 与执行型数据集，解释标签、划分、夹爪和物理层级如何改变分数含义。'
+updatedDate: 2026-08-19
+description: '系统比较平面、物体中心、场景级和执行感知抓取数据集，解释标签生成、泛化划分、GraspNet AP 协议，以及 Cornell、Jacquard、Dex-Net 和真实执行基准上的代表性结果。'
 heroImage:
   { src: 'https://pic.hana0721.top/72300463_p0_master1200.83amt5a3ia.webp', color: '#8C8275' }
 tags:
   - 'Robotic Grasping'
   - 'Robotic Grasp Detection'
   - 'Grasp Datasets'
-  - 'Technical Notes'
+  - 'Benchmarking'
 category: 'daily'
 pixivLink: '72300463'
 ---
 
-## 数据集定义了问题（Datasets Define the Problem）
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
 
-抓取检测中的数据集（Dataset）不只是训练样本集合。它同时规定观测模态、夹爪、标签生成方式、场景分布、泛化划分和评价指标。两个方法都输出六自由度（Six Degrees of Freedom, 6-DoF）姿态，并不代表它们的分数可以直接比较。
+## 先区分数据集、基准与评测协议（Dataset, Benchmark, and Protocol）
 
-在比较结果前，至少需要固定六个字段：
+在抓取检测（Grasp Detection）中，数据集（Dataset）不只是训练样本的集合。它还规定了机器人能看到什么、抓取如何表示、正负标签如何产生，以及“成功”究竟指什么。基准（Benchmark）是在数据集之上固定任务和测试划分；评测协议（Evaluation Protocol）则规定候选如何解码、排序、去重，以及最后使用哪个指标计算分数。
 
-1. 输入（Input）：红绿蓝图像（Red–Green–Blue Image, RGB Image）、深度图（Depth Image）、红绿蓝—深度图像（Red–Green–Blue and Depth Image, RGB-D Image）、点云、多视角、语言或触觉；
-2. 标签（Label）：矩形、姿态、解析质量、碰撞、目标或真实结果；
-3. 划分（Split）：物体、类别、场景、视角、遮挡或夹爪；
-4. 夹爪（Gripper）：开口、指尖、碰撞体与机器人平台；
-5. 指标（Metric）：交并比（Intersection over Union, IoU）、平均精度（Average Precision, AP）、覆盖率、抬升、稳定或任务成功；
-6. 物理层级（Physical Level）：离线、仿真、规划、真实执行或完整任务。
+Cornell 的 2D 矩形准确率、GraspNet-1Billion 的离线平均精度（Average Precision, AP）和真实机器人的抬升成功率，分别对应图像标注、解析几何和物理执行三个层级。阅读结果时，先确认方法所处的层级，再看数字。
 
----
+一个数据集可以用下面六个问题快速描述：
+
+1. **输入是什么**：RGB 图像、深度图（Depth Image）、RGB-D 图像、点云、网格、语言还是触觉？
+2. **标签是什么**：旋转矩形、$SE(3)$ 抓取姿态、连续质量、碰撞标签、目标身份还是实际执行结果？
+3. **标签如何得到**：人工标注、解析计算（Analytic Computation）、物理仿真（Physics Simulation）还是机器人实验？
+4. **训练和测试如何分开**：按图像、物体实例、物体类别、场景、视角、遮挡程度还是夹爪尺寸划分？
+5. **使用什么夹爪**：固定的平行夹爪（Parallel-Jaw Gripper）几何、指尖长度、最大开口和碰撞模型是什么？
+6. **指标位于哪一层**：二维匹配、姿态检测、几何有效、仿真执行、真实抓取还是完整任务？
+
+## 数据集总览（Dataset Map）
+
+下表按照输入、标签、规模和指标概括这些基准。
+
+| 数据集              | 输入与场景                    | 抓取标签                     | 标签来源                   | 规模或划分                                                                       | 主要指标                         | 主要回答的问题                             |
+| :------------------ | :---------------------------- | :--------------------------- | :------------------------- | :------------------------------------------------------------------------------- | :------------------------------- | :----------------------------------------- |
+| Cornell             | 真实 RGB-D，单物体桌面图像    | 2D 旋转矩形                  | 人工标注                   | 885 张图像、240 个物体                                                           | 角度误差 + IoU                   | 图像中是否找到了一个合理的平面抓取         |
+| Jacquard            | 合成 RGB-D / 深度图           | 2D 旋转矩形                  | 渲染与几何生成             | 约 54K 张图像、约 1.1M 个矩形                                                    | 角度误差 + IoU                   | 大规模平面抓取学习能否工作                 |
+| Dex-Net 2.0         | 合成局部深度图块              | 平行夹爪姿态与鲁棒质量       | 解析准静态模型             | 1,500 个物体模型、约 6.7M 个样本                                                 | 质量预测、真实成功率             | 解析抓取质量能否被深度网络学习             |
+| ACRONYM             | 物体网格与仿真抓取            | 物体坐标系中的 6-DoF 抓取    | 物理仿真                   | 8,872 个物体、262 个类别、约 17.7M 个抓取                                        | 仿真成功与覆盖率                 | 物体中心的 6-DoF 抓取分布能否泛化          |
+| GraspNet-1Billion   | 两种真实 RGB-D 相机的杂乱场景 | 场景坐标系中的 6-DoF 抓取    | 力闭合、场景碰撞与坐标变换 | 88 个物体、190 个场景、97,280 张图像、超过 11 亿标签                             | $AP$、$AP_{0.4}$、$AP_{0.8}$     | 视觉模型能否在未见杂乱场景中生成高质量抓取 |
+| REGRAD              | 关系化杂乱场景                | 目标、关系和安全抓取         | 生成式场景与解析标签       | 约 111.8K 个场景，Seen / Unseen                                                  | 目标特定与关系相关指标           | 抓取哪个对象以及如何避开关系约束           |
+| LangSHAPE           | 视觉、语言与部件              | 部件可供性和 6-DoF 抓取      | 部件/对象级标注            | 16 个物体类别、35 个部件类别，8:1:1 划分                                         | 部件定位与抓取                   | 语言指定的部件是否真的可抓                 |
+| TARGO               | 目标驱动的遮挡场景            | 目标对象条件下的 6-DoF 抓取  | 真实场景筛选与标注         | TARGO-Real：21 个物体、1,000 个场景                                              | 目标抓取与遮挡鲁棒性             | 指定目标而不是任意抓取能否成功             |
+| Supermarket-6DoF    | 真实超市物体                  | 姿态、抬升与稳定性标签       | 机器人执行                 | 20 个物体、1,500 次尝试                                                          | Lift / Stability                 | 检测姿态是否能在真实平台上抓住物体         |
+| GraspIT / GCA-Bench | 仿真与真实执行场景            | 滑移、可达性、阶段和任务结果 | 仿真验证与机器人实验       | GraspIT：约 316K 帧、1,035 个仿真场景、100 个真实场景；GCA-Bench：102 个任务场景 | Slip、Reachability、Task Success | 感知错误如何传递到规划和任务执行           |
+
+这些数据集沿着不同方向扩展任务：Jacquard 增加平面图像的规模，ACRONYM 增加物体中心的 6-DoF 多样性，GraspNet 增加真实 RGB-D 杂乱场景，TARGO、LangSHAPE 与 GCA-Bench 则加入目标、语言和任务执行条件。
 
 ## 平面抓取基准（Planar Grasp Benchmarks）
 
-### Cornell Grasp Dataset
+### Cornell Grasp Dataset：人工矩形标注
 
-Cornell 使用真实 RGB-D 桌面图像和旋转抓取矩形。Redmon 等人使用的版本包含 885 张图像和 240 个物体 [1]。常见划分包括：
+Cornell 是最常见的平面抓取基准。它提供真实桌面图像以及人工绘制的旋转抓取矩形。Redmon 等人使用的常见版本包含 885 张 RGB-D 图像、240 个物体和约 8,019 个矩形标注 [1]。
 
-- 图像划分（Image-Wise Split）：测试不同图像；
-- 物体划分（Object-Wise Split）：测试未见物体实例。
+一个矩形抓取通常写成：
 
-典型矩形判据同时要求方向误差小于阈值，并与某个人工标注具有足够交并比（Intersection over Union, IoU）。它测量图像空间标注一致性，而不是完整三维特殊欧氏群（Special Euclidean Group, $SE(3)$）中的碰撞、可达性或抬升稳定性。
+$$
+g=(x,y,w,l,\theta),
+$$
 
-### Jacquard
+其中 $(x,y)$ 是图像像素中的中心，$w$ 和 $l$ 是矩形的像素宽度与长度，$\theta$ 是图像平面内的旋转角。平行夹爪的两个指尖可以对应矩形的两条相对短边，因此这个表示隐含了“从图像上方沿相机光轴接近”的假设。
 
-Jacquard 使用合成 RGB-D/深度图和大规模矩形标注 [2]。合成场景能够扩大形状、姿态和抓取数量，但训练与真实相机之间存在渲染域差距（Rendering Domain Gap）。Cornell 和 Jacquard 都使用平面矩形，数据来源和泛化协议仍然不同。
+常用判据要求预测矩形与某个标注矩形之间的方向误差小于 $30^\circ$，并且交并比（Intersection over Union, IoU）大于 $0.25$。IoU 定义为两个矩形区域交集与并集面积之比：
 
----
+$$
+\operatorname{IoU}(g, g^*)
+=\frac{|B(g)\cap B(g^*)|}{|B(g)\cup B(g^*)|},
+$$
 
-## 解析与仿真六自由度数据（Analytic and Simulated 6-DoF Data）
+其中 $B(g)$ 是抓取矩形在图像中的区域，$g^*$ 是人工标注。这个指标衡量图像空间的几何接近，输入输出都位于平面抓取表示中。
 
-### Dex-Net
+还需要区分两种常见划分：
 
-Dex-Net 2.0 从三维物体模型采样平行夹爪候选，使用鲁棒准静态质量（Robust Quasi-Static Quality）生成 670 万个合成样本，并在 ABB YuMi 上进行物理验证 [3]。它适合研究解析质量学习和仿真到现实迁移（Sim-to-Real Transfer），但主要假设刚性、单物体、固定夹爪和特定深度视角。
+- **图像划分（Image-Wise Split）**：同一物体的不同图像可能同时出现在训练和测试中，测试重点是视角和图像变化；
+- **物体划分（Object-Wise Split）**：测试物体实例不出现在训练集中，更接近未见物体泛化。
 
-Dex-Net 的数据生成单元不是一张独立深度图，而是一组共享潜在状态的变量：物体网格、稳定放置姿态、相机姿态、候选抓取、渲染深度和鲁棒质量。生成流程可以拆成：
+论文报告 Cornell accuracy 时，应同时写明使用的是 image-wise split 还是 object-wise split。
+
+### Jacquard：大规模合成矩形
+
+Jacquard 用三维物体模型和渲染器生成 RGB-D / 深度图，再为每张图像生成多个平面抓取矩形。常见统计为约 54K 张图像、约 11K 个物体和约 1.1M 个矩形标签 [2]。它沿用角度误差与 IoU 判据，适合训练和评测大规模平面抓取检测器。
+
+它可以低成本改变物体形状、朝向和抓取数量；渲染域与真实相机之间的域差距（Rendering Domain Gap）则是后续 sim-to-real 实验需要处理的变量。
+
+### Cornell 与 Jacquard 上的代表性结果
+
+下表列出公开论文中常被引用的平面抓取结果。Cornell 的两列分别是 image-wise 和 object-wise accuracy；Jacquard 一列使用的是 GKNet 论文中的 Abridged Jacquard Dataset（AJD），不是完整 Jacquard 测试集。速度为论文报告的单模型推理速度。
+
+| 方法                    | Cornell image-wise | Cornell object-wise | AJD accuracy |              速度 |
+| :---------------------- | -----------------: | ------------------: | -----------: | ----------------: |
+| Lenz et al. [20]        |              73.9% |               75.6% |            — |          0.07 fps |
+| Redmon and Angelova [1] |              88.0% |               87.1% |            — |          3.31 fps |
+| Kumra and Kanan [18]    |              89.2% |               88.9% |            — |         16.03 fps |
+| GKNet [19]              |          **96.9%** |           **95.7%** |   **98.39%** | 41.67 / 23.26 fps |
+
+这个表展示的是平面基准内部的演进：表示从矩形回归逐步转向关键点热图和分组，速度与准确率同时成为比较维度。AJD 的 98.39% 对应 512×512 输入和 AJD 协议，不能当作完整 Jacquard 的统一 leaderboard 数字。
+
+## 物体中心的解析与仿真数据（Object-Centric Analytic and Simulated Data）
+
+### Dex-Net 2.0：从解析质量到局部深度图块
+
+Dex-Net 2.0 的训练样本来自三维物体模型，而不是机器人逐次尝试。它在物体表面采样平行夹爪候选，用鲁棒准静态抓取质量（Robust Quasi-Static Grasp Quality）给候选打标签，再从相机视角渲染深度图块，训练抓取质量卷积网络（Grasp Quality Convolutional Neural Network, GQ-CNN） [3]。论文报告约 1,500 个物体模型和约 6.7M 个合成深度样本，并在 ABB YuMi 上进行了验证。
+
+一个 Dex-Net 样本可以理解为以下变量的组合：物体网格、稳定放置姿态、相机姿态、候选抓取、渲染深度和解析质量。生成逻辑是：
 
 ```text
-清理并缩放物体网格
-    → 枚举/采样稳定放置姿态
-    → 在物体表面采样平行夹爪候选
-    → 对物体、夹爪与摩擦扰动计算鲁棒准静态质量
-    → 从相机视角渲染带噪深度图
-    → 将候选投影为局部深度图块并训练 GQ-CNN
+物体网格清理与缩放
+    → 采样稳定放置姿态
+    → 采样平行夹爪候选
+    → 在摩擦与位姿扰动下计算鲁棒解析质量
+    → 渲染带噪深度图
+    → 裁剪候选附近的局部深度图块
+    → 训练 GQ-CNN 预测质量
 ```
 
-训练/测试划分必须在物体模型层完成，而不是在渲染图像层随机切分；否则同一网格的不同相机视图会同时出现在训练与测试中。网格尺度、稳定姿态分布和相机采样范围共同定义了合成数据分布。
+这里的“正样本”是接触模型在给定摩擦、力和扰动假设下计算出的质量。网格尺度、摩擦系数、指尖几何和扰动分布都会进入标签，Dex-Net 2.0 的研究对象是单物体局部深度图上的质量预测。
 
-### ACRONYM
+Dex-Net 的训练/测试划分在物体模型层完成；同一网格的不同渲染视角属于同一几何实例。
 
-ACRONYM 包含 17.744M 个仿真平行夹爪抓取，覆盖 8,872 个物体和 262 个类别 [4]。标签来自物理仿真（Physics Simulation），适合训练生成式六自由度模型和研究候选多样性。
+Dex-Net 2.0 同时给出了一个物理执行结果：GQ-CNN 在 8 个已知物体上达到 93% 的抓取成功率，在 10 个未见物体上达到 80%；在 40 个新家庭物体上，对被判为 robust 的抓取达到 99% precision [3]。这些结果把解析质量、网络排序和 YuMi 执行连接起来，是物体中心基准与真实机器人之间的早期桥梁。
 
-ACRONYM 把对象网格与抓取姿态分开存储：姿态位于对象坐标系中，训练场景可以在加载时把它变换到任意对象位姿。仿真标签通过把夹爪放到候选预抓取位置、闭合夹指并检查物体是否被稳定持有得到。这样得到的是指定仿真器、摩擦、质量与控制器下的二值结果；若下游网络把所有成功抓取视为同质量，它不会自动学习成功集合内部的鲁棒余量。
+### ACRONYM：物体坐标系中的 6-DoF 抓取分布
 
-大规模仿真标签不等于真实测量。网格质量、摩擦参数、质量分布、碰撞模型和仿真器接触求解都会进入标签。
+ACRONYM 面向物体中心的六自由度抓取，包含约 17.7M 个仿真平行夹爪抓取，覆盖 8,872 个物体和 262 个类别 [4]。与 Cornell/Jacquard 的矩形不同，它保存的是物体坐标系中的抓取姿态；加载物体时，可以把同一组姿态变换到任意场景位姿。
 
----
+标签由物理仿真产生：夹爪被放置到候选预抓取姿态，随后闭合指尖，并依据碰撞、接触和物体是否被稳定持有判断结果。ACRONYM 的主要用途是提供大规模物体中心 6-DoF 抓取分布，用于生成式模型训练、候选覆盖率分析和 sim-to-real 预训练。
 
-## 场景级真实 RGB-D 基准（Scene-Level Real RGB-D Benchmark）
+## GraspNet-1Billion：场景级 6-DoF 基准（Scene-Level 6-DoF Benchmark）
 
-GraspNet-1Billion 包含 88 个日常物体、190 个杂乱场景和 97,280 张 RGB-D 图像，并提供超过 11 亿个解析标注抓取 [5]。场景划分为 100 个训练场景和 90 个测试场景；测试集进一步包含 Seen、Similar 和 Novel 三类各 30 个场景。
+### 数据采集与规模
 
-GraspNet 的密集标注不是逐图手工放置夹爪。它先在单物体网格上均匀采样抓取点；对每个点采样球面观察方向，再在夹爪深度集合 $D$ 与平面内角集合 $A$ 的二维网格中搜索候选，并根据物体几何确定不空抓且不碰撞的宽度。力闭合检查逐步改变摩擦系数 $\mu$，原论文用：
+GraspNet-1Billion 将真实 RGB-D 观测、杂乱场景、物体 6D 位姿和密集 6-DoF 抓取标签结合起来 [5]。它包含 88 个日常物体和 190 个杂乱场景；每个场景约有 512 个视角，总计 97,280 张 RGB-D 图像。数据由 Intel RealSense 435 和 Azure Kinect 两种深度相机同步采集，因此同一场景可以在不同传感器质量下被观察。
+
+“1Billion”指自动生成的抓取标注数量超过 11 亿。每个场景的标注数量约为 3M 到 9M，密度来自多个采样和变换步骤的组合。
+
+### 标签是如何生成的
+
+GraspNet 的标注流程分为两个阶段。
+
+第一阶段在单物体网格上生成抓取：
+
+1. 在网格表面均匀采样抓取点；
+2. 为每个点采样球面上的接近方向（Approach Direction）；
+3. 在夹爪深度集合 $D$ 与夹爪绕接近轴的平面内角集合 $A$ 上搜索候选；
+4. 根据物体几何确定夹爪宽度，删除空抓和物体自身碰撞的候选；
+5. 对候选进行力闭合（Force Closure）计算，并在一组摩擦系数下记录质量。
+
+对某个候选抓取，若最小摩擦系数为 $\mu$ 时仍满足力闭合，原论文使用：
 
 $$
 s=1.1-\mu
 $$
 
-把较低摩擦下仍成立的抓取赋予更高分数。随后用物体位姿把对象坐标候选变换到场景：
+作为质量分数，其中 $\mu$ 是无量纲的摩擦系数，$s$ 也是无量纲分数。这个分数来自接触模型，不是实测成功概率。
+
+第二阶段把单物体抓取放入杂乱场景：
+
+1. 用物体在场景中的位姿把物体坐标系抓取变换到场景坐标系；
+2. 检查夹爪与桌面、背景和其他物体的碰撞；
+3. 使用相机标定与逐帧相机位姿，把场景标注表达到各个视角。
+
+如果单物体抓取为 $G_i^{(o)}$，物体坐标系到世界坐标系的变换为 ${}^{w}T_{O_i}$，则场景坐标系中的抓取可以写成：
 
 $$
-G_i^{(w)}={}^{w}T_{O_i}G_i^{(o)},
+G_i^{(w)}={}^{w}T_{O_i}G_i^{(o)}.
 $$
 
-并用简化平行夹爪模型检查候选是否与场景中其他物体碰撞。相机标定和逐帧相机位姿再把首帧对象标注传播到其余视角。因此，标注密度来自“对象网格采样 × 解析变换 × 场景碰撞”，不是 11 亿次独立物理实验。
+这个过程同时产生物体姿态、掩码、边界框和场景抓取，构成 GraspNet 的场景级监督。
 
-GraspNet 使用摩擦阈值下的平均精度（Average Precision, AP）评价预测姿态与标注抓取之间的匹配。它统一了场景级六自由度评测，但 AP 仍是离线指标：
+### 训练集与测试集如何划分
 
-- 标注质量主要来自解析几何与碰撞；
-- 预测是否被机械臂实际执行是另一个协议；
-- Seen/Similar/Novel 测试物体泛化，不等于传感器、夹爪或机器人泛化。
+GraspNet 使用 100 个训练场景和 90 个测试场景。官方测试集分为三个各含 30 个场景的分支：
 
-原始协议先对预测做姿态 NMS，再取每个场景的前 50 个候选。给定摩擦系数 $\mu$，预测候选通过夹爪内部点确定关联对象，并在线计算力闭合标签。定义：
+| 划分    | 测试对象相对于训练集             | 主要考察的问题           |
+| :------ | :------------------------------- | :----------------------- |
+| Seen    | 训练中出现过的对象               | 场景杂乱、视角和遮挡变化 |
+| Similar | 未出现但外形或类别相近的对象     | 中等程度的对象泛化       |
+| Novel   | 与训练对象分布差异更大的未见对象 | 更严格的几何泛化         |
+
+早期论文有时把 Similar 写作 Unseen；表格中采用 GraspNet 官方常用的 Seen / Similar / Novel 命名。
+
+### 官方 AP 如何计算
+
+模型通常从 RGB-D 图像或场景点云输出带分数的候选抓取：
 
 $$
-\operatorname{Precision@}k_\mu=\frac{\operatorname{TP}_\mu(k)}{k},
-\qquad
-\operatorname{AP}_\mu=\frac{1}{50}\sum_{k=1}^{50}
-\operatorname{Precision@}k_\mu.
+\hat g_j=(\hat R_j,\hat{\boldsymbol t}_j,\hat w_j,\hat q_j),
 $$
 
-总 AP 再对 $\mu\in\{0.2,0.4,0.6,0.8,1.0\}$ 的 $\operatorname{AP}_\mu$ 取平均，同时常单独报告 $\operatorname{AP}_{0.4}$ 与 $\operatorname{AP}_{0.8}$。这里的 AP 与目标检测中对召回率积分的 AP 并不完全相同；它更接近“不同候选截断 $k$ 下前缀精度的平均”。候选数、NMS 和排序校准会直接改变结果。
+其中 $\hat R_j\in SO(3)$ 是旋转矩阵，$\hat{\boldsymbol t}_j\in\mathbb R^3$ 是抓取中心，$\hat w_j\in\mathbb R$ 是夹爪宽度，$\hat q_j\in\mathbb R$ 是用于排序的置信分数。官方评测包含以下步骤：
 
-GraspNet 的期刊扩展进一步研究不同传感器质量与采集条件 [6]，说明同一场景在不同深度相机下并不是等价输入。
+1. 按候选分数排序，并执行姿态非极大值抑制（Pose Non-Maximum Suppression, Pose-NMS），避免相同抓取模式重复占据候选名额；
+2. 每个场景只保留前 50 个候选；
+3. 根据夹爪内部的场景点确定候选关联的物体，并检查碰撞；
+4. 对每个摩擦系数 $\mu$ 重新计算力闭合标签；
+5. 计算不同候选截断位置的前缀精度，再在场景和摩擦系数上汇总。
 
----
+设经过 NMS 后的第 $j$ 个候选在摩擦系数 $\mu$ 下的标签为 $y_{j,\mu}\in\{0,1\}$。前 $k$ 个候选的精度是：
 
-## 关系、目标与部件条件数据（Relational, Target, and Part Conditioning）
+$$
+\operatorname{Precision@}k_{\mu}
+=\frac{1}{k}\sum_{j=1}^{k}y_{j,\mu},
+\qquad 1\leq k\leq 50.
+$$
 
-### REGRAD
+单个场景在该摩擦系数下的 AP 定义为：
 
-REGRAD 将对象关系、目标抓取和碰撞安全加入场景数据，包含约 111.8k 个生成场景，训练/验证/测试分别约为 46.9k、32.1k 和 32.8k，并区分 Seen 与 Unseen 分支 [7]。
+$$
+\operatorname{AP}_{\mu}
+=\frac{1}{50}\sum_{k=1}^{50}
+\operatorname{Precision@}k_{\mu}.
+$$
 
-它评价的不只是“哪里能抓”，还包括“抓哪个对象”以及对象之间的关系。关系识别错误和抓取几何错误需要分开统计。
+总 AP 通常对 $\mu\in\{0.2,0.4,0.6,0.8,1.0\}$ 的结果取平均：
 
-### LangSHAPE
+$$
+\operatorname{AP}
+=\frac{1}{5}\sum_{\mu\in\{0.2,0.4,0.6,0.8,1.0\}}
+\operatorname{AP}_{\mu}.
+$$
 
-LangSHAPE 面向语言与部件可供性（Part Affordance），包含 16 个物体类别、35 个部件类别，并使用对象级和部件级 8:1:1 划分 [8]。这类数据需要同时评价部件定位与部件约束抓取，不能只报告最终姿态分数。
+因此，$AP_{0.4}$ 更强调低摩擦条件下仍然满足力闭合的候选，$AP_{0.8}$ 则更接近高摩擦条件下的结果。GraspNet AP 的核心是前 50 个候选的前缀精度平均，候选排序、Pose-NMS 和碰撞过滤都属于协议的一部分。
 
-### TARGO
+<Algorithm number={1} title='6-DoF 抓取检测基准评测流程' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>固定的测试 split、RGB-D 或点云输入、夹爪模型、候选解码器和官方评测参数</div>
+  <div slot='output'>每个场景的 Top-50 候选、$AP_\mu$、平均 AP，以及独立记录的运行时间和执行指标</div>
+  <AlgorithmStep keyword='require'>固定相机分支、Seen / Similar / Novel split 与摩擦系数集合</AlgorithmStep>
+  <AlgorithmStep>读取 RGB-D 或点云，并执行工作空间裁剪、下采样和坐标变换</AlgorithmStep>
+  <AlgorithmStep>运行抓取检测器，将网络输出解码为 $(R,\boldsymbol t,w,q)$</AlgorithmStep>
+  <AlgorithmStep>按 $q$ 排序，执行 Pose-NMS，并保留每个场景的 Top-50 候选</AlgorithmStep>
+  <AlgorithmStep keyword='for'>对每个摩擦系数 $\mu$</AlgorithmStep>
+  <AlgorithmStep indent={1}>关联候选与场景物体，检查夹爪碰撞并计算 $y_{j,\mu}$</AlgorithmStep>
+  <AlgorithmStep indent={1}>计算 $\operatorname{Precision@}k_\mu$ 与 $AP_\mu$</AlgorithmStep>
+  <AlgorithmStep keyword='end for'>对所有 $\mu$ 求平均得到 AP</AlgorithmStep>
+  <AlgorithmStep>分别记录候选覆盖率、推理时间、可达性和真实执行成功率</AlgorithmStep>
+  <AlgorithmStep keyword='return'>按 split、相机和指标类型组织的结果表</AlgorithmStep>
+</Algorithm>
 
-TARGO 将目标身份和遮挡程度作为显式变量。TARGO-Real 使用 21 个物体和 1,000 个筛选后的真实场景，研究目标驱动六自由度抓取随遮挡变化的鲁棒性 [9]。目标成功率与对象无关的 GraspNet AP 回答的是不同问题。
+## GraspNet-1Billion 上的代表性高分结果（Representative Results）
 
----
+下面的表格整理了后续论文在 GraspNet-1Billion 上报告的代表性结果。每个单元格按照 **RealSense / Kinect** 的顺序书写；结果均采用论文报告的官方 split 和 AP 协议。
 
-## 执行感知数据（Execution-Aware Data）
+### 总体 AP 与泛化划分
 
-### Supermarket-6DoF
+| 方法                  | 输入与主要表示                        |           平均 AP |           Seen AP |        Similar AP |          Novel AP |
+| :-------------------- | :------------------------------------ | ----------------: | ----------------: | ----------------: | ----------------: |
+| GraspNet baseline [5] | 场景点云，点级 6-DoF 抓取             |     21.41 / 23.08 |     27.56 / 29.88 |     26.11 / 27.84 |     10.55 / 11.51 |
+| TransGrasp [13]       | 场景点云，多尺度点 Transformer，7-DoF |     27.65 / 25.70 |     39.81 / 35.97 |     29.32 / 29.71 |     13.83 / 11.41 |
+| GSNet [14]            | 场景点云，点级/视角级 Graspness       |     47.92 / 42.53 |     65.70 / 61.19 |     53.75 / 47.39 |     24.31 / 19.01 |
+| AnyGrasp w/ CD [15]   | 场景点云，稠密生成 + 碰撞检测         |         49.01 / — |         66.12 / — |         56.09 / — |         24.81 / — |
+| RNGNet [16]           | RGB-D，归一化区域抓取空间             |     58.06 / 52.24 |     75.20 / 72.23 |     66.62 / 58.43 |     32.38 / 26.05 |
+| RNGNet w/ CD [16]     | RGB-D，区域预测 + 碰撞检测            | **59.13 / 52.81** | **76.28 / 72.89** | **68.26 / 59.42** | **32.84 / 26.12** |
 
-Supermarket-6DoF 记录 20 个超市物体上的 1,500 次真实抓取尝试，并同时标注抓取成功与抓取后稳定性 [10]。它把“抬起来”和“稳定拿住”分开，但规模较小，主要面向特定真实平台；目前仍是 arXiv 预印本。
+这里的“平均 AP”是三个测试分支 AP 的平均。Novel split 的分数明显低于 Seen split，说明未见几何仍然是主要难点；CD 表示额外的碰撞检测后处理。
 
-### GraspIT
+### 不同摩擦条件下的补充结果
 
-GraspIT 报告约 316k 组 RGB-D 帧、1,035 个仿真场景和 100 个真实场景，以及约 230 万个经过滑移测试（Slip Test）验证的候选 [11]。它加入可达性和滑移质量，但并非每个候选都经过真实机器人执行；目前同样属于预印本证据。
+下面是 RNGNet 论文附录中几个方法的 $AP_{0.8}$ 和 $AP_{0.4}$ 结果，仍按 RealSense / Kinect 排列。
 
-### GCA-Bench
+| 方法                |   Seen $AP_{0.8}$ |  Novel $AP_{0.8}$ |   Seen $AP_{0.4}$ |  Novel $AP_{0.4}$ |
+| :------------------ | ----------------: | ----------------: | ----------------: | ----------------: |
+| GSNet [14]          |     76.25 / 71.46 |     29.93 / 23.73 |     61.08 / 56.04 |     14.05 / 10.60 |
+| AnyGrasp w/ CD [15] |         77.27 / — |         31.08 / — |         61.02 / — |         13.82 / — |
+| RNGNet w/ CD [16]   | **86.58 / 83.10** | **41.07 / 32.45** | **72.26 / 68.11** | **19.68 / 15.92** |
 
-GCA-Bench 将检测、抓取、规划和任务执行拆成阶段指标，定义 102 个复杂任务场景 [12]。它能够定位失败发生在语义理解、姿态检测还是执行，但总分也会耦合感知、规划和硬件；当前为 arXiv 预印本。
+低摩擦条件下的 AP 反映候选对接触和摩擦变化的余量，能够补充平均 AP 对质量分布的描述。
 
----
+## 条件化与执行型基准（Conditional and Execution Benchmarks）
 
-## 评价阶梯（Evaluation Ladder）
+### REGRAD：对象关系与安全抓取
 
-同一个预测姿态可以在不同层级被称为“成功”：
+REGRAD 在杂乱场景中加入对象关系、目标对象和碰撞安全等信息，约包含 111.8K 个生成场景，训练、验证和测试规模约为 46.9K、32.1K 和 32.8K，并区分 Seen 与 Unseen [7]。它把评测对象从“场景中生成一个抓取”扩展为“在指定目标和关系约束下生成安全抓取”，因此结果通常按目标选择、关系预测和抓取几何分别统计。
 
-| 层级       | 典型指标                           | 它能证明什么             | 它不能证明什么         |
-| :--------- | :--------------------------------- | :----------------------- | :--------------------- |
-| 矩形匹配   | 角度 + IoU                         | 与二维标注一致           | 任意三维接近与碰撞安全 |
-| 姿态检测   | AP / 前 $k$ 项召回率（Recall@$k$） | 与解析姿态集合匹配       | 真实抬升和可达性       |
-| 几何有效   | Force Closure / Collision          | 满足给定接触模型         | 传感器与执行误差下成功 |
-| 仿真执行   | Simulated Success                  | 在指定仿真参数下成功     | 真实材料和接触         |
-| 物理抓取   | Lift / Clearing Rate               | 特定机器人完成抬升或清空 | 长期稳定和任务适配     |
-| 稳定与可达 | Slip / Stability / Reachability    | 接触和机器人约束更完整   | 开放世界任务成功       |
-| 完整任务   | Task Success / Recovery            | 系统级闭环效果           | 单独检测器的因果贡献   |
+### LangSHAPE：语言指定的部件可供性
 
-跨论文比较时，数据集名称、划分、夹爪、候选预算和物理层级都应写清。一个在 Cornell 上更高的矩形准确率、一个在 GraspNet 上更高的 AP 和一个更高的真实清空率，不能排列成同一张无条件排行榜。
+LangSHAPE 将语言条件（Language Conditioning）和部件可供性（Part Affordance）结合起来，包含 16 个物体类别、35 个部件类别，并使用对象级和部件级 8:1:1 划分 [8]。例如，“抓住杯子的把手”不仅要求输出一个合法姿态，还要求网络先把语言对应到正确部件。
 
-复现实验时，还应把评测前处理固定下来：
+LangSHAPE 的评测链条包括部件定位、语言—部件匹配和部件约束抓取三个层次。
 
-| 环节         | 必须记录的实现参数                        |
-| :----------- | :---------------------------------------- |
-| 工作空间裁剪 | 桌面/箱体边界、深度范围、是否使用真值分割 |
-| 点云处理     | 体素下采样尺寸、点数、法线与颜色是否使用  |
-| 候选截断     | 每点方向数、总候选数、top-$k$             |
-| 姿态 NMS     | 平移、旋转、夹爪对称与按物体分组规则      |
-| 碰撞检查     | 夹爪尺寸、体素大小、空抓与碰撞阈值        |
-| 分数         | 是否重标定、与碰撞/可达性如何组合         |
+### TARGO：目标驱动的遮挡抓取
 
-这些参数位于模型输出与官方评测 API 之间。若只公布网络权重而没有公布该段解码配置，表中的 AP 仍难以复现。
+TARGO 将目标身份和遮挡程度作为显式条件。TARGO-Real 使用 21 个物体和 1,000 个筛选后的真实场景，研究在遮挡变化下指定目标的 6-DoF 抓取 [9]。它把目标选择与几何生成放在同一个测试任务中。
 
----
+### 执行感知数据：Supermarket-6DoF、GraspIT 与 GCA-Bench
+
+Supermarket-6DoF 记录 20 个超市物体上的 1,500 次真实抓取尝试，并区分物体是否被抬起以及抓取后是否保持稳定 [10]。它将 6-DoF 姿态、场景点云、初始成功和扰动后稳定性放在同一条数据记录中。
+
+GraspIT 报告约 316K 组 RGB-D 帧、1,035 个仿真场景和 100 个真实场景，并提供约 2.3M 个经过滑移测试（Slip Test）验证的候选 [11]。它把几何候选、可达性和执行稳定性放在同一数据流程中。
+
+GCA-Bench 将抓取检测、目标选择、运动规划和执行拆成阶段指标，定义 102 个复杂任务场景 [12]。它的重点是记录感知、规划和控制之间的错误传递。
+
+Contact-GraspNet 使用 ACRONYM 的仿真抓取训练，从部分观测点云预测接触中心和 6-DoF 姿态，并在 Franka 与 RealSense L515 平台上进行结构化杂乱场景实验，论文报告超过 90% 的抓取成功率 [17]。
+
+### 执行型基准的代表性结果
+
+| 数据集 / 方法                                  | 任务与指标             |  代表性结果 | 评测设置                                   |
+| :--------------------------------------------- | :--------------------- | ----------: | :----------------------------------------- |
+| Dex-Net 2.0 / GQ-CNN [3]                       | 已知物体抓取成功率     |         93% | 8 个物体，ABB YuMi                         |
+| Dex-Net 2.0 / GQ-CNN [3]                       | 未见物体抓取成功率     |         80% | 10 个物体，50 次尝试                       |
+| Dex-Net 2.0 / GQ-CNN [3]                       | robust grasp precision |         99% | 40 个新家庭物体，69 个被判为 robust 的抓取 |
+| Contact-GraspNet [17]                          | 结构化杂乱场景成功率   |        >90% | Franka，RealSense L515                     |
+| Supermarket-6DoF / Gripper-as-Point-Cloud [10] | 初始抓取成功预测准确率 | 77.2 ± 2.8% | 1,500 次真实尝试，5-fold cross-validation  |
+| Supermarket-6DoF / Gripper-as-Point-Cloud [10] | 稳定抓取预测准确率     | 75.2 ± 1.0% | 抬升后进行腕部 ±90° 扰动                   |
+
+这组结果把“解析质量预测”“候选生成后的真实执行”和“执行结果预测”放在了同一个数据集章节中，但每一行仍保留自己的任务定义。
+
+## 评测阶梯与可复现性（Evaluation Ladder and Reproducibility）
+
+同一个预测姿态可以在不同层级被称为“成功”。从低到高，可以这样理解：
+
+| 层级         | 典型指标                               | 能证明什么                   | 不能证明什么             |
+| :----------- | :------------------------------------- | :--------------------------- | :----------------------- |
+| 图像矩形匹配 | 角度 + IoU                             | 与二维标注在图像上接近       | 完整三维碰撞与可达性     |
+| 离线姿态检测 | AP、Recall@$k$                         | 与解析姿态标签匹配           | 真实抬升和稳定性         |
+| 几何有效性   | Force Closure、Collision               | 满足指定接触与碰撞模型       | 传感器和执行误差下的成功 |
+| 仿真执行     | Simulated Success、Coverage            | 在指定仿真参数下成功         | 真实材料和接触动力学     |
+| 真实抓取     | Lift Success、Stability、Clearing Rate | 特定机器人完成一次或多次抓取 | 更换硬件后的泛化         |
+| 完整任务     | Task Success、Recovery                 | 感知—规划—控制闭环效果       | 检测器单独贡献了多少     |
+
+### 指标如何对应问题（Metrics and Questions）
+
+GraspNet AP 衡量前 50 个候选在解析标签下的排序质量；Cornell IoU 衡量图像矩形与人工标注的几何接近；Lift Success 和 Stability 则直接观察机器人执行结果。跨基准阅读时，保留数据集、split、夹爪和指标名称即可，不需要把它们压缩成一个总分。
+
+### 复现实验时必须固定的参数
+
+复现实验时需要同时记录模型输出和评测 API 之间的处理参数：
+
+| 环节     | 需要记录的参数                                                |
+| :------- | :------------------------------------------------------------ |
+| 工作空间 | 桌面/箱体边界、深度范围、是否使用真值分割                     |
+| 点云处理 | 体素下采样尺寸、输入点数、法线和颜色是否使用                  |
+| 姿态解码 | 旋转表示、宽度范围、深度偏移和坐标系约定                      |
+| 候选预算 | 每点方向数、总候选数、候选排序和 Top-$k$                      |
+| Pose-NMS | 平移阈值、旋转阈值、夹爪对称处理和是否按物体分组              |
+| 碰撞检查 | 指尖与手掌几何、体素尺寸、空抓和碰撞阈值                      |
+| 评测输入 | RealSense/Kinect 分支、Seen/Similar/Novel split、摩擦系数集合 |
+| 执行设置 | 机器人、相机位置、夹爪、轨迹规划器、成功判据和重试策略        |
+
+表格中的方法结果应与这些参数一起阅读，尤其是输入相机、候选预算、Pose-NMS 和碰撞模型。
 
 ## 参考文献（References）
 
@@ -193,3 +357,11 @@ GCA-Bench 将检测、抓取、规划和任务执行拆成阶段指标，定义 
 10. J. Toskov and A. Cosgun, “Supermarket-6DoF: A Real-World Grasping Dataset and Grasp Pose Representation Analysis,” _arXiv preprint arXiv:2502.16311_, 2025. [arXiv](https://arxiv.org/abs/2502.16311)
 11. P. Koch, A. Karakurt, and A. Sers, “GraspIT: A Dataset Bridging the Sim-to-Real Gap and Back for Validated Grasping SE(3) Pose Generation,” _arXiv preprint arXiv:2607.05869_, 2026. [arXiv](https://arxiv.org/abs/2607.05869)
 12. H. Zhang et al., “Beyond Visual Grasping: Benchmarking Complex Grasping from Detection to Execution,” _arXiv preprint arXiv:2607.14341_, 2026. [arXiv](https://arxiv.org/abs/2607.14341)
+13. Z. Liu, Z. Chen, S. Xie, and W.-S. Zheng, “TransGrasp: A Multi-Scale Hierarchical Point Transformer for 7-DoF Grasp Detection,” _2022 International Conference on Robotics and Automation_, 2022. [DOI](https://doi.org/10.1109/ICRA46639.2022.9812001)
+14. C. Wang, H.-S. Fang, M. Gou, H. Fang, J. Gao, and C. Lu, “Graspness Discovery in Clutters for Fast and Accurate Grasp Detection,” _2021 IEEE/CVF International Conference on Computer Vision_, 2021. [DOI](https://doi.org/10.1109/ICCV48922.2021.01566)
+15. H.-S. Fang et al., “AnyGrasp: Robust and Efficient Grasp Perception in Spatial and Temporal Domains,” _IEEE Transactions on Robotics_, 39(5):3929–3945, 2023. [DOI](https://doi.org/10.1109/TRO.2023.3281153)
+16. S. Chen, P. Xie, W. Tang, D. Hu, Y. Dai, and G. Wang, “Region-aware Grasp Framework with Normalized Grasp Space for Efficient 6-DoF Grasping,” _Proceedings of the 8th Conference on Robot Learning_, PMLR 270:1834–1850, 2024. [Paper](https://proceedings.mlr.press/v270/chen25c.html) · [arXiv](https://arxiv.org/abs/2406.01767)
+17. M. Sundermeyer, A. Mousavian, R. Triebel, and D. Fox, “Contact-GraspNet: Efficient 6-DoF Grasp Generation in Cluttered Scenes,” _2021 IEEE International Conference on Robotics and Automation_, 2021. [DOI](https://doi.org/10.1109/ICRA48506.2021.9561877)
+18. S. Kumra and C. Kanan, “Robotic Grasp Detection Using Deep Convolutional Neural Networks,” _2017 IEEE/RSJ International Conference on Intelligent Robots and Systems_, 2017. [DOI](https://doi.org/10.1109/IROS.2017.8202237)
+19. R. Xu, F.-J. Chu, and P. A. Vela, “GKNet: Grasp Keypoint Network for Grasp Candidates Detection,” _The International Journal of Robotics Research_, 2022. [DOI](https://doi.org/10.1177/02783649211069569)
+20. I. Lenz, H. Lee, and A. Saxena, “Deep Learning for Detecting Robotic Grasps,” _The International Journal of Robotics Research_, 2015. [DOI](https://doi.org/10.1177/0278364914549607)

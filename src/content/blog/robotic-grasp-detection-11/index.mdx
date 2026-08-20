@@ -1,7 +1,7 @@
 ---
 title: 'Robotic Grasp Detection (11): 夹爪感知与跨具身抓取检测'
 publishDate: 2026-08-14
-updatedDate: 2026-08-14
+updatedDate: 2026-08-20
 description: '分析夹爪宽度、指尖几何、扫掠体积、旋转对称、机械臂可达性与工作空间如何进入抓取模型，并区分跨夹爪和跨机器人泛化。'
 heroImage:
   { src: 'https://pic.hana0721.top/78075718_p0_master1200.51eqrx8rbi.webp', color: '#8C8275' }
@@ -14,6 +14,9 @@ category: 'daily'
 pixivLink: '78075718'
 ---
 
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+
 ## 抓取姿态只对特定硬件有效（A Grasp Is Embodiment-Relative）
 
 大多数抓取数据集固定一个平行夹爪（Parallel-Jaw Gripper），因此模型学到的候选隐含了该夹爪的开口、指尖厚度、手掌长度和碰撞体。把同一三维特殊欧氏群（Special Euclidean Group, $SE(3)$）位姿发送给另一副夹爪，可能出现：
@@ -24,19 +27,28 @@ pixivLink: '78075718'
 - 指垫摩擦不同，原接触不再稳定；
 - 手腕安装和机械臂不同，姿态不可达。
 
-因此，抓取应写成具身条件分布（Embodiment-Conditioned Distribution）：
+设场景观测为 $P=\{\vec p_i\}_{i=1}^{N}$，$\vec p_i\in\mathbb R^3$；抓取为 $g=(R,\vec t,w)$，其中 $R\in SO(3)$、$\vec t\in\mathbb R^3$、$w\in\mathbb R_{\geq0}$。抓取可以写成具身条件分布（Embodiment-Conditioned Distribution）：
 
 $$
-p(g\mid o,h,r),
+p(g\mid P,h,r),
 $$
 
-其中 $h$ 描述夹爪几何与物理属性，$r$ 描述机器人和工作空间。
+其中 $h$ 描述夹爪几何与物理属性，$r$ 描述机器人、安装方式和工作空间，$P$ 是场景点云。
+
+## 具身条件进入网络的位置（Where Embodiment Enters the Network）
+
+| 条件接口                              | 输入                     | 网络处理               | 输出变化               |
+| :------------------------------------ | :----------------------- | :--------------------- | :--------------------- |
+| 标量条件（Scalar Conditioning）       | 开口、指长、指厚、夹紧力 | 特征调制或条件归一化   | 候选宽度、姿态和质量   |
+| 几何条件（Geometric Conditioning）    | 夹爪点云、体素或 SDF     | 三维编码器提取形状特征 | 接近通道与碰撞感知候选 |
+| 扫掠条件（Swept-Volume Conditioning） | 接近到闭合的夹爪占据     | 与场景几何融合         | 终态和路径同时过滤     |
+| 机器人条件（Robot Conditioning）      | 基座、关节限制和工作空间 | 可达性评分或规划后处理 | 可执行姿态集合         |
 
 ---
 
 ## 夹爪描述包含什么（What Describes a Gripper?）
 
-完整夹爪描述至少包括：
+用于抓取检测的夹爪描述包含：
 
 - 最小/最大开口（Jaw-Width Range）；
 - 指尖长度、厚度和形状（Finger Geometry）；
@@ -46,24 +58,25 @@ $$
 - 夹紧力范围（Force Limit）；
 - 从预抓取到闭合的扫掠体积（Swept Volume）。
 
-只把最大宽度作为网络输入，无法表达厚指尖与薄指尖在狭窄空间中的区别。跨具身（Cross-Embodiment）必须明确哪些属性被建模，哪些仍固定。
+最大开口只描述夹爪的一项尺度。指尖厚度、掌深和扫掠体积共同决定狭窄空间中的可行性，因此跨具身（Cross-Embodiment）实验需要明确实际输入的属性。
 
 对参数化模型，可以把夹爪描述拆成连续向量与几何场：
 
 $$
 h_{\text{scalar}}=
-[w_{\min},w_{\max},l_f,t_f,d_p,F_{\max},v_{\text{close}}],
+[w_{\min},w_{\max},l_f,t_f,d_p,F_{\max},v_{\text{close}}]^{\mathsf T}
+\in\mathbb R^7,
 $$
 
-其中 $l_f,t_f,d_p$ 分别表示夹指长度、厚度和手掌深度。复杂形状则用点云、体素占据或符号距离场（Signed Distance Field, SDF）编码。标量向量适合调制网络特征，但不能表示弯曲指尖和不规则手掌；几何场可以做碰撞查询，代价是需要统一尺度、坐标轴和分辨率。
+其中 $w_{\min},w_{\max},l_f,t_f,d_p,F_{\max},v_{\text{close}}\in\mathbb R$ 分别表示开口范围、夹指长度、厚度、掌深、最大夹紧力和闭合速度。复杂形状则用点云、体素占据或符号距离场（Signed Distance Field, SDF）编码。标量向量用于调制网络特征，几何场用于碰撞查询。
 
-若训练时把所有夹爪归一化到同一规范宽度，网络输出后必须执行反变换：位置偏移、宽度和碰撞盒都要乘回目标夹爪尺度。只缩放 $w$ 而不缩放指长和掌深，会得到几何上不一致的“混合夹爪”。
+若训练时把夹爪归一化到同一规范尺度，网络输出后要执行反变换：位置偏移、宽度、指长和碰撞盒一起恢复到目标夹爪尺度。
 
 ---
 
 ## 平行夹爪的旋转对称性（Rotational Symmetry）
 
-理想平行夹爪绕接近轴旋转 $180^\circ$ 后，两个夹指交换位置，物理抓取通常等价。这意味着普通旋转回归会把同一动作表示成两个标签。
+平行夹爪绕接近轴旋转 $180^\circ$ 后，两个夹指交换位置，物理抓取通常等价。这使同一动作在标签中出现两个旋转表示。
 
 Planar-Symmetric SO(3) Representation 显式处理三维特殊正交群（Special Orthogonal Group, $SO(3)$）中的平面对称，使旋转损失不再惩罚等价姿态 [1]。若 $R$ 与 $RS$ 等价，其中 $S$ 是 $180^\circ$ 对称旋转，则损失可以写成：
 
@@ -72,7 +85,7 @@ d_{\text{sym}}(R,\hat R)
 =\min\{d(R,\hat R),d(RS,\hat R)\}.
 $$
 
-OrbitGrasp 使用 $SE(3)$ 等变学习（SE(3)-Equivariant Learning）表示不同旋转下的一致抓取结构 [2]。对称与等变不是数据增强（Data Augmentation）细节，而是输出空间的几何性质。
+OrbitGrasp 使用 $SE(3)$ 等变学习（SE(3)-Equivariant Learning）表示不同旋转下的一致抓取结构 [2]。对称性属于输出空间的几何性质，等变网络则把刚体变换关系写入特征计算。
 
 等变性要求输入场景经过刚体变换 $A\in SE(3)$ 后，预测候选同步变换：
 
@@ -80,7 +93,7 @@ $$
 F(AP)=A\,F(P).
 $$
 
-不变分类器则满足 $q(AP,Ag)=q(P,g)$。数据增强只能鼓励网络近似满足这些关系，等变卷积或球谐特征把关系写入网络结构。对于平行夹爪，输出实际上位于商空间 $SO(3)/\mathcal S$，其中 $\mathcal S$ 是夹爪对称群；损失、NMS 和评价都应在同一等价关系下计算。
+不变分类器满足 $q(AP,Ag)=q(P,g)$。数据增强可以提供额外姿态样本；对于平行夹爪，输出位于商空间 $SO(3)/\mathcal S$，其中 $\mathcal S$ 是夹爪对称群，损失、NMS 和评价使用同一等价关系。
 
 ---
 
@@ -94,21 +107,21 @@ $$
 f_i'=\gamma(e_h)\odot f_i+\beta(e_h),
 $$
 
-再从 $f_i'$ 预测区域、姿态和质量。这种特征线性调制（Feature-Wise Linear Modulation, FiLM）允许同一场景在不同夹爪条件下产生不同热图。训练批次需要让同一对象与多个夹爪配对，否则网络可能只把夹爪嵌入当作数据集 ID，而没有学习几何交互。
+再从 $f_i'$ 预测区域、姿态和质量。这种特征线性调制（Feature-Wise Linear Modulation, FiLM）让同一场景在不同夹爪条件下产生不同热图。训练批次将同一对象与多个夹爪配对，使网络学习夹爪几何与场景几何的交互。
 
-XGrasp 进一步研究夹爪感知检测与多夹爪数据生成，目前为 arXiv 预印本 [4]。参数化模型需要避免把夹爪标识（Identifier, ID）当作简单类别记忆；理想状态是根据连续几何描述对训练中未出现的夹爪插值（Interpolation）或外推（Extrapolation）。
+XGrasp 进一步研究夹爪感知检测与多夹爪数据生成 [4]。参数化模型把夹爪标识（Identifier, ID）替换为连续几何描述后，可以测试训练夹爪之间的插值（Interpolation）和未见夹爪的外推（Extrapolation）。
 
 ---
 
 ## 数据规模与夹爪多样性（Data Scale and Gripper Diversity）
 
-GraspFactory 报告超过 109M 个对象中心平行夹爪抓取，其中覆盖 Robotiq 2F-85 和 Franka Panda 两种几何 [5]。大规模多夹爪仿真可以改善对象与姿态覆盖，但它主要回答数据分布问题：
+GraspFactory 报告超过 109M 个对象中心平行夹爪抓取，其中覆盖 Robotiq 2F-85 和 Franka Panda 两种几何 [5]。大规模多夹爪仿真扩大对象与姿态覆盖，数据中仍需要分别记录：
 
-- 标签仍来自仿真与对象模型；
-- 场景杂乱、传感器噪声和机器人轨迹可能未被共同建模；
-- 两种夹爪不等于任意夹爪连续泛化。
+- 物体模型和仿真产生的抓取标签；
+- 场景杂乱、传感器噪声和机器人轨迹设置；
+- 训练夹爪与测试夹爪的几何范围。
 
-MultiGraspNet 在共享三维特征上同时保留平行夹爪和吸盘分支 [6]。比较时必须单独报告平行夹爪输出，不能把吸盘补充成功计入平行夹爪性能。
+MultiGraspNet 的共享三维特征也包含平行夹爪分支 [6]；本文范围只统计该分支的候选、碰撞和执行结果。
 
 ---
 
@@ -116,21 +129,35 @@ MultiGraspNet 在共享三维特征上同时保留平行夹爪和吸盘分支 [6
 
 GraspGen-X 使用夹爪扫掠体积表示和程序化夹爪数据（Procedurally Generated Gripper Data），让扩散生成器根据目标夹爪产生姿态 [7]。扫掠体积比单一宽度更接近执行过程：它描述夹爪从接近到闭合会占据的空间。
 
-设夹爪在满足 $0\leq s\leq1$ 的闭合参数下几何为 $H(s)$，从预抓取到最终位姿的轨迹为 $T(s)$，扫掠体积是：
+设闭合参数 $s\in[0,1]$，夹爪占据几何为 $H(s)\subset\mathbb R^3$，从预抓取到最终位姿的刚体变换为 $T(s)\in SE(3)$，扫掠体积是：
 
 $$
 V_{\text{sweep}}=\bigcup_{0\le s\le 1}T(s)H(s).
 $$
 
-实现中通常把 $s$ 离散成若干步，将每步夹爪网格体素化后取并集，或查询夹爪 SDF 与场景点的最小距离。离散步数太少会漏掉中间碰撞；分辨率太粗会让薄指尖变厚。将该体积编码成条件输入后，生成器可以提前避开目标夹爪无法穿过的通道，而不是只在最终位姿做碰撞过滤。
+实现中把 $s$ 离散成 $L$ 个闭合状态，将每步夹爪网格体素化后取并集，或查询夹爪 SDF 与场景点的最小距离。$L$ 和体素分辨率共同决定扫掠体积的近似精度。将该体积编码成条件输入后，生成器同时感知目标夹爪的接近通道和终态几何。
 
-但仿真跨夹爪成功仍需在真实硬件中验证：碰撞网格误差、指垫压缩、控制器闭合策略和安装标定都会改变结果。GraspGen-X 当前为 arXiv 预印本。
+GraspGen-X 当前为 arXiv 预印本；真实执行时还要记录碰撞网格、指垫压缩、闭合控制和安装标定。
+
+<Algorithm number={1} title='夹爪条件的抓取候选生成与过滤' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>场景点云 $P$、目标平行夹爪描述 $h$、机器人描述 $r$ 和候选预算 $K$</div>
+  <div slot='output'>经过夹爪几何和机器人可达性过滤的抓取集合 $\widehat{\mathcal G}_h$</div>
+  <AlgorithmStep keyword='require'>编码场景点云、夹爪标量/几何描述和机器人工作空间</AlgorithmStep>
+  <AlgorithmStep>生成或采样 $K$ 个夹爪条件抓取候选</AlgorithmStep>
+  <AlgorithmStep keyword='for'>对每个候选 $g\in\mathcal G_h$</AlgorithmStep>
+  <AlgorithmStep indent={1}>将候选解码到目标夹爪尺度，并检查开口范围</AlgorithmStep>
+  <AlgorithmStep indent={1}>计算夹爪终态与从预抓取到闭合的扫掠体积碰撞</AlgorithmStep>
+  <AlgorithmStep indent={1}>求多组 IK 解，检查关节限制、自碰撞、环境碰撞和轨迹</AlgorithmStep>
+  <AlgorithmStep keyword='end for'>完成候选过滤</AlgorithmStep>
+  <AlgorithmStep>按抓取质量、可操作性和运动代价排序，并执行对称感知 NMS</AlgorithmStep>
+  <AlgorithmStep keyword='return'>可执行抓取集合 $\widehat{\mathcal G}_h$</AlgorithmStep>
+</Algorithm>
 
 ---
 
 ## 从夹爪可行到机器人可达（From Gripper Feasibility to Robot Reachability）
 
-夹爪适配不代表机械臂能执行。给定抓取 $g$，机器人还要找到关节配置 $q$ 和无碰撞轨迹 $\tau$：
+给定抓取 $g$，机器人还要找到关节配置 $q\in\mathbb R^{n_q}$ 和无碰撞轨迹 $\tau$：
 
 $$
 \operatorname{FK}(q)=g,
@@ -138,7 +165,7 @@ $$
 \qquad \tau\cap\mathcal{C}_{\text{obs}}=\varnothing.
 $$
 
-其中 $\operatorname{FK}$ 是正运动学（Forward Kinematics），$\mathcal{Q}_{\text{limit}}$ 是关节限制，$\mathcal{C}_{\text{obs}}$ 是障碍碰撞空间。
+其中 $\operatorname{FK}$ 是正运动学（Forward Kinematics），$\mathcal{Q}_{\text{limit}}\subset\mathbb R^{n_q}$ 是关节限制集合，$\mathcal{C}_{\text{obs}}$ 是障碍碰撞空间。
 
 逆运动学并非只有“有解/无解”。同一末端位姿可能对应多个关节解 $q_j$，选择时还要考虑关节限位余量、奇异性与路径长度。局部可操作性（Manipulability）可由雅可比矩阵（Jacobian Matrix）$J(q)$ 衡量：
 
@@ -146,7 +173,7 @@ $$
 m(q)=\sqrt{\det(J(q)J(q)^{\mathsf T})}.
 $$
 
-$m(q)$ 接近零表示邻近奇异位形，小的末端修正可能需要很大的关节速度。候选过滤可以为每个 $g$ 求多组 IK 解，删除自碰撞和环境碰撞解，再按关节余量、$m(q)$ 与轨迹代价排序。只调用一次数值 IK 并把求解失败记为“不可达”，会把初值敏感性误当成真实几何不可达。
+$m(q)$ 接近零表示邻近奇异位形。候选过滤为每个 $g$ 求多组 IK 解，删除自碰撞和环境碰撞解，再按关节余量、$m(q)$ 与轨迹代价排序。
 
 MVB-Grasp 使用最小体积包围盒（Minimum-Volume Box）与正面工作空间约束过滤扩散候选 [8]。它展示了通用生成器可能产生几何稳定但不适合特定机器人接近方向的姿态；当前为预印本。
 
@@ -156,23 +183,23 @@ MVB-Grasp 使用最小体积包围盒（Minimum-Volume Box）与正面工作空�
 
 大物体可能超出固定机械臂的局部工作空间。SuperQ-GRASP 使用超二次曲面（Superquadric）表示大物体，并为移动操作机器人选择接近且可达的部位 [9]。
 
-此时抓取检测与基座位置、相机视角和机械臂可达域耦合。一个在对象坐标系中稳定的抓取，如果需要机器人穿过家具或超出关节范围，仍然不可执行。
+此时抓取检测与基座位置、相机视角和机械臂可达域共同决定候选。对象坐标系中的抓取需要经过基座变换、IK 和环境轨迹检查后才能进入执行集合。
 
-QuickGrasp 使用轻量对向点云规划减少生成开销 [10]，适合强调计算与部署的场景。轻量化不应只比较网络参数，还应报告候选数、碰撞检查、规划时间和真实执行周期。
+QuickGrasp 使用轻量对向点云规划减少生成开销 [10]。部署比较同时记录候选数、碰撞检查时间、规划时间和真实执行周期。
 
 ---
 
 ## 抓取与放置的具身耦合（Grasp–Placement Coupling）
 
-ROG-Grasp 使用根部朝向几何（Root-Oriented Geometry）同时约束抓取和放置方向 [11]。它面向农产品等具有明确根部/朝向结构的对象，目前为预印本。
+ROG-Grasp 使用根部朝向几何（Root-Oriented Geometry）同时约束抓取和放置方向 [11]。它面向农产品等具有明确根部/朝向结构的对象。
 
-这种方法说明任务中的最佳抓取取决于后续动作。抓取姿态若使物体无法按要求放置，即使抬升稳定，也不是任务最优。具身条件因此不仅来自夹爪和机械臂，也来自操作后的目标状态。
+这种方法把后续放置方向加入抓取条件。抓取姿态需要与物体放置状态和机器人运动空间共同优化。
 
 ---
 
 ## 跨具身评价（Cross-Embodiment Evaluation）
 
-可靠的跨具身实验应至少区分：
+跨具身实验按以下因素组合：
 
 1. 已见夹爪 + 未见物体；
 2. 未见夹爪 + 已见物体；
@@ -191,7 +218,7 @@ ROG-Grasp 使用根部朝向几何（Root-Oriented Geometry）同时约束抓取
 | 物理   | 抬升、稳定、滑移和硬件碰撞                                         |
 | 任务   | 放置朝向、循环时间和最终完成率                                     |
 
-训练多个仿真夹爪并在一个固定真实机器人上测试，只能证明数据多样性带来的迁移，不能证明完整跨具身泛化。具身条件的最终标准，是在变化后的真实几何与运动学约束下仍能生成可执行抓取。
+训练多个仿真夹爪并在固定真实机器人上测试，测量的是夹爪条件对迁移的贡献；改变夹爪、机器人、相机和工作空间后再测试，测量完整跨具身泛化。
 
 跨具身实验还应冻结信息边界。若测试新夹爪时重新采集大量成功/失败并微调整个网络，这属于完整适配，不是零样本。更清晰的三级协议是：
 
@@ -199,7 +226,7 @@ ROG-Grasp 使用根部朝向几何（Root-Oriented Geometry）同时约束抓取
 2. **少样本校准（Few-Shot Calibration）**：冻结生成器，只用少量物理试验校准宽度、碰撞余量或分数；
 3. **完整微调（Full Fine-Tuning）**：允许更新表示与生成器，并单独报告所用样本数。
 
-每一级都应同时报告候选覆盖、几何碰撞、IK 可达和物理成功。若零样本候选覆盖正常但碰撞率上升，问题在夹爪几何；若几何有效却 IK 大量失败，问题在机器人工作空间，而不是对象泛化。
+每一级同时报告候选覆盖、几何碰撞、IK 可达和物理成功。零样本中候选覆盖正常而碰撞率上升，说明夹爪几何条件需要改进；几何有效而 IK 失败率上升，说明机器人工作空间条件需要改进。
 
 ---
 

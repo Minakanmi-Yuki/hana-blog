@@ -1,7 +1,7 @@
 ---
 title: 'Robotic Grasp Detection (7): 不完整几何与主动感知'
 publishDate: 2026-08-14
-updatedDate: 2026-08-14
+updatedDate: 2026-08-20
 description: '分析单视角点云缺失、形状补全、隐式重建、多视角融合、透明物体深度失效与主动视角选择，并区分推断几何和获取新观测。'
 heroImage:
   { src: 'https://pic.hana0721.top/74378589_p0_master1200.5j4sgia4w5.webp', color: '#8C8275' }
@@ -14,11 +14,14 @@ category: 'daily'
 pixivLink: '74378589'
 ---
 
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+
 ## 抓取需要接触不可见区域（Grasping Requires Hidden Contact Geometry）
 
-单视角红绿蓝—深度观测（Red–Green–Blue and Depth, RGB-D）只测到朝向相机的表面。对平行夹爪而言，两个夹指往往需要接触物体相对两侧，其中至少一侧可能被自遮挡（Self-Occlusion）或其他物体遮挡（Inter-Object Occlusion）。
+单视角红绿蓝—深度观测（Red–Green–Blue and Depth, RGB-D）只测到朝向相机的表面。平行夹爪（Parallel-Jaw Gripper）的两个夹指需要在物体两侧形成接触，其中一侧可能被自遮挡（Self-Occlusion）或其他物体遮挡（Inter-Object Occlusion）。因此，抓取检测器面对的输入不是完整物体，而是带有系统性缺失的几何观测。
 
-观测点云可以写成真实表面 $S$ 的一个子集：
+设真实表面为 $S\subset\mathbb R^3$，观测点云为 $P_{\text{obs}}\subset\mathbb R^3$，则单视角观测可以写成：
 
 $$
 P_{\text{obs}} \subset S.
@@ -31,7 +34,19 @@ $$
 - 薄结构和远距离小物体因分辨率不足而稀疏；
 - 杂乱场景中的接触区域可能完全不可见。
 
-解决方案主要分为两类：根据已有观测推断隐藏几何，或者主动获取新的观测。二者承担的风险不同。
+处理这类输入有两条路线：在固定观测下推断隐藏几何，或者移动传感器获取新的观测。前者对应形状补全和隐式重建，后者对应多视角融合和主动感知。
+
+## 方法路线总览（Overview of Method Families）
+
+下表先给出各类方法的输入、输出和典型抓取接口。后文再解释每种表示如何训练，以及它怎样进入抓取候选生成和排序。
+
+| 方法路线                                | 主要输入               | 主要输出                | 典型代表                                       | 抓取接口                          |
+| :-------------------------------------- | :--------------------- | :---------------------- | :--------------------------------------------- | :-------------------------------- |
+| 点云补全（Point Completion）            | 单视角点云             | 补全点集或完整点表示    | Beyond Top-Grasps、CompletePoints、PCF-Grasp   | 在补全几何上生成或评分 6-DoF 抓取 |
+| 隐式联合重建（Implicit Reconstruction） | RGB-D / 物体裁剪       | Occupancy、SDF 或抓取场 | CenterGrasp、Local Occupancy-Enhanced Grasping | 查询局部几何并解码抓取            |
+| 神经渲染（Neural Rendering）            | 多视角 RGB / RGB-D     | 辐射场、表面和三维特征  | GraspNeRF、Any-View                            | 从三维表示生成或优化抓取          |
+| 主动视角规划（Active View Planning）    | 当前观测与候选视角     | 下一相机位姿和更新观测  | VISO-Grasp、Cross-View Fusion                  | 以抓取收益选择下一视角            |
+| 不确定性传播（Uncertainty Propagation） | 多个几何假设或模型预测 | 抓取质量分布和碰撞概率  | 采样式补全、网络集成                           | 对候选执行风险感知排序            |
 
 ---
 
@@ -40,14 +55,15 @@ $$
 形状补全（Shape Completion）学习条件分布：
 
 $$
-p(S_{\text{hidden}}\mid P_{\text{obs}}).
+p(S_{\text{hidden}}\mid P_{\text{obs}}),
+\qquad S_{\text{hidden}}\subset\mathbb R^3.
 $$
 
-实际系统常输出一个确定性补全结果 $\hat S$，再运行抓取检测器。Beyond Top-Grasps Through Scene Completion 使用场景补全支持非顶抓姿态 [1]；CompletePoints 通过模拟完整点表示改善单视角六自由度（Six Degrees of Freedom, 6-DoF）检测 [2]。
+实际系统通常先输出一个确定性补全结果 $\hat S$，再把它送入抓取检测器。Beyond Top-Grasps Through Scene Completion 使用场景补全支持非顶抓姿态 [1]；CompletePoints 通过模拟完整点表示改善单视角六自由度（Six Degrees of Freedom, 6-DoF）检测 [2]。
 
-不同补全表示对应不同的训练和查询接口。
+补全表示决定了训练目标和后端如何查询几何，常见形式有点集、占据场和符号距离场。
 
-**点集补全（Point-Set Completion）**直接预测缺失点 $\hat P$，常用双向倒角距离（Chamfer Distance, CD）：
+**点集补全（Point-Set Completion）**直接预测点集 $\hat P\subset\mathbb R^3$。给定完整点集 $P^*\subset\mathbb R^3$，常用双向倒角距离（Chamfer Distance, CD）为：
 
 $$
 \mathcal L_{\text{CD}}=
@@ -55,37 +71,46 @@ $$
 +\frac{1}{|P^*|}\sum_{y\in P^*}\min_{x\in\hat P}\lVert y-x\rVert_2^2.
 $$
 
-第一项防止预测点远离真表面，第二项鼓励覆盖全部真值点。但 CD 不直接约束法线、薄结构或空闲空间；两片靠得很近的平行表面可以具有较小 CD，却让夹指碰撞判断完全不同。
+第一项让预测点靠近真实表面，第二项让预测点覆盖真实点集。训练时，网络编码 $P_{\text{obs}}$，解码器逐步生成缺失点或完整点集；推理时，补全点与观测点合并，再进入法线估计、候选生成和碰撞检测。CD 只比较点到点的距离，因此工程实现通常还会关注法线、薄结构和夹爪闭合区域的局部几何。
 
-**占据场（Occupancy Field）**对任意查询点输出满足 $0\leq o_\theta(x,z)\leq1$ 的占据概率，用二元交叉熵（Binary Cross-Entropy, BCE）监督空间内外。它能连续查询和提取等值面，但训练查询点如何分布很关键：均匀采样大多落在远离表面的简单空区，通常还要在真表面附近增加扰动采样。**截断符号距离场（Truncated Signed Distance Field, TSDF）**进一步给出到表面的有符号距离，适合碰撞与梯度优化，但符号在开放或不完整网格上可能不可靠。
+**占据场（Occupancy Field）**对查询点 $x\in\mathbb R^3$ 和观测编码 $z\in\mathbb R^d$ 输出占据概率 $o_\theta(x,z)\in[0,1]$。训练样本由空间查询点和内外标签组成，二元交叉熵（Binary Cross-Entropy, BCE）可以写成：
 
-无论哪种表示，训练损失优化的是平均几何，而抓取关心的是接触附近的局部最坏错误。更有针对性的训练会在候选闭合区、接近通道或高曲率部位提高采样权重，并把占据不确定性作为抓取评分输入。
+$$
+\mathcal L_{\text{occ}}
+=-\frac{1}{K}\sum_{k=1}^{K}
+\left[y_k\log o_\theta(x_k,z)
++(1-y_k)\log(1-o_\theta(x_k,z))\right],
+$$
 
-补全的优势是无需移动相机，代价是模型可能在最不确定的背面生成“看似完整但错误”的表面。平均形状误差较小，并不保证接触区域正确。抓取评价应关注：
+其中 $K$ 是查询点数量，$x_k\in\mathbb R^3$，$y_k\in\{0,1\}$ 表示该点位于物体内部还是外部。推理时，在三维网格上查询 $o_\theta$，再用阈值提取表面；在接触区域直接查询占据值，则可以判断夹爪指尖或闭合通道是否进入物体内部。训练查询点不能全部均匀采样，因为大多数点会远离表面，通常还要加入表面附近的扰动点。**截断符号距离场（Truncated Signed Distance Field, TSDF）**则为每个查询点提供到表面的有符号距离，适合碰撞检查和梯度优化。
 
-- 补全是否提高有效候选覆盖率；
-- 候选是否依赖虚构表面；
-- 补全不确定性是否传递到抓取分数；
-- 改进来自几何还是类别先验。
+点集补全的后端处理通常可以分成四步：
 
-PCF-Grasp 不直接把补全点当作真值，而是将补全转换为几何特征辅助检测 [6]。这种设计承认补全结果是条件信息，而不是精确测量。
+1. 将观测点与补全点变换到同一坐标系；
+2. 从表面法线、局部邻域或隐式场查询中生成抓取候选；
+3. 在夹爪闭合区域和接近通道中执行碰撞检查；
+4. 用抓取质量、碰撞结果和机器人可达性对候选排序。
+
+PCF-Grasp 将点云补全结果转换为几何特征，作为 6-DoF 抓取检测器的辅助输入，而不是直接把补全点作为唯一几何来源 [6]。这类接口让网络同时利用观测几何和补全先验。
 
 ---
 
 ## 联合重建与抓取（Joint Reconstruction and Grasping）
 
-CenterGrasp 使用对象中心隐式表示（Object-Centric Implicit Representation）同时进行形状重建和六自由度抓取估计 [3]。联合学习的动机是：纯重建损失关注所有表面，而抓取更关注可接触、可接近和稳定区域。
+CenterGrasp 使用对象中心隐式表示（Object-Centric Implicit Representation）同时进行形状重建和六自由度抓取估计 [3]。它先从 RGB-D 观测中提取对象级特征，再在对象坐标系中查询几何和抓取相关信息。
 
-隐式函数可以表示为：
+可以用下面的抽象形式理解这类网络：
 
 $$
 f_\theta(x,z)\rightarrow
-(\text{occupancy},\text{surface},\text{grasp quality}),
+(o_\theta(x,z),d_\theta(x,z),h_\theta(x,z)),
 $$
 
-其中 $z$ 是观测编码。连续查询能够避免固定点数，但推理仍需要采样查询位置、估计对象坐标系并选择候选。
+其中 $x\in\mathbb R^3$ 是对象坐标系中的查询位置，$z\in\mathbb R^d$ 是观测编码，$o_\theta$ 是占据预测，$d_\theta$ 是距离或表面相关量，$h_\theta$ 是用于抓取预测的局部特征。抓取姿态仍可统一写为 $g=(R,\boldsymbol t,w)$，其中 $R\in SO(3)$、$\boldsymbol t\in\mathbb R^3$，$w\in\mathbb R_{\geq0}$ 分别表示夹爪旋转、位置和开口宽度。
 
-Local Occupancy-Enhanced Grasping 使用多平面投影（Multiple Triplanar Projection）增强局部占据几何 [7]。局部占据适合补足接触附近结构，却不一定恢复全局物体和场景关系。
+连续隐式表示的推理过程是：估计对象坐标系，在三维查询点上计算占据和特征，再从高响应区域解码 $g$，最后进行碰撞与可达性检查。它不需要把完整物体固定成相同数量的点，但查询分辨率和对象坐标估计会直接影响候选质量。
+
+Local Occupancy-Enhanced Grasping 使用多平面投影（Multiple Triplanar Projection）编码局部占据几何 [7]。三张相互正交的二维特征平面分别存储局部空间信息，查询点投影到各平面后取样并融合特征，再预测抓取。相比直接在稀疏点上回归，它为接触区域提供了连续局部表示；全局场景关系仍由前端分割、坐标变换和后端碰撞检查处理。
 
 ---
 
@@ -93,7 +118,7 @@ Local Occupancy-Enhanced Grasping 使用多平面投影（Multiple Triplanar Pro
 
 神经辐射场（Neural Radiance Field, NeRF）和相关神经表面表示可以融合多张 RGB 图像，从不同视角恢复几何与外观。GraspNeRF 使用可泛化 NeRF 处理透明和高反光物体的多视角六自由度抓取 [4]。
 
-NeRF 沿相机射线 $r(t)=o+td$ 查询密度 $\sigma_i$ 与颜色 $c_i$。离散体渲染为：
+NeRF 沿相机射线查询场函数。设射线原点 $o\in\mathbb R^3$，单位方向 $d\in\mathbb R^3$，则 $r(t)=o+td$；在采样位置 $t_i$ 处，网络输出密度 $\sigma_i\in\mathbb R_{\geq0}$ 和颜色 $c_i\in\mathbb R^3$。离散体渲染（Volume Rendering）为：
 
 $$
 \hat C(r)=\sum_i T_i\alpha_i c_i,
@@ -103,65 +128,91 @@ T_i=\prod_{j<i}(1-\alpha_j),
 \alpha_i=1-e^{-\sigma_i\delta_i}.
 $$
 
-期望深度可类似写成 $\hat D(r)=\sum_iT_i\alpha_i t_i$。抓取系统通常从密度场提取网格/点云，或直接在三维查询点读取 NeRF 特征来评分。光度重建准确不保证密度表面就是物理接触面，透明介质尤其可能在前后表面之间产生分散密度；因此需要尺度标定、占据阈值和夹爪碰撞余量。
+其中 $\delta_i=t_{i+1}-t_i$ 是相邻采样点的距离，$T_i$ 是光线到达第 $i$ 个采样点时仍未被吸收的透射率，$\alpha_i$ 是该区间的不透明度。期望深度可写成 $\hat D(r)=\sum_iT_i\alpha_i t_i$。抓取系统通常从密度场提取网格或点云，也可以直接读取三维特征来评价候选。实际解码时还要进行尺度标定、表面阈值选择和夹爪碰撞检查。
 
 Any-View 6DoF Grasping 通过神经表面渲染，使模型能够从不同观察视角推断抓取 [5]。NeRF Grasp Pose Optimization 则利用 NeRF 特征评价和优化已有候选 [8]。
 
-多视角方法引入新的系统变量：
+多视角抓取的实现通常包含以下环节：
 
-- 相机外参标定（Extrinsic Calibration）；
-- 视角数量与采集时间；
-- 场景在采集期间是否静止；
-- 重建更新速度；
-- 相机轨迹是否与机器人动作冲突。
+1. 通过相机外参标定（Extrinsic Calibration）将各视角变换到统一坐标系；
+2. 编码每张图像并聚合跨视角特征；
+3. 由聚合特征预测密度、表面或三维抓取特征；
+4. 提取候选抓取 $g=(R,\boldsymbol t,w)$，执行碰撞过滤和机器人可达性检查。
 
-You Only Scan Once 面向动态场景构建一次扫描与重建流水线，再生成六自由度抓取 [9]。动态重建要求几何更新速度跟得上物体和相机变化，不能只比较静态网格质量。
+You Only Scan Once 面向动态场景构建一次扫描与重建流水线，再生成六自由度抓取 [9]；这类方法还需要在扫描期间维护相机、物体和机器人之间的时空关系。
 
 ---
 
 ## 透明与高反光物体（Transparent and Specular Objects）
 
-普通结构光或双目深度相机可能在玻璃、透明塑料和高反光金属上产生孔洞或错误深度。此时物体在 RGB 中可见，在点云中却不存在可靠接触表面。
+普通结构光或双目深度相机可能在玻璃、透明塑料和高反光金属上产生孔洞或错误深度。此时物体在 RGB 中可见，但深度图中缺少稳定的接触表面。
 
-主动立体（Active Stereo）相机投射红外纹理并通过左右图匹配估计视差，深度近似满足 $z=fb/d$，其中 $f$ 是焦距、$b$ 是双目基线、$d$ 是视差。透明表面会折射投影纹理，使匹配位置不再对应同一物理表面；高反光表面则可能饱和。简单的孔洞填充只能让深度图更连续，不能恢复正确折射几何。透明物体方法因此常同时利用 RGB 轮廓、多视角一致性、专用主动照明或神经渲染，而不是只在普通深度图上做插值。
+主动立体（Active Stereo）相机投射红外纹理并通过左右图匹配估计视差。设焦距为 $f$、双目基线为 $b$、视差为 $d$，相机坐标系中的深度近似为：
 
-GraspNeRF 通过多视角神经渲染恢复透明/高反光几何 [4]；ASGrasp 使用 RGB-D 主动立体相机（Active Stereo Camera）进行可泛化透明物体重建和抓取 [10]。两者都解决“深度失效”，但依赖的硬件和信息来源不同。
+$$
+z=\frac{fb}{d},
+\qquad f,b,d,z\in\mathbb R_{>0}.
+$$
 
-透明物体评测至少应报告：
+透明表面会折射投影纹理，使匹配位置不再对应同一物理表面；高反光表面则可能造成饱和或错误匹配。因此，透明物体方法通常结合 RGB 轮廓、多视角一致性、主动照明或神经渲染来恢复几何。
+
+这类实验需要同时记录：
 
 - 光照与背景；
 - 相机类型和主动投射设置；
 - 视角数量；
 - 重建误差与抓取成功分别如何测量；
-- 方法在普通不透明物体上的代价。
+- 方法在普通不透明物体上的表现。
 
-透明性改变的是观测模型（Observation Model），不能简单归入“更难的物体类别”。
+透明性改变的是观测模型（Observation Model）：同一个抓取检测器在输入端接收到的深度证据不同。GraspNeRF 通过多视角神经渲染恢复透明/高反光几何 [4]；ASGrasp 使用 RGB-D 主动立体相机（Active Stereo Camera）进行可泛化透明物体重建和抓取 [10]。
 
 ---
 
-## 主动感知不是形状补全（Active Perception Is Not Completion）
+## 主动视角选择（Active View Selection）
 
-形状补全在固定观测下推断隐藏几何；主动感知（Active Perception）通过动作获得新证据。设当前历史为 $H_t$，候选视角为 $v$，主动策略可以选择最大化预期抓取收益的视角：
+形状补全在固定观测下推断隐藏几何；主动感知（Active Perception）通过相机或机器人动作获得新证据。设历史观测为 $H_t$，候选相机位姿为 $v\in\mathcal V$，新观测为 $o_{t+1}(v)$，主动策略可以选择最大化预期抓取收益的视角：
 
 $$
 v^*=\arg\max_v
 \mathbb{E}\left[U(G\mid H_t,o_{t+1}(v))-C(v)\right],
 $$
 
-其中 $U$ 是抓取效用，$C(v)$ 是移动、时间与风险成本。
+其中 $U$ 是观测更新后的抓取效用，$C(v)$ 是移动时间、路径长度和碰撞风险组成的成本。
 
-一个好的下一视角（Next-Best View, NBV）不必生成最完整的全局模型，只要能减少抓取相关不确定性。例如，它可以专门暴露目标把手、被遮挡接触面或夹爪接近通道。
+下一最佳视角（Next-Best View, NBV）的目标是减少抓取相关的不确定性，例如暴露目标把手、被遮挡接触面或夹爪接近通道。实际系统通常从有限位姿集合 $\mathcal V$ 中选择视角，并在评分前删除机器人不可达或相机将与场景碰撞的位姿。
 
-实际 NBV 通常从有限相机位姿集合 $\mathcal V$ 中选择，而不是连续优化任意视点。对每个 $v\in\mathcal V$，可以用当前占据模型射线投影出预期可见体素，并估计熵下降：
+设 $Z$ 表示待估计的三维占据状态，$H(\cdot)$ 表示其熵。对每个 $v\in\mathcal V$，可以用当前占据模型预测新观测带来的信息增益（Information Gain, IG）：
 
 $$
 \operatorname{IG}(v)=
-H(S\mid H_t)-
+ H(Z\mid H_t)-
 \mathbb E_{o_{t+1}\sim p(o\mid v,H_t)}
-[H(S\mid H_t,o_{t+1})].
+[H(Z\mid H_t,o_{t+1})].
 $$
 
-抓取相关策略还会只统计候选接触区和接近通道内的熵，或者直接估计观测后最高可行抓取分数的提升。最终目标可写成 $\operatorname{IG}(v)-\lambda_tT(v)-\lambda_mC_{\text{motion}}(v)$。候选视角若不可达、相机会撞场景或移动时间过长，应在打分前删除，而不是选择后再交给规划器失败。
+抓取相关策略可以只统计候选接触区和接近通道内的熵，或者直接估计观测后最高可行抓取分数的提升。一个具体的视角效用为：
+
+$$
+J(v)=\operatorname{IG}(v)-\lambda_tT(v)-\lambda_mC_{\text{motion}}(v),
+$$
+
+其中 $T(v)$ 是预计采集时间，$C_{\text{motion}}(v)$ 是机器人运动成本，$\lambda_t,\lambda_m\geq0$ 是权重。
+
+<Algorithm number={1} title='不完整几何下的主动抓取流程' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前 RGB-D 观测、候选视角集合、几何重建模型、抓取检测器和机器人运动模型</div>
+  <div slot='output'>最终抓取姿态，或下一步需要获取的相机视角</div>
+  <AlgorithmStep keyword='require'>
+    初始化历史观测 $H_t$ 和待评估视角集合 $\mathcal V$
+  </AlgorithmStep>
+  <AlgorithmStep keyword='for'>在当前观测历史下循环</AlgorithmStep>
+  <AlgorithmStep indent={1}>估计可见几何、补全几何及其不确定性</AlgorithmStep>
+  <AlgorithmStep indent={1}>生成抓取候选，并计算抓取质量、碰撞概率和机器人可达性</AlgorithmStep>
+  <AlgorithmStep indent={1}>若存在满足执行约束的候选，则返回质量最高的抓取</AlgorithmStep>
+  <AlgorithmStep indent={1}>否则，计算每个可行视角的预期信息增益、抓取收益和运动成本</AlgorithmStep>
+  <AlgorithmStep indent={1}>选择效用最高的视角，获取新观测并更新 $H_t$</AlgorithmStep>
+  <AlgorithmStep keyword='end for'>直到返回抓取或达到观测预算</AlgorithmStep>
+  <AlgorithmStep keyword='return'>最终抓取姿态或失败状态</AlgorithmStep>
+</Algorithm>
 
 VISO-Grasp 将视觉语言目标、对象中心空间表示、主动视角规划和六自由度抓取结合起来，用于杂乱与不可见目标 [11]。Cross-View Fusion 则通过跨视角融合增强姿态估计，目前仍是 arXiv 预印本 [12]。
 
@@ -169,7 +220,7 @@ VISO-Grasp 将视觉语言目标、对象中心空间表示、主动视角规划
 
 ## 不确定性应当传递到候选（Propagating Uncertainty to Grasps）
 
-无论补全还是主动观测，核心都不是得到一张“更漂亮”的点云，而是改变抓取候选的可靠性。理想系统应区分：
+补全和主动观测都会改变后端候选的置信度。需要分别考虑：
 
 - 传感器噪声（Sensor Noise）；
 - 未观测区域的不确定性（Occlusion Uncertainty）；
@@ -177,28 +228,33 @@ VISO-Grasp 将视觉语言目标、对象中心空间表示、主动视角规划
 - 多视角标定误差（Calibration Error）；
 - 执行过程中的姿态误差（Execution Error）。
 
-如果多个隐藏形状都合理，生成器应保留多个抓取模式或降低依赖隐藏表面的候选分数。把单一补全结果当作真值，会让后端碰撞检测显得过度确定。
+如果多个隐藏形状都合理，可以保留多个几何假设，并将每个假设分别送入抓取评分和碰撞检测。
 
-一种直接传播方式是让补全模型产生 $S$ 个表面样本 $\{\hat S_s\}$。对同一候选 $g$，分别计算质量与碰撞：
+设补全模型产生 $M$ 个表面样本 $\{\hat S_m\}_{m=1}^{M}$，同一候选抓取为 $g=(R,\boldsymbol t,w)$。分别计算质量与碰撞，再得到期望质量和碰撞概率：
 
 $$
-\bar q(g)=\frac{1}{S}\sum_{s=1}^{S}q(g;\hat S_s),
+\bar q(g)=\frac{1}{M}\sum_{m=1}^{M}q(g;\hat S_m),
 \qquad
-p_{\text{coll}}(g)=\frac{1}{S}\sum_{s=1}^{S}
-\mathbf 1[\operatorname{collision}(g,\hat S_s)].
+p_{\text{coll}}(g)=\frac{1}{M}\sum_{m=1}^{M}
+\mathbf 1[\operatorname{collision}(g,\hat S_m)].
 $$
 
-选择时可以要求 $p_{\text{coll}}<\delta$，再按 $\bar q$ 排序。样本可来自显式生成模型、网络集成（Deep Ensemble）或测试时随机失活（Monte Carlo Dropout）。关键是每个样本都要重新执行接触与碰撞检查；只对网络最终分数求方差，无法发现隐藏表面导致的离散碰撞变化。
+选择时可以要求 $p_{\text{coll}}(g)<\delta$，再按 $\bar q(g)$ 排序。样本可以来自显式生成模型、网络集成（Deep Ensemble）或测试时随机失活（Monte Carlo Dropout）。这样，隐藏表面改变的不只是网络分数，也会反映在候选的碰撞统计中。
 
-| 方法             | 是否改变传感器状态 | 获得的信息       | 新引入的风险           |
-| :--------------- | :----------------- | :--------------- | :--------------------- |
-| 点云补全         | 否                 | 推断隐藏表面     | 幻觉与过度置信         |
-| 隐式联合重建     | 否                 | 连续几何与抓取场 | 查询、坐标系和训练先验 |
-| 被动多视角融合   | 是/预采集          | 更多真实表面     | 标定、时间与动态物体   |
-| 主动视角规划     | 是/在线选择        | 抓取相关新证据   | 运动成本与策略误差     |
-| 透明物体专用感知 | 依硬件而定         | 材质失效区域     | 硬件和光照依赖         |
+## 方法如何进入抓取系统（Methods in the Grasping Pipeline）
 
-几何完整性不是二值属性。真正需要评价的是：在固定观测和动作预算下，方法是否减少了抓取相关的不确定性，并把剩余不确定性保留到候选排序和执行决策中。
+| 方法              | 观测策略          | 几何表示         | 抓取接口            | 主要计算            |
+| :---------------- | :---------------- | :--------------- | :------------------ | :------------------ |
+| Beyond Top-Grasps | 单视角            | 场景补全         | 非顶向抓取候选      | 补全 + 抓取规划     |
+| CompletePoints    | 单视角            | 完整点表示       | 6-DoF 检测器        | 模拟完整点 + 检测   |
+| CenterGrasp       | 单视角 RGB-D      | 对象中心隐式场   | 6-DoF 抓取估计      | 重建 + 抓取联合学习 |
+| GraspNeRF         | 多视角 RGB        | 可泛化 NeRF      | 透明/高反光物体抓取 | 神经渲染 + 几何查询 |
+| Any-View 6DoF     | 多视角            | 神经表面表示     | 6-DoF 抓取          | 跨视角融合 + 解码   |
+| ASGrasp           | RGB-D 主动立体    | 透明物体重建     | 6-DoF 抓取          | 主动立体 + 重建     |
+| VISO-Grasp        | 腕部 RGB-D + 语言 | 对象中心空间表示 | 目标条件抓取        | 视角规划 + 抓取检测 |
+| PCF-Grasp         | 单视角点云        | 补全几何特征     | 6-DoF 抓取          | 补全特征 + 检测器   |
+
+从系统角度看，方法的差别可以归结为两个接口：它是改变几何输入，还是改变观测过程；它是直接生成抓取，还是为抓取检测器提供特征和候选。评价时应同时记录观测数量、重建/检测耗时、有效候选覆盖率、碰撞过滤后的候选数和最终执行成功率。
 
 ---
 

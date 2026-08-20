@@ -1,8 +1,8 @@
 ---
 title: 'Robotic Grasp Detection (3): 平面与 2.5-D 抓取检测'
 publishDate: 2026-08-14
-updatedDate: 2026-08-14
-description: '梳理从旋转抓取矩形、候选分类和直接回归到稠密抓取图与关键点表示的发展，并解释平面评测与真实执行之间的边界。'
+updatedDate: 2026-08-18
+description: '从抓取矩形的表示出发，解释平面与 2.5-D 抓取检测如何被建模为监督学习问题，并连接数据预处理、卷积网络、稠密预测、候选解码和机器人执行。'
 heroImage:
   { src: 'https://pic.hana0721.top/70217040_p0_master1200.77e5dp0f1s.webp', color: '#8C8275' }
 tags:
@@ -14,182 +14,675 @@ category: 'daily'
 pixivLink: '70217040'
 ---
 
-## 平面抓取的基本表示（Planar Grasp Representation）
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
 
-平面抓取检测（Planar Grasp Detection）把平行夹爪在图像中的投影表示为旋转矩形（Oriented Rectangle）：
+## 平面抓取的任务假设与表示（Task Assumptions and Representation）
 
-$$
-g=(x,y,\theta,h,w),
-$$
+假设相机从上方向下观察桌面，机器人使用平行夹爪抓取桌上的纸盒。夹爪始终沿桌面法线下降，那么系统不再需要搜索任意三维接近方向，只需要回答四个核心问题：
 
-其中 $(x,y)$ 是抓取中心，$\theta$ 是图像平面内旋转角，$w$ 表示夹爪开口方向上的尺度，$h$ 表示夹指覆盖范围。该表示由 Jiang 等人的红绿蓝—深度（Red–Green–Blue and Depth, RGB-D）抓取工作系统化，并成为 Cornell Grasp Dataset 的经典接口 [1]。
+1. 夹爪中心应该落在哪个图像位置？
+2. 两个夹指应该沿哪个方向闭合？
+3. 夹爪张开多宽？
+4. 这个候选有多可靠？
 
-执行时，系统利用深度和相机内参把二维中心反投影到三维空间，再将平面角转换为末端执行器旋转。相机视线方向或桌面法线通常决定夹爪接近方向（Approach Direction）。因此，矩形不是完整的六自由度位姿（Six-Degrees-of-Freedom Pose, 6-DoF Pose），而是一个带强几何先验的低维控制接口。
+这就是平面抓取检测（Planar Grasp Detection）的基本假设：固定或强约束夹爪接近方向（Approach Direction），把原本位于三维空间中的抓取搜索转化为图像平面上的低维检测问题。Jiang 等人使用旋转抓取矩形（Oriented Grasp Rectangle）同时表达抓取位置、方向、开口和夹爪物理范围，由此建立了经典的图像空间接口 [1]。
 
-如果在矩形之外加入深度、高度或有限的倾角，但接近方向仍受场景设定约束，通常称为 **2.5-D 抓取（2.5-D Grasp）**。
-
-### 从矩形恢复三维末端位姿
-
-矩形中心不是直接的机器人坐标。给定相机内参 $f_x,f_y,c_x,c_y$ 和中心深度 $z$，首先做反投影：
+设输入图像的高度和宽度分别为 $H_I,W_I\in\mathbb N$，其中 $\mathbb N$ 表示正整数集合。本文采用下面的矩形约定：
 
 $$
-x_C=\frac{(u-c_x)z}{f_x},\qquad
-y_C=\frac{(v-c_y)z}{f_y},\qquad
-p_C=(x_C,y_C,z)^{\mathsf T}.
+g_{\mathrm{2D}}=(u,v,\theta,w_{\mathrm{px}},l_{\mathrm{px}},q).
 $$
 
-在竖直接近协议中，夹爪接近轴固定为相机光轴或桌面法线，$\theta$ 只决定绕该轴的偏航角（Yaw Angle）。设固定工具对齐旋转为 $R_0$，则可写成 $R_{CG}=R_z(\theta)R_0$，再通过手眼外参得到基座位姿。若相机光轴与桌面法线不平行，直接把 $R_z(\theta)$ 当作机器人末端旋转会产生系统性倾斜。
+各分量的含义为：
 
-矩形宽度也要从像素换成物理开口。局部近似下：
+- $(u,v)\in[0,W_I)\times[0,H_I)$ 是抓取中心的像素坐标；
+- $\theta\in[-\pi/2,\pi/2)$ 是夹爪闭合轴相对图像横轴的角度；
+- $w_{\mathrm{px}}\in\mathbb R_{>0}$ 是闭合轴方向上的像素开口；
+- $l_{\mathrm{px}}\in\mathbb R_{>0}$ 是与闭合轴垂直的夹指覆盖长度；
+- $q\in[0,1]$ 是由具体标签定义决定的质量分数。
 
-$$
-w_{\text{meter}}\approx \frac{z}{f_x}w_{\text{pixel}}.
-$$
+可以把它想象成一张俯视图上的夹爪 footprint：$w_{\mathrm{px}}$ 沿着两指相互靠近和分离的方向，表示两指之间需要留出的距离；$l_{\mathrm{px}}$ 沿着夹指本身延伸的方向，表示抓取矩形覆盖的接触区域长度。二者都是像素长度，但物理作用不同：$w_{\mathrm{px}}$ 主要决定夹爪要张开多大，$l_{\mathrm{px}}$ 主要参与标注区域和碰撞覆盖范围的表达。不同论文可能交换矩形的长、短边命名，因此必须以“闭合轴”和“垂直方向”的定义为准，而不能只看变量名。
 
-因此，相同像素宽度在不同深度对应不同夹爪开口。实现中还会乘以安全系数并截断到硬件范围；中心深度、宽度换算和夹爪指尖偏置共同决定最终命令，而不仅是网络预测的五个矩形参数。
+不同数据集和代码库可能把 $\theta$ 定义为矩形长边方向，而不是闭合轴方向，两者会相差 $\pi/2$。实现时必须固定一个约定，并在数据读取、数据增强、网络解码和机器人控制中始终使用同一约定。
 
----
-
-## 候选分类：先提议，再打分（Proposal and Classification）
-
-Lenz 等人的方法将抓取检测拆成两级级联网络（Cascaded Network）[2]：
-
-1. 第一阶段快速扫描大量位置和角度，排除明显不可抓区域；
-2. 第二阶段使用更大的网络精细评价少量高分候选；
-3. 最终将最高分矩形转换成机器人抓取。
-
-这类方法的核心变量是候选覆盖率（Proposal Coverage）。如果候选生成阶段没有提出正确位置，后续分类器无法补救；如果扫描过密，旋转和尺度枚举会显著增加计算。
-
-两级分类器的候选通常来自位置、尺度与角度的离散网格。第一阶段使用较小感受野（Receptive Field）快速过滤，第二阶段将保留矩形对应的 RGB-D 区域旋转、裁剪到规范尺寸后精排。训练时正负样本数量高度不平衡：大多数滑窗都不可抓，因此需要负样本下采样（Negative-Sample Downsampling）或困难负样本挖掘（Hard-Negative Mining）。否则，一个总是预测“不可抓”的分类器也能获得很高的普通分类准确率。
-
-候选角度步长为 $\Delta\theta$ 时，最坏量化误差约为 $\Delta\theta/2$；尺度和位置网格也有同样的量化上限。增加网格密度降低离散误差，却按位置数 $\times$ 角度数 $\times$ 尺度数放大候选量，这正是级联结构存在的原因。
-
-候选分类的优势是容易结合先验和多阶段特征，也可以输出多个抓取。缺点是推理成本随搜索预算增加，而且候选分布本身会影响最终结果。
-
----
-
-## 直接回归：一次预测完整矩形（Direct Regression）
-
-Redmon 和 Angelova 将抓取矩形直接回归（Direct Regression）为位置、角度和尺度 [3]。其 MultiGrasp 版本能够在同一图像中预测多个候选。论文在 Cornell 的 885 张 RGB-D 图像、240 个物体上报告 88% 检测准确率和每秒 13 帧（Frames Per Second, FPS）；这些数字对应论文的矩形匹配协议和图形处理器（Graphics Processing Unit, GPU）配置，不是物理抓取成功率。
-
-直接回归避免显式滑窗，但会面对两个问题：
-
-- 同一物体存在多个正确抓取，单一回归目标容易平均不同模式；
-- 角度具有周期性，$\theta$ 与 $\theta+\pi$ 对平行夹爪通常表示等价方向。
-
-后续方法通过多候选输出、离散角度分类、正余弦编码或关键点表示缓解这些歧义。
-
-平行夹爪方向满足 $\theta\equiv\theta+\pi$。若直接最小化 $(\hat\theta-\theta)^2$，标签在 $-\pi/2$ 与 $\pi/2$ 边界附近会产生人为的大误差。常见连续编码预测双角：
+平行夹爪旋转 $180^\circ$ 后，两个夹指交换位置，但抓取几何并未改变，因此：
 
 $$
-a=\cos 2\theta,\qquad b=\sin 2\theta,
+\theta\equiv\theta+\pi.
+$$
+
+这也是为什么平面抓取角通常只保留长度为 $\pi$ 的区间，而不是完整的 $[0,2\pi)$。
+
+### 2.5-D 抓取表示的定义（Definition of 2.5-D Grasp Representation）
+
+仅有矩形还不能确定机器人末端在三维空间中的位置，因为 $(u,v)$ 只是像素坐标。加入中心深度 $z\in\mathbb R_{>0}$ 后，可以写成：
+
+$$
+g_{\mathrm{2.5D}}=(u,v,z,\theta,w_{\mathrm{px}},q;\hat a_C).
+$$
+
+其中 $z$ 的单位通常是米，$\hat a_C\in\mathbb R^3$ 是用相机坐标系表示的单位接近方向。分号表示 $\hat a_C$ 往往由“相机俯视桌面”“夹爪竖直下降”等系统先验固定，而不是由网络自由预测。
+
+这个表示已经可以恢复三维平移、绕接近轴的旋转和夹爪开口，但它仍未在三维旋转群中搜索任意滚转（Roll）、俯仰（Pitch）和偏航（Yaw），所以通常称为 2.5-D 抓取（2.5-D Grasp）。
+
+## 抓取检测首先是一个监督学习问题（Grasp Detection as Supervised Learning）
+
+在写网络结构之前，先把问题写成机器学习可以处理的形式。对第 $n$ 个样本，输入不是一张抽象的“图片”，而是一个有明确维度的张量：
+
+$$
+X^{(n)}\in\mathbb R^{C_{\mathrm{in}}\times H_X\times W_X}.
+$$
+
+其中 $C_{\mathrm{in}}\in\mathbb N$ 是输入通道数：RGB 输入通常为 $3$，单通道深度输入为 $1$，RGB-D 早期融合输入通常为 $4$；$H_X,W_X\in\mathbb N$ 是网络输入的高度和宽度。训练时会把多个这样的样本组成一个批次（Batch）。
+
+标签也不是一个单独的“正确矩形”。一张图像可能有多个可行抓取，所以标签应被理解为一个结构化目标 $Y^{(n)}$，其中包含一个或多个抓取矩形，或者由它们栅格化得到的质量、角度和开口目标图。网络用参数集合 $\vartheta$ 表示从输入到预测的映射：
+
+$$
+\hat Y=F_{\vartheta}(X).
+$$
+
+训练的目标是让预测 $\hat Y$ 与标签 $Y$ 接近。给定训练集 $\mathcal D_{\mathrm{train}}$，目标可以写成：
+
+$$
+\vartheta^*=\underset{\vartheta}{\arg\min}\;
+\frac{1}{|\mathcal D_{\mathrm{train}}|}
+\sum_{(X,Y)\in\mathcal D_{\mathrm{train}}}
+\mathcal L(F_{\vartheta}(X),Y).
+$$
+
+这里 $\mathcal L$ 是损失函数（Loss Function）。训练集（Training Set）用于更新参数，验证集（Validation Set）用于选择模型和阈值，测试集（Test Set）只用于最终报告；如果训练损失下降而验证损失上升，就需要警惕过拟合（Overfitting）。
+
+### 多头输出与任务分解（Multi-Head Prediction and Task Decomposition）
+
+平面抓取至少同时包含“这里能不能抓”“夹爪朝哪个方向闭合”和“夹爪需要张开多宽”三个不同性质的量。把它们全部编码成一个类别会导致角度和开口的信息丢失；把它们直接拼成一个连续向量，又会使角度周期和多解问题变得难以处理。因此，常见做法是让网络共享前面的视觉特征，再使用多个输出头（Prediction Heads）分别预测：
+
+$$
+F_{\vartheta}(X)=
+\left(\hat Q,\hat C,\hat S,\hat W\right).
+$$
+
+其中 $\hat Q\in\mathbb R^{H_O\times W_O}$ 是每个输出位置的抓取质量或可抓取性分数，$\hat C,\hat S\in\mathbb R^{H_O\times W_O}$ 是 $\cos(2\theta)$ 和 $\sin(2\theta)$，$\hat W\in\mathbb R^{H_O\times W_O}$ 是归一化开口。$H_O,W_O\in\mathbb N$ 是输出图的空间尺寸；它们可以等于输入尺寸，也可以是输入尺寸的下采样版本。把四个头沿通道维堆叠后，单个样本的输出可以看成 $\hat Y\in\mathbb R^{4\times H_O\times W_O}$。
+
+这被称为多任务学习（Multi-Task Learning）：多个任务共享一部分参数，但每个任务使用适合自身目标的损失。质量预测通常是分类或有界回归，角度预测是周期变量回归，宽度预测是连续回归。它们不应该被当成完全相同的监督问题。
+
+## CNN 如何把图像变成抓取特征（From Image to Grasp Features）
+
+卷积神经网络（Convolutional Neural Network, CNN）的关键不是把每个像素独立送入全连接层，而是使用同一组局部滤波器（Filter）在整张图像上滑动。这样，网络可以在不同位置识别相似的边缘、纹理和几何结构，同时保留这些结构出现在哪里。
+
+在网络中，图像和中间结果都表示为特征图（Feature Map）。第 $l$ 层特征图可以记为：
+
+$$
+X^{(l)}\in\mathbb R^{C_l\times H_l\times W_l},
+$$
+
+其中 $C_l$ 是通道数，$H_l,W_l$ 是空间尺寸。输入 RGB 图像的通道通常是 $3$；经过卷积后，通道不再直接对应颜色，而是对应网络学到的边缘、纹理、表面方向或更高层视觉模式。
+
+一个卷积层主要由三个设置决定：
+
+- **Kernel Size**：局部滤波器的空间范围，例如 $3\times3$；
+- **Stride**：滤波器每次移动多少像素，步幅大于 $1$ 会降低空间分辨率；
+- **Padding**：是否在边缘补充像素，使输出尺寸保持或接近输入尺寸。
+
+卷积后通常接非线性激活函数，例如 ReLU。多层卷积叠加后，浅层特征倾向于描述边缘和局部深度变化，深层特征则能结合更大的区域判断物体轮廓、凹槽和可接近空间。
+
+单个特征图位置能够看到的原图区域称为感受野（Receptive Field）。下采样会扩大有效感受野、降低计算量，但也会损失精细的位置分辨率。抓取检测因此经常在网络后部使用上采样（Upsampling）或跳跃连接（Skip Connection），把语义信息和局部空间细节重新结合起来。
+
+### Backbone、Head 和全卷积输出
+
+一个典型的抓取检测器可以分为：
+
+1. **Backbone**：通过卷积层提取共享视觉特征 $F\in\mathbb R^{C_F\times H_F\times W_F}$；
+2. **Quality Head**：预测每个位置是否适合抓取；
+3. **Angle Head**：预测双角编码 $\hat C,\hat S$；
+4. **Width Head**：预测归一化开口 $\hat W$；
+5. **Decoder**：把特征恢复到输出分辨率，并生成 $\hat Q,\hat C,\hat S,\hat W$。
+
+全卷积网络（Fully Convolutional Network, FCN）不在末端把整张图压缩成一个向量，而是保留特征图的空间布局：
+
+$$
+F_{\vartheta}(X)=
+\operatorname{Head}_{\vartheta}
+\left(\operatorname{Backbone}_{\vartheta}(X)\right).
+$$
+
+因此，网络可以一次前向传播为许多图像位置同时预测抓取。这就是稠密抓取检测（Dense Grasp Detection）的基础。输出图可以与输入同分辨率，也可以更小；分辨率越低，计算越快，但中心位置和开口尺度的量化误差越明显。后续标签生成和候选解码必须使用同一个输出坐标系。
+
+## 输入模态与预处理（Input Modalities and Preprocessing）
+
+平面抓取并不等于只能使用 RGB。常见输入可以是 RGB、深度或 RGB-D，它们提供的信息不同：
+
+- RGB 图像提供纹理、颜色、物体边界和一定的语义信息；
+- 深度图提供度量尺度、表面起伏和物体相对桌面的高度；
+- RGB-D 融合可以同时利用外观与几何，但必须处理两种模态不同的数值分布和失效方式。
+
+Kumra 和 Kanan 使用独立网络分支提取 RGB 与深度特征，再进行融合，说明“使用哪些模态”和“如何融合模态”都会影响检测结果 [4]。早期融合（Early Fusion）通常把归一化深度作为第四通道，此时 $X\in\mathbb R^{4\times H_X\times W_X}$；后期融合（Late Fusion）分别编码 $X_{\mathrm{rgb}}\in\mathbb R^{3\times H_X\times W_X}$ 和 $X_{\mathrm{d}}\in\mathbb R^{1\times H_X\times W_X}$，再合并特征，参数和计算更多，但更容易保留模态特有的特征。如果额外输入深度有效性掩码，通道数还会相应增加。
+
+以深度输入为例，一个可复现的预处理过程通常包括：
+
+1. 将原始深度统一换算成米；
+2. 把零值、无穷值和超出工作距离的值标记为无效；
+3. 对小空洞进行插值，但同时保留有效性掩码（Validity Mask）；
+4. 围绕工作空间裁剪，并缩放到网络输入尺寸；
+5. 减去有效像素均值或按训练集统计量标准化；
+6. 对深度值进行合理截断，避免极端离群值主导梯度。
+
+记 $\operatorname{wrap}_\pi(\cdot)$ 为把角度按周期 $\pi$ 映射回 $[-\pi/2,\pi/2)$ 的操作。如果训练时把图像旋转 $\delta\in\mathbb R$，所有抓取中心和角度也必须同步变换，角度变为 $\theta'=\operatorname{wrap}_\pi(\theta+\delta)$。如果图像缩放了倍数 $\gamma\in\mathbb R_{>0}$，像素开口也必须变为 $w'_{\mathrm{px}}=\gamma w_{\mathrm{px}}$。只增强图像而不更新抓取标签，会直接制造错误监督。
+
+## 抓取标注到稠密监督目标（From Grasp Annotations to Dense Targets）
+
+Cornell Grasp Dataset 为同一张 RGB-D 图像提供多个正、负抓取矩形；Jacquard 则通过仿真构造约 $54\,000$ 张图像、约 $11\,000$ 个物体和约 $1.1$ 百万个成功抓取位置 [5]。数据集给出的是抓取集合，而不是唯一答案，这是平面抓取训练中最重要的多解性来源。
+
+### 候选分类和直接回归使用什么标签
+
+候选分类方法先生成一个矩形 $R$，再判断它是否与任一正标注匹配。训练标签通常是二值类别，或由矩形匹配程度得到的连续分数。直接回归方法则需要为一个图像位置选择具体回归目标；如果同一位置附近存在多个方向差异很大的正确抓取，随意取平均值可能得到一个不可执行的中间方向。
+
+### 稠密方法如何把矩形栅格化
+
+设网络输出高度和宽度为 $H_O,W_O\in\mathbb N$。对每个输出像素，稠密方法可以预测四张图：
+
+$$
+\hat Q,\hat C,\hat S,\hat W\in\mathbb R^{H_O\times W_O}.
+$$
+
+其中 $\hat Q$ 是质量图，$\hat C$ 和 $\hat S$ 是双角编码图，$\hat W$ 是归一化开口图。对应监督信号记为 $Q^*,C^*,S^*,W^*\in\mathbb R^{H_O\times W_O}$，正区域掩码记为 $M\in\{0,1\}^{H_O\times W_O}$。
+
+对于第 $j$ 个正抓取矩形，其角度和像素开口分别记为 $\theta_j$ 和 $w_{\mathrm{px},j}$。在该矩形的正区域内写入：
+
+$$
+Q^*_{uv}=1,
 \qquad
-\hat\theta=\frac{1}{2}\operatorname{atan2}(\hat b,\hat a).
-$$
-
-双角把相差 $\pi$ 的两个等价方向映射到同一点，同时避免角度边界不连续。解码前应把 $(\hat a,\hat b)$ 归一化；否则向量模长会无意中混入角度置信度。
-
----
-
-## 更深的视觉表示（Deeper Visual Representation）
-
-Kumra 和 Kanan 使用残差网络（Residual Network, ResNet）分别处理 RGB 与深度，再融合两种特征 [4]。论文报告 89.21% Cornell 准确率，但这个数字仍受数据划分和矩形判定规则约束。
-
-RGB 与深度的作用并不相同：
-
-- RGB 提供纹理、颜色和语义边界；
-- 深度提供表面形状、相对高度和可接近空间；
-- 早期融合（Early Fusion）简单，但两种模态统计差异大；
-- 后期融合（Late Fusion）能保留独立特征，但计算更重。
-
-这条路线提高了二维表示的视觉表达能力，却没有改变接近方向受限这一结构性边界。
-
----
-
-## 稠密抓取图与闭环控制（Dense Grasp Map and Closed-Loop Control）
-
-生成式抓取卷积神经网络（Generative Grasping Convolutional Neural Network, GG-CNN）不再枚举矩形，而是在每个深度像素上预测：
-
-$$
-\mathbf{G}=(Q,\Phi,W),
-$$
-
-其中 $Q$ 是抓取质量图（Grasp Quality Map），$\Phi$ 是角度图（Angle Map），$W$ 是夹爪宽度图（Gripper-Width Map）[6]。最终抓取可从高质量区域直接解码。
-
-稠密输出共享了整幅图像的计算，使控制器能够随着相机或物体运动反复更新抓取。论文报告 19 ms 前向传播、最高 50 Hz 闭环运行，并在其竖直接近协议下报告多组真实抓取结果 [6]。这些结果支持低延迟闭环能力，但不能外推到任意六自由度接近。
-
-稠密训练不是对所有像素一视同仁。典型标注把每个正抓取矩形内部写入质量掩码 $Q^*$，并在正区域监督角度与宽度；背景像素只监督质量。使用掩码 $M$ 后，一个常见的多头损失形式是：
-
-$$
-\mathcal L=
-\lambda_q\lVert Q-Q^*\rVert_2^2
-+\lambda_\theta\lVert M\odot(A-A^*)\rVert_2^2
-+\lambda_w\lVert M\odot(W-W^*)\rVert_2^2,
-$$
-
-其中 $A=(\cos2\theta,\sin2\theta)$。若在背景上也回归角度和宽度，大量没有物理含义的零标签会压过正样本。多个人工抓取矩形重叠时，质量图可以取最大值，角度则需要按局部实例写入或用向量平均，不能直接平均 $\theta$。
-
-推理时通常先平滑质量图并取峰值 $(u^*,v^*)=\arg\max Q$，再读取该像素的角度和宽度。闭环控制不会每帧都从零执行完整抓取，而是把当前峰值变成末端速度或短视界目标；当质量低于阈值、深度失效或峰值跳变过大时停止。控制频率、相机延迟和峰值滤波共同决定闭环稳定性，网络前向时间只是其中一项。
-
-闭环（Closed Loop）是平面方法的重要优势。即使单帧深度存在误差，机器人在接近过程中仍可根据新观测修正 $(x,y,\theta,w)$。相比之下，一个耗时较长的三维生成器若只运行一次，可能无法应对动态目标。
-
----
-
-## 关键点表示（Keypoint Representation）
-
-抓取矩形也可以由关键点（Keypoint）间接表示。几何感知关键点网络（Geometry-Aware Keypoint Network, GKNet）将抓取建模为成对关键点和中心信息 [7]，避免直接回归角度的周期不连续，并可从几何关系恢复矩形方向与开口。
-
-关键点表示的误差结构与矩形不同：角度误差来自点对方向，宽度误差来自点间距离。当目标很小或两个关键点接近时，像素级偏差会被放大；遮挡和对称纹理也可能造成配对错误。
-
----
-
-## 数据集与矩形匹配（Datasets and Rectangle Matching）
-
-### Cornell Grasp Dataset
-
-Cornell 提供真实 RGB-D 图像和多个正负抓取矩形。常见评测使用：
-
-- 图像划分（Image-Wise Split）：同一物体的不同图像可能分布在训练与测试中；
-- 物体划分（Object-Wise Split）：测试物体不出现在训练中；
-- 角度阈值（Angle Threshold）与交并比（Intersection over Union, IoU）共同判断是否命中。
-
-物体划分更接近实例泛化，但两种划分的结果不能混用。矩形与任一人工标注重叠即可算正确，也不代表该姿态无三维碰撞。
-
-常用矩形判据要求同时满足：
-
-$$
-\min\left(|\hat\theta-\theta^*|,\pi-|\hat\theta-\theta^*|\right)<30^\circ,
+C^*_{uv}=\cos(2\theta_j),
 \qquad
-\operatorname{IoU}(\hat R,R^*)>0.25,
+S^*_{uv}=\sin(2\theta_j),
 $$
 
-其中旋转矩形交并比为：
+$$
+W^*_{uv}=\operatorname{clip}
+\left(
+\frac{w_{\mathrm{px},j}}{w_{\mathrm{px},\max}},0,1
+\right),
+\qquad
+M_{uv}=1.
+$$
+
+这里 $w_{\mathrm{px},\max}\in\mathbb R_{>0}$ 是训练时允许的最大像素开口，$\operatorname{clip}(x,0,1)$ 表示把标量 $x$ 截断到区间 $[0,1]$。背景位置只需要监督 $Q^*_{uv}=0$；背景没有唯一正确的角度和开口，因此不应该用大量人为的零角度、零宽度去训练回归头。
+
+GG-CNN 将标注矩形的中心三分之一区域用作夹爪中心的正掩码，并将角度编码为 $\sin(2\theta)$ 与 $\cos(2\theta)$，从而避免 $-\pi/2$ 与 $\pi/2$ 处的标签跳变 [6]。缩小正区域还有一个直观作用：矩形边缘的像素并不一定是安全的夹爪中心。
+
+如果网络输出分辨率低于输入分辨率，矩形中心和端点必须先用同一个几何变换映射到输出网格。非等比例缩放会同时改变角度和开口，不能只给 $u,v,w_{\mathrm{px}}$ 分别乘一个常数；更稳妥的做法是变换矩形四个顶点，再重新计算中心、方向和边长。相应地，$w_{\mathrm{px},\max}$ 必须明确是在输出网格还是输入图像坐标中定义：若在输出网格中定义，解码得到的宽度还要乘以输出到输入的空间尺度，中心坐标也要使用同一尺度恢复。
+
+多个正矩形发生重叠时，一个像素可能对应多个正确方向。实现可以保留离该像素最近的标注、保留质量最高的标注，或使用多峰表示；直接对原始角度做算术平均通常不正确。下面设一幅图像共有 $N_R\in\mathbb N$ 个正抓取矩形。
+
+<Algorithm number={1} title='由抓取矩形生成稠密监督图'>
+  <div slot='input'>
+    正抓取矩形集合 $\{R_j\}_{j=1}^{N_R}$、输出分辨率 $H_O\times W_O$ 和最大像素开口
+    $w_{\mathrm{px},\max}$
+  </div>
+  <div slot='output'>监督图 $Q^*,C^*,S^*,W^*$ 和正区域掩码 $M$</div>
+  <AlgorithmStep>把 $Q^*,C^*,S^*,W^*$ 和 $M$ 初始化为零</AlgorithmStep>
+  <AlgorithmStep keyword='for'>对每个正抓取矩形 $R_j$</AlgorithmStep>
+  <AlgorithmStep indent={1}>将矩形中心区域栅格化为像素集合 $\Omega_j$</AlgorithmStep>
+  <AlgorithmStep indent={1} keyword='for'>对每个 $(u,v)\in\Omega_j$</AlgorithmStep>
+  <AlgorithmStep indent={2}>根据预先确定的冲突规则选择当前标注 $j$</AlgorithmStep>
+  <AlgorithmStep indent={2}>写入 $Q^*_{uv}=1$ 和 $M_{uv}=1$</AlgorithmStep>
+  <AlgorithmStep indent={2}>写入 $C^*_{uv}=\cos(2\theta_j)$、$S^*_{uv}=\sin(2\theta_j)$</AlgorithmStep>
+  <AlgorithmStep indent={2}>写入归一化开口 $W^*_{uv}$</AlgorithmStep>
+  <AlgorithmStep indent={1} keyword='end for' />
+  <AlgorithmStep keyword='end for' />
+  <AlgorithmStep keyword='return'>$Q^*,C^*,S^*,W^*,M$</AlgorithmStep>
+</Algorithm>
+
+## 抓取检测范式与输出形式（Detection Paradigms and Output Representations）
+
+### 候选生成与分类（Proposal Generation and Classification）
+
+Jiang 等人先用快速特征把数千万个潜在矩形缩减到约百个，再用更复杂的特征精排 [1]；Lenz 等人随后使用两级级联网络（Cascaded Network）完成类似的粗筛和精排 [2]。其基本思想并不复杂：
+
+1. 在图像位置、角度、尺度和开口上离散采样；
+2. 将每个候选区域旋转、裁剪到统一方向和尺寸；
+3. 用快速分类器删除明显错误的候选；
+4. 用更强的分类器对剩余候选打分；
+5. 对近重复矩形做非极大值抑制（Non-Maximum Suppression, NMS）。
+
+若位置、角度和开口分别使用 $N_u,N_v,N_\theta,N_w\in\mathbb N$ 个网格值，候选总数 $N_{\mathrm{cand}}\in\mathbb N$ 为：
 
 $$
-\operatorname{IoU}(A,B)=\frac{|A\cap B|}{|A\cup B|}.
+N_{\mathrm{cand}}=N_uN_vN_\theta N_w.
 $$
 
-只要预测与任意一个正标注匹配就记为成功，因此它测量“是否命中标注集合中的一个模式”，而不是预测集合的完整覆盖率。角度正确但宽度略偏的候选可能因 IoU 失败；二维重叠通过的矩形则仍可能在真实夹爪厚度、接近路径或桌面碰撞上失败。
+角度网格步长为 $\Delta\theta\in\mathbb R_{>0}$ 时，最坏量化误差约为 $\Delta\theta/2$。缩小步长可以提高覆盖率，但候选数量会成倍增加。候选分类器再准确，也无法恢复采样器从未提出的抓取。
 
-### Jacquard
+### 抓取矩形直接回归（Direct Grasp Rectangle Regression）
 
-Jacquard 使用合成 RGB-D/深度图扩大平面抓取监督 [5]。合成数据便于覆盖姿态与物体，但渲染、噪声、材质和真实相机之间存在域差距（Domain Gap）。数据规模与现实真实性是两个独立维度。
+Redmon 和 Angelova 直接从整幅图像回归抓取矩形，MultiGrasp 版本进一步输出多个候选 [3]。这种方法省去了显式滑窗，但需要处理“同一物体有多个正确答案”的问题：如果损失函数让网络在多个方向之间取平均，预测结果可能恰好落在所有正确模式之间。
 
----
+角度的 $\pi$ 周期也不能直接使用普通平方误差。令角度编码 $a,b\in[-1,1]$ 为：
 
-## 平面表示的能力边界（Capability Boundary）
+$$
+a=\cos(2\theta),
+\qquad
+b=\sin(2\theta).
+$$
 
-| 能力               | 平面/2.5-D 方法的表现    |
-| :----------------- | :----------------------- |
-| 快速定位与角度预测 | 强，输出低维且可稠密计算 |
-| 竖直桌面抓取       | 强，和相机/桌面先验匹配  |
-| 动态闭环修正       | 强，低延迟方法可高频运行 |
-| 任意接近方向       | 弱，俯仰与滚转通常未建模 |
-| 三维夹爪/手腕碰撞  | 间接，需要额外几何模块   |
-| 遮挡背面接触       | 弱，矩形不表示隐藏表面   |
-| 跨机器人可达性     | 不直接表示               |
+网络预测 $\hat a,\hat b\in\mathbb R$ 后，通过：
 
-平面抓取并不是被六自由度方法简单淘汰的旧表示。对于固定相机、桌面、竖直接近和高频控制，它仍然是高效接口。真正需要区分的是：任务是否允许固定接近方向，以及评价指标是否覆盖了系统实际面对的碰撞和执行约束。
+$$
+\hat\theta=\frac{1}{2}\operatorname{atan2}(\hat b,\hat a)
+$$
+
+恢复角度。这样，$\theta$ 与 $\theta+\pi$ 会映射到同一个编码，角度区间边界也不再产生人为的大误差。
+
+这里 $\operatorname{atan2}(y,x)$ 表示根据二维向量 $(x,y)$ 的象限返回角度，而不是只计算普通的 $\arctan(y/x)$。
+
+### 稠密抓取图预测（Dense Grasp Map Prediction）
+
+生成式抓取卷积神经网络（Generative Grasping Convolutional Neural Network, GG-CNN）把深度图直接映射为质量、角度和开口图 [6]。与“生成很多矩形再逐个分类”相比，稠密预测只进行一次共享卷积计算，适合实时和闭环控制。
+
+设预处理后的输入张量为 $X\in\mathbb R^{C_{\mathrm{in}}\times H_X\times W_X}$，其中 $C_{\mathrm{in}},H_X,W_X\in\mathbb N$ 分别是输入通道数、高度和宽度；网络参数集合记为 $\vartheta$。稠密预测器可写成：
+
+$$
+F_\vartheta(X)=(\hat Q,\hat C,\hat S,\hat W).
+$$
+
+原始 GG-CNN 使用 $300\times300$ 深度输入和全卷积网络，输出与图像对齐的抓取图，并报告约 $19\,\mathrm{ms}$ 的完整感知流水线以及最高 $50\,\mathrm{Hz}$ 的闭环运行 [6]。这些数字说明低延迟设计的价值，但只适用于论文的硬件、相机和竖直接近协议。
+
+### 基于关键点的抓取表示（Keypoint-Based Grasp Representation）
+
+关键点表示（Keypoint Representation）不直接回归矩形角度。设左右夹指对应的二维关键点为 $k_L,k_R\in\mathbb R^2$，则中心、开口和闭合轴角度可以恢复为：
+
+$$
+\begin{bmatrix}u\\v\end{bmatrix}
+=\frac{k_L+k_R}{2},
+\qquad
+w_{\mathrm{px}}=\lVert k_R-k_L\rVert_2,
+$$
+
+$$
+\theta=\operatorname{atan2}
+\left(
+(k_R-k_L)_y,
+(k_R-k_L)_x
+\right).
+$$
+
+其中下标 $x$ 和 $y$ 分别表示二维向量的横、纵分量。GKNet 使用成对关键点和中心信息检测抓取，并通过关联机制判断哪些左右关键点属于同一个候选 [7]。这种表示绕开了直接角度回归，但引入了新的问题：关键点配对错误会生成跨物体抓取，小物体上的一两个像素偏差也会显著放大角度误差。
+
+## 稠密抓取检测的训练目标与优化（Training Objective and Optimization）
+
+设所有输出像素组成集合 $\Omega$，正区域像素集合为：
+
+$$
+\Omega_+=\{(u,v)\in\Omega\mid M_{uv}=1\}.
+$$
+
+质量头可以使用均方误差或二元交叉熵，记其逐像素损失为 $\ell_q(\hat Q_{uv},Q^*_{uv})\in\mathbb R_{\ge0}$。角度和宽度只在 $\Omega_+$ 上回归。令 $\lambda_q,\lambda_a,\lambda_w\in\mathbb R_{>0}$ 为损失权重，总损失记为 $\mathcal L\in\mathbb R_{\ge0}$。一个清晰的多头损失写法是：
+
+$$
+\begin{aligned}
+\mathcal L
+=&\ \frac{\lambda_q}{|\Omega|}
+\sum_{(u,v)\in\Omega}
+\ell_q(\hat Q_{uv},Q^*_{uv})\\
+&+\frac{1}{\max(1,|\Omega_+|)}
+\sum_{(u,v)\in\Omega_+}
+\Bigl[
+\lambda_a(\hat C_{uv}-C^*_{uv})^2
++\lambda_a(\hat S_{uv}-S^*_{uv})^2
++\lambda_w(\hat W_{uv}-W^*_{uv})^2
+\Bigr].
+\end{aligned}
+$$
+
+这个掩码结构解决了一个常见错误：若在背景像素上也回归角度和开口，数量庞大的背景零标签会压过真正有意义的正抓取监督。
+
+质量图仍然可能有严重的正负不平衡。可以采用正类加权二元交叉熵、焦点损失（Focal Loss）或正负像素采样，但权重必须在验证集上固定，不能根据测试集调节。
+
+训练时至少应监控三类量：
+
+- 质量图是否把高分放在物体可抓区域，而不是桌面或深度空洞；
+- 正区域上的角度误差是否按 $\pi$ 周期计算；
+- 解码后的物理开口是否落在真实夹爪范围内。
+
+只查看总损失下降，很难发现角度通道塌缩、宽度尺度错误或质量图全部接近零等问题。
+
+### 输出层和损失如何配合
+
+网络最后一层的原始输出（Logits）通常还要经过适合任务的激活：质量和宽度头常被限制到 $(0,1)$，角度头则保留两个连续通道，之后用它们的方向计算 $\operatorname{atan2}$。质量标签是二值“是否可抓”时，可以使用二元交叉熵（Binary Cross-Entropy, BCE）；质量标签是连续分数时，可以使用均方误差（Mean Squared Error, MSE）。损失形式应与标签含义匹配。
+
+### 批训练与参数更新（Batch Training and Parameter Updates）
+
+训练一个批次时，网络依次执行前向传播（Forward Pass）、损失计算、反向传播（Backpropagation）和参数更新。以下流程把数据增强、标签生成、训练和验证放在同一条链路中：
+
+<Algorithm number={2} title='训练一个稠密平面抓取检测器'>
+  <div slot='input'>训练集 $\mathcal D_{\mathrm{train}}$、验证集 $\mathcal D_{\mathrm{val}}$、初始参数 $\vartheta$、学习率 $\eta$ 和训练轮数 $N_{\mathrm{epoch}}$</div>
+  <div slot='output'>验证集上表现最好的网络参数 $\vartheta^*$</div>
+  <AlgorithmStep keyword='for'>对每个训练轮次 $e=1,\ldots,N_{\mathrm{epoch}}$</AlgorithmStep>
+  <AlgorithmStep indent={1} keyword='for'>从 $\mathcal D_{\mathrm{train}}$ 取一个批次 $(X,Y)$</AlgorithmStep>
+  <AlgorithmStep indent={2}>同步变换输入图像和抓取标签，并生成 $Q^*,C^*,S^*,W^*,M$</AlgorithmStep>
+  <AlgorithmStep indent={2}>前向传播：$(\hat Q,\hat C,\hat S,\hat W)=F_{\vartheta}(X)$</AlgorithmStep>
+  <AlgorithmStep indent={2}>使用掩码损失计算 $\mathcal L$，只在 $M_{uv}=1$ 的位置回归角度和宽度</AlgorithmStep>
+  <AlgorithmStep indent={2}>反向传播并计算 $\nabla_{\vartheta}\mathcal L$</AlgorithmStep>
+  <AlgorithmStep indent={2}>用优化器更新 $\vartheta$</AlgorithmStep>
+  <AlgorithmStep indent={1} keyword='end for' />
+  <AlgorithmStep indent={1}>在验证集上关闭梯度，解码候选并记录损失、矩形指标和质量阈值下的结果</AlgorithmStep>
+  <AlgorithmStep indent={1}>保存验证集指标最好的参数，而不是默认保存最后一个轮次的参数</AlgorithmStep>
+  <AlgorithmStep keyword='end for' />
+  <AlgorithmStep keyword='return'>验证集选择的 $\vartheta^*$</AlgorithmStep>
+</Algorithm>
+
+这个流程中，物理抓取执行通常不在反向传播路径内。训练标签来自数据集或成功抓取记录，网络先学习图像到抓取表示的映射；深度反投影、碰撞检查和机器人执行主要发生在推理后的后处理阶段。若要让网络直接学习执行成功概率，就需要额外的真实或仿真执行数据，以及与执行结果对应的损失设计，不能把离线矩形标签自动等同于真实成功率。
+
+## 稠密输出解码与候选生成（Dense Output Decoding and Candidate Generation）
+
+网络输出四张图以后，不能简单取质量图最大像素就结束。一个可执行的推理过程通常包括：
+
+1. 用有效深度掩码和机器人工作空间掩码删除无效像素；
+2. 对质量图做轻度高斯平滑，降低单像素噪声；
+3. 找局部极大值，而不是只保留全局最大值；
+4. 对位置接近、角度相近的候选做 NMS；
+5. 在峰值处读取双角编码和归一化开口；
+6. 反投影为 2.5-D 抓取；
+7. 检查夹爪体积、桌面碰撞、逆运动学和接近轨迹。
+
+设局部峰值共有 $N_P\in\mathbb N$ 个，并记第 $k$ 个峰值为 $(u_k,v_k)$，其中 $k=1,\ldots,N_P$。第 $k$ 个候选的角度和像素开口解码为：
+
+$$
+\theta_k=\frac{1}{2}
+\operatorname{atan2}
+(\hat S_{u_kv_k},\hat C_{u_kv_k}),
+$$
+
+$$
+w_{\mathrm{px},k}
+=w_{\mathrm{px},\max}\hat W_{u_kv_k}.
+$$
+
+如果 $(\hat C_{u_kv_k},\hat S_{u_kv_k})$ 的模长接近零，说明网络没有给出稳定方向，该候选应降低分数或直接丢弃。NMS 也应同时考虑位置和 $\pi$ 周期角度，否则同一物理抓取可能以 $\theta$ 与 $\theta+\pi$ 重复出现。下面设质量阈值为 $\tau_q\in[0,1]$，最多继续检查 $N_{\max}\in\mathbb N$ 个候选。
+
+<Algorithm number={3} title='从稠密抓取图生成可执行候选'>
+  <div slot='input'>
+    预测图 $\hat Q,\hat C,\hat S,\hat W$、深度图 $D$、质量阈值 $\tau_q$、最大候选数
+    $N_{\max}$ 和相机/机器人标定参数
+  </div>
+  <div slot='output'>按执行分数排序的 2.5-D 抓取候选</div>
+  <AlgorithmStep>使用有效深度和工作空间掩码过滤 $\hat Q$</AlgorithmStep>
+  <AlgorithmStep>对质量图平滑并提取所有满足 $\hat Q_{uv}\ge\tau_q$ 的局部峰值</AlgorithmStep>
+  <AlgorithmStep>按质量排序，并在位置与周期角度空间执行 NMS</AlgorithmStep>
+  <AlgorithmStep keyword='for'>对前 $\min(N_P,N_{\max})$ 个保留峰值 $(u_k,v_k)$</AlgorithmStep>
+  <AlgorithmStep indent={1}>解码 $\theta_k$ 和 $w_{\mathrm{px},k}$</AlgorithmStep>
+  <AlgorithmStep indent={1}>从局部有效深度估计 $z_k$</AlgorithmStep>
+  <AlgorithmStep indent={1}>反投影中心与开口，得到 2.5-D 抓取</AlgorithmStep>
+  <AlgorithmStep indent={1}>检查夹爪宽度、三维碰撞、逆运动学和接近轨迹</AlgorithmStep>
+  <AlgorithmStep indent={1} keyword='if'>候选通过全部检查</AlgorithmStep>
+  <AlgorithmStep indent={2}>加入可执行候选集合</AlgorithmStep>
+  <AlgorithmStep indent={1} keyword='end if' />
+  <AlgorithmStep keyword='end for' />
+  <AlgorithmStep keyword='return'>按网络质量与执行余量联合排序后的候选</AlgorithmStep>
+</Algorithm>
+
+### 网络置信度与执行可行性排序（Confidence and Executability Ranking）
+
+网络分数通常只反映训练标签。真实系统还会使用独立的执行特征重新排序，例如：
+
+- 夹爪与桌面的最小距离；
+- 深度邻域中的有效像素比例；
+- 抓取中心到图像边界的距离；
+- 机械臂逆运动学余量；
+- 接近轨迹长度；
+- 候选在连续多帧中的稳定程度。
+
+因此，最终分数可以是网络质量与执行余量的组合，但每一项都必须在验证阶段固定。把失败候选过滤掉以后再报告“网络准确率”，会混淆检测器本身和整个机器人流水线的贡献。
+
+## 网络输出如何进入机器人执行（From Network Output to Robot Execution）
+
+到这里，网络已经给出了图像坐标中的候选；物理转换是把它接入机器人系统所需的接口，而不是训练网络的主体。尤其要区分两个长度：$w_{\mathrm{px}}$ 是需要换算成夹爪实际开口的量，$l_{\mathrm{px}}$ 通常只描述矩形在夹指方向上的覆盖范围，用于标签区域、几何检查或评价，并不直接等于夹爪的张开宽度。
+
+### 读取深度并恢复三维中心
+
+设深度图为 $D\in\mathbb R^{H_I\times W_I}$，$D(v,u)$ 表示像素 $(u,v)$ 的度量深度。由于单个像素可能是空洞或离群值，可以在半径为 $r\in\mathbb N$ 的邻域 $\mathcal N_r(u,v)$ 内取有效深度中位数：
+
+$$
+z=\operatorname{median}
+\left\{
+D(y,x)\mid(x,y)\in\mathcal N_r(u,v),\ D(y,x)>0
+\right\}.
+$$
+
+如果没有有效值，应丢弃候选。设相机内参矩阵为 $K\in\mathbb R^{3\times3}$，齐次像素向量为 $\tilde s=(u,v,1)^{\mathsf T}\in\mathbb R^3$，则中心在相机坐标系中的三维位置 $p_C\in\mathbb R^3$ 为：
+
+$$
+p_C=zK^{-1}\tilde s.
+$$
+
+若内参由焦距 $f_x,f_y\in\mathbb R_{>0}$ 和主点 $c_x,c_y\in\mathbb R$ 给出，则：
+
+$$
+p_C=
+\begin{bmatrix}
+(u-c_x)z/f_x\\
+(v-c_y)z/f_y\\
+z
+\end{bmatrix}.
+$$
+
+### 把像素开口换成物理开口
+
+对于闭合轴角度 $\theta$，二维单位方向为 $e_\theta=(\cos\theta,\sin\theta)^{\mathsf T}\in\mathbb R^2$。开口两端的像素位置为：
+
+$$
+s_\pm=
+\begin{bmatrix}u\\v\end{bmatrix}
+\pm\frac{w_{\mathrm{px}}}{2}e_\theta.
+$$
+
+将两个端点按同一个深度 $z$ 反投影为 $P_+,P_-\in\mathbb R^3$：
+
+$$
+P_\pm=zK^{-1}
+\begin{bmatrix}
+(s_\pm)_x\\
+(s_\pm)_y\\
+1
+\end{bmatrix},
+\qquad
+w_{\mathrm m}=\lVert P_+-P_-\rVert_2.
+$$
+
+其中 $w_{\mathrm m}\in\mathbb R_{>0}$ 是物理开口，最终还要满足夹爪的硬件范围 $[w_{\min},w_{\max}]$。直接使用 $zw_{\mathrm{px}}/f_x$ 只在视场局部、方向和内参满足额外近似时成立；端点反投影更容易检查单位和坐标系是否一致。
+
+### 构造位姿并执行可行性检查
+
+在相机光轴与固定接近方向平行的俯视配置中，闭合轴可以先写成：
+
+$$
+\bar c_C=
+\begin{bmatrix}
+\cos\theta/f_x\\
+\sin\theta/f_y\\
+0
+\end{bmatrix}\in\mathbb R^3,
+\qquad
+c_C=\frac{\bar c_C}{\lVert\bar c_C\rVert_2}.
+$$
+
+给定单位接近方向 $a_C\in\mathbb R^3$，令 $b_C=a_C\times c_C\in\mathbb R^3$，在固定工具轴约定下构造：
+
+$$
+R_{CG}=\begin{bmatrix}c_C&b_C&a_C\end{bmatrix}\in SO(3).
+$$
+
+若 $T_{BC}\in SE(3)$ 表示相机坐标系到机器人基座坐标系的外参，则：
+
+$$
+T_{CG}=\begin{bmatrix}R_{CG}&p_C\\\mathbf 0_{1\times3}&1\end{bmatrix}\in SE(3),
+\qquad
+T_{BG}=T_{BC}T_{CG}.
+$$
+
+最后还需要检查夹爪宽度、指尖和桌面碰撞、逆运动学、预抓取位姿以及接近轨迹。通过这些检查的候选，才会被转换为机器人控制器的目标；网络质量高并不意味着候选一定可达或一定安全。
+
+<Algorithm number={4} title='将网络候选解码为机器人执行命令'>
+  <div slot='input'>峰值 $(u,v)$、$\theta$、$w_{\mathrm{px}}$、深度图 $D$、相机内参 $K$、手眼外参 $T_{BC}$、接近方向 $a_C$ 和夹爪开口范围</div>
+  <div slot='output'>通过几何和机器人检查的预抓取位姿，或“候选无效”</div>
+  <AlgorithmStep>在候选邻域内取有效深度中位数 $z$</AlgorithmStep>
+  <AlgorithmStep keyword='if'>不存在有效深度</AlgorithmStep>
+  <AlgorithmStep indent={1} keyword='return'>候选无效</AlgorithmStep>
+  <AlgorithmStep keyword='end if' />
+  <AlgorithmStep>由 $p_C=zK^{-1}(u,v,1)^{\mathsf T}$ 恢复三维中心</AlgorithmStep>
+  <AlgorithmStep>反投影开口两端并计算 $w_{\mathrm m}$</AlgorithmStep>
+  <AlgorithmStep keyword='if'>$w_{\mathrm m}\notin[w_{\min},w_{\max}]$</AlgorithmStep>
+  <AlgorithmStep indent={1} keyword='return'>候选无效</AlgorithmStep>
+  <AlgorithmStep keyword='end if' />
+  <AlgorithmStep>由 $\theta$、$a_C$ 和工具轴约定构造 $R_{CG}$</AlgorithmStep>
+  <AlgorithmStep>计算 $T_{BG}=T_{BC}T_{CG}$ 及预抓取位姿</AlgorithmStep>
+  <AlgorithmStep>检查碰撞、逆运动学和接近轨迹</AlgorithmStep>
+  <AlgorithmStep keyword='return'>通过检查的机器人命令，否则返回候选无效</AlgorithmStep>
+</Algorithm>
+
+## 闭环控制与时序更新（Closed-Loop Control and Temporal Updates）
+
+稠密平面检测的一个重要优势是可以高频重算。开环系统在初始帧预测一次抓取，然后完全依赖标定和控制精度；闭环系统则在夹爪接近过程中重复执行“观测—预测—解码—修正”。
+
+实际闭环不能每帧都无条件跳到新的最高峰，否则相邻候选之间的分数抖动会导致机械臂来回摆动。常见实现会：
+
+1. 在位置、角度和宽度上跟踪与上一帧最接近的候选；
+2. 对目标位置和角度做低通滤波；
+3. 将目标差转换为速度命令或短时域位姿增量；
+4. 当质量低于阈值、峰值跳变过大或深度失效时停止；
+5. 当相机进入最小可靠测距范围后冻结视觉目标，再完成最后一段闭合。
+
+GG-CNN 的实验说明了低延迟抓取图对动态目标和闭环修正的价值 [6]。不过，网络前向频率不等于控制频率：图像采集、深度处理、坐标变换、通信和机器人控制器都会贡献延迟。
+
+## 数据集与基准评测协议（Datasets and Benchmark Protocols）
+
+平面抓取基准需要同时说明数据集、抓取标注、数据划分和评价指标。它们衡量的不是通用目标检测中的物体类别或边界框，而是预测的平行夹爪抓取是否接近一个可行的抓取矩形。
+
+### 任务输入与抓取标注（Task Inputs and Grasp Annotations）
+
+Cornell 和 Jacquard 都围绕平面抓取表示组织数据。输入通常包含 RGB、深度或 RGB-D 图像；输出是一个或多个旋转抓取矩形：
+
+$$
+R=(u,v,\theta,w_{\mathrm{px}},l_{\mathrm{px}}).
+$$
+
+同一物体可能存在多个可行抓取，因此一张图像对应的是正抓取集合 $\mathcal R^*=\{R_j^*\}$，而不是唯一的目标框。评测时，只要预测矩形与其中一个正标注足够接近，通常就可以视为匹配成功。这一点与 COCO 中“检测某个物体实例的边界框”不同。
+
+### Cornell Grasp Dataset（Cornell 抓取数据集）
+
+Cornell Grasp Dataset 包含 885 张 RGB-D 图像和 240 个物体，提供人工标注的旋转抓取矩形 [1]。它适合验证平面抓取表示、候选分类、直接回归和稠密预测等方法，但规模相对较小，结果容易受到数据划分和数据增强策略影响。
+
+常见划分包括：
+
+- **Image-Wise Split**：按图像划分，同一物体的不同视图可能同时出现在训练集和测试集；
+- **Object-Wise Split**：按物体实例划分，测试物体不会出现在训练集。
+
+Object-Wise Split 更能反映物体实例泛化能力。两种划分不能混合比较，论文报告结果时应明确使用的划分协议。
+
+### Jacquard Dataset（Jacquard 抓取数据集）
+
+Jacquard 是面向大规模平面抓取检测的仿真 RGB-D 数据集，包含约 $54\,000$ 张图像、约 $11\,000$ 个物体和约 $1.1$ 百万个抓取标注 [5]。相较 Cornell，它提供了更大的物体和抓取覆盖范围，适合训练全卷积和稠密抓取检测器。
+
+Jacquard 的抓取数据来自仿真生成和仿真评估，因此可以用 Simulated Grasp Trial（SGT，仿真抓取试验）补充矩形几何指标。它的优势是规模大、标注成本低、可以批量测试抓取候选；局限是渲染外观、深度噪声、接触模型和真实夹爪之间存在 Synthetic-to-Real Gap（仿真到真实域差距）。在 Jacquard 上取得较高分数，不能直接等同于真实机器人成功率。
+
+### 数据划分与预处理约束（Splits and Preprocessing Protocols）
+
+训练集、验证集和测试集应在数据增强之前确定。旋转、裁剪和缩放后的样本仍然来自同一原始图像，不能让它们跨越训练集和测试集边界，否则会造成数据泄漏（Data Leakage）。
+
+同时需要固定：
+
+- RGB、深度和抓取标注是否使用相同的裁剪、缩放和旋转；
+- 输出抓取矩形是在输入图像坐标还是输出特征图坐标中评价；
+- 是否采用 Image-Wise Split、Object-Wise Split 或数据集规定的官方划分；
+- 质量阈值、候选数量和 NMS 是否在验证集上确定。
+
+### 旋转抓取矩形指标（Rotated Grasp Rectangle Metrics）
+
+设预测矩形为 $\hat R$，正标注矩形为 $R_j^*$，二者角度都映射到 $[-\pi/2,\pi/2)$。由于平行夹爪具有 $\pi$ 周期，周期角度误差定义为：
+
+$$
+\Delta_\pi(\hat\theta,\theta_j^*)
+=\min\left(
+|\hat\theta-\theta_j^*|,
+\pi-|\hat\theta-\theta_j^*|
+\right).
+$$
+
+旋转矩形交并比（Intersection over Union, IoU）为：
+
+$$
+\operatorname{IoU}(\hat R,R_j^*)
+=\frac{|\hat R\cap R_j^*|}{|\hat R\cup R_j^*|}.
+$$
+
+常见的矩形检测判据要求预测至少与一个正标注同时满足：
+
+$$
+\Delta_\pi(\hat\theta,\theta_j^*)<30^\circ,
+\qquad
+\operatorname{IoU}(\hat R,R_j^*)>0.25.
+$$
+
+旋转 IoU 必须根据旋转矩形的多边形交集计算，不能用轴对齐外接框代替，否则会高估重叠程度。该指标衡量的是预测矩形与标注集合的几何接近程度，不是物理抓取成功。
+
+### 评测证据的层级（Evidence Levels）
+
+平面抓取结果应区分三个层级：
+
+1. **矩形检测指标**：预测是否接近一个正抓取标注；
+2. **仿真抓取成功率**：候选在碰撞、接触和摩擦模型下是否成功；
+3. **真实机器人成功率**：候选经过深度恢复、坐标变换、运动规划和真实接触后是否成功。
+
+Jacquard 使用 SGT 说明了第二层证据的价值，但仿真成功仍然不能替代真实机器人实验。一个通过矩形判据的预测，仍可能因为深度无效、物理开口超出硬件范围、夹爪碰撞桌面、没有逆运动学解或抬升时滑落而失败。
+
+## 系统实现模块与日志（System Modules and Logging）
+
+一个教学用途的平面抓取系统至少应拆成下面六个模块：
+
+1. **数据模块**：读取 RGB-D、内参、抓取矩形和训练/测试划分；
+2. **标签模块**：同步完成裁剪、旋转、缩放和稠密标签栅格化；
+3. **网络模块**：输出质量、双角编码和归一化宽度；
+4. **解码模块**：提取峰值、执行 NMS，并恢复矩形候选；
+5. **几何模块**：读取深度、反投影、换算开口并完成手眼变换；
+6. **执行模块**：碰撞、逆运动学、预抓取轨迹、闭合、抬升和失败恢复。
+
+训练阶段可以只运行前三个模块，但声称系统能够“机器人抓取”时，后三个模块不能省略。日志中也应分别记录：网络原始候选、几何过滤原因、规划失败原因和最终执行结果。否则，抓取失败时无法判断问题来自感知、标定、碰撞模型、运动规划还是夹爪接触。
+
+## 平面与 2.5-D 方法的能力边界（Capability Boundary）
+
+| 能力               | 平面/2.5-D 方法的表现 | 主要原因                         |
+| :----------------- | :-------------------- | :------------------------------- |
+| 竖直桌面抓取       | 强                    | 固定接近方向与任务先验一致       |
+| 实时稠密预测       | 强                    | 输出空间低维，整图共享卷积计算   |
+| 动态闭环修正       | 强                    | 可以高频更新中心、角度和开口     |
+| 任意俯仰和滚转     | 弱                    | 网络通常不搜索完整 $SO(3)$       |
+| 遮挡背面的接触     | 弱                    | 单幅图像矩形不表示隐藏几何       |
+| 手腕和夹爪三维碰撞 | 间接                  | 必须依赖额外三维几何模块         |
+| 机器人可达性       | 不直接表示            | 图像空间标签不了解机械臂关节状态 |
+
+平面抓取不是被 6-DoF 方法淘汰的旧接口。在固定相机、桌面、竖直接近和实时控制场景中，它仍然具有计算简单、数据接口清晰和闭环频率高的优势。真正需要确认的是：任务是否允许固定接近方向，以及评价是否覆盖了最终机器人面对的深度、碰撞、可达性和执行误差。
+
+## 小结（Summary）
+
+平面与 2.5-D 抓取检测可以按一条完整链路理解：
+
+$$
+\text{RGB / Depth}
+\rightarrow
+\text{Grasp Labels}
+\rightarrow
+\text{Quality, Angle, Width Maps}
+\rightarrow
+\text{2-D Candidates}
+\rightarrow
+\text{2.5-D Poses}
+\rightarrow
+\text{Feasibility Checks}
+\rightarrow
+\text{Robot Execution}.
+$$
+
+旋转矩形只是这条链路的中间表示。要把原理落实为系统，需要同时正确处理角度周期、像素宽度与物理宽度、无效深度、相机内外参、候选去重、三维碰撞、逆运动学和接近轨迹。只完成矩形检测，还没有完成机器人抓取。
 
 ---
 

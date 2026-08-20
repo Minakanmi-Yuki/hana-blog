@@ -1,7 +1,7 @@
 ---
 title: 'Robotic Grasp Detection (8): 基于扩散模型与流模型的生成式抓取检测'
 publishDate: 2026-08-14
-updatedDate: 2026-08-14
+updatedDate: 2026-08-20
 description: '从 VAE 到潜空间扩散、SE(3) 代价场、约束引导和 MeanFlow，解释生成式抓取如何表示多解姿态，以及覆盖率、质量和推理成本的关系。'
 heroImage:
   { src: 'https://pic.hana0721.top/74502138_p0_master1200.7i0z6ufn7r.webp', color: '#8C8275' }
@@ -14,88 +14,111 @@ category: 'daily'
 pixivLink: '74502138'
 ---
 
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+
 ## 为什么抓取是多解问题（Why Grasping Is Multimodal）
 
-一个杯子可以抓杯身、杯沿或把手；同一接触位置也可能存在多个接近方向。若训练数据中包含多种正确抓取，使用均方误差（Mean Squared Error, MSE）回归单一姿态，模型可能输出这些模式的平均值，而平均姿态并不一定可抓。
+一个杯子可以抓杯身、杯沿或把手；同一接触位置也可能存在多个接近方向。若训练数据中包含多种正确抓取，使用均方误差（Mean Squared Error, MSE）回归单一姿态，模型会把多个模式压缩到一个平均输出，而该输出可能落在低质量区域。
 
-生成式抓取检测（Generative Grasp Detection）学习条件分布：
+设观测点云为 $P=\{\vec p_i\}_{i=1}^{N}$，其中 $\vec p_i\in\mathbb R^3$；平行夹爪抓取写为：
 
 $$
-p(g\mid o,c),
+g=(R,\vec t,w),
+\qquad
+R\in SO(3),\quad
+\vec t\in\mathbb R^3,\quad
+w\in\mathbb R_{\geq0},
 $$
 
-其中 $o$ 是观测，$c$ 可以是目标、任务或夹爪条件。推理时从分布中采样多个候选，再进行质量、碰撞和可达性过滤。
+其中 $R$、$\vec t$ 和 $w$ 分别是夹爪旋转、参考点位置与开口宽度。生成式抓取检测（Generative Grasp Detection）学习条件分布：
 
-多样性（Diversity）只是第一步。生成分布还需要回答：有效模式是否被覆盖、样本质量如何、分数是否校准，以及固定时间内能生成多少候选。
+$$
+p(g\mid P,c),
+$$
+
+其中 $c$ 可以是目标、任务或夹爪条件。推理时从分布中采样多个 $g$，再进行质量评价、碰撞检查、对称感知非极大值抑制（Symmetry-Aware Non-Maximum Suppression, NMS）和机器人可达性过滤。
+
+生成器的目标是用有限候选覆盖多个高质量模式。多样性（Diversity）、有效率（Validity）、覆盖率（Coverage）与推理成本因此需要放在同一候选预算下分析。
+
+## 生成式方法的技术路线（Generative Method Map）
+
+| 方法路线                           | 训练对象                 | 推理方式             | 代表方法                        | 主要特点               |
+| :--------------------------------- | :----------------------- | :------------------- | :------------------------------ | :--------------------- |
+| 变分生成（Variational Generation） | 条件潜变量分布           | 一次解码一个潜变量   | 6-DOF GraspNet                  | 采样速度快             |
+| 潜空间扩散（Latent Diffusion）     | 抓取潜向量上的去噪过程   | 多步潜变量去噪后解码 | GraspLDM                        | 用自编码器约束姿态结构 |
+| $SE(3)$ 扩散场（Diffusion Field）  | 姿态分布的分数或能量     | 采样或梯度优化       | SE(3)-DiffusionFields           | 可与轨迹代价联合优化   |
+| 约束引导（Constraint Guidance）    | 生成器与约束分类器       | 在去噪过程中修改分数 | Constrained Generative Sampling | 可注入任务和碰撞约束   |
+| 流匹配（Flow Matching）            | 从先验到抓取分布的速度场 | 积分常微分方程       | GraspMeanFlow                   | 减少网络评估步数       |
 
 ---
 
 ## 变分抓取生成（Variational Grasp Generation）
 
-6-DOF GraspNet 使用变分自编码器（Variational Autoencoder, VAE）学习物体点云条件下的六自由度（Six Degrees of Freedom, 6-DoF）抓取 [1]。编码器根据物体与抓取得到潜变量 $z$，解码器从 $z$ 和物体特征重建姿态。
+6-DOF GraspNet 使用变分自编码器（Variational Autoencoder, VAE）学习物体点云条件下的六自由度（Six Degrees of Freedom, 6-DoF）抓取 [1]。训练时，编码器接收点云 $P$ 与真值抓取 $g$，输出潜变量分布 $q_\phi(z\mid g,P)$，其中 $z\in\mathbb R^d$；解码器根据 $z$ 和点云特征重建抓取 $\hat g$。推理时不再需要真值 $g$，而是从先验 $p(z)=\mathcal N(0,I_d)$ 采样。
 
 典型证据下界（Evidence Lower Bound, ELBO）包含重建项和 Kullback–Leibler 散度（Kullback–Leibler Divergence, KL Divergence）：
 
 $$
 \mathcal{L}_{\text{VAE}}
-=\mathbb{E}_{q_\phi(z\mid g,o)}[-\log p_\theta(g\mid z,o)]
-+\beta D_{\mathrm{KL}}(q_\phi(z\mid g,o)\|p(z)).
+=\mathbb{E}_{q_\phi(z\mid g,P)}[-\log p_\theta(g\mid z,P)]
++\beta D_{\mathrm{KL}}(q_\phi(z\mid g,P)\|p(z)).
 $$
 
-采样不同 $z$ 可以产生多个姿态。VAE 推理较快，但潜变量正则可能导致模式模糊或后验坍塌（Posterior Collapse）；旋转重建损失也需要正确处理三维特殊正交群（Special Orthogonal Group, $SO(3)$）几何和夹爪对称性。
+第一项训练解码器重建抓取，第二项让后验接近推理时使用的标准高斯先验；$\beta\geq0$ 控制两者权重。采样不同 $z$ 可以产生多个姿态。实际重建损失通常分别计算平移、旋转与开口宽度，并对平行夹爪的 $180^\circ$ 对称姿态取较小旋转误差。
 
 ---
 
 ## 扩散模型的基本机制（Diffusion Model Basics）
 
-扩散模型（Diffusion Model）先对数据逐步加噪，再学习逆向去噪 [13]。对欧氏向量，前向过程可写成：
+扩散模型（Diffusion Model）先对数据逐步加噪，再学习逆向去噪 [13]。先把一个抓取编码为欧氏向量 $x_0\in\mathbb R^D$；$D$ 取决于旋转表示，例如平移、六维旋转表示和宽度拼接后得到 $D=10$。前向过程可写成：
 
 $$
 q(x_t\mid x_{t-1})
-=\mathcal{N}(\sqrt{1-\beta_t}x_{t-1},\beta_t I).
+=\mathcal{N}(\sqrt{1-\beta_t}x_{t-1},\beta_t I_D).
 $$
 
-网络预测噪声、分数函数（Score Function）或去噪后的样本，再从随机噪声迭代生成抓取。相较单峰回归，扩散过程能够覆盖复杂多峰分布。
+其中 $t\in\{1,\ldots,T\}$ 是噪声步，$\beta_t\in(0,1)$ 是噪声调度，$I_D\in\mathbb R^{D\times D}$ 是单位矩阵。网络可以预测噪声、分数函数（Score Function）或去噪样本，再从随机噪声迭代生成抓取。
 
 把每步噪声记为 $\alpha_t=1-\beta_t$、$\bar\alpha_t=\prod_{s=1}^{t}\alpha_s$，就可以一步采样任意噪声级：
 
 $$
 x_t=\sqrt{\bar\alpha_t}x_0
 +\sqrt{1-\bar\alpha_t}\,\epsilon,
-\qquad \epsilon\sim\mathcal N(0,I).
+\qquad \epsilon\sim\mathcal N(0,I_D).
 $$
 
-噪声预测网络 $\epsilon_\theta(x_t,t,o)$ 的基本训练损失是：
+噪声预测网络 $\epsilon_\theta(x_t,t,P,c)$ 的基本训练损失是：
 
 $$
 \mathcal L_{\text{diff}}
 =\mathbb E_{x_0,t,\epsilon}
 \left[
-\lVert\epsilon-epsilon_\theta(x_t,t,o)\rVert_2^2
+\lVert\epsilon-\epsilon_\theta(x_t,t,P,c)\rVert_2^2
 \right].
 $$
 
-推理时从 $x_T\sim\mathcal N(0,I)$ 开始，按调度器（Scheduler）反复计算 $x_{t-1}$。以去噪扩散概率模型（Denoising Diffusion Probabilistic Model, DDPM）形式为例，均值更新含有：
+其中噪声 $\epsilon\in\mathbb R^D$，去噪网络还接收点云特征和条件 $c$。训练时随机抽取 $t$，一次前向传播学习一个噪声层级；推理时从 $x_T\sim\mathcal N(0,I_D)$ 开始，按调度器（Scheduler）反复计算 $x_{t-1}$。以去噪扩散概率模型（Denoising Diffusion Probabilistic Model, DDPM）为例，其均值更新为：
 
 $$
 \mu_\theta(x_t,t)=\frac{1}{\sqrt{\alpha_t}}
 \left(
 x_t-\frac{\beta_t}{\sqrt{1-\bar\alpha_t}}
-\epsilon_\theta(x_t,t,o)
+\epsilon_\theta(x_t,t,P,c)
 \right),
 $$
 
-再按后验方差加入噪声。候选数 $N$ 与去噪步数 $T$ 共同决定网络调用量，近似为 $N\times T$；批量并行能降低墙钟时间，却不减少总计算。
+再按后验方差加入噪声。若一次批量生成 $K$ 个候选，去噪网络需要处理 $K\times T$ 个“候选—时间步”组合；批量并行可以缩短墙钟时间。
 
-抓取姿态位于三维特殊欧氏群（Special Euclidean Group, $SE(3)$），旋转不应被简单当作无约束三维向量。可选表示包括四元数（Quaternion）、旋转矩阵、李代数（Lie Algebra）或直接在流形（Manifold）上定义噪声与更新。不同表示会影响归一化、对称性和插值路径。
+抓取姿态位于三维特殊欧氏群（Special Euclidean Group, $SE(3)$）。旋转表示可以使用四元数（Quaternion）、旋转矩阵、李代数（Lie Algebra），或直接在流形（Manifold）上定义噪声与更新；表示方式决定归一化、对称性处理和插值路径。
 
-若使用李代数，把局部姿态增量写成 $\xi=(v,\omega)\in\mathfrak{se}(3)$，通过指数映射更新：
+若使用李代数，把局部姿态增量写成 $\xi=(\vec v,\vec\omega)\in\mathbb R^6\simeq\mathfrak{se}(3)$，其中 $\vec v,\vec\omega\in\mathbb R^3$ 分别表示平移与旋转增量，再通过指数映射更新齐次变换 $T_t\in SE(3)$：
 
 $$
 T_{t-1}=T_t\exp(\widehat{\Delta\xi_t}).
 $$
 
-这样旋转始终留在 $SO(3)$ 上，不需要每步把任意矩阵重新正交化。但 $\log(R)$ 在接近 $\pi$ 旋转时存在分支，平行夹爪还具有 $180^\circ$ 等价旋转；训练前应把标签映射到一致的对称代表，或在损失中对等价集合取最小值。平移、旋转和夹爪宽度的尺度也不同，常分别标准化并赋予损失权重。
+这样旋转始终留在 $SO(3)$ 上。平行夹爪具有 $180^\circ$ 等价旋转，训练时可把标签映射到统一代表，或在损失中对等价集合取最小值。平移、旋转和夹爪宽度使用不同单位，进入网络前通常分别标准化。
 
 ---
 
@@ -106,18 +129,18 @@ GraspLDM 先把六自由度抓取编码到潜空间，再执行扩散生成 [2]�
 训练通常分两步。第一步训练姿态自编码器：
 
 $$
-z=E_\phi(g,o),\qquad
-\hat g=D_\psi(z,o),
+z=E_\phi(g,P),\qquad
+\hat g=D_\psi(z,P),
 $$
 
-并用平移、对称感知旋转、宽度和有效性损失重建抓取。第二步冻结或联合微调编码器，在 $z$ 上训练条件扩散。推理时先采样 $z_T$、去噪得到 $z_0$，再用 $D_\psi$ 解码成姿态。最终候选必须重新归一化旋转并检查宽度；潜向量位于高概率区域不保证解码后的 $R$ 严格正交或夹爪不碰撞。
+并用平移、对称感知旋转、宽度和有效性损失重建抓取。第二步冻结或联合微调编码器，在 $z$ 上训练条件扩散。推理时先采样 $z_T$、去噪得到 $z_0$，再用 $D_\psi$ 解码成姿态；解码器末端将旋转投影到 $SO(3)$，将开口截断到夹爪范围，随后调用场景碰撞检查。
 
-这种分解包含两个误差来源：
+这种分解包含两个连续接口：
 
 - 潜空间是否保留所有有效抓取模式；
 - 扩散模型是否覆盖潜空间中的高质量区域。
 
-如果自编码器先丢失小概率但重要的侧向抓取，后续扩散再准确也无法恢复。
+因此可以先独立测量自编码器的重建覆盖率，再测量扩散模型在固定潜空间中的采样覆盖率。
 
 ---
 
@@ -128,10 +151,10 @@ SE(3)-DiffusionFields 将扩散分数转化为平滑代价函数，并将抓取�
 分数网络近似：
 
 $$
-s_\theta(g,t,o)\approx\nabla_g\log p_t(g\mid o).
+s_\theta(g,t,P)\approx\nabla_g\log p_t(g\mid P).
 $$
 
-在低噪声层级，$-\log p_t(g\mid o)$ 可以作为平滑抓取代价，梯度则给出局部姿态修正方向。联合优化时，抓取位姿 $g$ 与轨迹控制点 $\tau$ 交替或同时更新；每一步都要把旋转增量映射回流形，并对轨迹碰撞使用可微分距离或近似梯度。若初始姿态落在错误模式附近，局部梯度可能把它推向该模式的峰值，而不能跨越低密度区域发现另一类抓取，因此仍需要多初值。
+其中 $s_\theta$ 输出位于姿态切空间中的局部修正方向。在低噪声层级，$-\log p_t(g\mid P)$ 可以作为平滑抓取代价。联合优化时，抓取位姿 $g$ 与机器人轨迹控制点 $\tau$ 交替或同时更新；每一步把旋转增量映射回流形，并用多个初始抓取覆盖不同模式。
 
 可以把最终目标写成：
 
@@ -142,32 +165,32 @@ J(g,\tau)
 +\lambda_{\text{collision}}J_{\text{collision}}(g,\tau),
 $$
 
-其中 $\tau$ 是机器人轨迹。联合优化减少“姿态很稳定但机械臂到不了”的候选，但结果依赖各代价权重和优化初值。
+其中 $J_{\text{grasp}}$ 是扩散场给出的抓取代价，$J_{\text{motion}}$ 是轨迹平滑与关节运动代价，$J_{\text{collision}}$ 是夹爪和机械臂碰撞代价，$\lambda_{\text{motion}},\lambda_{\text{collision}}\geq0$。这样，姿态和运动可达性在同一个优化问题中更新。
 
 ---
 
 ## 约束引导与后验修正（Constraint Guidance and Posterior Refinement）
 
-通用生成器通常学习“数据中常见的好抓取”，部署场景还可能要求接近方向、无碰撞、目标部件或机器人可达性。
+通用生成器从训练数据学习抓取分布，部署条件还包括接近方向、无碰撞、目标部件和机器人可达性。
 
 Constrained Generative Sampling 在生成过程中加入约束，使候选向满足条件的区域移动 [4]。Refining 6-DoF Grasps with Context-Specific Classifiers 使用场景特定分类器梯度修正已有候选 [5]。统一形式可以写成：
 
 $$
-\nabla_g \log p(g\mid o,c)
-=\nabla_g \log p(g\mid o)
-+\lambda\nabla_g \log p(c\mid g,o).
+\nabla_g \log p(g\mid P,c)
+=\nabla_g \log p(g\mid P)
++\lambda\nabla_g \log p(c\mid g,P).
 $$
 
-第二项是引导（Guidance）。它可以加入任务、碰撞或接触偏好，但分类器在生成分布外可能产生错误梯度；过强引导还会降低多样性并让样本集中在少数模式。
+第二项是引导（Guidance），可以表达任务、碰撞或接触偏好。引导权重 $\lambda$ 控制条件服从程度与样本多样性。
 
 实现中常在每个去噪步修改分数：
 
 $$
-\tilde s(g_t)=s_\theta(g_t,t,o)
-+\lambda_t\nabla_{g_t}\log p_\varphi(c\mid g_t,o).
+\tilde s(g_t)=s_\theta(g_t,t,P)
++\lambda_t\nabla_{g_t}\log p_\varphi(c\mid g_t,P).
 $$
 
-$\lambda_t$ 可以随噪声降低而增大：早期保留全局多样性，后期再满足精细约束。碰撞是非光滑二值函数时，不能直接求梯度，通常用符号距离场（Signed Distance Field, SDF）、穿透深度或可微分占据网络构造软代价。引导结束后仍应使用真实夹爪网格做离散碰撞复核。
+$\lambda_t$ 可以随噪声降低而增大：早期建立全局模式，后期满足精细约束。碰撞是非光滑二值函数，训练和引导阶段常用符号距离场（Signed Distance Field, SDF）、穿透深度或可微分占据网络构造软代价；最终再用真实夹爪网格执行离散碰撞检查。
 
 ---
 
@@ -185,7 +208,7 @@ QD 的关键是行为描述符（Behavior Descriptor）如何定义，例如接�
 
 HGDiffuser 使用人体接触和手腕线索引导任务导向抓取 [8]。这里的条件不再只是物体几何，而是“为了某个用途，哪里应该被保留或接触”。
 
-GraspGen-X 将夹爪扫掠体积和几何作为条件，研究跨平行夹爪生成 [10]。同一物体上的姿态只有在目标夹爪能容纳、闭合且无碰撞时才有效。该工作目前仍是 arXiv 预印本，不能视为已经稳定的跨具身标准。
+GraspGen-X 将夹爪扫掠体积和几何作为条件，研究跨平行夹爪生成 [10]。同一物体和姿态在不同夹爪条件下会得到不同分数，因为最大开口、指尖厚度和闭合扫掠体积共同决定可行性。
 
 ---
 
@@ -193,13 +216,15 @@ GraspGen-X 将夹爪扫掠体积和几何作为条件，研究跨平行夹爪生
 
 扩散生成通常需要多次网络评估。流匹配（Flow Matching）学习一个连续速度场，将简单先验分布沿常微分方程（Ordinary Differential Equation, ODE）运输到数据分布：
 
+设 $g_t$ 是 $SE(3)$ 上的时间参数化抓取，$v_\theta$ 输出对应切空间速度：
+
 $$
-\frac{dg_t}{dt}=v_\theta(g_t,t,o).
+\frac{dg_t}{dt}=v_\theta(g_t,t,P,c).
 $$
 
-GraspMeanFlow 使用 $SE(3)$ 等变 MeanFlow 实现少步六自由度生成 [11]。少步推理对机器人在线控制很重要，但需要同时检查样本覆盖是否因加速而下降。该工作目前为 arXiv 预印本。
+GraspMeanFlow 使用 $SE(3)$ 等变 MeanFlow 实现少步六自由度生成 [11]。少步推理降低机器人在线循环中的网络调用次数，固定候选预算下的覆盖率可以衡量加速后的模式保留情况。
 
-在欧氏空间的直线路径中，可从噪声 $x_0$ 与数据 $x_1$ 构造：
+在欧氏空间的直线路径中，可从噪声 $x_0\in\mathbb R^D$ 与数据 $x_1\in\mathbb R^D$ 构造：
 
 $$
 x_t=(1-t)x_0+tx_1,
@@ -207,13 +232,13 @@ x_t=(1-t)x_0+tx_1,
 u_t=x_1-x_0,
 $$
 
-并训练 $v_\theta(x_t,t,o)$ 拟合目标速度 $u_t$。推理通过数值积分 ODE 获得样本；一步或少步方法进一步学习跨时间区间的平均速度。对 $SE(3)$，直线插值要替换成平移插值与旋转测地线，速度位于切空间。步数变少会降低网络调用量，但积分误差和模式坍缩需要用固定候选预算下的覆盖率检验。
+并训练 $v_\theta(x_t,t,P,c)$ 拟合目标速度 $u_t\in\mathbb R^D$。推理通过数值积分 ODE 获得样本；一步或少步方法进一步学习跨时间区间的平均速度。对 $SE(3)$，直线插值替换成平移插值与旋转测地线，速度位于切空间。
 
 ---
 
 ## 生成式抓取应如何评价（Evaluating Generative Grasps）
 
-生成式方法不能只报告 top-1 成功率。至少需要控制固定候选预算和推理时间，并评价：
+生成式方法的评测以固定候选预算和推理时间为基础，主要指标如下：
 
 | 指标                                | 含义                               |
 | :---------------------------------- | :--------------------------------- |
@@ -226,21 +251,24 @@ $$
 | 推理成本（Inference Cost）          | 固定候选数所需时间与网络调用次数   |
 | 物理成功（Physical Success）        | 经规划后真实执行的结果             |
 
-近期 GraspGen、Equivariant Volumetric Grasping 和 GraspMeanFlow 分别探索生成器内训练、等变体素分布和少步流 [9,11,12]，但均属于快速发展的预印本前沿。生成模型的真正价值不在于“样本更多”，而在于能否在固定计算预算下覆盖不同可执行模式，并把语义、几何与机器人约束可靠地注入分布。
+近期 GraspGen、Equivariant Volumetric Grasping 和 GraspMeanFlow 分别探索生成器内训练、等变体素分布和少步流 [9,11,12]。这些方向分别改变训练数据进入生成器的方式、三维表示和采样步数。
 
-一个可复现的生成式推理循环应明确：
+<Algorithm number={1} title='条件生成式抓取检测' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>场景点云 $P$、条件 $c$、候选数 $K$、生成步数 $T$、平行夹爪几何</div>
+  <div slot='output'>经排序与去重的 6-DoF 抓取集合 $\widehat{\mathcal G}$</div>
+  <AlgorithmStep keyword='require'>编码点云和条件，得到共享场景特征</AlgorithmStep>
+  <AlgorithmStep>采样 $K$ 个初始噪声或潜变量，并记录随机种子</AlgorithmStep>
+  <AlgorithmStep keyword='for'>从生成步 $T$ 迭代到 $1$</AlgorithmStep>
+  <AlgorithmStep indent={1}>预测去噪方向或流速度，并施加任务、碰撞或夹爪条件</AlgorithmStep>
+  <AlgorithmStep indent={1}>更新平移、旋转和开口表示</AlgorithmStep>
+  <AlgorithmStep keyword='end for'>完成生成</AlgorithmStep>
+  <AlgorithmStep>解码抓取，将旋转投影到 $SO(3)$，并限制开口宽度</AlgorithmStep>
+  <AlgorithmStep>执行夹爪终态与接近扫掠碰撞检查，删除不可达候选</AlgorithmStep>
+  <AlgorithmStep>使用统一评分器重排，并执行对称感知 NMS</AlgorithmStep>
+  <AlgorithmStep keyword='return'>保留前 $k$ 个候选组成 $\widehat{\mathcal G}$</AlgorithmStep>
+</Algorithm>
 
-```text
-编码观测 o，并固定随机种子
-    → 采样 N 个初始噪声/潜变量
-    → 运行 T 步扩散或流积分
-    → 解码并投影到合法旋转与宽度范围
-    → 使用同一几何模型做碰撞过滤
-    → 使用同一评分器重排
-    → 对称感知 NMS 后保留 top-k
-```
-
-比较两个生成器时，至少固定 $N$、$T$、碰撞器、重排器和 top-$k$。若一个方法生成 1,000 个候选并使用强评分器，另一个方法只生成 50 个候选且直接取最高密度样本，最终成功率同时混合了生成、预算与重排差异。
+比较生成器时，固定候选数 $K$、网络评估次数、碰撞器、重排器和最终 top-$k$。同时报告过滤前后的有效率与覆盖率，可以分辨改进来自生成分布还是后处理。
 
 ---
 

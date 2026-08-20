@@ -1,7 +1,7 @@
 ---
 title: 'Robotic Grasp Detection (9): 目标、任务、部件与语言条件抓取'
 publishDate: 2026-08-14
-updatedDate: 2026-08-14
+updatedDate: 2026-08-20
 description: '从目标选择、关系推理、部件可供性到材料与任务兼容性，分析语言和视觉语言模型如何约束抓取，以及语义与物理可行性的接口。'
 heroImage:
   { src: 'https://pic.hana0721.top/75863098_p0_master1200.8aduokw8y2.webp', color: '#8C8275' }
@@ -14,11 +14,14 @@ category: 'daily'
 pixivLink: '75863098'
 ---
 
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+
 ## “能抓”与“应该抓”是两个问题（Graspability vs. Compatibility）
 
 对象无关抓取（Object-Agnostic Grasping）寻找场景中任意稳定抓取；条件抓取（Conditional Grasping）还要回答抓哪个物体、抓哪个部件，以及该抓取是否适合后续任务。
 
-可以把质量分解为：
+设平行夹爪候选为 $g=(R,\vec t,w)$，其中 $R\in SO(3)$、$\vec t\in\mathbb R^3$、$w\in\mathbb R_{\geq0}$；场景观测为 $o$，条件为 $c$。一个便于实现的候选分数可以分解为：
 
 $$
 Q(g\mid o,c)
@@ -26,9 +29,9 @@ Q(g\mid o,c)
 +\lambda Q_{\text{semantic}}(g\mid o,c),
 $$
 
-其中 $o$ 是观测，$c$ 是目标、语言或任务条件。$Q_{\text{physical}}$ 评价接触、碰撞与可达性，$Q_{\text{semantic}}$ 评价目标和任务兼容性。两项缺一不可：物理上稳定的抓取可能抓错物体，语义正确的部件也可能没有可执行姿态。
+其中 $c$ 可以是目标身份、部件、自然语言或任务；$Q_{\text{physical}}$ 评价接触、碰撞与可达性，$Q_{\text{semantic}}$ 评价目标和任务兼容性，$\lambda\geq0$ 控制语义偏好在排序中的权重。
 
-两项不一定适合简单加权。若“不要触碰刀刃”是安全约束，把它作为有限权重的负分仍可能被很高的几何质量抵消。更稳妥的实现区分：
+安全条件和排序偏好需要不同的接口。若“不要触碰刀刃”是安全条件，它直接进入可行集合；“更偏向把手中部”则作为候选排序项：
 
 - **硬约束（Hard Constraint）**：目标身份、禁止接触区、夹爪宽度和碰撞，直接形成可行集合 $\mathcal F_c$；
 - **软偏好（Soft Preference）**：更喜欢把手中部、减少腕部旋转或保留放置余量，用于集合内部排序。
@@ -40,7 +43,7 @@ g^*=\arg\max_{g\in\mathcal G\cap\mathcal F_c}
 \left[Q_{\text{physical}}(g)+\lambda Q_{\text{preference}}(g,c)\right].
 $$
 
-如果语义模型输出的是每个场景点属于目标/部件的概率 $p_i$，可先计算候选闭合区 $\mathcal C(g)$ 的语义一致性：
+如果语义模型输出场景点 $\vec x_i\in\mathbb R^3$ 属于目标或部件的概率 $p_i\in[0,1]$，可计算候选闭合区 $\mathcal C(g)$ 的语义一致性：
 
 $$
 Q_{\text{target}}(g)=
@@ -48,7 +51,17 @@ Q_{\text{target}}(g)=
 \sum_{x_i\in\mathcal C(g)}p_i.
 $$
 
-同时要求两个预测接触点的目标概率超过阈值，避免夹爪中心落在目标上、手指却夹到邻物体。
+接触点概率与闭合区平均概率共同使用，可以区分“夹爪中心位于目标附近”和“两侧接触确实落在目标上”。
+
+## 条件抓取的方法路线（Conditional Grasping Map）
+
+| 条件层级                                      | 模型输出                   | 进入抓取检测器的方式           | 代表方法                                |
+| :-------------------------------------------- | :------------------------- | :----------------------------- | :-------------------------------------- |
+| 目标条件（Target-Conditioned）                | 实例掩码或目标查询         | 裁剪目标点云、调制点特征       | REGRAD、TARGO-Net                       |
+| 部件条件（Part-Conditioned）                  | 部件掩码或可供性场         | 限制接触区域                   | Fine-Grained Grasp Detection            |
+| 任务条件（Task-Conditioned）                  | 任务兼容分数或姿态偏好     | 与物理质量联合排序             | Task-Oriented Grasp Detection、GraspGPT |
+| 语言条件（Language-Conditioned）              | 文本—几何相似度            | 目标检索、交叉注意力或查询选择 | Language-Driven Grasp Detection、OVGNet |
+| 物理属性条件（Physical-Property-Conditioned） | 材料、质量、脆弱性和力限制 | 禁区、安全余量与夹紧力约束     | PhyGrasp                                |
 
 ---
 
@@ -68,7 +81,7 @@ $$
 
 ### 物理属性条件（Physical-Property-Conditioned）
 
-材料、质量、摩擦和脆弱性会改变接触位置与夹持力。PhyGrasp 使用三维几何、语言与物理属性描述选择部件级抓取 [12]。这类语义必须最终转换为禁止接触区域、力限制或稳定性约束，才能参与执行。
+材料、质量、摩擦和脆弱性会改变接触位置与夹持力。PhyGrasp 使用三维几何、语言与物理属性描述选择部件级抓取 [12]。模型把这些属性转换为禁止接触区域、力限制或稳定性偏好，再参与候选过滤与排序。
 
 ---
 
@@ -82,11 +95,11 @@ $$
 4. 约束生成（Constraint Generation）：产生目标区域、禁区或姿态偏好；
 5. 场景策略（Scene Strategy）：决定先移开哪个遮挡物。
 
-早期联合语言抓取网络直接将命令与图像特征融合，预测语言条件的平面抓取 [2]。Language-Driven Grasp Detection 使用大规模语言与视觉先验进行开放词汇平面抓取 [3]。二维接口计算高效，但语义目标正确并不代表三维接近无碰撞。
+早期联合语言抓取网络直接将命令与图像特征融合，预测语言条件的平面抓取 [2]。Language-Driven Grasp Detection 使用大规模语言与视觉先验进行开放词汇平面抓取 [3]。若系统最终执行 6-DoF 抓取，二维目标区域还需要通过深度反投影为三维点，并在三维场景中检查接近路径。
 
 ### 语言特征如何与几何对齐
 
-给定文本编码 $e_c$ 与像素/点特征 $f_i$，最简单的目标热图可以由归一化相似度产生：
+给定文本编码 $e_c\in\mathbb R^{d_e}$ 与像素或点特征 $f_i\in\mathbb R^{d_f}$，线性投影 $W_e\in\mathbb R^{d\times d_e}$、$W_f\in\mathbb R^{d\times d_f}$ 将二者映射到相同的 $d$ 维空间。目标注意力可以由归一化相似度产生：
 
 $$
 \alpha_i=\frac{
@@ -96,9 +109,23 @@ $$
 }.
 $$
 
-$\tau$ 控制分布尖锐程度。Transformer 方法则让语言 token 与图像/点云 token 做交叉注意力（Cross-Attention），输出目标掩码、部件掩码或抓取查询。二维掩码需要借助深度反投影到点云：对像素 $(u,v)$ 读取深度并生成三维点，同时保留掩码概率。深度孔洞、遮挡边界与实例粘连会让错误掩码直接进入三维候选区域。
+$\alpha_i\in[0,1]$ 是第 $i$ 个位置与指令的匹配权重，温度 $\tau>0$ 控制分布尖锐程度。Transformer 方法让语言词元（Token）与图像或点云 Token 做交叉注意力（Cross-Attention），输出目标掩码、部件掩码或抓取查询。
 
-语义掩码有两种进入检测器的方式。硬裁剪只把 $p_i>\eta$ 的点送入抓取网络，计算便宜但无法恢复被裁掉的目标区域；软调制则使用 $f_i'=p_i f_i$ 或把 $p_i$ 作为额外通道，能够保留不确定边界，但需要网络学习如何平衡语义与几何。评价时应分别报告给定真值掩码和预测掩码的抓取结果，才能测出误差来自 grounding 还是姿态检测。
+若输入是像素掩码，对像素 $(u,v)$ 和深度 $z$ 使用相机内参 $(f_x,f_y,c_x,c_y)$ 反投影：
+
+$$
+\vec x(u,v)=
+\begin{bmatrix}
+(u-c_x)z/f_x\\
+(v-c_y)z/f_y\\
+z
+\end{bmatrix}
+\in\mathbb R^3.
+$$
+
+每个三维点同时保留掩码概率 $p_i$，供后续硬裁剪或软特征调制使用。
+
+语义掩码有两种进入检测器的方式。硬裁剪只把 $p_i>\eta$ 的点送入抓取网络，减少背景计算；软调制使用 $f_i'=p_i f_i$，或把 $p_i$ 作为额外通道，使边界不确定性保留到抓取头。给定真值掩码与使用预测掩码的两组结果，分别测量姿态检测上限和完整语义接口的性能。
 
 ---
 
@@ -114,9 +141,9 @@ p(o_{t+1}\mid s,a_t)
 \sum_{s'}p(s\mid s',a_t)b_t(s').
 $$
 
-“提问”与“抓取”都是动作：提问消耗时间但降低目标歧义，错误抓取则有更高代价。策略比较提问后的期望信息价值与直接执行效用。若语言回答模型过度自信，信念会错误收缩，因此除了最终成功率，还要报告目标后验、提问次数和错误对象抓取率。
+“提问”与“抓取”都是动作：提问消耗时间但降低目标歧义，错误抓取具有更高代价。策略比较提问后的期望信息价值与直接执行效用，并记录目标后验、提问次数和错误对象抓取率。
 
-交互的价值不是生成更流畅的文字，而是减少目标身份不确定性。系统可以在错误抓取代价较高时先提问，在目标明确时直接行动。评价应把提问次数、目标识别、阻挡判断和物理抓取分别记录。
+系统可以在目标后验分散或错误抓取代价较高时先提问，在目标明确时直接生成抓取。目标识别、阻挡判断、提问次数和物理执行构成四个可分别统计的阶段。
 
 ---
 
@@ -129,7 +156,7 @@ GraspGPT 利用大语言模型（Large Language Model, LLM）的语义知识，�
 - 高层语义模型推断目标、部件和用途；
 - 低层几何模型生成接触稳定、无碰撞的平行夹爪姿态。
 
-高层模型不应直接输出未经验证的机器人位姿。它的输出更适合表示成掩码（Mask）、目标点、部件概率、正负区域或候选偏好，再交给几何生成器和运动规划器。
+高层模型输出掩码（Mask）、目标点、部件概率、正负区域或候选偏好；几何生成器再据此产生平行夹爪姿态，运动规划器负责碰撞和可达性验证。这个接口把语言推理结果转换成可查询的三维约束。
 
 ---
 
@@ -137,7 +164,7 @@ GraspGPT 利用大语言模型（Large Language Model, LLM）的语义知识，�
 
 多任务掩码 Transformer（Multi-Task Masked Transformer, M2T2）从杂乱点云中预测对象中心接触掩码、抓取与放置姿态，并可接受目标或语言条件 [8]。它把抓取与放置视为相关低层技能，而不是只输出单次抓取。
 
-对象查询（Object Query）先与场景点特征交互，产生每个查询对应的对象/接触掩码；抓取头只在该查询聚合的点特征上解码姿态，放置头则预测物体在目标区域中的姿态。查询索引因此充当对象身份的连续“线”：目标条件应选择同一个查询的掩码和抓取，而不能从一个查询取目标分数、另一个查询取最高抓取分数。训练时需要对预测查询与真值对象做二分图匹配（Bipartite Matching），再计算掩码、接触和姿态损失。
+对象查询（Object Query）先与场景点特征交互，产生每个查询对应的对象/接触掩码；抓取头只在该查询聚合的点特征上解码姿态，放置头则预测物体在目标区域中的姿态。查询索引因此保持对象身份的一致性：目标条件从同一个查询读取掩码和抓取结果。训练时对预测查询与真值对象做二分图匹配（Bipartite Matching），再计算掩码、接触和姿态损失。
 
 对象中心表示（Object-Centric Representation）有利于保持目标身份，但依赖点云分辨率、实例结构和对象边界。小目标或严重遮挡会同时影响语义选择与姿态预测。
 
@@ -147,17 +174,17 @@ GraspGPT 利用大语言模型（Large Language Model, LLM）的语义知识，�
 
 开放词汇抓取（Open-Vocabulary Grasping）要求识别训练标签之外的对象或部件。OVGNet 统一视觉语言特征与抓取预测 [9]；GaussianGrasper 将语言语义写入三维高斯泼溅表示（3D Gaussian Splatting, 3DGS）[11]。
 
-一个三维高斯由中心 $\mu_i$、协方差 $\Sigma_i$、不透明度 $\alpha_i$、颜色与语义特征 $f_i$ 描述。多视角图像优化后，语言查询可与 $f_i$ 计算相似度，得到三维目标概率场。与逐帧二维掩码相比，它在视角间共享目标身份；但高斯椭球是渲染基元，不是精确碰撞网格。候选生成前仍需从高斯场提取深度/占据，或将高斯概率投影到真实点云，不能把低透明度椭球边界直接当作夹指接触面。
+一个三维高斯由中心 $\vec\mu_i\in\mathbb R^3$、协方差 $\Sigma_i\in\mathbb R^{3\times3}$、不透明度 $\alpha_i\in[0,1]$、颜色与语义特征 $f_i\in\mathbb R^d$ 描述。多视角图像优化后，语言查询与 $f_i$ 的相似度形成三维目标概率场。抓取检测器可从高斯场提取深度或占据，也可以把语义概率投影到传感器点云，然后在该几何上生成接触与检查碰撞。
 
-开放词汇能力通常来自大规模视觉语言预训练，但三维接触数据规模远小于互联网图文数据。语义场可以告诉系统“哪里是把手”，仍需要深度、尺度、夹爪宽度和碰撞模型判断“是否能夹住把手”。
+开放词汇能力通常来自大规模视觉语言预训练，三维抓取头则用深度、尺度、夹爪宽度和碰撞模型把“哪里是把手”转换成“哪些姿态可以夹住把手”。
 
-Open-Vocabulary Part-Based Grasping 将对象—部件提示、分割与六自由度抓取串联起来，目前仍是 arXiv 预印本 [13]。模块化结构便于定位错误，也可能让分割误差逐级放大。
+Open-Vocabulary Part-Based Grasping 将对象—部件提示、分割与六自由度抓取串联起来 [13]。模块化结构可以分别评价开放词汇定位、部件分割和姿态生成。
 
 ---
 
 ## 场景策略与遮挡处理（Strategic Clearing under Occlusion）
 
-当目标不可见或不可达时，直接生成目标抓取没有意义。ThinkGrasp 使用视觉语言模型（Vision-Language Model, VLM）判断应抓取目标的哪个部件，或先移走哪个遮挡物，再调用低层六自由度生成器 [14]。
+当目标不可见或不可达时，系统先规划清理动作。ThinkGrasp 使用视觉语言模型（Vision-Language Model, VLM）判断应抓取目标的哪个部件，或先移走哪个遮挡物，再调用低层六自由度生成器 [14]。
 
 TARGO 则把目标遮挡程度变成可控基准变量，评价目标驱动抓取随可见性变化的性能 [15]。两者分别关注策略和测量：前者决定动作顺序，后者建立遮挡条件下的统一测试。
 
@@ -167,7 +194,7 @@ TARGO 则把目标遮挡程度变成可控基准变量，评价目标驱动抓�
 
 ## 语义到物理的接口（Semantic-to-Physical Interface）
 
-合理的接口应把语言结果转换为可验证约束：
+语言结果可以转换为以下物理约束：
 
 | 语义要求         | 低层物理表示                 |
 | :--------------- | :--------------------------- |
@@ -177,7 +204,7 @@ TARGO 则把目标遮挡程度变成可控基准变量，评价目标驱动抓�
 | “拿最重的物体”   | 目标身份、质心与夹紧力要求   |
 | “目标被挡住了”   | 遮挡关系与清理动作序列       |
 
-评价也应按接口分解：
+评测沿接口分解为：
 
 1. 目标/部件定位是否正确；
 2. 在正确定位条件下，可行姿态生成率是多少；
@@ -185,19 +212,32 @@ TARGO 则把目标遮挡程度变成可控基准变量，评价目标驱动抓�
 4. 真实抓取是否稳定；
 5. 最终任务是否完成。
 
-只报告端到端成功率（End-to-End Success Rate）无法区分语言模型、分割器、抓取检测器、规划器和硬件分别造成了多少失败。
-
-在候选级实现这些约束时，可以对预测接触点 $c_1,c_2$、夹爪扫掠体积 $V(g)$ 和语义区域定义：
+在候选级实现这些约束时，设预测接触点 $\vec c_1,\vec c_2\in\mathbb R^3$，夹爪扫掠体积为 $V(g)\subset\mathbb R^3$，允许接触区域和禁止接触区域分别为 $\mathcal R_{\text{allowed}},\mathcal R_{\text{forbidden}}\subset\mathbb R^3$：
 
 $$
 \begin{aligned}
-c_1,c_2 &\in \mathcal R_{\text{allowed}},\\
-\operatorname{dist}(c_1,\mathcal R_{\text{forbidden}})&>m,\\
+\vec c_1,\vec c_2 &\in \mathcal R_{\text{allowed}},\\
+\operatorname{dist}(\vec c_1,\mathcal R_{\text{forbidden}})&>m,\\
 V(g)\cap\mathcal O_{\text{scene}}&=\varnothing,
 \end{aligned}
 $$
 
-其中 $m$ 是安全余量。若掩码是概率的，可以要求禁止区域碰撞概率低于阈值，而不是先二值化。任务约束还可延伸到放置：把抓取后物体变换 ${}^{G}T_O$ 与目标放置 ${}^{W}T_O^{\text{goal}}$ 组合，提前检查抓取姿态是否允许末端到达所需放置朝向。这样“适合任务”才从语言描述变成可计算的接触与运动条件。
+其中场景占据区域 $\mathcal O_{\text{scene}}\subset\mathbb R^3$，安全余量 $m\in\mathbb R_{>0}$。概率掩码可以进一步计算候选与禁止区域的期望重叠。任务约束还可延伸到放置：把抓取后物体变换 ${}^{G}T_O\in SE(3)$ 与目标放置 ${}^{W}T_O^{\text{goal}}\in SE(3)$ 组合，检查该抓取是否允许末端到达目标朝向。
+
+<Algorithm number={1} title='语言条件的 6-DoF 抓取检测' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>RGB-D / 点云观测、自然语言指令、平行夹爪模型和机器人状态</div>
+  <div slot='output'>满足目标、部件和任务条件的抓取姿态 $g^*$</div>
+  <AlgorithmStep keyword='require'>编码文本与视觉/点云特征，并计算跨模态对应关系</AlgorithmStep>
+  <AlgorithmStep>预测目标实例、部件区域及其概率，反投影到统一三维坐标系</AlgorithmStep>
+  <AlgorithmStep>将语言条件解析为允许接触区、禁止接触区、姿态偏好和任务约束</AlgorithmStep>
+  <AlgorithmStep>在目标三维区域内生成平行夹爪候选集合 $\mathcal G$</AlgorithmStep>
+  <AlgorithmStep keyword='for'>对每个候选 $g\in\mathcal G$</AlgorithmStep>
+  <AlgorithmStep indent={1}>计算物理质量、接触语义一致性和任务兼容分数</AlgorithmStep>
+  <AlgorithmStep indent={1}>检查夹爪宽度、扫掠碰撞、机器人可达性和后续任务姿态</AlgorithmStep>
+  <AlgorithmStep keyword='end for'>完成候选评价</AlgorithmStep>
+  <AlgorithmStep>按硬约束过滤，再按软偏好排序和去重</AlgorithmStep>
+  <AlgorithmStep keyword='return'>最高分可行抓取 $g^*$，或清理/询问动作</AlgorithmStep>
+</Algorithm>
 
 ---
 

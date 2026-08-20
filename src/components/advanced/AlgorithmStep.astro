@@ -1,0 +1,79 @@
+---
+import { cn } from '@/utils'
+
+interface Props {
+  indent?: number
+  keyword?: string
+  class?: string
+}
+
+const { indent = 0, keyword, class: className } = Astro.props
+const safeIndent = Number.isFinite(indent) ? Math.max(0, Math.floor(indent)) : 0
+---
+
+<li class={cn('algorithm-step', className)} style={`--algorithm-indent: ${safeIndent}`}>
+  <span class='algorithm-line-number' aria-hidden='true'></span>
+  <span class='algorithm-line-content'>
+    {keyword && <strong class='algorithm-keyword'>{keyword}</strong>}
+    <slot />
+  </span>
+</li>
+
+<style>
+  .algorithm-step {
+    display: grid;
+    grid-template-columns: 2.65rem minmax(0, 1fr);
+    min-height: 1.75rem;
+    margin: 0;
+    padding: 0.18rem 0.9rem 0.18rem 0;
+    counter-increment: algorithm-line;
+    font-size: 0.94rem;
+    line-height: 1.55;
+  }
+
+  .algorithm-step:hover {
+    background: hsl(var(--muted) / 0.3);
+  }
+
+  .algorithm-line-number {
+    padding-inline-end: 0.65rem;
+    color: hsl(var(--muted-foreground));
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.78rem;
+    line-height: 1.85;
+    text-align: end;
+    user-select: none;
+  }
+
+  .algorithm-line-number::before {
+    content: counter(algorithm-line);
+  }
+
+  .algorithm-line-content {
+    min-width: 0;
+    padding-inline-start: calc(var(--algorithm-indent) * 1.25rem);
+  }
+
+  .algorithm-line-content :global(p) {
+    display: inline;
+    margin: 0;
+  }
+
+  .algorithm-keyword {
+    margin-inline-end: 0.4rem;
+    color: hsl(var(--primary));
+    font-family: ui-serif, Georgia, Cambria, 'Times New Roman', serif;
+    font-weight: 700;
+  }
+
+  @media (max-width: 640px) {
+    .algorithm-step {
+      grid-template-columns: 2.15rem minmax(0, 1fr);
+      padding-inline-end: 0.65rem;
+    }
+
+    .algorithm-line-content {
+      padding-inline-start: calc(var(--algorithm-indent) * 0.85rem);
+    }
+  }
+</style>

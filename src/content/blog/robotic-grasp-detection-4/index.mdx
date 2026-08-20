@@ -1,8 +1,8 @@
 ---
 title: 'Robotic Grasp Detection (4): 基于点云的采样式 6-DoF 抓取检测'
 publishDate: 2026-08-14
-updatedDate: 2026-08-14
-description: '拆解点云中的表面采样、候选坐标系构造、局部几何编码、抓取评分、碰撞过滤与聚类，分析采样式 6-DoF 检测的覆盖率瓶颈。'
+updatedDate: 2026-08-19
+description: '解释点云中的 6-DoF 抓取候选如何被参数化、采样、编码和评分，并分析候选生成、深度学习评价、碰撞过滤与覆盖率之间的关系。'
 heroImage: { src: 'https://pic.hana0721.top/71849616_p0.1sfmv9l9of.webp', color: '#8C8275' }
 tags:
   - 'Robotic Grasping'
@@ -13,12 +13,15 @@ category: 'daily'
 pixivLink: '71849616'
 ---
 
-## 为什么需要空间抓取（Why Spatial Grasps?）
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+
+## 6-DoF 抓取的任务定义与表示（Task Definition and Representation）
 
 平面抓取（Planar Grasp）通常假设夹爪沿固定方向接近桌面。对于堆叠、货架、箱体或侧面可抓物体，这个假设会排除大量可行姿态。六自由度抓取（Six-Degrees-of-Freedom Grasp, 6-DoF Grasp）使用三维特殊欧氏群（Special Euclidean Group, $SE(3)$）位姿表示任意三维位置和旋转：
 
 $$
-g=(R,t,w), \qquad R\in SO(3),\quad t\in\mathbb{R}^3,
+g=(R,\vec t,w), \qquad R\in SO(3),\quad \vec t\in\mathbb{R}^3,\quad w\in\mathbb R_{>0},
 $$
 
 其中 $SO(3)$ 是三维特殊正交群（Special Orthogonal Group），$w$ 是夹爪开口。点云（Point Cloud）提供带度量尺度的表面样本，适合构造三维接触与碰撞关系，但它只包含相机可见部分，并带有噪声、遮挡和法线估计误差。
@@ -27,42 +30,42 @@ $$
 
 ---
 
-## 标准流水线（Standard Pipeline）
+## 采样式 6-DoF 抓取检测的系统结构（System Structure）
 
-```text
-场景点云（Scene Point Cloud）
-    ↓
-预处理与法线估计（Preprocessing / Normal Estimation）
-    ↓
-表面与接近方向采样（Surface / Approach Sampling）
-    ↓
-构造夹爪候选坐标系（Candidate Frame Construction）
-    ↓
-提取夹爪闭合区域（Closing-Region Crop）
-    ↓
-几何或神经质量评价（Geometric / Learned Scoring）
-    ↓
-碰撞过滤与非极大值抑制（Collision Filtering / Non-Maximum Suppression, NMS）
-    ↓
-机器人可达性与最终选择（Reachability / Selection）
-```
+1. **场景点云（Scene Point Cloud）**：获取带有三维坐标的场景表面采样。
+2. **预处理与法线估计（Preprocessing / Normal Estimation）**：去除离群点和无效点，并估计局部表面方向。
+3. **表面与接近方向采样（Surface / Approach Sampling）**：选择种子点，并围绕局部表面方向生成接近方向。
+4. **构造夹爪候选坐标系（Candidate Frame Construction）**：为每个采样结果确定接近轴、闭合轴和横向轴，形成候选姿态。
+5. **提取夹爪闭合区域（Closing-Region Crop）**：将候选附近的点云变换到夹爪坐标系，并裁剪局部输入。
+6. **几何或神经质量评价（Geometric / Learned Scoring）**：使用解析判据或候选评分网络判断抓取质量。
+7. **碰撞过滤与非极大值抑制（Collision Filtering / Non-Maximum Suppression, NMS）**：删除碰撞候选和重复姿态。
+8. **机器人可达性与最终选择（Reachability / Selection）**：检查逆运动学、接近轨迹和执行约束，并选择最终抓取。
 
 每个阶段都会改变最终候选分布。评分网络只是其中一环。
 
 ---
 
-## 表面与法线采样（Surface and Normal Sampling）
+## 点云预处理与表面采样（Point-Cloud Preprocessing and Surface Sampling）
 
-设场景点云为 $P=\{p_j\}$。候选生成器首先从可见表面选取种子点（Seed Point），估计局部法线（Surface Normal），再围绕法线或切平面采样接近方向（Approach Direction）和夹爪绕轴角（Roll Angle）。
-
-法线通常由局部主成分分析（Principal Component Analysis, PCA）得到。对种子点 $p$ 的邻域 $\mathcal N(p)$，先计算协方差矩阵：
+设场景点云为 $P=\{\vec p_j\}_{j=1}^{N}\subset\mathbb R^3$，其中 $N\in\mathbb N$ 是点数。候选生成器首先从可见表面选取种子点 $\vec p\in\mathbb R^3$（Seed Point），并在其局部邻域估计单位表面法线（Surface Normal）：
 
 $$
-C(p)=\frac{1}{|\mathcal N(p)|}
-\sum_{x\in\mathcal N(p)}(x-\bar x)(x-\bar x)^{\mathsf T}.
+\vec n\in\mathbb R^3,
+\qquad
+\lVert\vec n\rVert_2=1.
 $$
 
-$C$ 的最小特征值（Eigenvalue）对应的特征向量（Eigenvector）近似表面法线，另外两个特征向量张成局部切平面。最小特征值与另外两个特征值接近时，局部几何接近球形或噪声很大，法线方向不稳定；在边缘处，邻域还可能同时包含两个表面。因而实现中常按曲率比值拒绝不可靠法线，并使用相机视点统一法线正负方向。
+后续流程围绕法线或局部切平面采样接近方向（Approach Direction）和夹爪绕轴角（Roll Angle）。这里的 $\vec n$ 是向量，不是点数；它垂直于种子点附近的局部切平面。
+
+法线通常由局部主成分分析（Principal Component Analysis, PCA）得到。对种子点 $\vec p$ 的邻域 $\mathcal N(\vec p)$，先计算协方差矩阵：
+
+$$
+C(\vec p)=\frac{1}{|\mathcal N(\vec p)|}
+\sum_{\vec x\in\mathcal N(\vec p)}
+(\vec x-\bar{\vec x})(\vec x-\bar{\vec x})^{\mathsf T}.
+$$
+
+$\bar{\vec x}\in\mathbb R^3$ 是邻域点的均值。$C(\vec p)\in\mathbb R^{3\times3}$ 的最小特征值（Eigenvalue）对应的特征向量（Eigenvector）近似 $\vec n$，另外两个特征向量张成局部切平面。最小特征值与另外两个特征值接近时，局部几何接近球形或噪声很大，法线方向不稳定；在边缘处，邻域还可能同时包含两个表面。因而实现中常按曲率比值拒绝不可靠法线，并使用相机视点统一法线正负方向。
 
 一种局部夹爪坐标系可以由三条轴构成：
 
@@ -72,14 +75,14 @@ $C$ 的最小特征值（Eigenvalue）对应的特征向量（Eigenvector）近�
 
 在噪声点云上，法线方向可能翻转或被遮挡边缘污染。邻域半径过小会放大噪声，过大则会抹平小物体和尖锐结构。采样参数因此同时决定精度和计算量。
 
-### 从一个表面点枚举夹爪位姿
+### 候选姿态的参数化与采样（Candidate Pose Parameterization and Sampling）
 
 仅有法线还不能确定六自由度姿态。一个常见枚举过程是：
 
-1. 选择接近轴 $a$，它可以沿 $-n$，也可以在法线附近的圆锥中采样；
-2. 在与 $a$ 正交的平面内离散闭合轴 $b$；
-3. 令横向轴 $c=a\times b$，组成旋转矩阵 $R=[a\ b\ c]$；
-4. 沿 $a$ 改变夹爪插入深度，沿 $b$ 改变闭合中心；
+1. 选择接近轴 $\vec a$，它可以沿 $-\vec n$，也可以在法线附近的圆锥中采样；
+2. 在与 $\vec a$ 正交的平面内离散闭合轴 $\vec b$；
+3. 令横向轴 $\vec c=\vec a\times\vec b$，组成旋转矩阵 $R=[\vec a\ \vec b\ \vec c]$；
+4. 沿 $\vec a$ 改变夹爪插入深度，沿 $\vec b$ 改变闭合中心；
 5. 根据局部点投影估计刚好包围物体的开口 $w$；
 6. 把候选变换到夹爪坐标系后执行碰撞与接触检查。
 
@@ -87,7 +90,7 @@ $C$ 的最小特征值（Eigenvalue）对应的特征向量（Eigenvector）近�
 
 ---
 
-## 候选几何有效性（Geometric Validity）
+## 解析几何过滤与碰撞检查（Analytic Filtering and Collision Checking）
 
 一个候选夹爪放入场景后，可以检查：
 
@@ -99,10 +102,10 @@ $C$ 的最小特征值（Eigenvalue）对应的特征向量（Eigenvector）近�
 
 解析过滤（Analytic Filtering）可以快速删除明显无效候选，但可见点云中的“无碰撞”不等于完整场景无碰撞。未观测背面和桌面边缘仍可能造成执行失败。
 
-碰撞检查通常把夹爪拆成左指、右指、手掌和内部闭合区域四个长方体。把场景点 $x$ 变换到候选夹爪坐标系：
+碰撞检查通常把夹爪拆成左指、右指、手掌和内部闭合区域四个长方体。把场景点 $\vec x$ 变换到候选夹爪坐标系：
 
 $$
-x_G=R^{\mathsf T}(x-t),
+\vec x_G=R^{\mathsf T}(\vec x-\vec t),
 $$
 
 即可用轴对齐区间（Axis-Aligned Interval）判断点属于哪个体积。有效候选需要两个夹指和手掌体积中的点数低于碰撞阈值，同时闭合区域内存在足够物体点。为了容忍深度噪声，碰撞盒常向外膨胀几毫米；膨胀过小会漏掉真实碰撞，过大则会错误删除狭窄空间中的可行姿态。
@@ -111,11 +114,17 @@ $$
 
 ---
 
-## 局部几何表示（Local Geometry Representation）
+## 候选局部输入与视觉特征表示（Candidate-Centric Visual Representation）
 
 GPD 将夹爪闭合区域中的点投影成适合卷积神经网络（Convolutional Neural Network, CNN）的局部表示，再把候选分类为可抓或不可抓 [1,2]。关键思想是把每个候选转换到自己的夹爪坐标系，从而让网络关注接触附近的相对几何。
 
-候选规范化后，GPD 类方法把闭合区域投影到多个正交平面，在栅格中编码占据情况与表面法线统计，得到固定尺寸的“手部图像”（Hand Image）。同一个物体在世界坐标中旋转后，只要候选相对接触几何相同，规范化图像就近似一致。CNN 因而不必同时学习全局物体姿态与局部夹持关系。
+候选规范化后，GPD 类方法把闭合区域投影到多个正交平面，在栅格中编码占据情况与表面法线统计，得到固定尺寸的“手部图像”（Hand Image）：
+
+$$
+I_i\in\mathbb R^{C_H\times H_H\times W_H},
+$$
+
+其中 $i$ 表示第 $i$ 个抓取候选，$C_H$ 是占据、深度或法线等局部几何通道，$H_H,W_H$ 是栅格尺寸。CNN 在这个局部图像上重复使用卷积核，先提取边缘和局部表面模式，再通过更深层特征判断两指之间是否存在合适的支撑几何。同一个物体在世界坐标中旋转后，只要候选相对接触几何相同，规范化图像就近似一致；网络因此不必同时学习全局物体姿态与局部夹持关系。
 
 这一步也会丢失信息：投影把不同深度的点压到同一像素，固定栅格分辨率会抹平薄片和小间隙，而只裁剪闭合区域又看不到手腕外部的场景。实际流水线通常让局部网络负责接触评分，再让独立的全场景碰撞模块检查环境。
 
@@ -130,14 +139,14 @@ GPD 将夹爪闭合区域中的点投影成适合卷积神经网络（Convolutio
 
 ---
 
-## PointNetGPD：直接编码点集（Direct Point-Set Encoding）
+## 点集网络的候选评分：PointNetGPD（Point-Set Scoring with PointNetGPD）
 
 PointNetGPD 将每个候选闭合区域内的原始点集直接送入 PointNet 风格编码器 [4]。点集网络通过对称聚合获得排列不变性（Permutation Invariance），避免手工投影和固定栅格。
 
-具体地，候选点先用 $x_G=R^{\mathsf T}(x-t)$ 变换到夹爪坐标系，再按闭合盒裁剪。由于每个候选包含的点数不同，训练批次通常随机采样或重复补齐到固定点数 $M$，并按夹爪尺寸归一化坐标。PointNet 编码可写成：
+具体地，候选点先用 $\vec x_G=R^{\mathsf T}(\vec x-\vec t)$ 变换到夹爪坐标系，再按闭合盒裁剪。由于每个候选包含的点数不同，训练批次通常随机采样或重复补齐到固定点数 $M$，并按夹爪尺寸归一化坐标。PointNet 编码可写成：
 
 $$
-h=\max_{j=1,\ldots,M}\phi(x_{Gj}),
+h=\max_{j=1,\ldots,M}\phi(\vec x_{Gj}),
 \qquad
 \hat q=\sigma(\psi(h)),
 $$
@@ -148,17 +157,282 @@ $$
 
 ---
 
-## 从确定性采样到概率生成（From Deterministic Sampling to Generative Poses）
+## 候选评分网络的监督训练（Supervised Training of Candidate Scorers）
 
-6-DOF GraspNet 使用变分自编码器（Variational Autoencoder, VAE）学习物体点云条件下的抓取分布 [3]。给定不同潜变量（Latent Variable），模型可以产生多个六自由度姿态，再由评价网络和碰撞检查筛选。
+采样式方法中的网络通常不是直接输出完整的 $SE(3)$ 位姿，而是回答一个更局部的问题：给定候选 $g_i$ 及其局部点云，执行这个候选的可能性有多大。将候选点变换到自身坐标系后，记局部输入为 $X_i$，评分网络可以写成：
 
-它改变了候选来源，但没有消除候选预算问题。采样数量太少会遗漏分布中的有效模式；采样太多仍需要大量评价与碰撞检测。生成分布的多样性（Diversity）、覆盖率（Coverage）和物理成功率是不同指标。
+$$
+q_i=f_{\vartheta}(X_i,g_i),
+\qquad
+q_i\in[0,1].
+$$
+
+这里 $f_{\vartheta}$ 可以是 GPD 中处理手部图像的 CNN，也可以是 PointNetGPD 中处理点集的 PointNet 风格网络。$g_i$ 是否显式输入取决于实现：如果 $X_i$ 已经在候选夹爪坐标系中，位置和旋转通常已经通过坐标变换编码在局部点云里。
+
+训练标签 $y_i\in\{0,1\}$ 或 $y_i\in[0,1]$ 来自解析判据、仿真抓取结果或真实机器人执行结果。二值标签下，候选评分可以使用二元交叉熵：
+
+$$
+\mathcal L(\vartheta)=
+-\frac{1}{B}
+\sum_{i=1}^{B}
+\left[
+y_i\log q_i+(1-y_i)\log(1-q_i)
+\right],
+$$
+
+其中 $B\in\mathbb N$ 是一个训练批次中的候选数量。正负候选通常严重不平衡，训练时需要正负采样、困难负样本挖掘（Hard-Negative Mining）或类别加权；否则网络可能通过大量预测“不可抓”获得表面上较高的准确率。
+
+候选评分器的训练数据还必须记录候选是如何生成的。若训练集只包含经过强碰撞过滤的候选，网络学习到的是“过滤后的候选分布”；若测试时采样密度、法线估计或候选坐标系定义发生变化，评分结果可能明显退化。
+
+<Algorithm number={1} title='训练采样式 6-DoF 候选评分网络'>
+  <div slot='input'>候选集合 $\mathcal G$、局部点云或手部图像、标签 $y_i$、初始参数 $\vartheta$ 和训练轮数</div>
+  <div slot='output'>验证集上表现最好的评分网络参数 $\vartheta^*$</div>
+  <AlgorithmStep keyword='for'>对每个训练轮次</AlgorithmStep>
+  <AlgorithmStep indent={1} keyword='for'>从候选集合中采样一个包含正负样本的批次</AlgorithmStep>
+  <AlgorithmStep indent={2}>将每个候选的局部几何变换到夹爪坐标系</AlgorithmStep>
+  <AlgorithmStep indent={2}>生成局部表示 $X_i$ 并计算 $q_i=f_{\vartheta}(X_i,g_i)$</AlgorithmStep>
+  <AlgorithmStep indent={2}>根据 $q_i$ 与 $y_i$ 计算分类或回归损失</AlgorithmStep>
+  <AlgorithmStep indent={2}>反向传播并更新网络参数 $\vartheta$</AlgorithmStep>
+  <AlgorithmStep indent={1} keyword='end for' />
+  <AlgorithmStep indent={1}>在验证候选上比较损失、Recall@$k$ 和评分排序结果</AlgorithmStep>
+  <AlgorithmStep keyword='end for' />
+  <AlgorithmStep keyword='return'>验证集选择的 $\vartheta^*$</AlgorithmStep>
+</Algorithm>
+
+推理时，评分网络只对已生成的候选计算 $q_i$，再结合碰撞、可达性和轨迹代价进行排序。因此，评分器的高分不能弥补候选生成阶段的覆盖不足。
+
+## 6-DoF GraspNet：生成式候选生成（Generative Candidate Generation）
+
+前面的 GPD 和 PointNetGPD 都先用局部表面几何枚举候选，再由网络判断候选是否可抓。6-DoF GraspNet 改变的是候选的来源：它直接学习“一个物体可能在哪里、以什么方向被抓取”，用生成模型从部分点云提出一组 6-DoF 位姿 [3]。不过，它并不是一个从点云到最终机器人动作的单网络，而是由 **Sampler—Evaluator—Refinement** 三个环节组成：
+
+| 环节             | 输入                       | 输出                     | 解决的问题                 |
+| :--------------- | :------------------------- | :----------------------- | :------------------------- |
+| Grasp Sampler    | 物体点云 $X$、潜变量 $z$   | 初始抓取 $g^{(0)}$       | 生成多样候选               |
+| Grasp Evaluator  | 物体点云 $X$、夹爪姿态 $g$ | 成功概率 $s$             | 识别生成器产生的失败候选   |
+| Grasp Refinement | Evaluator 的姿态梯度       | 修正后的抓取 $g^{(j+1)}$ | 将邻近候选推向更高分的位姿 |
+
+三个环节并不是同一个端到端损失下联合训练的。Sampler 作为条件 VAE 学习成功抓取分布，Evaluator 使用正负抓取独立训练；推理时再把 Evaluator 的梯度用于修正 Sampler 的输出。论文将两者类比为生成器和判别器，但这里没有 GAN 的对抗训练。
+
+### 输入、输出与学习目标（Inputs, Outputs, and Objective）
+
+论文处理的是**已经从场景中分割出的单个目标物体**。设深度相机得到的部分物体点云为：
+
+$$
+X=\{\vec x_n\}_{n=1}^{N},
+\qquad
+\vec x_n\in\mathbb R^3,
+$$
+
+其中 $N\in\mathbb N$ 是点数。物体参考系的原点设在观测点云的中心，坐标轴与相机坐标系平行。对固定几何的平行夹爪，网络只预测夹爪的 6-DoF 位姿：
+
+$$
+g=(R,\vec t)\in SE(3),
+\qquad
+R\in SO(3),\quad \vec t\in\mathbb R^3.
+$$
+
+$R$ 和 $\vec t$ 分别把夹爪从自身坐标系旋转、平移到物体点云坐标系；夹爪开口不是该网络的预测量。网络要输出的也不是唯一姿态，而是一组抓取候选：
+
+$$
+\widehat{\mathcal G}
+=\{g_1,g_2,\ldots,g_K\}.
+$$
+
+这是因为成功抓取只占整个 $SE(3)$ 空间中的狭窄区域，而且通常具有多个彼此分离的模式。例如，杯口、杯身和把手附近可以形成不同的抓取模式。直接回归一个姿态会把多个模式压成一个结果，甚至得到落在模式之间的无效“平均姿态”；在整个 $SE(3)$ 空间均匀采样又需要极大的候选预算。6-DoF GraspNet 因此学习部分点云条件下的成功抓取分布：
+
+$$
+p(\mathcal G^*\mid X),
+$$
+
+其中 $\mathcal G^*$ 是训练数据中能够成功夹持物体的抓取集合。
+
+### Grasp Sampler：从潜变量解码一个 6-DoF 抓取
+
+Grasp Sampler 是条件变分自编码器（Conditional Variational Autoencoder, CVAE）。它的关键不是让 VAE 一次输出整组候选，而是让**同一个物体点云与不同潜变量分别生成不同抓取**。训练和推理过程并不相同。
+
+训练时，从 $\mathcal G^*$ 中取一个成功抓取 $g$，编码器根据点云和该抓取预测潜变量分布：
+
+$$
+q_{\phi}(\vec z\mid X,g),
+\qquad
+\vec z\in\mathbb R^{d_z}.
+$$
+
+从该分布采样 $\vec z$ 后，解码器根据同一个点云重建抓取：
+
+$$
+\hat g=G_{\psi}(X,\vec z).
+$$
+
+在具体网络中，编码器会把真实抓取参数作为特征附加到点云中的各个点，学习“这个抓取相对于该物体位于哪里”；解码器则把同一个潜变量 $\vec z$ 附加到点特征，通过 PointNet++ 的集合抽象层（Set-Abstraction Layer）提取局部到全局的点云特征。解码器最后输出三维平移和一个四维四元数（Quaternion）；四元数经过 $L_2$ 归一化后转换为旋转 $R$。
+
+为了同时衡量旋转和平移误差，论文没有直接把“米”和“弧度”相加，而是在标准夹爪模型上固定 $M$ 个点 $\{\vec r_m\}_{m=1}^{M}$，其中 $\vec r_m\in\mathbb R^3$。姿态 $g=(R,\vec t)$ 作用于夹爪点的结果为：
+
+$$
+T(g;\vec r_m)=R\vec r_m+\vec t\in\mathbb R^3.
+$$
+
+两个姿态之间的重建误差定义为变换后夹爪点的位置差：
+
+$$
+\mathcal L_{\mathrm{pose}}(g,\hat g)
+=\frac{1}{M}\sum_{m=1}^{M}
+\left\|
+T(g;\vec r_m)-T(\hat g;\vec r_m)
+\right\|_1.
+$$
+
+将 VAE 目标写成最小化形式，其结构为：
+
+$$
+\mathcal L_{\mathrm{sampler}}
+=\mathbb E_{q_{\phi}(\vec z\mid X,g)}
+\left[\mathcal L_{\mathrm{pose}}(g,\hat g)\right]
++\beta D_{\mathrm{KL}}
+\left(q_{\phi}(\vec z\mid X,g)\,\|\,\mathcal N(0,I_{d_z})\right),
+$$
+
+其中第一项要求潜变量保留重建抓取所需的信息，第二项把潜空间约束到已知的标准正态先验。推理时不再有真实抓取 $g$，因此直接删除编码器，重复采样：
+
+$$
+\vec z_k\sim\mathcal N(0,I_{d_z}),
+\qquad
+g_k^{(0)}=G_{\psi}(X,\vec z_k),
+\qquad k=1,\ldots,K.
+$$
+
+固定 $X$、改变 $\vec z_k$，就会得到一组不同位置和方向的抓取。论文实验选择 $d_z=2$，机器人实验一次采样 200 个潜变量。候选数量 $K$ 越大，越可能覆盖不同抓取模式，但推理、评价和精化成本也随之增加。
+
+Sampler 只使用成功抓取训练，这并不意味着每个生成结果都成功。VAE 的潜空间是连续的，而不同成功模式之间可能隔着失败区域；解码器在两个模式之间插值时，可能生成与物体碰撞、离物体过远或没有将物体包在两指之间的姿态。这正是 Evaluator 必须存在的原因。
+
+### Grasp Evaluator：显式编码物体—夹爪相对几何
+
+Grasp Evaluator 学习的是给定观测和候选后的成功概率：
+
+$$
+s=f_{\omega}(X,g)\approx p(S=1\mid X,g),
+\qquad
+s\in[0,1].
+$$
+
+一种直接做法是把 $R$、$\vec t$ 拼接到物体的全局点云特征上，但论文实验发现这种表示的分类效果较差。原因是网络仍需从抽象的姿态参数中自行恢复两指、手掌和物体表面之间的空间关系。6-DoF GraspNet 改为把标准夹爪模型采样成 $M$ 个点，并按候选姿态变换：
+
+$$
+X_g
+=\left\{\vec x_m^g=T(g;\vec r_m)\right\}_{m=1}^{M},
+\qquad
+\vec x_m^g\in\mathbb R^3.
+$$
+
+然后将物体点与夹爪点合并，并为每个点增加一个来源标记：
+
+$$
+\widetilde X(g)
+=\left\{[\vec x_n^{\mathsf T},0]^{\mathsf T}\right\}_{n=1}^{N}
+\cup
+\left\{[(\vec x_m^g)^{\mathsf T},1]^{\mathsf T}\right\}_{m=1}^{M}
+\subset\mathbb R^4.
+$$
+
+因此 Evaluator 实际处理的是一个 $(N+M)\times4$ 的带标记点集。PointNet/PointNet++ 风格的点集网络可以直接从局部邻域中观察夹爪点与物体点的关系，例如手指是否穿入可见表面、手掌是否离物体过远，以及两指之间是否存在物体点。这里的“夹爪点云”不是另一个传感器的观测，而是根据已知夹爪几何和候选位姿在软件中渲染出来的。
+
+Evaluator 同时需要成功与失败抓取。二值标签 $y\in\{0,1\}$ 下，它使用二元交叉熵：
+
+$$
+\mathcal L_{\mathrm{eval}}
+=-y\log s-(1-y)\log(1-s).
+$$
+
+随机从整个 $SE(3)$ 空间采到的负样本大多离物体很远，太容易区分，不能训练出精细的决策边界。论文因此使用困难负样本挖掘（Hard-Negative Mining）：先对成功抓取做小幅旋转和平移扰动，再保留那些与原成功姿态接近、但已经碰撞或离物体过远的失败抓取。论文生成困难负样本时在每个旋转轴上最多扰动 $\pm0.6$ rad、平移最多扰动 $\pm3$ cm。这样，Evaluator 学到的不是粗略的“夹爪是否靠近物体”，而是成功姿态附近的细微几何差异。
+
+需要注意，$s$ 是在论文仿真标签和部分点云条件下学习到的成功分数，并不是解析力闭合指标。遮挡区域、材质、摩擦和物体质量没有被当前输入完整观测，网络只能依赖训练数据中的形状先验进行判断。
+
+### Grasp Refinement：将点级梯度转换为刚体位姿更新
+
+如果只用 Evaluator 过滤低分候选，许多“已经接近成功”的姿态仍会被直接丢弃。Grasp Refinement 的做法是固定网络参数，反向传播成功分数对候选姿态的梯度，再沿提高 $s$ 的方向更新抓取。
+
+这里不能独立更新 $X_g$ 中的每一个夹爪点，否则夹爪会被拉伸成非刚体形状。论文将抓取参数写成三维欧拉角和三维平移：
+
+$$
+\vec\xi
+=\begin{bmatrix}
+\alpha & \beta & \gamma & t_x & t_y & t_z
+\end{bmatrix}^{\mathsf T}
+\in\mathbb R^6.
+$$
+
+再把全部夹爪点的坐标堆叠为：
+
+$$
+\vec u(\vec\xi)
+=\begin{bmatrix}
+T(g(\vec\xi);\vec r_1)^{\mathsf T} &
+\cdots &
+T(g(\vec\xi);\vec r_M)^{\mathsf T}
+\end{bmatrix}^{\mathsf T}
+\in\mathbb R^{3M}.
+$$
+
+自动微分先得到成功分数对全部夹爪点坐标的梯度 $\nabla_{\vec u}s\in\mathbb R^{3M}$，再通过刚体变换的雅可比矩阵（Jacobian Matrix）把它转换为六维姿态梯度：
+
+$$
+\nabla_{\vec\xi}s
+=J_{\vec u,\vec\xi}^{\mathsf T}\nabla_{\vec u}s
+\in\mathbb R^6,
+\qquad
+J_{\vec u,\vec\xi}
+=\frac{\partial\vec u}{\partial\vec\xi}
+\in\mathbb R^{3M\times6}.
+$$
+
+第 $j$ 次精化使用梯度上升更新：
+
+$$
+\vec\xi_k^{(j+1)}
+=\vec\xi_k^{(j)}
++\eta\nabla_{\vec\xi}s_k^{(j)},
+\qquad
+s_k^{(j)}=f_{\omega}\left(X,g(\vec\xi_k^{(j)})\right),
+$$
+
+其中 $\eta\in\mathbb R_{>0}$ 是步长。由于一阶梯度只在当前姿态附近可靠，论文限制步长，使单次更新的最大平移不超过 $1$ cm。更新姿态后需要重新渲染夹爪点云、再次前向计算成功分数，再进行下一轮反向传播。
+
+例如，Sampler 可能在碗口附近生成一个两指之间还没有包住碗壁的候选。Evaluator 从物体点与夹爪点的相对位置给出低分；其梯度经过上述雅可比矩阵转换后，会同时调整夹爪的平移和朝向，而不是任意移动某一个夹爪点。经过数次更新，候选可能进入训练数据中更像成功抓取的区域。这个过程只保证提升 Evaluator 的预测分数，不保证真实物理成功；错误的评分函数或局部极值仍会导致失败。
+
+### 完整推理流程（Complete Inference Procedure）
+
+<Algorithm number={2} title='6-DoF GraspNet 的候选生成、评价与精化'>
+  <div slot='input'>部分物体点云 $X$、训练好的 Sampler $G_{\psi}$、Evaluator $f_{\omega}$、候选数 $K$、精化步数 $J$ 和分数阈值 $\tau_s$</div>
+  <div slot='output'>精化后且分数不低于 $\tau_s$ 的抓取集合 $\widehat{\mathcal G}$</div>
+  <AlgorithmStep>采样 $\vec z_1,\ldots,\vec z_K\sim\mathcal N(0,I_{d_z})$</AlgorithmStep>
+  <AlgorithmStep>批量生成初始姿态 $g_k^{(0)}=G_{\psi}(X,\vec z_k)$</AlgorithmStep>
+  <AlgorithmStep keyword='for'>精化轮次 $j=0,\ldots,J-1$</AlgorithmStep>
+  <AlgorithmStep indent={1}>将标准夹爪点变换到各个 $g_k^{(j)}$，得到 $X_{g_k^{(j)}}$</AlgorithmStep>
+  <AlgorithmStep indent={1}>合并物体点和带来源标记的夹爪点，计算 $s_k^{(j)}$</AlgorithmStep>
+  <AlgorithmStep indent={1}>反向传播 $\nabla_{\vec u}s_k^{(j)}$，并用 $J_{\vec u,\vec\xi}^{\mathsf T}$ 得到姿态梯度</AlgorithmStep>
+  <AlgorithmStep indent={1}>限制更新幅度，并令 $\vec\xi_k^{(j+1)}=\vec\xi_k^{(j)}+\eta\nabla_{\vec\xi}s_k^{(j)}$</AlgorithmStep>
+  <AlgorithmStep keyword='end for' />
+  <AlgorithmStep>重新计算最终成功分数，删除 $s_k^{(J)}\lt\tau_s$ 的候选</AlgorithmStep>
+  <AlgorithmStep keyword='return'>$\widehat{\mathcal G}=\{g_k^{(J)}\mid s_k^{(J)}\geq\tau_s\}$</AlgorithmStep>
+</Algorithm>
+
+算法框给出的是 6-DoF GraspNet 的核心网络流程。论文中的网络只针对分割后的单个目标物体，并不把邻近物体、机械臂可达性或完整接近轨迹作为网络输入；真实机器人实验在网络返回候选后，另用运动规划器检查无碰撞路径并执行最高分的可行抓取。因此，这项工作的准确定位是：**从部分物体点云学习多样的候选分布，再用可微成功模型过滤并局部修正候选**。
 
 ---
 
-## 数据规模与标签来源（Data Scale and Label Source）
+## 数据集与监督信号（Datasets and Supervision）
+
+### 6-DoF GraspNet 的仿真监督（Simulation Supervision in 6-DoF GraspNet）
+
+6-DoF GraspNet 的训练数据不是 ACRONYM，而是作者用 FleX 物理模拟器为 6-DoF GraspNet 单独生成的抓取数据。作者从物体表面采样点，将夹爪的接近轴与表面法线对齐，再随机设置夹爪到表面的距离和绕接近轴的旋转；只有闭合区域包含物体且初始姿态不碰撞的候选才进入抓取模拟。数据包含 206 个物体模型，先生成 10,816,720 个候选，其中 7,074,038 个通过非空闭合区域检查并实际模拟，最终得到 2,104,894 个成功抓取标签 [3]。
+
+模拟中的平行夹爪和物体是自由运动的，仿真不使用重力，并固定表面摩擦系数和物体密度。夹爪完成闭合后还会执行预定义的摇晃动作；如果物体仍保持在两指之间，就把该姿态标为成功。摩擦系数、物体密度、夹爪几何和摇晃协议都会影响这个标签。因此，Evaluator 学到的是“在该仿真设置下抓取成功的概率”，而不是脱离夹爪和物体参数的普适物理真值。论文随后直接将只用仿真训练的模型用于真实机器人实验，这也是其 sim-to-real 结果需要重点解读的地方。
+
+### 仿真数据集：ACRONYM（Simulation Dataset）
 
 ACRONYM 提供 17.744M 个物理仿真平行夹爪抓取，覆盖 8,872 个物体和 262 个类别 [5]。大规模仿真使生成器能够看到更多形状和姿态，但标签继承了网格、摩擦、质量、接触求解器和夹爪模型的假设。
+
+### 监督信号的语义（Semantics of Supervision）
 
 采样式检测器常混合三种监督：
 
@@ -166,11 +440,13 @@ ACRONYM 提供 17.744M 个物理仿真平行夹爪抓取，覆盖 8,872 个物�
 - 仿真抓取结果（Simulation Outcome）；
 - 真实机器人成功或失败（Physical Outcome）。
 
-训练标签决定评分器学习的“质量”语义，不能仅用网络结构名称概括。
+解析标签通常判断几何和摩擦模型下的理论可抓性，仿真标签还会受到碰撞、接触求解和物体参数影响，真实标签则包含深度误差、标定误差、运动规划和夹爪执行误差。训练标签决定评分器学习的“质量”语义，不能仅用网络结构名称概括。
+
+因此，比较两个候选评分网络时，至少要同时报告候选来源、标签来源、碰撞过滤规则和候选预算。相同的网络结构在不同标签语义下训练，得到的分数并不一定具有相同含义。
 
 ---
 
-## 候选去重与选择（Candidate Deduplication and Selection）
+## 候选聚类、去重与排序（Candidate Clustering, Deduplication, and Ranking）
 
 大量候选会集中在同一物体表面。常见后处理包括：
 
@@ -185,7 +461,40 @@ Efficient and Accurate Candidate Generation 进一步优化了 $SE(3)$ 候选生
 
 ---
 
-## 覆盖率—质量—成本三角（Coverage–Quality–Cost Triangle）
+## 评测协议与报告指标（Evaluation Protocols and Metrics）
+
+采样式 6-DoF 方法至少需要区分候选生成和候选评分两个环节。一个评分网络可能在给定候选上排序很好，但如果生成器没有覆盖正确姿态，最终系统仍然无法成功抓取。
+
+### 候选覆盖与 Top-$k$ 质量（Candidate Coverage and Top-$k$ Quality）
+
+若测试场景有参考抓取集合 $\mathcal G^*$，可以在固定位姿距离阈值下判断候选是否覆盖某个参考抓取。一个抽象的覆盖率写法是：
+
+$$
+\operatorname{Recall}@K
+=\frac{1}{N}
+\sum_{n=1}^{N}
+\mathbf 1
+\left[
+\exists i\le K,
+ d_{SE(3)}(g_i,g_n^*)<\tau
+\right],
+$$
+
+其中 $N$ 是测试场景或参考抓取数量，$g_i$ 是排序后的候选，$g_n^*$ 是参考抓取，$d_{SE(3)}$ 是同时考虑平移和旋转的距离，$\tau$ 是评价阈值。具体的平移、旋转和开口容差必须随协议报告，不能只给出一个没有定义的 Recall 数字。
+
+Top-$k$ 抓取成功率还要说明 $k$、候选是否经过碰撞过滤，以及“成功”来自解析判据、仿真执行还是真实机器人执行。候选数量增加通常会提高覆盖率，但也会增加评分和碰撞检查成本。
+
+### 需要共同报告的系统量（System-Level Quantities）
+
+- 原始采样候选数与每个场景的采样预算；
+- 解析过滤、碰撞检查和 NMS 后的候选数；
+- 候选生成时间、单候选评分时间和总推理延迟；
+- Recall@$k$、Top-$k$ 质量和候选多样性；
+- 仿真或真实机器人抓取成功率，以及失败原因。
+
+只有在这些量使用相同候选预算、相同过滤规则和相同测试划分时，不同采样式方法之间的比较才有意义。
+
+## 候选覆盖率、评分质量与计算成本（Coverage, Scoring Quality, and Cost）
 
 采样式 6-DoF 检测的核心矛盾可以写成：
 

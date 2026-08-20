@@ -1,0 +1,140 @@
+---
+import { cn } from '@/utils'
+
+interface Props {
+  title: string
+  number?: number | string
+  inputLabel?: string
+  outputLabel?: string
+  class?: string
+}
+
+const {
+  title,
+  number,
+  inputLabel = 'Input',
+  outputLabel = 'Output',
+  class: className
+} = Astro.props
+
+const hasInput = Astro.slots.has('input')
+const hasOutput = Astro.slots.has('output')
+---
+
+<figure
+  class={cn('algorithm not-prose', className)}
+  aria-label={`Algorithm ${number ?? ''}: ${title}`}
+>
+  <figcaption class='algorithm-caption'>
+    <span class='algorithm-label'>Algorithm{number !== undefined ? ` ${number}` : ''}</span>
+    <span class='algorithm-title'>{title}</span>
+  </figcaption>
+
+  {
+    (hasInput || hasOutput) && (
+      <div class='algorithm-io'>
+        {hasInput && (
+          <div class='algorithm-io-row'>
+            <span class='algorithm-io-label'>{inputLabel}:</span>
+            <div class='algorithm-io-content'>
+              <slot name='input' />
+            </div>
+          </div>
+        )}
+        {hasOutput && (
+          <div class='algorithm-io-row'>
+            <span class='algorithm-io-label'>{outputLabel}:</span>
+            <div class='algorithm-io-content'>
+              <slot name='output' />
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  <ol class='algorithm-lines'>
+    <slot />
+  </ol>
+</figure>
+
+<style>
+  .algorithm {
+    margin-block: 1.5rem;
+    overflow: hidden;
+    border-block: 2px solid hsl(var(--foreground) / 0.72);
+    border-radius: 0.3rem;
+    background: hsl(var(--background) / 0.7);
+    color: hsl(var(--foreground));
+    box-shadow: 0 0.35rem 1.2rem hsl(var(--foreground) / 0.045);
+  }
+
+  .algorithm-caption {
+    display: flex;
+    align-items: baseline;
+    gap: 0.55rem;
+    padding: 0.58rem 0.9rem;
+    border-bottom: 1px solid hsl(var(--border));
+    font-family: ui-serif, Georgia, Cambria, 'Times New Roman', serif;
+    line-height: 1.45;
+  }
+
+  .algorithm-label {
+    flex: none;
+    font-weight: 700;
+  }
+
+  .algorithm-title {
+    font-weight: 600;
+  }
+
+  .algorithm-io {
+    display: grid;
+    gap: 0.35rem;
+    padding: 0.65rem 0.9rem;
+    border-bottom: 1px solid hsl(var(--border));
+    background: hsl(var(--muted) / 0.28);
+    font-size: 0.94rem;
+    line-height: 1.65;
+  }
+
+  .algorithm-io-row {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 0.55rem;
+    align-items: baseline;
+  }
+
+  .algorithm-io-label {
+    font-family: ui-serif, Georgia, Cambria, 'Times New Roman', serif;
+    font-weight: 700;
+  }
+
+  .algorithm-io-content {
+    min-width: 0;
+  }
+
+  .algorithm-io-content :global(> *) {
+    margin-block: 0;
+  }
+
+  .algorithm-lines {
+    margin: 0;
+    padding: 0.55rem 0;
+    list-style: none;
+    counter-reset: algorithm-line;
+  }
+
+  @media (max-width: 640px) {
+    .algorithm-caption {
+      align-items: flex-start;
+      flex-direction: column;
+      gap: 0.1rem;
+    }
+
+    .algorithm-io-row {
+      grid-template-columns: 1fr;
+      gap: 0;
+    }
+  }
+</style>
