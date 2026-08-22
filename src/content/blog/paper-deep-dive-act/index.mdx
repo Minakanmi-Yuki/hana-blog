@@ -53,6 +53,8 @@ import { Aside } from '@/components/user'
 
 **项目主页**：[ALOHA Project](https://tonyzhaozh.github.io/aloha/)
 
+![ALOHA 系统总览与遥操作示例（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-act/setup.5j4xkxzd6h.webp)
+
 ### 一句话总结
 
 **【Paper】** 本文同时提出低成本双臂遥操作系统 ALOHA 和模仿学习算法 ACT，用“一次性预测一整段动作”的方式降低误差累积，并以 CVAE 建模人类示教中的随机行为，使低成本硬件也能学会开盖、插电池等精细操作。
@@ -108,6 +110,8 @@ $$
 ### 4.1 Overall Architecture
 
 ACT 的本质是一个 Conditional VAE。训练时有一个额外的 CVAE encoder，推理时丢弃，只保留 CVAE decoder 作为策略。
+
+![ACT 的 CVAE 架构：左侧 encoder 只在训练时使用，右侧 decoder 作为策略（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-act/act-architecture-crop.64el78s53p.webp)
 
 ```text
 Training:
@@ -218,6 +222,8 @@ $$
 
 **【Code】** `imitate_episodes.py` 中实现 `all_time_actions` 缓冲，`k = 0.01`，权重归一化后对同一时间步的预测取加权平均。
 
+![Action Chunking 与 Temporal Ensembling 的执行方式（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-act/act-chunk-temporal-crop.et8vnxrmj.webp)
+
 ### 4.4 Training
 
 **【Paper】**
@@ -289,6 +295,8 @@ $$
 - **Metrics**：按子任务定义的分阶段成功率与最终成功率。
 - **Evaluation**：仿真任务 3 个随机种子、每种子 50 次 rollout；真实任务 1 个种子、25 次 rollout。
 
+![六个真实任务的定义与子阶段（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-act/act-real-tasks-crop.1hsy6jtlmw.webp)
+
 ### 5.2 Main Results
 
 **【Paper】** 最终成功率对比如下：
@@ -319,6 +327,8 @@ $$
 - **Temporal Ensembling**：ACT 提升约 3.3%，BC-ConvMLP 提升约 4%，但 VINN 反而下降。
 - **CVAE**：scripted 数据下去掉 CVAE 几乎无影响；human 数据下从 35.3% 降到 2%，说明 CVAE 对多模态人类示教至关重要。
 - **高频率遥操作**：50Hz 相比 5Hz 让参与者完成 zip tie 的时间从平均 33 秒降到 20 秒，unstack cups 从 16 秒降到 10 秒，整体慢约 62%，统计检验 p < 0.001。
+
+![Action Chunking、Temporal Ensembling、CVAE 和高频率遥操作的消融与用户研究结果（论文 Figure 8）](https://pic.hana0721.top/blog/paper-deep-dive-act/act-ablations-crop.4jou7ruxpt.webp)
 
 ### 5.4 Generalization
 

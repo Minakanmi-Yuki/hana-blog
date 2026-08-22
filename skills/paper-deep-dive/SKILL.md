@@ -23,6 +23,7 @@ Choose one workflow:
 - Use `category: 'research'` and the slug prefix `paper-deep-dive-`.
 - Use a Pixiv hero image already used by another post if possible; avoid images reused many times.
 - Mark facts with `【Paper】`, `【Code】`, and `【Analysis】`.
+- Include key paper figures such as the system overview, architecture, method diagrams, and experimental results.
 - Use `Algorithm` and `AlgorithmStep` components for pseudocode.
 - Use `ArxivRating` at the top of generated posts.
 - Write one post per paper.
@@ -32,5 +33,6 @@ Choose one workflow:
 ## Resources
 
 - `references/create-post.md`: detailed generation workflow, structure, fact-label rules, and validation.
+- `references/extract-paper-figures.md`: how to extract figures from arXiv LaTeX source or PDF fallback and upload them.
 - `references/revise-post.md`: feedback revision workflow and feedback classification.
 - `assets/post-template.mdx`: copyable MDX skeleton for new posts.

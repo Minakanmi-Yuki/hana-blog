@@ -45,6 +45,31 @@ paper:
 
 Use a Pixiv cover image already used by another post if possible. Hero images are covers, not paper figures.
 
+## Paper Figures
+
+Generated posts must include key figures from the paper, not only the Pixiv hero image. Read `references/extract-paper-figures.md` before extracting or uploading images.
+
+Prefer these figures:
+
+- System or task overview
+- Overall architecture
+- Method or module diagrams
+- Main experimental results and ablations
+
+Insert each figure at the section where it is most relevant:
+
+- Overview figure in `1. 论文概述` or `2. 背景与相关工作`
+- Architecture figure in `4.1 Overall Architecture`
+- Method or module figure in `4.2` / `4.3`
+- Task or setup figure in `5.1 Experimental Setup`
+- Result or ablation figure in `5.2` / `5.3`
+
+Use markdown images with meaningful alt text:
+
+```mdx
+![ACT architecture from paper Figure 4](https://pic.hana0721.top/blog/paper-deep-dive-act/act-architecture-crop.64el78s53p.webp)
+```
+
 ## Fact Labels
 
 - Default body content is treated as `【Paper】`.
@@ -112,6 +137,10 @@ import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
 ```
 
 Follow the usage in `src/content/blog/paper-deep-dive-act/index.mdx`.
+
+## Figure Extraction
+
+For figure extraction and upload commands, read `references/extract-paper-figures.md`.
 
 ## Embodied AI Checklist
 

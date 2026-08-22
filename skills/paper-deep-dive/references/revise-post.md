@@ -18,6 +18,7 @@ If the target or feedback is missing, ask before guessing.
    - **Clarity**: confusing explanations, missing variable definitions, ambiguous terms.
    - **Structure**: missing sections, wrong heading levels, excessive length.
    - **Depth**: missing modules, training/inference details, experiments, limitations.
+   - **Figures**: missing paper figures, wrong figure placement, cropped or unreadable figures.
    - **Format**: LaTeX, tables, pseudocode components, labels, links, frontmatter.
 4. Verify before editing:
    - If feedback claims a factual error, confirm it against the paper or code.
@@ -27,6 +28,7 @@ If the target or feedback is missing, ask before guessing.
    - Fix accuracy first.
    - Improve clarity and structure next.
    - Add or condense depth based on the feedback.
+   - Add, replace, or move paper figures when feedback asks for more visual explanation.
    - Fix formatting and metadata last.
 6. Apply edits:
    - Preserve the slug unless the user asks to change it.
@@ -36,6 +38,7 @@ If the target or feedback is missing, ask before guessing.
    - If `description` or `title` changes, respect schema limits.
    - Keep `【Paper】`, `【Code】`, and `【Analysis】` labels accurate.
    - Keep using `Algorithm` / `AlgorithmStep` for pseudocode.
+   - Keep or restore key paper figures and their source labels.
    - Keep the required structure unless the user explicitly requests a structural change.
 7. Validate:
 
@@ -47,14 +50,16 @@ Run `npm run build` when the change touches config, routes, or shared components
 
 ## Feedback Mapping Examples
 
-| Feedback           | Action                                                                                                |
-| ------------------ | ----------------------------------------------------------------------------------------------------- |
-| "这个数字不对"     | Verify against the paper/code, correct it, and keep the correct label.                                |
-| "4.1 看不懂"       | Rewrite the data-flow explanation and ASCII diagram.                                                  |
-| "缺少训练细节"     | Add Training Data, Loss, Optimizer, and pipeline details from the paper/code.                         |
-| "文章太长"         | Condense optional sections such as related work and research directions; keep method and experiments. |
-| "伪代码格式不统一" | Replace plain algorithm text with `Algorithm` / `AlgorithmStep`.                                      |
-| "公式变量没解释"   | Add variable definitions to every formula.                                                            |
+| Feedback           | Action                                                                                                        |
+| ------------------ | ------------------------------------------------------------------------------------------------------------- |
+| "这个数字不对"     | Verify against the paper/code, correct it, and keep the correct label.                                        |
+| "4.1 看不懂"       | Rewrite the data-flow explanation and ASCII diagram.                                                          |
+| "缺少训练细节"     | Add Training Data, Loss, Optimizer, and pipeline details from the paper/code.                                 |
+| "文章太长"         | Condense optional sections such as related work and research directions; keep method and experiments.         |
+| "伪代码格式不统一" | Replace plain algorithm text with `Algorithm` / `AlgorithmStep`.                                              |
+| "公式变量没解释"   | Add variable definitions to every formula.                                                                    |
+| "缺少架构图"       | Extract the relevant figure with `references/extract-paper-figures.md` and insert it in the matching section. |
+| "图片看不清"       | Re-crop the figure at higher resolution and verify the labels remain readable.                                |
 
 ## Output
 
