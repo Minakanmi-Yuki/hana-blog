@@ -214,6 +214,19 @@ const sidebarCollectionRules = [
     entryHref: '/blog/paper-reading-eba1'
   },
   {
+    key: 'paper-deep-dive',
+    title: {
+      zh: 'Paper Deep Dive',
+      en: 'Paper Deep Dive'
+    },
+    description: {
+      zh: '具身智能论文精读系列',
+      en: 'Embodied AI paper deep dive series'
+    },
+    slugPrefix: 'paper-deep-dive-',
+    entryHref: '/blog/paper-deep-dive-act'
+  },
+  {
     key: 'vibe-coding',
     title: {
       zh: 'Vibe Coding Series',

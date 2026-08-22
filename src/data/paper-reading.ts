@@ -168,7 +168,13 @@ export const paperReadingMetadata: Record<string, PaperReadingMetadata> = {
   '2404.08471': { links: [{ type: 'github', href: 'https://github.com/facebookresearch/jepa' }] },
 
   // Embodied AI
-  '2304.13705': { links: [{ type: 'github', href: 'https://github.com/tonyzhaozh/act' }] },
+  '2304.13705': {
+    publication: 'arXiv 2023',
+    links: [
+      { type: 'website', href: 'https://tonyzhaozh.github.io/aloha/' },
+      { type: 'github', href: 'https://github.com/tonyzhaozh/act' }
+    ]
+  },
   '2303.04137': {
     links: [{ type: 'github', href: 'https://github.com/real-stanford/diffusion_policy' }]
   },

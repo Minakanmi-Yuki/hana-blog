@@ -1,0 +1,92 @@
+---
+title: '<Paper Name> 论文精读'
+publishDate: YYYY-MM-DD
+updatedDate: YYYY-MM-DD
+description: '<Replace with a concise description under 160 chars.>'
+heroImage: { src: 'https://pic.hana0721.top/<existing-pixiv-image>', color: '#8C8275' }
+category: 'research'
+pixivLink: '<pixiv id>'
+tags:
+  - 'paper deep dive'
+  - '<topic>'
+paper:
+  arxivId: '<arxiv id>'
+  title: '<Original paper title>'
+  authors:
+    - '<Author One>'
+    - '<Author Two>'
+  venue: '<Conference / Journal / arXiv>'
+  year: YYYY
+  code: '<official code URL or leave empty>'
+  project: '<official project URL or leave empty>'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating id='<arxiv id>' tldr='<one-sentence TL;DR>' rank={4} />
+
+## 1. 论文概述
+
+### 一句话总结
+
+### 核心贡献
+
+## 2. 背景与相关工作
+
+## 3. 问题定义
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+### 4.2 核心模块
+
+### 4.3 关键公式
+
+<Algorithm number={1} title='<Algorithm Name>' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'><Replace with algorithm input.></div>
+  <div slot='output'><Replace with algorithm output.></div>
+  <AlgorithmStep><Replace with pseudocode line.></AlgorithmStep>
+</Algorithm>
+
+### 4.4 Training
+
+### 4.5 Inference
+
+### 4.6 代码实现对照
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+### 5.2 Main Results
+
+### 5.3 Ablation Study
+
+### 5.4 Generalization
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+### 6.2 核心创新
+
+### 6.3 与已有方法的本质区别
+
+### 6.4 关键假设
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+### 7.2 自己分析得到的局限
+
+## 8. 启发与研究思考
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。
+</Aside>

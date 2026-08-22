@@ -98,6 +98,12 @@ Central configuration that controls:
   series.
 - Use the `paper-reading-eba*` pages as the reference pattern for batch names and links.
 
+### Paper Deep Dive Collection
+- `Paper Deep Dive` is a one-paper-per-post series in the `research` category.
+- New posts use the slug prefix `paper-deep-dive-`.
+- Follow `skills/paper-deep-dive/SKILL.md` when generating or revising a paper deep dive post.
+- The sample post is `src/content/blog/paper-deep-dive-act/index.mdx`.
+
 ### Image Hosting
 - When an image source comes from `https://Minakanmi-Yuki.github.io/picx-images-hosting/`,
   store it in content as `https://pic.hana0721.top/` with the same filename/path.

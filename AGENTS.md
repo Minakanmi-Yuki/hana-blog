@@ -22,6 +22,13 @@ English. Static assets are in `src/assets/`, `public/`, and `preset/icons/`.
 - `npm run format`: format JS, TS, Astro, Markdown, and MDX files with Prettier.
 - `npm run quality`: lint, sync metadata, type-check, and format.
 
+## Skills
+
+- `skills/paper-deep-dive/` contains the Paper Deep Dive skill for generating and revising
+  one-paper-per-post Embodied AI blog articles.
+- Read `skills/paper-deep-dive/SKILL.md` before handling Paper Deep Dive generation or feedback
+  revision requests.
+
 ## Coding Style & Naming Conventions
 
 Use 2-space indentation, single quotes, no semicolons, LF endings, and a 100-character print

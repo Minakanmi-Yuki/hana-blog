@@ -1,0 +1,420 @@
+---
+title: 'ACT 论文精读：Action Chunking with Transformers'
+publishDate: 2026-08-23
+updatedDate: 2026-08-23
+description: '精读 ACT：用 Action Chunking、Temporal Ensembling 与 CVAE 让低成本双臂机器人学习精细操作，并对照官方代码逐层分析。'
+heroImage:
+  { src: 'https://pic.hana0721.top/67997247_p0_master1200.6po3p2g2e0.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '67997247'
+tags:
+  - 'paper deep dive'
+  - 'ACT'
+  - 'imitation learning'
+  - 'bimanual manipulation'
+paper:
+  arxivId: '2304.13705'
+  title: 'Learning Fine-Grained Bimanual Manipulation with Low-Cost Hardware'
+  authors:
+    - 'Tony Z. Zhao'
+    - 'Vikash Kumar'
+    - 'Sergey Levine'
+    - 'Chelsea Finn'
+  venue: 'arXiv'
+  year: 2023
+  code: 'https://github.com/tonyzhaozh/act'
+  project: 'https://tonyzhaozh.github.io/aloha/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2304.13705'
+  tldr='ACT 把模仿学习从单步动作预测改成 Action Chunk 预测，并用 CVAE 建模人类示教中的多模态行为，让低成本双臂系统 ALOHA 学会精细操作。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《Learning Fine-Grained Bimanual Manipulation with Low-Cost Hardware》
+
+**作者**：Tony Z. Zhao、Vikash Kumar、Sergey Levine、Chelsea Finn
+
+**机构**：Stanford University、UC Berkeley、Meta
+
+**会议 / 期刊**：arXiv 预印本（2023）
+
+**论文链接**：[arXiv](https://arxiv.org/abs/2304.13705)
+
+**代码链接**：[tonyzhaozh/act](https://github.com/tonyzhaozh/act)
+
+**项目主页**：[ALOHA Project](https://tonyzhaozh.github.io/aloha/)
+
+### 一句话总结
+
+**【Paper】** 本文同时提出低成本双臂遥操作系统 ALOHA 和模仿学习算法 ACT，用“一次性预测一整段动作”的方式降低误差累积，并以 CVAE 建模人类示教中的随机行为，使低成本硬件也能学会开盖、插电池等精细操作。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出低成本的 ALOHA 双臂遥操作平台，预算约 2 万美元，由两套 ViperX/WidowX 机械臂、4 个网络摄像头和 3D 打印组件组成。
+2. 提出 ACT，把策略建模为 `p(a_{t:t+k} | o_t)`，通过 Action Chunking 降低任务有效 horizon，缓解 Behavior Cloning 的 compounding error。
+3. 使用 CVAE 对动作序列建模，保留人类示教中的多模态行为；配合 Temporal Ensembling 提高轨迹平滑度。
+4. 在 2 个仿真任务和 6 个真实任务上验证，真实任务只用约 10-20 分钟示教即可达到较高成功率。
+
+## 2. 背景与相关工作
+
+**【Paper】** 精细操作通常要求毫米级精度、接触力协调和闭环视觉反馈。传统方案依赖高精度机器人、高成本传感器或复杂标定，难以被普通实验室复现。本文想验证一个更直接的问题：能不能用低成本、不精确的硬件，通过端到端模仿学习完成这些任务。
+
+过去的主流路线是 Behavior Cloning（BC）：从观测直接监督学习单步动作。它简单，但有两个明显问题：
+
+1. **Compounding error**：单步预测误差会在时间轴上累积，机器人逐渐偏离训练分布，最终进入难以恢复的状态。
+2. **人类示教非平稳**：同一状态下人类可能有不同走法，也会出现暂停等与状态相关的时间依赖行为，单步 Markovian 策略难以建模。
+
+**【Paper】** 已有方法尝试用 DAgger 在线交互、噪声注入、合成 correction data 等方式缓解 compounding error，但这些方法要么需要额外人工标注，要么在精细操作中会降低示教质量，要么只适用于低维状态或特定任务。本文选择不动数据收集过程，而是从策略输出形式入手：让模型直接预测未来 `k` 步动作。
+
+与最相关工作相比，ACT 的主要区别不是单纯换网络结构，而是同时改变三个点：
+
+- 输出从单步动作变成动作序列，降低任务有效 horizon；
+- 用 CVAE 而不是确定性回归建模动作序列，以处理人类示教的多模态；
+- 用 Temporal Ensembling 融合多个重叠 chunk，而不是每隔 `k` 步硬切换。
+
+## 3. 问题定义
+
+**【Paper】**
+
+- **Task**：双机械臂精细操作，例如打开拉链袋、插入电池、打开透明杯盖、穿魔术贴、准备胶带、穿鞋。
+- **Input / Observation**：当前 4 个摄像头采集的 RGB 图像，以及左右臂的关节位置。图像为 `480x640x3`，关节维度为 `14 = (6 + 1) * 2`。
+- **Output / Action**：未来 `k` 步的目标关节位置，维度为 `k x 14`。
+- **Action Space**：绝对目标关节位置，而不是关节增量。低层 PID 控制器负责跟踪。
+- **Environment**：真实桌面环境；仿真使用 MuJoCo 中的 Cube Transfer 和 Bimanual Insertion。
+- **Robot / Embodiment**：ALOHA，两套 6-DoF 平行夹爪机械臂。
+- **Dataset**：每个真实任务约 50 条人类示教，Thread Velcro 为 100 条；每个仿真任务 50 条 scripted 或 human 示教。
+
+用数学形式表达，策略学习的是：
+
+$$
+\pi_\theta(\hat a_{t:t+k} \mid o_t)
+$$
+
+其中 $o_t$ 是当前视觉与关节观测，$a_{t:t+k}$ 是从 $t$ 开始的长度为 $k$ 的动作序列。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+ACT 的本质是一个 Conditional VAE。训练时有一个额外的 CVAE encoder，推理时丢弃，只保留 CVAE decoder 作为策略。
+
+```text
+Training:
+[CLS] + joints + action sequence
+  -> CVAE encoder (transformer encoder)
+  -> mu, logvar -> sample z (32 dim)
+
+4 RGB images -> ResNet18 -> image tokens
+qpos (14) -> linear -> 512
+z (32) -> linear -> 512
+concat -> transformer encoder -> memory
+  -> transformer decoder (k queries)
+  -> action head -> k x 14
+
+Inference:
+same observations -> z = 0 -> predict k x 14
+```
+
+### 4.2 核心模块
+
+#### CVAE Encoder
+
+- **输入**：当前关节位置、目标动作序列、一个可学习的 `[CLS]` token。
+- **输出**：32 维 latent 变量 $z$ 的均值和方差。
+- **功能**：把“这段示教动作的风格/分支”压缩到 $z$。
+- **实现方式**：BERT 风格 transformer encoder；动作和关节位置分别经过线性投影后拼成 `k+2` 的 token 序列，只取 `[CLS]` 对应的输出预测 `mu/logvar`。
+- **为什么需要**：人类示教存在多模态行为，例如同一状态下可能选择不同轨迹。CVAE 让 decoder 在给定 $z$ 后更精确地重建当前动作序列，而不是被迫对所有行为取平均。
+
+**【Code】** 对应 `DETRVAE` 中 `is_training=True` 的分支，位于 `detr/models/detr_vae.py`。latent dim 固定为 32。
+
+#### ResNet18 Image Encoder
+
+- **输入**：4 张 `480x640x3` RGB 图像。
+- **输出**：每张图像 300 个 `512` 维 token。
+- **功能**：把多视角视觉信息转成序列特征。
+- **实现方式**：ResNet18 backbone 输出 `15x20x512` 特征图，展平为 `300x512`，加上 2D sinusoidal position embedding，再经过 `1x1` 卷积投影到 transformer 的 hidden dim。
+- **为什么需要**：静态 top/front 相机提供全局场景，左右 wrist 相机提供接近接触区域的细节，多视角融合对精细操作很重要。
+
+**【Code】** backbone 在 `detr/models/backbone.py`，使用 torchvision 的 `resnet18`，BatchNorm 替换为 `FrozenBatchNorm2d`。
+
+#### Transformer Encoder
+
+- **输入**：来自 4 个相机的 `1200x512` 图像 token，加上投影后的关节位置和 $z$，共 `1202x512`。
+- **输出**：融合后的 memory。
+- **功能**：让视觉、本体感和动作风格信息互相 attend，融合多模态上下文。
+- **实现方式**：4 层 self-attention transformer encoder。
+- **为什么需要**：模型需要知道“当前看到什么”“机械臂现在在哪”“这次动作希望采用哪种风格”，才能生成下一段动作。
+
+#### Transformer Decoder
+
+- **输入**：固定 position embedding 作为 `k` 个 query，以及 encoder 输出的 memory。
+- **输出**：`k x 512` 的动作特征。
+- **功能**：按时间顺序生成一整段连贯动作。
+- **实现方式**：7 层 transformer decoder，query 是固定的 sinusoidal embedding，通过 cross-attention 读取 memory，最后经过线性 action head 输出 `k x 14`。
+- **为什么需要**：动作序列内部有强时间相关性，直接用 transformer decoder 可以让后续动作参考前序动作，生成比独立预测每个时间步更协调的轨迹。
+
+### 4.3 关键公式
+
+#### CVAE 训练目标
+
+论文 Algorithm 1 写作：
+
+$$
+\mathcal L = \mathcal L_{reconst} + \beta \mathcal L_{reg}
+$$
+
+其中：
+
+$$
+\mathcal L_{reconst} = \text{MSE}(\hat a_{t:t+k}, a_{t:t+k})
+$$
+
+$$
+\mathcal L_{reg} = D_{KL}\left(q_\phi(z \mid a_{t:t+k}, \bar o_t) \parallel \mathcal N(0, I)\right)
+$$
+
+$q_\phi$ 是 CVAE encoder，$\bar o_t$ 是不含图像、只含关节位置的观测，$\beta$ 控制 KL 正则强度。
+
+**【Paper】** 需要注意一处内部不一致：Algorithm 1 写的是 MSE，但正文 4.C 明确说实际使用 L1 loss，因为 L1 对动作序列的精细建模更准确。
+
+**【Code】** 官方 `policy.py` 中 ACT 的 reconstruction loss 确实使用 `F.l1_loss`，总损失为 `l1 + kl_weight * KL`，所以正文描述和代码一致，Algorithm 1 的 MSE 应视为旧写法。
+
+<Algorithm number={1} title='ACT Training' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>示教数据集 $D$、chunk size $k$、KL 权重 $\beta$</div>
+  <div slot='output'>训练后的策略 $\pi_\theta(\hat a_{t:t+k} \mid o_t)$</div>
+  <AlgorithmStep keyword='Given'>示教数据集 $D$、chunk size $k$、KL 权重 $\beta$</AlgorithmStep>
+  <AlgorithmStep>初始化 CVAE encoder $q_\phi(z \mid a_{t:t+k}, \bar o_t)$</AlgorithmStep>
+  <AlgorithmStep>初始化策略 decoder $\pi_\theta(\hat a_{t:t+k} \mid o_t, z)$</AlgorithmStep>
+  <AlgorithmStep keyword='for'>迭代训练</AlgorithmStep>
+  <AlgorithmStep indent={1}>从 $D$ 采样当前观测 $o_t$ 和动作序列 $a_{t:t+k}$</AlgorithmStep>
+  <AlgorithmStep indent={1}>从 $q_\phi(z \mid a_{t:t+k}, \bar o_t)$ 采样风格变量 $z$</AlgorithmStep>
+  <AlgorithmStep indent={1}>预测 $\hat a_{t:t+k}$，计算 reconstruction loss（论文 Algorithm 1 写 MSE，正文与代码使用 L1）</AlgorithmStep>
+  <AlgorithmStep indent={1}>计算 $D_{KL}(q_\phi(z \mid a_{t:t+k}, \bar o_t) \parallel \mathcal N(0, I))$，组合为 $\mathcal L$</AlgorithmStep>
+  <AlgorithmStep indent={1}>用 AdamW 更新参数 $\theta, \phi$</AlgorithmStep>
+  <AlgorithmStep keyword='end for' />
+  <AlgorithmStep keyword='return'>验证集 loss 最低的策略参数</AlgorithmStep>
+</Algorithm>
+
+#### Temporal Ensembling
+
+每次得到一个新的 action chunk 后，同一个目标时间步可能被多个重叠 chunk 预测。Temporal Ensembling 用指数权重加权平均：
+
+$$
+A_t = \frac{\sum_i w_i A_t[i]}{\sum_i w_i}, \quad w_i = \exp(-m \cdot i)
+$$
+
+其中 $i$ 表示当前 chunk 距离该时间步有多远，$w_0$ 对应最早预测的动作。$m$ 控制新观测进入决策的速度。
+
+**【Code】** `imitate_episodes.py` 中实现 `all_time_actions` 缓冲，`k = 0.01`，权重归一化后对同一时间步的预测取加权平均。
+
+### 4.4 Training
+
+**【Paper】**
+
+- **Training Data**：真实任务每任务 50 条示教（Thread Velcro 100 条），仿真任务 50 条；真实示教每个 episode 约 8-14 秒，对应 400-700 个时间步。
+- **Training Pipeline**：从 episode 中随机采样起始时间步，取出当前观测和从该时刻开始的 `k` 步动作；不足 `k` 步时 padding，并用 mask 忽略 padding。
+- **Loss Function**：L1 reconstruction loss + `beta * KL divergence`，论文默认 `beta = 10`。
+- **Optimization**：AdamW，learning rate `1e-5`，backbone learning rate `1e-5`，weight decay `1e-4`，batch size 8。
+- **Pretraining / Fine-tuning**：每个任务从零训练，不做跨任务预训练。
+- **Frozen / Trainable Components**：ResNet18 使用 ImageNet 预训练权重，但模型整体联合训练；BatchNorm 使用 Frozen BatchNorm。
+- **Model Size**：约 80M 参数。
+- **Training Cost**：单张 11G RTX 2080 Ti 约 5 小时。
+
+**【Code】**
+
+- 数据读取与归一化在 `utils.py`：action 和 qpos 分别按数据集的 mean/std 归一化，std 下限裁剪到 `1e-2`。
+- 训练脚本 `imitate_episodes.py`：80/20 随机划分 train/val，保存验证 loss 最低的 checkpoint。
+- 超参数配置在 `imitate_episodes.py`：`enc_layers=4`、`dec_layers=7`、`nheads=8`、`hidden_dim=512`、`dim_feedforward=3200`。
+- 官方 README 建议真实数据至少训练 5000 epochs，或者 loss 平台后继续训练 3-4 倍时间。
+
+### 4.5 Inference
+
+**【Paper】**
+
+- 推理输入：当前 4 路 RGB 图像和当前关节位置。
+- 推理过程：CVAE encoder 被丢弃，$z$ 固定为 prior 均值，即零向量。
+- Action 产生方式：transformer decoder 一次性输出未来 `k` 步目标关节位置。
+- Action 转换：目标关节位置交给 Dynamixel 的低层 PID 控制器跟踪；论文强调使用 leader 机器人关节位置而不是 follower 位置，因为两者差值隐含力的大小。
+- Action Horizon / Chunking：默认 `k = 100`；不使用 temporal ensemble 时每隔 `k` 步重新查询，使用 temporal ensemble 时每个时间步都查询。
+
+**【Code】** 推理时若开启 `--temporal_agg`，`query_frequency=1`，并维护一个 `[T, T+num_queries, state_dim]` 的缓冲，对同一时间步的所有预测做指数加权平均；否则直接取 `all_actions[:, t % query_frequency]`。
+
+<Algorithm number={2} title='ACT Inference with Temporal Ensembling' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>训练好的策略 $\pi_\theta$、episode length $T$、权重衰减 $m$</div>
+  <div slot='output'>每个时间步实际执行的动作 $A_t$</div>
+  <AlgorithmStep>初始化 FIFO buffers $B[0:T]$，用于保存每个时间步收到的预测动作</AlgorithmStep>
+  <AlgorithmStep keyword='for'>$t = 1, \ldots, T$</AlgorithmStep>
+  <AlgorithmStep indent={1}>使用当前观测和 $z = 0$ 预测 $\hat a_{t:t+k}$</AlgorithmStep>
+  <AlgorithmStep indent={1}>将 $\hat a_{t:t+k}$ 写入 $B[t:t+k]$</AlgorithmStep>
+  <AlgorithmStep indent={1}>对当前时间步的所有预测做指数加权平均：$A_t = \frac{\sum_i w_i A_t[i]}{\sum_i w_i}$，其中 $w_i = \exp(-m i)$</AlgorithmStep>
+  <AlgorithmStep indent={1}>将 $A_t$ 交给低层 PID 控制器执行</AlgorithmStep>
+  <AlgorithmStep keyword='end for' />
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】**
+
+| 论文描述                  | 代码实现                                                  | 实际行为                                             |
+| ------------------------- | --------------------------------------------------------- | ---------------------------------------------------- |
+| CVAE encoder 压缩动作风格 | `DETRVAE.forward` 中 `latent_proj` 输出 32 维 `mu/logvar` | 训练时用 reparameterization 采样 $z$，推理时用零向量 |
+| ResNet 图像编码器         | `detr/models/backbone.py` 的 `resnet18`                   | 每个相机共享同一 backbone，输出 `300x512` token      |
+| 多模态融合                | `Transformer` 的 encoder                                  | 图像 token、qpos、$z$ 拼接为 `1202x512`              |
+| 动作序列生成              | transformer decoder + `action_head`                       | 输出 `k x 14`                                        |
+| L1 reconstruction loss    | `policy.py` 中 `F.l1_loss`                                | 与论文正文一致，与 Algorithm 1 的 MSE 不一致         |
+| Temporal Ensembling       | `imitate_episodes.py` 中 `all_time_actions`               | 权重 `exp(-0.01 * i)`，归一化后加权平均              |
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+**【Paper】**
+
+- **Dataset**：2 个仿真任务使用 scripted 或 human 示教；6 个真实任务使用 ALOHA 遥操作示教。
+- **Robot**：ALOHA，两套 ViperX 6-DoF follower、两套 WidowX leader、平行夹爪、4 个网络摄像头。
+- **Tasks**：仿真为 Cube Transfer 和 Bimanual Insertion；真实为 Slide Ziploc、Slot Battery、Open Cup、Thread Velcro、Prep Tape、Put On Shoe。
+- **Environment**：真实桌面与 MuJoCo 仿真；物体初始位置随机化。
+- **Baselines**：BC-ConvMLP、BeT、RT-1、VINN。
+- **Metrics**：按子任务定义的分阶段成功率与最终成功率。
+- **Evaluation**：仿真任务 3 个随机种子、每种子 50 次 rollout；真实任务 1 个种子、25 次 rollout。
+
+### 5.2 Main Results
+
+**【Paper】** 最终成功率对比如下：
+
+| 方法       | Cube Transfer (scripted / human) | Bimanual Insertion (scripted / human) | Slide Ziploc | Slot Battery |
+| ---------- | -------------------------------: | ------------------------------------: | -----------: | -----------: |
+| BC-ConvMLP |                            1 / 0 |                                 1 / 0 |            0 |            0 |
+| BeT        |                           27 / 1 |                                 3 / 0 |            0 |            0 |
+| RT-1       |                            2 / 0 |                                 1 / 0 |            0 |            0 |
+| VINN       |                            3 / 0 |                                 1 / 0 |            0 |            0 |
+| ACT        |                          86 / 50 |                               32 / 20 |           88 |           96 |
+
+在其余真实任务中，ACT 的最终成功率：
+
+| 方法 | Open Cup | Thread Velcro | Prep Tape | Put On Shoe |
+| ---- | -------: | ------------: | --------: | ----------: |
+| BeT  |        0 |             0 |         0 |           0 |
+| ACT  |       84 |            20 |        64 |          92 |
+
+**【Paper】** 对四个仿真设置，ACT 比最好的 baseline 分别高约 59%、49%、29%、20%。在真实任务中，baseline 往往连第一个子任务都无法稳定完成，而 ACT 能学到完整的多阶段操作。
+
+### 5.3 Ablation Study
+
+**【Paper】**
+
+- **Chunk Size**：在不使用 temporal ensemble 的四个仿真设置上，`k=1` 的平均成功率约 1%，`k=100` 约 44%；继续增大到接近 open-loop 时有所下降。
+- **Action Chunking 的通用性**：给 BC-ConvMLP 和 VINN 加上 action chunking 也能显著提升性能，说明该技巧不限于 ACT。
+- **Temporal Ensembling**：ACT 提升约 3.3%，BC-ConvMLP 提升约 4%，但 VINN 反而下降。
+- **CVAE**：scripted 数据下去掉 CVAE 几乎无影响；human 数据下从 35.3% 降到 2%，说明 CVAE 对多模态人类示教至关重要。
+- **高频率遥操作**：50Hz 相比 5Hz 让参与者完成 zip tie 的时间从平均 33 秒降到 20 秒，unstack cups 从 16 秒降到 10 秒，整体慢约 62%，统计检验 p < 0.001。
+
+### 5.4 Generalization
+
+**【Paper】** 本文没有设计独立的 object/task/language/embodiment generalization 评测。它展示的泛化主要是：
+
+- 真实任务物体初始位置随机化；
+- 透明或低对比度物体上的视觉泛化尝试；
+- ALOHA 平台对多种真实物品的遥操作能力。
+
+**【Analysis】** 不能据此声称 ACT 具有跨物体、跨任务或跨 embodiment 的泛化能力。实验中的泛化更接近“同任务不同初始状态”的鲁棒性，而不是开放世界泛化。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** ACT 的有效性可能来自三个层面：
+
+1. Action Chunking 直接减少策略需要做的“决策次数”。给定当前观测一次性生成 `k` 步动作，错误不会在每个时间步重新放大，短期轨迹更接近示教分布。
+2. CVAE 让模型能区分“同一观测下的不同合理轨迹”。如果直接做确定性回归，遇到多模态示教只会学到平均动作，容易在精细接触任务中失效。
+3. Temporal Ensembling 同时保留了高频视觉反馈和轨迹平滑性。每步都观察环境，但最终动作是多个重叠预测的加权平均，避免了每 `k` 步硬切换造成的抖动。
+
+### 6.2 核心创新
+
+**【Paper】** 如果只保留一句话：ACT 的真正创新是把“预测一段动作”和“用生成模型建模动作序列”结合起来，并在低成本双臂系统上证明了这套简单组合对精细操作非常有效。
+
+### 6.3 与已有方法的本质区别
+
+**【Analysis】** 与 RT-1、BeT 等 transformer-based BC 方法相比，ACT 的改变不是“用了 Transformer”，而是：
+
+- 输出从单步分类/回归变成连续动作 chunk；
+- 不依赖历史观测序列，而是用 CVAE latent 表示行为模式；
+- 在推理时用 temporal ensemble 融合重叠预测，而不是逐时间步独立决策。
+
+### 6.4 关键假设
+
+**【Paper】** 方法依赖以下前提：
+
+- 人类示教质量足够高，且能通过 leader-follower 遥操作采集；
+- 任务行为可以在一段长度为 `k` 的 chunk 内近似表达；
+- 当前观测足以决定未来 `k` 步动作；
+- 低层 PID 控制器可以稳定跟踪目标关节位置。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】**
+
+- ALOHA 无法完成需要多手指、高扭矩或“指甲”类动作的任务，例如儿童安全药瓶、密封水瓶、打包胶带、易拉罐、扣衬衫纽扣。
+- ACT 无法学会拆糖果纸：50 条示教后可以捡起糖果 10/10、拉扯两端 8/10，但拆开包装 0/10。
+- ACT 难以完成平放小拉链袋的空中多步操作，模型能稳定捡起袋子，但后续空中的抓取与拉开不稳定。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+- 每个任务独立训练，50-100 条示教仍属于小规模数据，没有预训练、多任务或跨任务迁移。
+- 真实实验只有 1 个 seed、25 次 rollout，统计置信度有限，且全部使用同一套 ALOHA 硬件。
+- 没有评估 unseen objects、unseen tasks、language instruction 或不同机器人。
+- 透明、低对比度、小目标的感知仍是最明显瓶颈；模型没有显式深度、重建或视觉 grounding。
+- Temporal Ensembling 在代码里使用固定 `m=0.01`，论文没有系统讨论该超参数对延迟、鲁棒性和长 horizon 的影响。
+- 依赖 50Hz 高频率遥操作采集高质量数据，这降低了数据采集门槛，但对后续跨平台复现仍有工程成本。
+
+## 8. 启发与研究思考
+
+### 8.1 最值得借鉴的地方
+
+**【Analysis】** 最值得借鉴的是“输出形式”和“建模目标”的改动。ACT 没有引入复杂网络结构，而是通过预测动作序列降低 compounding error，并用 CVAE 处理示教多模态，这是低成本、易复现、易扩展到其他 policy backbone 的核心思想。
+
+### 8.2 可改进点
+
+**【Analysis】**
+
+- 把 CVAE 换成更通用的生成模型，例如 Diffusion Policy，可能改善多模态动作建模。
+- 引入视觉 grounding、语言条件或目标条件，提高任务级泛化。
+- 用更大规模预训练、跨任务数据或 representation learning 缓解小数据问题。
+- 对 temporal ensembling 做不确定性感知或自适应权重。
+
+### 8.3 潜在 Research Gap
+
+**【Analysis】**
+
+- ACT 仍是 per-task 训练，缺少“动作 chunk 级别”的可迁移、可组合技能库。
+- 真实世界精细操作评测通常只有少量 seed，缺少标准化的鲁棒性和分布外评测协议。
+- 透明、低对比度物体的闭环视觉推理仍没有被很好解决。
+
+### 8.4 如果基于 ACT 做下一篇工作
+
+**【Analysis】**
+
+1. **ACT + 语言/视觉目标条件**：给 action chunk 加上 language or goal image 条件，改多任务训练。为什么：ACT 证明了 chunk 输出有效，但缺乏任务级泛化；可能解决“每任务重新训练”的问题。实现难度：中。
+2. **ACT + Diffusion/Flow Action Model**：保留 chunk 和 temporal ensemble，替换 CVAE 为扩散或 flow matching。为什么：CVAE 的 32 维 latent 表达力有限；可能解决复杂多模态动作建模。实现难度：中。
+3. **Chunk 级 Planning 与 Closed-loop Re-planning**：让模型在 chunk 内部也具备根据观测进行纠错的能力。为什么：当前固定 chunk 在长任务中仍可能偏离；可能提高长 horizon 成功率。实现难度：高。
+4. **跨 Embodiment Action Chunk 表征**：研究不同机器人共享的动作表示，例如末端位姿、相对动作或 canonical action space。为什么：ACT 的关节空间输出绑定到具体机器人；可能推动低成本和异构机器人上的迁移。实现难度：高。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。算法与代码不一致之处已在 4.3 和 4.6 中单独指出。
+</Aside>

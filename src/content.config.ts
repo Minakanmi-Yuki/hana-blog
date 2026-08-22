@@ -32,6 +32,17 @@ const blogSchema = ({ image }: { image: () => any }) =>
     category: z.string().optional(),
     language: z.string().optional(),
     draft: z.boolean().default(false),
+    paper: z
+      .object({
+        arxivId: z.string().optional(),
+        title: z.string().optional(),
+        authors: z.array(z.string()).optional(),
+        venue: z.string().optional(),
+        year: z.number().optional(),
+        code: z.string().optional(),
+        project: z.string().optional()
+      })
+      .optional(),
     // Integrations
     comment: z.boolean().default(true),
     pixivLink: z.string().optional()
