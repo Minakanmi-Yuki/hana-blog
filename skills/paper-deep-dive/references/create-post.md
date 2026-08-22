@@ -70,6 +70,10 @@ Use markdown images with meaningful alt text:
 ![ACT architecture from paper Figure 4](https://pic.hana0721.top/blog/paper-deep-dive-act/act-architecture-crop.64el78s53p.webp)
 ```
 
+If a figure is wide or has display issues, use the explicit responsive `img` form from `references/extract-paper-figures.md`.
+
+After inserting a figure, verify its URL returns HTTP 200. If the custom domain returns 404 for a newly uploaded file, use the GitHub Raw fallback described in `references/extract-paper-figures.md`.
+
 ## Fact Labels
 
 - Default body content is treated as `【Paper】`.

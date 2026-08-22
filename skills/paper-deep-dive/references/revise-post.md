@@ -60,6 +60,8 @@ Run `npm run build` when the change touches config, routes, or shared components
 | "公式变量没解释"   | Add variable definitions to every formula.                                                                    |
 | "缺少架构图"       | Extract the relevant figure with `references/extract-paper-figures.md` and insert it in the matching section. |
 | "图片看不清"       | Re-crop the figure at higher resolution and verify the labels remain readable.                                |
+| "白边空隙太大"     | Re-crop the figure from the LaTeX source using the paper's `trim` parameters, then replace the URL.           |
+| "图片无法显示"     | Check `curl` status and use the GitHub Raw fallback if the custom-domain URL returns 404.                     |
 
 ## Output
 

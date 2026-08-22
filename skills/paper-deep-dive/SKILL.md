@@ -24,6 +24,7 @@ Choose one workflow:
 - Use a Pixiv hero image already used by another post if possible; avoid images reused many times.
 - Mark facts with `【Paper】`, `【Code】`, and `【Analysis】`.
 - Include key paper figures such as the system overview, architecture, method diagrams, and experimental results.
+- Crop paper figures before inserting them; verify the final image URL returns HTTP 200.
 - Use `Algorithm` and `AlgorithmStep` components for pseudocode.
 - Use `ArxivRating` at the top of generated posts.
 - Write one post per paper.

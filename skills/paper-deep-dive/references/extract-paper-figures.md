@@ -56,7 +56,35 @@ pdftocairo -f 1 -l 1 -png -r 200 -singlefile cropped.pdf cropped
 
 Use `pdftocairo` or `pdftoppm` for rasterization instead of ImageMagick's PDF reader when possible.
 
-## 3. PDF-Only Fallback
+## 3. Crop a Raster Figure
+
+When `\includegraphics` references a raster image such as `setup.jpg`, use the source image dimensions and the LaTeX `trim` values.
+
+For raster images, the source pixel dimensions correspond to the LaTeX natural size in points at 72 dpi. Convert the `trim` lengths to points with:
+
+```text
+1 cm = 28.3465 bp
+```
+
+Then crop with ImageMagick:
+
+```text
+x = left_bp
+y = top_bp
+width = source_pixel_width - left_bp - right_bp
+height = source_pixel_height - top_bp - bottom_bp
+```
+
+Example for a `3000x2250` source with `trim={0.3cm 44.35cm 0.3cm 0.5cm}`:
+
+```bash
+convert source.jpg -crop 2983x979+8+14 +repage cropped.png
+identify cropped.png
+```
+
+Check the output aspect ratio. If the crop looks like a narrow strip or leaves large white margins, recalculate the trim before uploading.
+
+## 4. PDF-Only Fallback
 
 If LaTeX source is unavailable:
 
@@ -73,7 +101,7 @@ convert /tmp/figure-<page>.png -crop WxH+X+Y +repage /tmp/figure-crop.png
 
 Keep readable labels and avoid cutting off captions or diagram text.
 
-## 4. Choose Figures
+## 5. Choose Figures
 
 Use 3-6 relevant figures per post:
 
@@ -85,7 +113,7 @@ Use 3-6 relevant figures per post:
 
 Do not include every figure. Select figures that the text actually explains.
 
-## 5. Upload and Insert
+## 6. Upload and Insert
 
 Upload the extracted images to the blog image host:
 
@@ -99,5 +127,37 @@ Insert the uploaded URL into the matching MDX section:
 ```mdx
 ![<figure name> from paper Figure <N>](https://pic.hana0721.top/blog/paper-deep-dive-<slug>/<uploaded-file>.webp)
 ```
+
+For wide or previously problematic images, use an explicit responsive `img` tag:
+
+```mdx
+<img
+  src='https://pic.hana0721.top/blog/paper-deep-dive-<slug>/<uploaded-file>.webp'
+  alt='<figure name> from paper Figure <N>'
+  class='zoomable'
+  width='<pixel width>'
+  height='<pixel height>'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+```
+
+## 7. CDN Fallback
+
+`pic.hana0721.top` may return a cached 404 for newly uploaded files. After uploading, verify the custom-domain URL:
+
+```bash
+curl -sS -o /dev/null -w '%{http_code}\n' \
+  'https://pic.hana0721.top/blog/paper-deep-dive-<slug>/<uploaded-file>.webp'
+```
+
+If it returns 404 while the GitHub raw URL returns 200, use the raw URL for that image:
+
+```text
+https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-<slug>/<uploaded-file>.webp
+```
+
+Prefer the custom domain after the CDN cache has refreshed; use raw as a temporary fallback so readers can load the image immediately.
 
 If no source or PDF is available, state that clearly in the post instead of inventing a figure.
