@@ -1,0 +1,533 @@
+---
+title: 'BAGEL 论文精读：交错多模态预训练中的涌现能力'
+publishDate: 2026-08-23
+updatedDate: 2026-08-23
+description: '精读 BAGEL：7B active / 14B total 的统一理解与生成模型，用 MoT、Rectified Flow 和视频/网页交错数据训练，并分析 IntelligentBench 与世界建模涌现。'
+heroImage:
+  { src: 'https://pic.hana0721.top/104724685_p0_master1200.7p472bcti3.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '104724685'
+tags:
+  - 'paper deep dive'
+  - 'BAGEL'
+  - 'unified multimodal'
+  - 'mixture of transformers'
+  - 'rectified flow'
+  - 'world model'
+paper:
+  arxivId: '2505.14683'
+  title: 'Emerging Properties in Unified Multimodal Pretraining'
+  authors:
+    - 'Chaorui Deng'
+    - 'Deyao Zhu'
+    - 'Kunchang Li'
+    - 'Chenhui Gou'
+    - 'Feng Li'
+    - 'Zeyu Wang'
+    - 'Shu Zhong'
+    - 'Weihao Yu'
+    - 'Xiaonan Nie'
+    - 'Ziang Song'
+    - 'Guang Shi'
+    - 'Haoqi Fan'
+  venue: 'arXiv'
+  year: 2025
+  code: 'https://github.com/bytedance-seed/BAGEL'
+  project: 'https://bagel-ai.org/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2505.14683'
+  tldr='BAGEL 用无瓶颈的 Mixture-of-Transformer-Experts 架构和数万亿 token 的交错文本/图像/视频/网页数据统一理解与生成，在大规模预训练中观察到智能编辑、世界导航等能力逐步涌现。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《Emerging Properties in Unified Multimodal Pretraining》
+
+**作者**：Chaorui Deng、Deyao Zhu、Kunchang Li、Chenhui Gou、Feng Li、Zeyu Wang、Shu Zhong、Weihao Yu、Xiaonan Nie、Ziang Song、Guang Shi、Haoqi Fan
+
+**机构**：ByteDance Seed、Shenzhen Institutes of Advanced Technology、Monash University
+
+**会议 / 期刊**：arXiv 预印本（2025）
+
+**论文链接**：[arXiv](https://arxiv.org/abs/2505.14683)
+
+**代码链接**：[ByteDance-Seed/BAGEL](https://github.com/bytedance-seed/BAGEL)
+
+**项目主页**：[BAGEL](https://bagel-ai.org/)
+
+**模型 / 权重**：[ByteDance-Seed/BAGEL-7B-MoT](https://huggingface.co/ByteDance-Seed/BAGEL-7B-MoT)
+
+### 一句话总结
+
+**【Paper】** BAGEL 是一个 decoder-only 的统一多模态基础模型，采用两个 Transformer expert 共享 self-attention 的 Mixture-of-Transformers（MoT）架构，文本走 Next-Token-Prediction，视觉 latent 走 Rectified Flow；模型在数万亿 token 的文本、图像、视频和网页交错数据上预训练后，不仅刷新公开理解/生成基准，还涌现出自由形式图像编辑、未来帧预测、3D 操作和世界导航等组合能力。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出开源的统一多模态模型 BAGEL，7B active parameters、14B total parameters，在公开多模态理解与生成基准上明显超过已有开源 unified model。
+2. 建立可扩展的多模态交错数据协议，覆盖视频、网页、推理增强和自由形式图像编辑数据，并把理解与生成任务统一成同一 token 序列。
+3. 验证 MoT 架构的有效性：两个专家在每层共享 self-attention，避免 External Diffuser 路线常见的 latent bottleneck，同时保持和 dense baseline 相同 FLOPs。
+4. 系统报告能力涌现规律：基础理解/生成先出现，经典编辑随后，IntelligentBench 上的复杂智能编辑和世界建模最晚出现。
+5. 提出 IntelligentBench，一个面向自由形式图像操作和复杂多模态推理的评估集，并公开代码、权重、训练与评估脚本。
+
+## 2. 背景与相关工作
+
+**【Paper】** 统一多模态理解与生成已经有 Janus、Chameleon、Show-o、Emu3、LlamaFusion 等工作，但多数统一模型仍主要训练在 image-text pair 数据上，和 GPT-4o、Gemini 2.0 等闭源系统的差距仍然很大。论文认为关键不是继续微调单一图文任务，而是把数据规模与交错结构同时放大。
+
+论文把已有设计归纳为三条路线：
+
+1. **Quantized AR**：用离散 visual tokenizer 把图像 token 化，再统一做 next-token prediction。优点是直接复用 LLM 基础设施，缺点是视觉生成质量通常低于 diffusion 路线，且自回归推理延迟更高。
+2. **External Diffuser**：LLM/VLM 生成少量 latent token 作为语义条件，再由外部 diffusion 模块生成图像。优点是收敛快、训练成本低，缺点是把 LLM 的长上下文压缩成少量 token，形成显式 bottleneck，可能损失长程多模态信息。
+3. **Integrated Transformer**：在一个 transformer 中同时承载 autoregressive text 与 diffusion-style visual token，例如 Transfusion、CausalFusion、LlamaFusion。训练成本更高，但上下文可以无瓶颈地在理解与生成之间共享。
+
+**【Analysis】** BAGEL 的核心判断是：统一模型要作为 foundation model 继续扩展，就不应该为理解/生成接口引入固定压缩瓶颈。因此它选择 Integrated Transformer，并进一步用 MoT 给理解 token 和生成 token 分配独立参数，而不是让单一权重同时优化两个目标。
+
+## 3. 问题定义
+
+**【Paper】**
+
+- **Task**：让同一个模型原生支持多模态理解、文本生成、图像生成、图像编辑、视频/网页交错序列理解与生成，以及世界建模类任务。
+- **Observation**：文本 token、SigLIP2 ViT 视觉 token、FLUX VAE latent token，以及从视频和网页构造出的交错多模态序列。
+- **Output**：自然语言 token 或去噪后的图像 VAE latent token。
+- **Architecture Formulation**：所有模态被组织成同一个 decoder-only token 序列，文本 token 用交叉熵学习，图像 latent token 用 Rectified Flow 的 velocity prediction 学习。
+- **Dataset**：约 400M 条文本数据、500M 条 VLM image-text pair、1600M 条 T2I pair、100M 条交错理解数据、45M 条视频交错生成数据和 20M 条网页交错生成数据。
+- **Training Objective**：联合优化语言 CE loss 与视觉 MSE loss，PT/CT/SFT 阶段按 `0.25 : 1` 加权。
+
+本文不是机器人 VLA 论文，所以 Embodied AI Checklist 中 Robot、Action Space、Action Chunking、闭环控制等项不适用。真正相关的检查项是：
+
+| 检查项             | BAGEL 的对应内容                                                  |
+| ------------------ | ----------------------------------------------------------------- |
+| Vision Encoder     | SigLIP2-so400m/14，最大 980x980，NaViT 原生宽高比                 |
+| Language Model     | Qwen2.5 decoder-only backbone                                     |
+| Multimodal Fusion  | MoT 两个 expert，共享每层 self-attention                          |
+| Observation        | 文本、ViT token、clean/noised VAE token                           |
+| Training Objective | CE（文本） + Rectified-Flow MSE（图像 latent）                    |
+| Dataset            | 文本、image-text pair、VLM 交错、视频交错、网页交错、推理增强数据 |
+| Inference Pipeline | 文本自回归 + 50 步 flow integration + CFG + KV cache              |
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+BAGEL 采用 MoT 架构：一个“理解 expert”处理文本与 ViT token，一个“生成 expert”处理 VAE token；两类 token 在每一层都通过同一组 shared self-attention 交换信息，但 attention、FFN、LayerNorm 参数分别属于各自 expert。
+
+<img
+  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-bagel/arch-final-1.7w7k37h530.webp'
+  alt='BAGEL 架构总览：理解 expert 处理文本与 ViT token，生成 expert 处理 VAE token，两类 expert 共享 self-attention（论文 Figure 2）'
+  class='zoomable'
+  width='1214'
+  height='425'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+**【Paper】** 数据流可以压缩成一句：图像理解由 SigLIP2 编码成 ViT token，图像生成由 FLUX VAE 编码成 latent patch，文本、ViT、VAE token 按输入结构交错成一个序列，经过 MoT transformer 后，文本位置输出 logits、VAE 位置输出 flow velocity；完整训练与推理循环分别在 4.4 与 4.5。
+
+关键架构参数：
+
+- 骨干从 Qwen2.5 初始化，保留 RMSNorm、SwiGLU、RoPE、GQA，并额外加入 QK-Norm。
+- 理解视觉编码器用 SigLIP2-so400m/14，初始固定 384 分辨率，位置 embedding 插值到最大 980x980，再用 NaViT 支持原生宽高比。
+- 生成视觉编码器用 FLUX VAE，latent downsampling factor 为 8，latent channel 为 16，再用 `2x2` patch embedding 映射到 LLM hidden size；VAE 在训练中冻结。
+- 扩散 timestep embedding 直接加到 VAE token 的初始 hidden state，而不是像传统 DiT 那样使用 AdaLN。
+- MoT 和 MoE 都使总参数量接近翻倍，但 active FLOPs 与 dense baseline 相同。
+
+### 4.2 核心模块
+
+#### MoT Understanding Expert
+
+- **输入**：文本 token 和 ViT token。
+- **输出**：供 LM Head 计算 CE loss 的文本隐状态，以及供共享 attention 使用的理解侧 representation。
+- **功能**：承担语言推理、开放词汇视觉理解和指令跟随。
+- **为什么需要**：Qwen2.5 的预训练知识是统一模型理解和推理能力的底座。
+
+#### MoT Generation Expert
+
+- **输入**：patchified VAE latent token。
+- **输出**：经过 `llm2vae` 线性头后预测的 flow velocity。
+- **功能**：专门负责像素级视觉生成。
+- **为什么需要**：论文在 1.5B 消融中发现，理解与生成目标会驱动参数走向不同区域；让生成 token 使用独立 expert，可以缓解两类目标互相干扰。
+
+**【Code】** 官方 `Qwen2MoTDecoderLayer` 使用硬路由：`packed_und_token_indexes` 走原 Qwen 参数，`packed_gen_token_indexes` 走 `_moe_gen` 复制参数。复制参数由 `init_moe()` 从原始权重复制初始化。
+
+#### SigLIP2 / NaViT Visual Understanding Encoder
+
+- **输入**：任意宽高比的 RGB 图像。
+- **输出**：与 LLM hidden size 对齐的 ViT patch token。
+- **功能**：提供语义级别的视觉特征，帮助后续图像生成保持物体身份、布局和开放词汇语义。
+- **为什么需要**：论文发现去掉 ViT 对 GEdit-Bench 影响很小，但 IntelligentBench 下降约 16%，说明复杂视觉推理高度依赖语义视觉特征。
+
+#### FLUX VAE + Patch Embedding
+
+- **输入**：RGB 图像或待生成图像的 latent。
+- **输出**：16 通道 latent，再 patchify 成 LLM token。
+- **功能**：把像素空间压缩到可生成的低维 latent，生成完成后由 VAE decoder 还原图像。
+- **为什么需要**：Rectified Flow 在 latent space 训练，避免直接在高分辨率像素空间建模。
+
+#### Generalized Causal Attention
+
+对于同一个交错样本，token 被划分为多个连续 split。不同 split 之间保持前向可见；split 内部，文本 token 使用 causal attention，视觉 token 使用 bidirectional attention。对每个图像，BAGEL 会同时准备：
+
+- **Noised VAE tokens**：加噪后用于 Rectified Flow 训练，只计算 MSE，不作为后续生成的 conditioning。
+- **Clean VAE tokens**：无噪 latent，作为后续图像或文本生成的 conditioning。
+- **ViT tokens**：SigLIP2 语义特征，作为跨理解/生成统一输入格式。
+
+对于多图或视频交错生成，论文采用 Diffusion Forcing：每张图使用独立噪声水平，并让后续图 attend 前面图的 noisy representation；同时随机把连续图像分组，组内使用 full attention、相同噪声水平，增强生成一致性。
+
+<img
+  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-bagel/attention-final-1.58i3suo3rx.webp'
+  alt='BAGEL 的 generalized causal mask：单图生成只能 attend 前面图像的 clean VAE 与 ViT，多图/视频生成使用 diffusion forcing 和分组 full attention（论文 Figure 15）'
+  class='zoomable'
+  width='2058'
+  height='985'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+**【Paper】** 训练时用 PyTorch FlexAttention 实现 generalized causal attention，相比 naive scaled-dot-product attention 约快 2 倍。推理时只缓存 clean VAE token 和 ViT token 的 KV；一张图生成完成后，把上下文中的 noised VAE token 替换成 clean 版本，从而加速后续多图解码。
+
+#### Classifier-Free Guidance
+
+**【Paper】** 训练时按 `0.1 / 0.5 / 0.1` 的概率随机 drop text、ViT、clean VAE token。推理时保留一条完整条件路径和一条被 drop 的 unconditional 路径，通过 CFG 控制文本遵循度与图像保持度。
+
+### 4.3 关键公式
+
+#### Rectified Flow Linear Path
+
+论文正文说明 BAGEL 的视觉 token prediction 采用 Rectified Flow，但没有展开公式；官方代码给出了具体实现：
+
+**【Code】** 设 clean latent token 为 $x_0$，Gaussian noise 为 $\epsilon$，训练 timestep 为 $t \in [0, 1]$，构造线性插值：
+
+$$
+x_t = (1 - t) x_0 + t \epsilon
+$$
+
+模型预测从 data 指向 noise 的 velocity：
+
+$$
+v_t = \frac{dx_t}{dt} = \epsilon - x_0
+$$
+
+#### MSE Loss
+
+**【Code】** 官方 `Bagel.forward` 中目标直接写成 `target = noise - packed_latent_clean`，并只对 `t > 0` 的 noised VAE token 计算：
+
+$$
+\mathcal{L}_{\text{MSE}} =
+\mathbb{E}_{x_0, \epsilon, t}
+\left\|
+v_\theta(x_t, c, t) - (\epsilon - x_0)
+\right\|^2
+$$
+
+其中 $c$ 是文本、ViT、clean VAE 等条件 token，$v_\theta$ 是 `llm2vae` 输出的预测 velocity。
+
+#### 联合训练目标
+
+**【Paper】** 总损失为：
+
+$$
+\mathcal{L} = \lambda_{\text{CE}} \mathcal{L}_{\text{CE}} + \lambda_{\text{MSE}} \mathcal{L}_{\text{MSE}}
+$$
+
+论文在 PT、CT、SFT 阶段统一使用 $\lambda_{\text{CE}} : \lambda_{\text{MSE}} = 0.25 : 1$。
+
+#### Timestep Shift
+
+**【Code】** 官方代码先把原始 logits 过 sigmoid 得到 $u$，再按 shift 参数重映射：
+
+$$
+t = \frac{\text{shift} \cdot u}{1 + (\text{shift} - 1) \cdot u}
+$$
+
+PT 阶段 `timestep_shift=1.0`，CT 与 SFT 阶段提高为 `4.0`，用于让更多去噪步骤落在噪声较大、决定布局的阶段。
+
+#### CFG 更新
+
+**【Code】** 代码支持文本 CFG 和图像 CFG：
+
+$$
+v_{\text{cfg}} =
+v_{\text{uncond}} +
+s_{\text{text}} \cdot (v_{\text{cond}} - v_{\text{uncond}})
+$$
+
+图像 CFG 类似，用 $s_{\text{img}}$ 控制输入图像细节保持程度；代码还支持 `global`、`channel`、`text_channel` 三种 velocity renormalization。
+
+### 4.4 Training
+
+**【Paper】** BAGEL 使用四阶段训练：
+
+| Stage              | Alignment |       PT |       CT |      SFT |
+| ------------------ | --------: | -------: | -------: | -------: |
+| Learning rate      |    `1e-3` |   `1e-4` |   `1e-4` | `2.5e-5` |
+| LR scheduler       |    Cosine | Constant | Constant | Constant |
+| Warm-up steps      |       250 |     2500 |     2500 |      500 |
+| Training steps     |        5K |     200K |     100K |      15K |
+| Seen tokens        |      4.9B |     2.5T |     2.6T |    72.7B |
+| Max context window |       16K |      16K |      40K |      40K |
+| Gen resolution     |         - |  256-512 | 512-1024 | 512-1024 |
+| Und resolution     |       378 |  224-980 |  378-980 |  378-980 |
+| Timestep shift     |         - |      1.0 |      4.0 |      4.0 |
+| EMA ratio          |         - |   0.9999 |   0.9999 |    0.995 |
+| CE : MSE weight    |         - | 0.25 : 1 | 0.25 : 1 | 0.25 : 1 |
+
+各阶段职责：
+
+- **Alignment**：只训练 MLP connector，把 SigLIP2 与 Qwen2.5 对齐；只使用 `378x378` 图像-文本 captioning 数据。
+- **PT**：加入 QK-Norm，除 VAE 外全部可训练，在 2.5T token 上做原生分辨率预训练。
+- **CT**：提高理解/生成分辨率，并显著提高交错数据采样比例，重点学习跨模态推理，消耗约 2.6T token。
+- **SFT**：使用高质量图文、交错生成、LLaVA-OV 和 Mammoth-VL 指令数据，共 72.7B token。
+
+所有阶段使用 AdamW（$\beta_1=0.9$，$\beta_2=0.95$，$\epsilon=1e-15$）、weight decay 0、gradient clip 1.0。序列按 rank 打包到 32K-36K 或 40K-45K token，保证负载均衡。
+
+#### 数据规模
+
+| Data Source                   | # Data (M) | # Tokens (T) |
+| ----------------------------- | ---------: | -----------: |
+| Text                          |        400 |          0.4 |
+| Image-Text Pair Understanding |        500 |          0.5 |
+| Image-Text Pair Generation    |       1600 |          2.6 |
+| Interleaved Understanding     |        100 |          0.5 |
+| Interleaved Generation: Video |         45 |          0.7 |
+| Interleaved Generation: Web   |         20 |          0.4 |
+
+<img
+  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-bagel/data-pipelines.szonlbpn1.webp'
+  alt='BAGEL 交错数据构建流水线：视频生成时序 grounded caption，网页文档做两阶段 topic selection、质量过滤和 caption-first 重排（论文 Figure 4）'
+  class='zoomable'
+  width='1080'
+  height='430'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+**【Paper】** 视频数据来自公开在线视频、Koala36M 和 MVImgNet2.0，用蒸馏后的 Qwen2.5-VL-7B 小模型为相邻帧生成 30 token 以内的 inter-frame caption，平均每段采样约 4 帧，得到 45M 条视频交错序列。网页数据基于 OmniCorpus/Common Crawl，先做 fastText 初筛和 Qwen2.5-14B LLM 细筛，再做 UI 去除、分辨率、清晰度、OCR 文本密度、CLIP 相关性、文档裁剪和图片数量等过滤，最终得到 20M 条结构化网页交错序列。
+
+#### 推理增强数据
+
+**【Paper】** 论文构造约 500K 条 reasoning-augmented 多模态样例，覆盖文本到图像、自由形式图像操作、概念编辑等四类结构关系：
+
+- T2I 用 Qwen2.5-72B 生成 query-guidance pair 和详细 prompt，再由 FLUX.1-dev 生成目标图。
+- 自由形式编辑从 OmniEdit 和交错视频中采样 source-target 图对，用 DeepSeek-R1 风格的 reasoning trace 标注。
+- 概念编辑从网页交错序列采样图像对，用三步 VLM pipeline 生成并过滤 QA，再补充 grounded reasoning。
+
+#### Training Algorithm
+
+<Algorithm number={1} title='BAGEL Unified Multimodal Pretraining' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>文本、图文 pair、VLM 交错、视频交错、网页交错与推理增强数据</div>
+  <div slot='output'>训练完成的 BAGEL checkpoint</div>
+  <AlgorithmStep keyword='Given'>Qwen2.5、SigLIP2、FLUX VAE 预训练权重</AlgorithmStep>
+  <AlgorithmStep>复制 Qwen2.5 参数初始化 generation expert，加入 QK-Norm，冻结 VAE</AlgorithmStep>
+  <AlgorithmStep keyword='for'>每个 training step</AlgorithmStep>
+  <AlgorithmStep indent={1}>按采样比例 pack 一个交错多模态 batch</AlgorithmStep>
+  <AlgorithmStep indent={1}>对目标图像 VAE encode 得到 $x_0$，采样 $\epsilon$ 与 $t$，构造 $x_t$</AlgorithmStep>
+  <AlgorithmStep indent={1}>组织 text / ViT / clean VAE / noised VAE token 与 generalized causal mask</AlgorithmStep>
+  <AlgorithmStep indent={1}>文本位置计算 CE loss，VAE 位置计算 flow MSE loss</AlgorithmStep>
+  <AlgorithmStep indent={1}>按 $\mathcal{L} = 0.25 \mathcal{L}_{\text{CE}} + 1.0 \mathcal{L}_{\text{MSE}}$ 反向传播</AlgorithmStep>
+  <AlgorithmStep indent={1}>clip gradient、更新 AdamW、更新 EMA</AlgorithmStep>
+  <AlgorithmStep keyword='end for' />
+  <AlgorithmStep keyword='return'>训练完成的 BAGEL 模型</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 推理时模型既可以纯文本回答，也可以按交错输入生成一张或多张图像，还可以在生成图像前先输出 `&lt;think&gt;...&lt;/think&gt;` reasoning。官方默认图像生成使用 50 个 flow timestep。
+
+**【Code】** `InterleaveInferencer` 把文本、图像依次写入 KV cache：文本走 `update_context_text`，图像用 `update_context_image` 同时缓存 clean VAE 和 ViT；生成时从 Gaussian noise 初始化 latent，逐 timestep 调用 `generate_image`，最后用 FLUX VAE decoder 解码。
+
+#### Inference Algorithm
+
+<Algorithm number={2} title='BAGEL Interleaved Generation' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>文本 prompt、可选输入图像、目标图像尺寸和 CFG 参数</div>
+  <div slot='output'>生成的图像，或文本回答</div>
+  <AlgorithmStep>初始化空 KV cache，写入 system prompt 与输入文本</AlgorithmStep>
+  <AlgorithmStep>对输入图像编码 clean VAE latent 与 ViT token，写入 cache</AlgorithmStep>
+  <AlgorithmStep keyword='if'>thinking mode</AlgorithmStep>
+  <AlgorithmStep indent={1}>自回归生成 `&lt;think&gt;` reasoning 并继续写入上下文</AlgorithmStep>
+  <AlgorithmStep keyword='end if' />
+  <AlgorithmStep>从 Gaussian noise 初始化目标图像的 VAE latent token</AlgorithmStep>
+  <AlgorithmStep keyword='for'>每个 flow timestep，从 $t=1$ 到 $t=0$</AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    用完整条件、text-drop、image-drop 三个上下文预测 velocity
+  </AlgorithmStep>
+  <AlgorithmStep indent={1}>组合 text/image CFG 并对 velocity renormalize</AlgorithmStep>
+  <AlgorithmStep indent={1}>$x_t \leftarrow x_t - v_t \cdot dt$</AlgorithmStep>
+  <AlgorithmStep keyword='end for' />
+  <AlgorithmStep>VAE decode 得到图像</AlgorithmStep>
+  <AlgorithmStep keyword='return'>生成的图像或文本</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** 官方仓库与论文描述总体一致，但有几个实现层面的细节值得单独说明：
+
+- `modeling/bagel/bagel.py` 的 `Bagel.forward` 先准备 clean latent，再随机加噪，`target = noise - packed_latent_clean`，只对 `has_mse = packed_timesteps > 0` 的位置计算 MSE。
+- `modeling/bagel/qwen2_navit.py` 的 `Qwen2MoTDecoderLayer` 明确实现 hard routing：text/ViT 用理解参数，VAE 用 `_moe_gen` 参数，两者在 `PackedAttentionMoT` 中共享 attention 计算。
+- `train/pretrain_unified_navit.py` 的默认 `ce_weight=1.0`、`mse_weight=1.0`，与论文 `0.25 : 1` 不一致；复现论文 recipe 时需要显式传入论文中的 loss weight。
+- `inferencer.py` 暴露 `cfg_text_scale`、`cfg_image_scale`、`cfg_interval`、`timestep_shift`、`num_timesteps` 和 `cfg_renorm_type`，对应 README 中推荐的推理超参数。
+- HuggingFace `BAGEL-7B-MoT/config.json` 显示 LLM 为 28 层、hidden size 3584、28 个 attention head、4 个 KV head，并使用 Qwen2.5-7B-Instruct 作为 base model。
+- 官方 README 的 IntelligentBench 一栏写的是 `44.0`，而论文 Table 8 是 `44.9`；这是一个未在文档中解释的小差异。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+**【Paper】** 评估分成四组：
+
+- **多模态理解**：MME、MMBench、MM-Vet、MMMU、MathVista、MMVP。
+- **Text-to-Image**：GenEval、WISE，另加与 Janus-Pro、SD3、GPT-4o 的定性比较。
+- **经典图像编辑**：GEdit-Bench EN/CN，GPT-4.1 自动评分。
+- **复杂智能编辑**：本文提出的 IntelligentBench，350 个样例，由 GPT-4o 对 question image、question text、reference answer、model answer 四元组评分。
+
+IntelligentBench 每例 0-2 分，最终归一化到 100 分。论文同时用 RISEBench 和 KRIS-Bench 补充推理型图像编辑评估。
+
+### 5.2 Main Results
+
+#### 多模态理解
+
+**【Paper】** BAGEL-7B-MoT 在 MME-S 2388、MMBench 85.0、MM-Vet 67.2、MathVista 73.1、MMVP 69.3 上超过 Qwen2.5-VL-7B 和 InternVL2.5-7B 等专用理解模型；MMMU 55.3 略低于 Qwen2.5-VL-7B 的 58.6，但在统一模型中是领先水平。
+
+#### 图像生成
+
+**【Paper】** GenEval 上 BAGEL 为 0.82，使用 LLM rewriter 后到 0.88，超过 FLUX.1-dev（0.82）、Janus-Pro-7B（0.80）和 MetaQuery-XL（0.80）。WISE 上 BAGEL 为 0.52，使用 Self-CoT 后到 0.70，超过此前开源 SOTA MetaQuery-XL 的 0.55，仅次于 GPT-4o 的 0.80。
+
+#### 图像编辑与推理编辑
+
+**【Paper】** GEdit-Bench-EN 上 BAGEL 的 G_SC/G_PQ/G_O 为 7.36 / 6.83 / 6.52，和 Step1X-Edit 接近；IntelligentBench 上 BAGEL 为 44.9，比 Step1X-Edit 的 14.9 高出约 30 分。加入 Self-CoT 后 IntelligentBench 提升到 55.3。
+
+| Model       | IntelligentBench | RISEBench | KRIS-Bench |
+| ----------- | ---------------: | --------: | ---------: |
+| Step1X-Edit |             14.9 |       1.9 |      43.29 |
+| Gemini 2.0  |             57.6 |      13.3 |      62.41 |
+| GPT-4o      |             78.9 |      28.9 |      80.09 |
+| BAGEL       |             44.9 |       6.1 |      56.21 |
+| BAGEL + CoT |             55.3 |      11.9 |      60.18 |
+
+### 5.3 Ablation Study
+
+#### 架构消融
+
+**【Paper】** 论文在 1.5B Qwen2.5 上对比 Dense、MoE（只复制 FFN）和 MoT（复制全部可训练参数）。MoT 的 MSE loss 收敛最快、最终最低，CE loss 也整体最优；这支持“理解与生成目标需要独立容量”的结论。
+
+#### 数据采样比例与学习率
+
+**【Paper】** 1.5B 消融中，把生成/理解数据比例从 1:1 提高到 4:1 能让 MSE loss 下降约 0.4% absolute，而 CE loss 变化不稳定且对下游影响很小。学习率实验发现大 LR 有利于 MSE、小 LR 有利于 CE，因此论文用独立 loss weight 平衡两个目标。
+
+#### ViT 语义条件
+
+**【Paper】** 去掉 ViT token 对经典 GEdit-Bench 影响很小，但 IntelligentBench 下降约 16%，说明复杂自由形式编辑依赖语义视觉推理，而不只是低层 latent 保真。
+
+#### 能力涌现曲线
+
+<img
+  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-bagel/emerging-curves.8l0tn84o8o.webp'
+  alt='BAGEL 预训练涌现曲线：理解与生成先饱和，经典编辑随后，IntelligentBench 在约 3.61T token 后才显著提升（论文 Figure 7）'
+  class='zoomable'
+  width='1100'
+  height='740'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+**【Paper】** 以“达到峰值性能 85%”作为指标，理解任务约 0.18T token、GenEval 约 0.68T token、GEdit 约 2.64T token、IntelligentBench 约 3.61T token。Intelligent Editing 在 3T token 后从约 15 提升到约 45，论文认为这是类似 emergent behavior 的阶段性变化。
+
+### 5.4 Generalization
+
+**【Paper】** BAGEL 支持任意宽高比、中英双语 prompt、多图交错生成和思考式生成。世界建模部分用 ParticleSfM 标注相机轨迹，从视频交错数据构造导航数据，再提高视频与导航数据比例做 fine-tune。
+
+<img
+  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-bagel/nav-final-1.2oc9g7o5by.webp'
+  alt='BAGEL 世界建模：输入图像后生成动态数量的导航、旋转和多图结果，并从真实街景泛化到水墨画、卡通和游戏风格（论文 Figure 14）'
+  class='zoomable'
+  width='2668'
+  height='2943'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+**【Paper】** 模型可以跟随指令生成动态数量的图像来完成导航、旋转和未来视角预测；虽然导航数据主要是真实街道视频，模型仍能泛化到水墨画、卡通和游戏场景。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** 有效性至少来自三个叠加因素：
+
+1. MoT 用独立 expert 容纳生成目标，但用 shared self-attention 保留长上下文信息交换，避免 External Diffuser 的 latent bottleneck。
+2. 视频和网页交错数据提供天然的多帧、时序、物体一致性和世界知识，不只是 image-text pair 的静态对齐。
+3. 推理增强数据把“先想清楚再生成”变成训练目标，使理解和生成两个目标能在同一上下文里协同。
+
+### 6.2 核心创新
+
+**【Analysis】** 从论文和代码看，核心创新是“数据协议 + 无瓶颈架构”的组合，而不是单点网络结构：
+
+- 用视频/网页构造大规模交错生成数据，并把语言 reasoning 插到生成目标之前。
+- 用 MoT 复制生成 expert，但保持 shared self-attention 和相同 FLOPs。
+- 用 generalized causal attention + Diffusion Forcing 支持多图、视频级交错生成。
+- 用 IntelligentBench 这类复杂编辑任务暴露传统基准测不到的能力涌现。
+
+### 6.3 与已有方法的本质区别
+
+**【Paper】** 与 Quantized AR 不同，BAGEL 不在离散视觉 token 上做 next-token prediction，而是用 Rectified Flow 保持连续 latent 生成质量。与 External Diffuser 不同，BAGEL 不把 LLM 上下文压缩成少量条件 token。与 Dense Integrated Transformer 不同，BAGEL 用两个 expert 分离理解/生成参数，但仍共享 attention。
+
+### 6.4 关键假设
+
+**【Analysis】**
+
+1. 理解与生成目标虽然部分冲突，但可以通过 shared self-attention 在一个模型内共同优化。
+2. 大规模交错数据是复杂组合能力涌现的前提，只有 image-text pair 不够。
+3. 语言 reasoning 可以在图像生成前显式表达视觉目标，并改善最终输出。
+4. MoT 的 scaling 收益在 1.5B 到 7B 都成立，且可以继续扩展到更大模型。
+5. 冻结 FLUX VAE 不会成为生成质量的长期瓶颈。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 论文没有单独列 Limitations 章节，但在 Failure cases 中明确承认以下场景仍有挑战：
+
+- 特定 IP、复杂文本渲染、精细人体姿态、多实例同时生成。
+- 交换物体位置、一次性修改大量实例等编辑任务。
+- 部分复杂指令下，BAGEL 与 Gemini 2.0 都难以严格贴合用户要求，GPT-4o 相对更稳定。
+
+作者建议通过补充含文本图像数据、增大模型容量或加入 RLHF 后训练来缓解。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+1. 完整训练语料没有直接发布，官方仓库只提供样例数据与 protocol；要完整复现 trillions token 训练仍需自行收集和过滤数据。
+2. IntelligentBench 只有 350 个样例，且使用 GPT-4o 评分，复杂任务的分数稳定性和跨模型公平性仍有风险。
+3. 世界建模、导航、3D 操作主要通过定性展示，缺少可复用的自动指标和标准 benchmark。
+4. “涌现”依赖历史 checkpoint 上某个固定 85% 阈值，不同任务峰值、训练阶段和评测设置可能改变结论。
+5. 7B active / 14B total 在统一多模态模型中仍属于中等规模，更大参数量、更长视频序列和 RLHF 的价值尚待验证。
+
+## 8. 启发与研究思考
+
+**【Analysis】**
+
+1. 统一多模态模型应把“数据交错性”当作和架构并列的设计变量；视频是低成本、高信息密度的世界模型数据源。
+2. MoT 这种“共享 attention、独立专家”的设计比 External Diffuser 更适合长上下文多模态 reasoning，但训练成本更高，后续值得继续研究 expert 数量、路由和容量分配。
+3. CFG 从文本 prompt 扩展到图像条件，形成 text guidance + image guidance 两个自由度，对编辑类任务尤其重要。
+4. IntelligentBench 这类复杂组合任务可能是比标准 VLM/T2I benchmark 更敏感的统一模型能力探针。
+5. 如果 BAGEL 继续扩大视频、导航和交互数据，并加入 RLHF，它更像一个通用 world model 而非传统图像生成器；这为 future frame prediction、3D manipulation、embodied navigation 提供了一个可扩展底座。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。本文不是 Embodied AI 机器人论文，因此没有强行套用 robot
+  embodiment、action chunking 等机器人专用分析框架。
+</Aside>

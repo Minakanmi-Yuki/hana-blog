@@ -19,6 +19,7 @@ Use only after the count-1 pool is exhausted.
 | --------: | ----------- | ------------------------------------------------------------------ | ------------------------------------------------ |
 |         2 | `133535742` | `https://pic.hana0721.top/133535742_p0_master1200.icpovr2id.webp`  | `paper-deep-dive-openvla`, `paper-reading-eba1`  |
 |         2 | `57793944`  | `https://pic.hana0721.top/57793944_p0_master1200.4xv4u7fok2.webp`  | `paper-deep-dive-rt2`, `paper-reading-vlm2`      |
+|         2 | `104724685` | `https://pic.hana0721.top/104724685_p0_master1200.7p472bcti3.webp` | `rl-note-23`, `paper-deep-dive-bagel`            |
 |         2 | `105886628` | `https://pic.hana0721.top/105886628_p0_master1200.5fl6its319.webp` | `paper-deep-dive-diffusion-policy`, `rl-note-24` |
 |         2 | `66119164`  | `https://pic.hana0721.top/66119164_p0_master1200.3d5duqih46.webp`  | `rl-note-2`, `robotic-grasp-detection-1`         |
 |         2 | `66952181`  | `https://pic.hana0721.top/66952181_p0_master1200.6ikvtocw16.webp`  | `rl-note-3`, `robotic-grasp-detection-2`         |
@@ -46,7 +47,6 @@ Preferred candidates for new posts.
 |         1 | `65089776`  | `https://pic.hana0721.top//65089776_p0_master1200.5c1kl2nzfo.webp` | `rl-note-1`                      |
 |         1 | `102841826` | `https://pic.hana0721.top/102841826_p0_master1200.4clh7xw95k.webp` | `rl-note-22`                     |
 |         1 | `103975128` | `https://pic.hana0721.top/103975128_p0_master1200.8vniavqp93.webp` | `rl-note-19`                     |
-|         1 | `104724685` | `https://pic.hana0721.top/104724685_p0_master1200.7p472bcti3.webp` | `rl-note-23`                     |
 |         1 | `104786218` | `https://pic.hana0721.top/104786218_p0_master1200.8vnievbkwk.webp` | `vibe-coding-2`                  |
 |         1 | `112236596` | `https://pic.hana0721.top/112236596_p0_master1200.232gogbiox.webp` | `rl-note-25`                     |
 |         1 | `116834498` | `https://pic.hana0721.top/116834498_p0_master1200.1e974fnzok.webp` | `rl-note-26`                     |
