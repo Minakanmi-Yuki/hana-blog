@@ -51,7 +51,7 @@ Preferred candidates for new posts.
 |         1 | `65089776`  | `https://pic.hana0721.top//65089776_p0_master1200.5c1kl2nzfo.webp` | `rl-note-1`                                       |
 |         1 | `103975128` | `https://pic.hana0721.top/103975128_p0_master1200.8vniavqp93.webp` | `rl-note-19`                                      |
 |         1 | `104786218` | `https://pic.hana0721.top/104786218_p0_master1200.8vnievbkwk.webp` | `vibe-coding-2`                                   |
-|         1 | `112236596` | `https://pic.hana0721.top/112236596_p0_master1200.232gogbiox.webp` | `rl-note-25`                                      |
+|         2 | `112236596` | `https://pic.hana0721.top/112236596_p0_master1200.232gogbiox.webp` | `rl-note-25`, `paper-deep-dive-qwen-robotmanip`   |
 |         1 | `116834498` | `https://pic.hana0721.top/116834498_p0_master1200.1e974fnzok.webp` | `rl-note-26`                                      |
 |         1 | `120188807` | `https://pic.hana0721.top/120188807_p0_master1200.1lcf3tjzx5.webp` | `vibe-coding-3`                                   |
 |         1 | `120269913` | `https://pic.hana0721.top/120269913_p0_master1200.3k8lu5pi8s.webp` | `vibe-coding-4`                                   |
