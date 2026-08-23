@@ -175,7 +175,7 @@ $A_t$ 是当前噪声动作，$o$ 包含视觉、语言和 proprioception，$A-A
 **【Paper】** 论文报告 X-VLA-0.9B 使用 64 张 A100、global batch size 1024、约 4 天训练，AdamW 的 $\beta=(0.9,0.95)$、学习率 $10^{-4}$、weight decay 0.01、200K iterations，混合精度为 bfloat16。
 
 <Algorithm number={1} title='X-VLA 异构数据预训练' inputLabel='输入' outputLabel='输出'>
-  <div slot='input'>多域示教数据 \(\{(\mathrm{Img},L,R,A,h_i)\}\)、共享 VLM/Transformer 参数和每域 Soft Prompt。</div>
+  <div slot='input'>多域示教数据（Img、L、R、A、h_i 的元组集合）、共享 VLM/Transformer 参数和每域 Soft Prompt。</div>
   <div slot='output'>共享的 embodiment-agnostic policy 与更新后的 Soft Prompt Library。</div>
   <AlgorithmStep>按数据域权重采样一个 batch，并把动作转换到统一 EE6D 空间。</AlgorithmStep>
   <AlgorithmStep>对每条动作块采样 \(t\)，生成 \(A_t=(1-t)A_0+tA\)，编码主视角、辅助视角、语言和 proprioception。</AlgorithmStep>
