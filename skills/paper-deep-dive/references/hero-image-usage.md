@@ -39,6 +39,7 @@ Use only after the count-1 pool is exhausted.
 |         2 | `142350190` | `https://pic.hana0721.top/142350190_p0_master1200.2yyy3wl757.webp` | `rl-note-29`, `paper-deep-dive-tinyvla`                    |
 |         2 | `143484250` | `https://pic.hana0721.top/143484250_p0_master1200.9ddjzdu0z1.webp` | `linux-dl-env-setup`, `paper-deep-dive-pi0`                |
 |         2 | `131135880` | `https://pic.hana0721.top/131135880_p0_master1200.9rjzqc0dp5.webp` | `rl-note-20`, `paper-deep-dive-robodual`                   |
+|         2 | `42175762`  | `https://pic.hana0721.top/42175762_p0_master1200.6m4jay5vlg.webp`  | `paper-reading-eba5`, `paper-deep-dive-pi05`               |
 
 ## Count 1 Pool
 
@@ -63,9 +64,8 @@ Preferred candidates for new posts.
 |         1 | `134041716` | `https://pic.hana0721.top/134041716_p0_master1200.5q80bz7b6v.webp` | `rl-note-27`                     |
 |         1 | `139063757` | `https://pic.hana0721.top/139063757_p0_master1200.2yyzxgr9fg.webp` | `paper-reading-cv2`              |
 |         1 | ``          | `https://pic.hana0721.top/145491169_p0_master1200.2dpccm5v9t.webp` | `openssh-server-setup`           |
-|         1 | `42175762`  | `https://pic.hana0721.top/42175762_p0_master1200.6m4jay5vlg.webp`  | `paper-reading-eba5`             |
 |         1 | `49383596`  | `https://pic.hana0721.top/49383596_p0_master1200.6t7pmts45l.webp`  | `paper-reading-umllm2`           |
-|         1 | `56422576`  | `https://pic.hana0721.top/56422576_p0_master1200.7i0z6ufn65.webp`  | `paper-reading-vlm1`             |
+|         2 | `56422576`  | `https://pic.hana0721.top/56422576_p0_master1200.7i0z6ufn65.webp`  | `paper-reading-vlm1`, `paper-deep-dive-chatvla-2` |
 |         1 | `62258773`  | `https://pic.hana0721.top/62258773_p0_master1200.7zr0vfh0rf.webp`  | `paper-reading-cv1`              |
 |         1 | `62423081`  | `https://pic.hana0721.top/62423081_p0_master1200.3ns7nvxp9b.webp`  | `paper-reading-bm1`              |
 |         1 | `64131498`  | `https://pic.hana0721.top/64131498_p0_master1200.45i9cfg3rk.webp`  | `paper-reading-eba2`             |
