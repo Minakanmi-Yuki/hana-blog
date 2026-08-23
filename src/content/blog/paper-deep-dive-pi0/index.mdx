@@ -1,0 +1,544 @@
+---
+title: 'π₀ 论文精读：通用机器人控制的视觉-语言-动作流模型'
+publishDate: 2026-08-23
+updatedDate: 2026-08-23
+description: '精读 π₀：基于预训练 PaliGemma VLM 与 flow matching action expert，在 10000+ 小时跨形态机器人数据上预训练，并验证直接提示、语言指令和微调。'
+heroImage:
+  { src: 'https://pic.hana0721.top/143484250_p0_master1200.9ddjzdu0z1.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '143484250'
+tags:
+  - 'paper deep dive'
+  - 'π₀'
+  - 'robot foundation model'
+  - 'flow matching'
+  - 'VLA'
+  - 'cross-embodiment'
+paper:
+  arxivId: '2410.24164'
+  title: 'π₀: A Vision-Language-Action Flow Model for General Robot Control'
+  authors:
+    - 'Kevin Black'
+    - 'Noah Brown'
+    - 'Danny Driess'
+    - 'Adnan Esmail'
+    - 'Michael Equi'
+    - 'Chelsea Finn'
+    - 'Niccolo Fusai'
+    - 'Lachy Groom'
+    - 'Karol Hausman'
+    - 'Brian Ichter'
+    - 'Szymon Jakubczak'
+    - 'Tim Jones'
+    - 'Liyiming Ke'
+    - 'Sergey Levine'
+    - 'Adrian Li-Bell'
+    - 'Mohith Mothukuri'
+    - 'Suraj Nair'
+    - 'Karl Pertsch'
+    - 'Lucy Xiaoyang Shi'
+    - 'James Tanner'
+    - 'Quan Vuong'
+    - 'Anna Walling'
+    - 'Haohuan Wang'
+    - 'Ury Zhilinsky'
+  venue: 'RSS 2025'
+  year: 2025
+  code: 'https://github.com/Physical-Intelligence/openpi'
+  project: 'https://physicalintelligence.company/blog/pi0'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2410.24164'
+  tldr='π₀ 把预训练 VLM 与 flow matching action expert 组合成通用 VLA：先在大规模跨形态机器人数据上预训练，再通过直接提示、语言高层策略或下游微调处理高频率、高灵巧、长时程的真实任务。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《π₀: A Vision-Language-Action Flow Model for General Robot Control》
+
+**作者**：Kevin Black、Noah Brown、Danny Driess、Adnan Esmail、Michael Equi、Chelsea Finn、Niccolo Fusai、Lachy Groom、Karol Hausman、Brian Ichter、Szymon Jakubczak、Tim Jones、Liyiming Ke、Sergey Levine、Adrian Li-Bell、Mohith Mothukuri、Suraj Nair、Karl Pertsch、Lucy Xiaoyang Shi、James Tanner、Quan Vuong、Anna Walling、Haohuan Wang、Ury Zhilinsky
+
+**机构**：Physical Intelligence
+
+**会议 / 期刊**：RSS 2025（arXiv 预印本 2410.24164）
+
+**论文链接**：[arXiv](https://arxiv.org/abs/2410.24164)
+
+**代码链接**：[Physical-Intelligence/openpi](https://github.com/Physical-Intelligence/openpi)
+
+**项目主页**：[Physical Intelligence π₀](https://physicalintelligence.company/blog/pi0)
+
+### 一句话总结
+
+**【Paper】** 本文提出 π₀，把预训练的 PaliGemma VLM 作为语义底座，通过一个 300M 参数的 action expert 输出连续动作，并使用 flow matching 建模动作分布；模型在 10000+ 小时、7 种机器人配置、68 个任务的跨形态数据上预训练后，可以直接提示使用、接收高层语言指令，也可以微调到洗衣折叠、装箱、叠碗等灵巧任务。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出一种基于预训练 VLM 的 flow matching VLA 架构，VLM 部分约 3B 参数，action expert 约 300M 参数，总计约 3.3B 参数，支持最高 50 Hz 的连续动作输出。
+2. 设计跨形态预训练配方：使用自有灵巧操作数据与 OXE 等开源数据混合，state/action 统一补齐到 18 维，缺失相机位用 mask 处理。
+3. 验证 pre-training / post-training 的两阶段训练：预训练提供广泛能力，高质量微调数据提供流畅、稳健的任务执行。
+4. 在 out-of-box 直接评估、语言指令跟随、新灵巧任务微调、复杂多阶段任务四类实验中展示超越 OpenVLA、Octo、ACT、Diffusion Policy 等方法的实际效果。
+
+## 2. 背景与相关工作
+
+**【Paper】** 传统 VLA 路线通常把视觉语言模型微调成动作生成模型，例如 RT-2、OpenVLA、TinyVLA。它们常用自回归离散化把动作当作文本 token 生成。这种方式能复用 VLM 的语言语义，但在高频、高精度、多模态动作分布上受限，尤其是需要动作 chunking 的灵巧操作。
+
+另一条路线是 Diffusion Policy、Scaling Diffusion Policy 等基于扩散或 flow 的动作生成模型。它们适合连续动作和复杂分布，但通常没有预训练 VLM 底座，语言与视觉语义能力有限。π₀ 的核心组合是把两者接起来：用预训练 VLM 保留 Internet-scale 语义知识，用 flow matching 处理高频连续动作。
+
+在架构层面，π₀ 受 Transfusion 启发：同一个 transformer 里，离散 token 用交叉熵、连续 token 用 diffusion/flow loss。但 Transfusion 使用同一组权重；π₀ 把机器人 state/action token 路由到独立的 action expert，类似混合专家中一个专用于机器人输入的权重组。这个设计既减少与 VLM 预训练输入的分布偏移，也让动作推理可以复用缓存、只更新 action 部分。
+
+本文还强调机器人基础模型的训练 recipe 本身是贡献之一。作者认为，只训练高质量微调数据会缺少错误恢复能力；只训练大规模、低质量预训练数据又不够流畅。因此 π₀ 采用类似 LLM 的 pre-training / post-training 流程。
+
+## 3. 问题定义
+
+**【Paper】** π₀ 建模的是条件分布：
+
+$$
+p(\mathbf A_t \mid \mathbf o_t)
+$$
+
+其中：
+
+- $\mathbf A_t = [\mathbf a_t, \mathbf a_{t+1}, \dots, \mathbf a_{t+H-1}]$ 是未来 $H$ 步的 action chunk，论文主实验使用 $H = 50$。
+- $\mathbf o_t = [\mathbf I^1_t, \dots, \mathbf I^n_t, \ell_t, \mathbf q_t]$ 是当前观测，包括多张 RGB 图、语言指令和机器人关节状态。
+- 每个机器人的相机数量通常是 2 或 3 张；预训练时统一保留最多 3 个图像槽，缺失槽用 mask 屏蔽。
+- 不同机器人的 state/action 维度不同，统一补零到最大维度 18，以容纳两个 6-DoF 手臂、两个夹爪、移动底盘和垂直躯干。
+
+### 预训练覆盖的机器人
+
+| 平台                  | 相机数 | 配置 / 动作维度 | 形态                  |
+| --------------------- | -----: | --------------: | --------------------- |
+| UR5e                  |      2 |           7 / 7 | 单臂 + 夹爪           |
+| Bimanual UR5e         |      3 |         14 / 14 | 双臂                  |
+| Franka                |      2 |           8 / 8 | 单臂 + 夹爪           |
+| Bimanual Trossen      |      3 |         14 / 14 | 双臂，ALOHA 风格      |
+| Bimanual ARX / AgileX |      3 |         14 / 14 | 双臂                  |
+| Mobile Trossen / ARX  |      3 |         14 / 16 | 双臂 + 非完整移动底盘 |
+| Mobile Fibocom        |      3 |         14 / 17 | 双臂 + 完整移动底盘   |
+
+**【Paper】** 这里“任务”不是简单的“名词 + 动词”组合。例如 bussing 任务包含大量不同餐具、杯子和垃圾的识别与放置，实际行为空间远比 68 个任务计数更广。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+π₀ 的主体是 PaliGemma 风格的 decoder-only transformer。图像和语言输入走预训练 VLM 权重，机器人 state 和 noisy action token 走独立的 action expert。整体 token 序列可以看成三块：图像 + 语言 prompt、单一 state token、$H$ 个 action token。
+
+<img
+  src='https://pic.hana0721.top/blog/paper-deep-dive-pi0/overview.6t7usaxx1l.webp'
+  alt='π₀ 框架总览：预训练数据训练 VLM backbone 与 action expert，输出可控制多种机器人的策略（论文 Figure 3）'
+  class='zoomable'
+  width='3445'
+  height='959'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+**【Paper】** 数据流可以压缩成一句：图像和语言先由 PaliGemma 编码为 prefix，state 与当前 noisy action 经过 action expert 编码后，transformer 输出 action token 的 vector field 预测；训练和推理的完整循环分别在 4.4 与 4.5。
+
+关键架构参数：
+
+- PaliGemma / Gemma 2B backbone：width 2048、depth 18、mlp dim 16384、18 个 head、1 个 KV head、head dim 256。
+- Action expert：width 1024、mlp dim 4096，约 300M 参数，从零初始化。
+- Attention mask：三块 blockwise mask，图像 + 语言、state、action。块内双向，action 块可以 attend 到之前所有输入；图像语言块不能 attend 到新增机器人 token，以减小对 VLM 预训练表示的偏移。
+- state token 独立成块，因为它不会在 flow 采样的多个 forward pass 中变化，便于缓存 keys/values。
+
+### 4.2 核心模块
+
+#### Vision Encoder
+
+- **输入**：每台机器人的 2 到 3 张 RGB 图。
+- **输出**：与语言 token 同空间的图像 patch embedding。
+- **功能**：把视觉观测转成 transformer 输入。
+- **为什么需要**：机器人需要理解场景中的物体、空间关系和当前状态。
+
+**【Code】** openpi 中 PaliGemma 图像编码器由 `src/openpi/models/siglip.py` 中的 SigLIP `So400m/14` 实现，输入统一 resize 到 `224x224`。论文正文把这一部分描述为 PaliGemma 的视觉编码器，未展开具体 variant。
+
+#### Language Backbone
+
+- **输入**：语言指令 token、图像 embedding。
+- **输出**：VLM prefix 的隐状态与 KV cache。
+- **功能**：提供物体识别、语义推理、指令跟随能力。
+- **为什么需要**：这是 π₀ 区别于从零训练策略模型的核心，VLM 预训练贡献了互联网级语义先验。
+
+#### State Projection
+
+- **输入**：机器人关节角度 / 配置向量 $\mathbf q_t$。
+- **输出**：action expert 宽度的单个 token。
+- **功能**：把本体感受状态编码进 transformer。
+- **为什么需要**：模型需要知道自己当前的位置，才能把动作定义为相对或绝对变化。
+
+#### Action Embedding and Time MLP
+
+- **输入**：noisy action chunk $\mathbf A_t^\tau$ 和 flow timestep $\tau$。
+- **输出**：$H$ 个 action expert token。
+- **功能**：把动作值和噪声程度同时映射到模型空间。
+- **实现方式**：先线性投影 action，再用正弦位置编码编码 $\tau$，两者拼接后经过带 Swish 的两层 MLP。
+- **为什么需要**：flow matching 的每一步都必须让模型知道当前去噪进度，否则无法估计正确 vector field。
+
+#### Action Expert
+
+- **输入**：state token 与 $H$ 个 action token。
+- **输出**：经过 transformer 融合后的 action 隐状态。
+- **功能**：专门处理机器人 state/action 相关 token。
+- **为什么需要**：机器人输入没有出现在 VLM 预训练分布里；独立权重让模型在保留 VLM 表示的同时学习跨形态动作规律。
+
+#### Action Output Projection
+
+- **输入**：action expert 输出的 $H$ 个 token。
+- **输出**：与 action 同维的 vector field $\mathbf v_\theta$。
+- **功能**：把隐状态映射回动作维度，用于 flow matching 训练和采样。
+
+### 4.3 关键公式
+
+#### Flow Matching Loss
+
+【Paper】目标分布是 $p(\mathbf A_t \mid \mathbf o_t)$，使用简单线性高斯概率路径：
+
+$$
+q(\mathbf A_t^\tau \mid \mathbf A_t) = \mathcal{N}(\tau \mathbf A_t, (1 - \tau) \mathbf I)
+$$
+
+训练时采样噪声 $\epsilon \sim \mathcal{N}(\mathbf 0, \mathbf I)$，构造：
+
+$$
+\mathbf A_t^\tau = \tau \mathbf A_t + (1 - \tau) \epsilon
+$$
+
+网络学习目标 vector field：
+
+$$
+\mathbf u(\mathbf A_t^\tau \mid \mathbf A_t) = \mathbf A_t - \epsilon
+$$
+
+总损失为：
+
+$$
+\mathcal L^\tau(\theta) = \mathbb E_{p(\mathbf A_t \mid \mathbf o_t), q(\mathbf A_t^\tau \mid \mathbf A_t)}
+\left\lVert \mathbf v_\theta(\mathbf A_t^\tau, \mathbf o_t) - \mathbf u(\mathbf A_t^\tau \mid \mathbf A_t) \right\rVert^2
+$$
+
+其中 $\tau \in [0, 1]$ 是 flow timestep，$\mathbf v_\theta$ 是模型输出的 vector field，$\mathbf u$ 是从 action 到噪声方向的目标速度。
+
+#### Timestep Sampling
+
+【Paper】作者没有用均匀分布，而是采用 shifted beta 分布：
+
+$$
+p(\tau) = \text{Beta}\left(\frac{s - \tau}{s}; 1.5, 1\right), \quad s = 0.999
+$$
+
+这个分布更强调低 timestep，即更接近噪声的样本。作者认为机器人观测已经高度约束动作分布，预测均值动作并不像图像生成里“根据文本预测均值”那么容易；因此让模型更多训练在噪声较大的区域更有价值。
+
+<img
+  src='https://pic.hana0721.top/blog/paper-deep-dive-pi0/timestep-sampling.1ow630y07r.webp'
+  alt='Flow matching timestep 采样分布：shifted beta 强调低 timestep 且不采样超过 s=0.999（论文 Figure 14）'
+  class='zoomable'
+  width='1083'
+  height='754'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+#### Euler Integration
+
+推理时从噪声开始积分：
+
+$$
+\mathbf A_t^{\tau + \delta} = \mathbf A_t^\tau + \delta \mathbf v_\theta(\mathbf A_t^\tau, \mathbf o_t)
+$$
+
+论文主实验使用 10 个 Euler step，即 $\delta = 0.1$。
+
+### 4.4 Training
+
+**【Paper】** π₀ 使用两阶段训练：
+
+- **Pre-training**：在自有灵巧操作数据与开源数据混合的大规模语料上训练 base model。自有数据约 903M timesteps，其中单臂 106M、双臂 797M；开源部分包括 OXE、Bridge v2、DROID，占整体 mixture 的 9.1%。
+- **Post-training**：使用任务特定、质量更高、策略更一致的数据微调，让模型从“会做但不够流畅”变成“熟练执行”。最简单任务只需要约 5 小时数据，最复杂任务使用 100 小时以上。
+- **数据加权**：对每个 task-robot 组合按 $n^{0.43}$ 加权，压低过采样组合的权重。
+- **语言标注**：预训练时同时使用 task name 与约 2 秒一段的 segment annotations。
+- **Loss**：flow matching MSE。
+- **Timestep**：从 shifted beta 分布采样。
+
+论文正文没有完整给出预训练阶段的 optimizer、学习率、batch size 等超参数；这些信息在当前 openpi 代码中以示例配置形式提供，见 4.6。
+
+<Algorithm number={1} title='π₀ Flow Matching Training' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>预训练 / 微调数据 $D$、action horizon $H$、timestep cutoff $s$</div>
+  <div slot='output'>
+    训练后的 flow matching 策略 $\mathbf v_\theta(\mathbf A_t^\tau, \mathbf o_t)$
+  </div>
+  <AlgorithmStep keyword='Given'>数据 $D$、action horizon $H$、timestep cutoff $s$</AlgorithmStep>
+  <AlgorithmStep>初始化 PaliGemma VLM backbone 与 action expert</AlgorithmStep>
+  <AlgorithmStep keyword='for'>迭代训练</AlgorithmStep>
+  <AlgorithmStep indent={1}>采样观测 $\mathbf o_t$ 与动作 chunk $\mathbf A_t$</AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    采样噪声 $\epsilon \sim \mathcal{N}(0, I)$ 与 timestep $\tau \sim p(\tau)$
+  </AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    构造 noisy action $\mathbf A_t^\tau = \tau \mathbf A_t + (1 - \tau) \epsilon$
+  </AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    前向计算 $\mathbf v_\theta(\mathbf A_t^\tau, \mathbf o_t)$
+  </AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    计算 flow matching MSE，目标 $\mathbf u = \mathbf A_t - \epsilon$
+  </AlgorithmStep>
+  <AlgorithmStep indent={1}>反向传播并更新参数</AlgorithmStep>
+  <AlgorithmStep keyword='end for' />
+  <AlgorithmStep keyword='return'>训练完成的策略</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 推理时：
+
+1. 先编码一次图像、语言、state 等 prefix，并缓存其 keys/values。
+2. 初始化 action chunk 为高斯噪声。
+3. 重复 10 次 Euler step，每次只对 action token 做 forward pass，prefix KV 复用。
+4. 得到完整 action chunk 后，以 open-loop 方式执行。
+
+作者明确说曾经尝试 temporal ensembling，但发现会伤害策略性能，因此没有对多个 action chunk 做指数加权平均，而是直接执行整段 chunk。
+
+不同机器人的推理频率：
+
+- 20 Hz 的 UR5e / Franka：每 0.8 秒推理一次，执行 16 个动作。
+- 50 Hz 的其他机器人：每 0.5 秒推理一次，执行 25 个动作。
+
+RTX 4090 上三相机配置的耗时如下：
+
+| 阶段                      |  耗时 |
+| ------------------------- | ----: |
+| Image encoders            | 14 ms |
+| Observation forward pass  | 32 ms |
+| 10 次 action forward pass | 27 ms |
+| 板载总推理                | 73 ms |
+| 离板 + 网络延迟           | 86 ms |
+
+<Algorithm number={2} title='π₀ Flow Matching Inference' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前观测 $\mathbf o_t$、积分步数 $N=10$</div>
+  <div slot='output'>动作 chunk $\mathbf A_t$，交给低层控制器执行</div>
+  <AlgorithmStep>编码图像、语言、state，缓存 prefix KV</AlgorithmStep>
+  <AlgorithmStep>初始化 $\mathbf A_t^0 \sim \mathcal{N}(0, I)$，设置 $\delta = 1 / N$</AlgorithmStep>
+  <AlgorithmStep keyword='for'>$\tau = 0, \delta, \dots, 1 - \delta$</AlgorithmStep>
+  <AlgorithmStep indent={1}>前向计算 $\mathbf v_\theta(\mathbf A_t^\tau, \mathbf o_t)$</AlgorithmStep>
+  <AlgorithmStep indent={1}>$\mathbf A_t^{\tau+\delta} = \mathbf A_t^\tau + \delta \mathbf v_\theta(\mathbf A_t^\tau, \mathbf o_t)$</AlgorithmStep>
+  <AlgorithmStep keyword='end for' />
+  <AlgorithmStep keyword='return'>$\mathbf A_t$，按 open-loop action chunk 执行</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** 官方代码仓库为 `Physical-Intelligence/openpi`。当前仓库同时包含 π₀、π₀-FAST 与 π₀.₅，本精读只对照论文对应的 π₀ 实现。
+
+核心文件：
+
+- 模型：`src/openpi/models/pi0.py`（JAX / Flax NNX）
+- 配置：`src/openpi/models/pi0_config.py`
+- PyTorch 模型：`src/openpi/models_pytorch/pi0_pytorch.py`
+- 数据变换：`src/openpi/transforms.py`
+- 训练入口：`scripts/train.py`
+- 训练配置：`src/openpi/training/config.py`
+
+模型配置：
+
+- `Pi0Config` 默认 `paligemma_variant='gemma_2b'`、`action_expert_variant='gemma_300m'`。
+- 默认 `action_dim=32`、`action_horizon=50`、`max_token_len=48`。
+- 模型固定预留 `base_0_rgb`、`left_wrist_0_rgb`、`right_wrist_0_rgb` 三个图像槽，输入统一为 `224x224`；缺少相机时填充黑图并设置 `image_mask=False`。
+
+Flow matching：
+
+- `Pi0.compute_loss` 中采样 `time = beta(1.5, 1) * 0.999 + 0.001`，构造 `x_t = time * noise + (1 - time) * actions`，目标 `u_t = noise - actions`，loss 是 MSE。
+- 代码注释明确说明其 timestep 约定与论文相反：代码里 `t=1` 是噪声、`t=0` 是目标动作；论文里 $\tau=0$ 是噪声、$\tau=1$ 是动作。采样分布本身仍是强调高噪声区域的 shifted beta。
+- `sample_actions` 默认 `num_steps=10`，使用 `dt = -1 / num_steps` 从噪声积分回动作；第一次对 prefix 建立 KV cache，之后只 forward action suffix。
+
+数据管线：
+
+- `ResizeImages(224, 224)`、`TokenizePrompt`、`PadStatesAndActions(model_config.action_dim)` 是通用模型变换。
+- `Normalize` 使用数据集的 mean/std 归一化；π₀.₅ 等后续模型改用 quantile normalization。
+- ALOHA 配置默认把关节绝对动作转换为相对第一个 state 的 delta action，夹爪维度保持绝对值；推理输出时再用 `AbsoluteActions` 恢复。
+- 当前 openpi 的 `pi0_aloha` 使用 `action_horizon=50`，而 `pi0_droid` 使用 `action_horizon=10`，说明开源实现会根据平台调整 chunk 长度。
+
+训练与推理入口：
+
+- `scripts/train.py` 使用 `TrainConfig`，默认 `batch_size=32`、`num_train_steps=30000`。
+- 默认 optimizer 是 AdamW：`b1=0.9`、`b2=0.95`、`weight_decay=1e-10`、gradient norm clip `1.0`。
+- 默认 LR 是 cosine schedule：1000 步 warmup、peak `2.5e-5`、decay 到 `2.5e-6`。
+- 默认 EMA decay `0.99`；LoRA 微调配置会关闭 EMA。
+- 官方 base checkpoint 路径为 `gs://openpi-assets/checkpoints/pi0_base/params`，README 描述为 10000+ 小时机器人数据上预训练。
+
+**【Analysis】** 需要区分论文原始训练配方与 openpi 当前示例配置。上面这些 LR、batch size、EMA 数值来自当前开源示例，并不代表论文正文原样公布的预训练超参数；论文本身没有给出完整优化细节。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+**【Paper】** 实验全部在真实机器人上完成，每个任务平均 10 次 trial，按 rubric 给分：完整成功为 1.0，部分完成给分数。
+
+<img
+  src='https://pic.hana0721.top/blog/paper-deep-dive-pi0/robots.2oc9g70r5h.webp'
+  alt='π₀ 联合训练的 7 种机器人配置，包括单臂、双臂和移动操作平台（论文 Figure 5）'
+  class='zoomable'
+  width='2901'
+  height='1979'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+Out-of-box 对比：
+
+- **OpenVLA**：7B VLA，在相同 mixture 上训练；原架构不支持 action chunking 与高频控制。
+- **Octo**：93M 扩散策略，支持动作生成但不具备大 VLM 语义底座。
+- **π₀-small**：470M 参数、无 VLM 初始化的消融模型。
+- **Compute parity π₀**：只训练 160k steps，和基线步数对齐；完整 π₀ 训练 700k steps。
+
+### 5.2 Main Results
+
+**【Paper】** Out-of-box 评估直接在预训练 base model 上完成，不经过任何下游微调。五个任务是 shirt folding、bussing easy、bussing hard、grocery bagging、toast out of toaster。
+
+<img
+  src='https://pic.hana0721.top/blog/paper-deep-dive-pi0/pretrain-results.6po8ul4ugx.webp'
+  alt='Out-of-box 结果：完整 π₀、160k parity π₀、π₀-small 与 OpenVLA/Octo 对比（论文 Figure 7）'
+  class='zoomable'
+  width='1330'
+  height='724'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+结果特征：
+
+- 完整 π₀ 在所有任务上远超基线，shirt folding 与 bussing easy 接近满分。
+- 只训练 160k steps 的 parity π₀ 仍优于所有基线。
+- π₀-small 也超过 OpenVLA 和 Octo，说明 flow matching + action expert 架构本身有优势。
+- OpenVLA 的主要短板是自回归离散动作不支持高频 action chunk；Octo 的短板是容量和语义能力不足。
+
+语言指令实验使用 bussing、table setting、grocery bagging 三个任务，比较 flat、human 中间指令和 VLM 高层指令。**【Paper】** π₀ 的语言跟随能力显著强于 π₀-small；当高层 VLM 或人类提供中间指令时，π₀ 能把这些指令转化为更好的任务表现，而 π₀-small 受限于语言能力，提升有限。
+
+### 5.3 Ablation Study
+
+【Paper】新灵巧任务微调实验包括 stack bowls、towel folding、Tupperware in microwave、paper towel replacement、Franka items in drawer。对比对象包括 OpenVLA、Octo、ACT、Diffusion Policy，以及 π₀ from scratch / π₀ from pretrained。
+
+<img
+  src='https://pic.hana0721.top/blog/paper-deep-dive-pi0/finetune-over-time.6m4mwvbriu.webp'
+  alt='不同微调数据量下的任务表现：π₀、from scratch 与 ACT/Diffusion Policy/OpenVLA/Octo 对比（论文 Figure 11）'
+  class='zoomable'
+  width='1941'
+  height='1057'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+【Paper】关键结论：
+
+- π₀ 在多数新任务上优于其他方法；较强基线反而是完全在目标任务上训练的 ACT 与 Diffusion Policy。
+- 在 Tupperware 任务上，5 小时数据的 π₀ 与基线接近，但 1 小时数据的 π₀ 显著更好，说明预训练在小数据条件下更有价值。
+- 对与预训练任务相似的任务，预训练带来的提升更大；预训练模型有时比 from scratch 模型好约 2 倍。
+
+**【Analysis】** 这不是严格的单变量架构消融。π₀ 与 π₀-small 同时改变参数量、VLM 初始化、图像编码器和 action expert 结构；作者自己也承认很难做到完全公平。因此“VLM 初始化有效”的结论是实验证据支持的趋势，而不是唯一变量下的因果证明。
+
+### 5.4 Generalization
+
+【Paper】最后一组实验覆盖长时间、多阶段任务，包括 laundry folding、mobile laundry、dryer unloading、table bussing、box building、to-go box、packing eggs。部分任务在预训练数据中存在，部分完全未出现。
+
+<img
+  src='https://pic.hana0721.top/blog/paper-deep-dive-pi0/complex-results.8dxlrrv49b.webp'
+  alt='复杂多阶段任务结果：预训练 + 微调、out-of-box 与 from scratch 对比（论文 Figure 13）'
+  class='zoomable'
+  width='2000'
+  height='1966'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+【Paper】完整 “pre-training + fine-tuning” 配方在全部任务上整体最好，并且在最难任务上的优势最明显。表 bussing 需要识别未见过的杂乱物体，box building 需要利用桌面和双臂协同完成折叠与按压，packing eggs 需要处理光滑、形状不对称的鸡蛋并双臂关盒。这些任务说明预训练不只是帮助简单场景，而是对复杂、多阶段、需要恢复策略的任务有实质价值。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** 可以从四个层面理解 π₀ 为什么有效：
+
+1. **语义底座**：PaliGemma 的互联网预训练提供了物体识别、指令跟随和场景常识，这是从零训练策略模型很难获得的能力。
+2. **专用 action expert**：机器人 state/action 不是 VLM 原生分布；独立专家让新输入不污染 VLM 表示，同时保留 transformer attention 的跨模态融合。
+3. **Flow matching**：连续动作不需要离散化，能表示多模态、精细和高频动作；10 步 Euler 也足够快。
+4. **大规模跨形态预训练**：不同机器人、不同任务的数据让模型见过更广的物体、状态和恢复轨迹，微调时不容易在错误状态上崩溃。
+
+### 6.2 核心创新
+
+**【Analysis】** 严格说，VLM、flow matching、action chunking、pre-training 都不是论文首次提出。π₀ 的创新在于把它们组合成一个可实际运行的系统：
+
+- 首次在 VLA 中以独立 action expert + flow matching 输出高频连续动作。
+- 把 Transfusion 的“离散/连续混合训练”迁移到机器人领域，并加入机器人专用的第二组权重。
+- 设计 blockwise causal attention，使 prefix 可缓存、action 可高效迭代采样。
+- 把 pre-training / post-training 类比从 LLM 搬到机器人，验证了大规模预训练 + 高质量微调的 recipe。
+
+### 6.3 与已有方法的本质区别
+
+| 方法             | 动作表示         | 语义底座   | 主要区别                                         |
+| ---------------- | ---------------- | ---------- | ------------------------------------------------ |
+| OpenVLA          | 自回归离散 token | 预训练 VLM | 动作需要离散化，难支持高频大 chunk               |
+| Octo             | diffusion        | 无大 VLM   | 容量较小，语义能力有限                           |
+| Diffusion Policy | diffusion        | 无 VLM     | 适合灵巧操作，但通用语义弱                       |
+| ACT              | CVAE + chunk     | 无 VLM     | 依赖小数据集，跨任务泛化有限                     |
+| π₀               | flow matching    | PaliGemma  | 大 VLM + 独立 action expert + 大规模跨形态预训练 |
+
+### 6.4 关键假设
+
+**【Analysis】** π₀ 的设计隐含几个假设：
+
+- 预训练 VLM 的语义知识可以迁移到真实机器人控制。
+- 统一的 18 维 state/action padding 不会显著破坏不同形态的表示。
+- Open-loop action chunk 已足够，不需要在线 temporal ensembling 或高频闭环重规划。
+- 高层语言指令可以由人类或另一个 VLM 提供，并且低层策略能可靠跟随。
+- 大规模机器人数据带来的多样性收益大于任务间负迁移。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】**
+
+1. 对预训练数据应如何组合与加权仍缺乏系统理解；论文是把当时可用的数据全部混合。
+2. 并非所有任务都稳定可靠，如何预测某个任务需要多少、什么类型的数据仍是开放问题。
+3. 跨形态正迁移能否延伸到自动驾驶、导航、腿足运动等差异更大的领域尚不清楚。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+1. 实验主要在内部真实机器人上完成，每任务 10 次 trial 且缺少统一公开基准，复现和横向比较成本较高。
+2. 论文没有完整公开预训练数据、数据过滤规则和全部训练超参数；openpi 提供的是可运行的实现和部分 checkpoint，但不等于完整复现论文。
+3. Open-loop action chunk 在长时间任务中依赖预训练带来的恢复能力；对于需要紧密反馈或动态避障的场景，是否足够仍是问题。
+4. π₀ 与 π₀-small 的对比混杂了参数量、初始化、架构差异，不能只归因于 VLM 预训练。
+5. 当前 openpi 还包含 π₀-FAST、π₀.₅ 等后续工作，用户使用仓库时容易混淆哪个配置对应论文里的原始 π₀。
+
+## 8. 启发与研究思考
+
+**【Analysis】** π₀ 带来的最大启示不是“把 VLM 接到机器人”这个方向，而是机器人基础模型可能需要同时解决三个问题：数据规模、架构的模态隔离、以及 pre/post training recipe。
+
+1. **Action expert 是一种可复用的模态接入方式**。新增传感器、状态维度或动作空间时，不一定要修改 VLM 权重；用独立的、小规模专家接入可以更快迭代。
+2. **Flow matching 很适合高频连续控制**。它在动作分布表达力和推理速度之间取得平衡；未来可以继续研究更少 step、更强先验的采样器。
+3. **预训练数据应该包含“不太好的数据”**。高质量数据教熟练动作，多样但低质量的数据教错误恢复；两者缺一会让策略变脆或变慢。
+4. **语言可以是规划接口**。π₀ 不是自己完成复杂规划，而是接收高层 VLM 拆出的中间指令；这种低层灵巧 + 高层语义的组合可能是近期更务实的系统结构。
+5. **Open-loop chunk 不等于不需要闭环**。π₀ 的经验说明，足够好的预训练可以让一个长 chunk 也能工作；但研究仍应关注观测反馈何时必须进入控制回路。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。
+</Aside>

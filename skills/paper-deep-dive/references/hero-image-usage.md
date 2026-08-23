@@ -35,6 +35,7 @@ Use only after the count-1 pool is exhausted.
 |         2 | `78391247`  | `https://pic.hana0721.top/78391247_p0_master1200.5j4sgia4wg.webp`  | `rl-note-13`, `robotic-grasp-detection-12`       |
 |         2 | `139369087` | `https://pic.hana0721.top/139369087_p0_master1200.9gx5x7w6ei.webp` | `rl-note-28`, `paper-deep-dive-cogact`           |
 |         2 | `142350190` | `https://pic.hana0721.top/142350190_p0_master1200.2yyy3wl757.webp` | `rl-note-29`, `paper-deep-dive-tinyvla`          |
+|         2 | `143484250` | `https://pic.hana0721.top/143484250_p0_master1200.9ddjzdu0z1.webp` | `linux-dl-env-setup`, `paper-deep-dive-pi0`      |
 
 ## Count 1 Pool
 
@@ -60,7 +61,6 @@ Preferred candidates for new posts.
 |         1 | `133376054` | `https://pic.hana0721.top/133376054_p0_master1200.1ziuqmv790.webp` | `vscode-ssh-setup`               |
 |         1 | `134041716` | `https://pic.hana0721.top/134041716_p0_master1200.5q80bz7b6v.webp` | `rl-note-27`                     |
 |         1 | `139063757` | `https://pic.hana0721.top/139063757_p0_master1200.2yyzxgr9fg.webp` | `paper-reading-cv2`              |
-|         1 | `143484250` | `https://pic.hana0721.top/143484250_p0_master1200.9ddjzdu0z1.webp` | `linux-dl-env-setup`             |
 |         1 | ``          | `https://pic.hana0721.top/145491169_p0_master1200.2dpccm5v9t.webp` | `openssh-server-setup`           |
 |         1 | `42175762`  | `https://pic.hana0721.top/42175762_p0_master1200.6m4jay5vlg.webp`  | `paper-reading-eba5`             |
 |         1 | `49383596`  | `https://pic.hana0721.top/49383596_p0_master1200.6t7pmts45l.webp`  | `paper-reading-umllm2`           |
