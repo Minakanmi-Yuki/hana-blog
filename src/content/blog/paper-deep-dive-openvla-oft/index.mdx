@@ -153,7 +153,7 @@ $$
 
 #### FiLM：让语言进入视觉 backbone
 
-![OpenVLA-OFT+ 在视觉 Transformer 中插入 FiLM 的实现（论文 Figure 7）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-openvla-oft/film.pg2pxb9yu.webp)
+![OpenVLA-OFT+ 在视觉 Transformer 中插入 FiLM 的完整示意图与论文图注（论文 Figure 8）](https://pic.hana0721.top/blog/paper-deep-dive-openvla-oft/film-page-crop.3k8qvqg18l.webp)
 
 **【Paper】** 在 ALOHA 的多视角场景里，模型容易把相机中的偶然视觉线索当成动作条件，而忽略“scoop raisins”与“scoop pretzels”这类真正决定行为的语言。OFT+ 对每个 ViT block 都用任务描述的平均语言 embedding 生成 scale 和 shift，并在 self-attention 后、feed-forward 前调制视觉特征。
 
@@ -294,7 +294,7 @@ $$
 
 #### ALOHA 真实机器人
 
-![OpenVLA-OFT+ 与 ACT、Diffusion Policy、RDT-1B、$\pi_0$ 在 ALOHA 四个任务上的完成分数（论文 Figure 8）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-openvla-oft/aloha-results.5xbdcx49r8.webp)
+![OpenVLA-OFT+ 与 ACT、Diffusion Policy、RDT-1B、$\pi_0$ 在 ALOHA 四个任务上的完成分数（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-openvla-oft/aloha-results.5xbdcx49r8.webp)
 
 **【Paper】** OpenVLA-OFT+ 在四个任务的平均得分为 **87.8**，各任务为 fold shorts 100.0、fold shirt 100.0、scoop X into bowl 100.0、put X into pot 51.3。它在四个任务上都高于或不低于对比方法，尤其在需要语言选择目标的任务上优势明显。
 
@@ -388,6 +388,6 @@ ALOHA 推理效率表明，OpenVLA-OFT+ 的吞吐为 **77.9 Hz**、单次 latenc
 
 <Aside type='note' title='阅读提示'>
   本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
-  表示基于论文和代码的分析推断。论文 Figure 1、2、3、7、8 已裁剪并上传；由于图床 CDN
-  尚未刷新，正文暂使用 GitHub Raw URL 作为可用 fallback。
+  表示基于论文和代码的分析推断。论文 Figure 1、2、3、4、8 已裁剪并上传；FiLM 图现使用
+  包含完整示意图与图注的版本。
 </Aside>
