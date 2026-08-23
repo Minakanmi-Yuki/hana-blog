@@ -1,0 +1,323 @@
+---
+title: 'X-VLA 论文精读：用 Soft Prompt 统一跨本体 Vision-Language-Action 学习'
+publishDate: 2026-08-24
+updatedDate: 2026-08-24
+description: '精读 X-VLA：通过 embodiment-specific Soft Prompt、统一 EE6D 动作空间与 Flow Matching，在异构机器人数据上稳定预训练并高效适配新本体。'
+heroImage:
+  { src: 'https://pic.hana0721.top/104786218_p0_master1200.8vnievbkwk.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '104786218'
+tags:
+  - 'paper deep dive'
+  - 'VLA'
+  - 'cross-embodiment learning'
+  - 'soft prompt'
+paper:
+  arxivId: '2510.10274'
+  title: 'X-VLA: Soft-Prompted Transformer as Scalable Cross-Embodiment Vision-Language-Action Model'
+  authors:
+    - 'Jinliang Zheng'
+    - 'Jianxiong Li'
+    - 'Zhihao Wang'
+    - 'Dongxiu Liu'
+    - 'Xirui Kang'
+    - 'Yuchun Feng'
+    - 'Yinan Zheng'
+    - 'Jiayin Zou'
+    - 'Yilun Chen'
+    - 'Jia Zeng'
+    - 'Ya-Qin Zhang'
+    - 'Jiangmiao Pang'
+    - 'Jingjing Liu'
+    - 'Tai Wang'
+    - 'Xianyuan Zhan'
+  venue: 'ICLR 2026（arXiv 预印本）'
+  year: 2026
+  code: 'https://github.com/2toinf/X-VLA'
+  project: 'https://thu-air-dream.github.io/X-VLA/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2510.10274'
+  tldr='X-VLA 为每个机器人数据源学习一组 Soft Prompt，让共享的 Flow-Matching Transformer 在异构本体上稳定预训练，并用少量参数快速适配新机器人。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**【Paper】** X-VLA（Cross-Embodiment VLA）针对一个很现实的瓶颈：机器人数据越多，硬件、相机、控制接口和采集流程越不一致，直接把数据混在一起训练反而会造成梯度冲突与训练不稳定。论文把每个数据源的硬件配置视为一个隐含任务，为其分配可学习的 `Soft Prompt`，并将这些 prompt 在多模态 token 早期注入共享 Transformer。
+
+![X-VLA 总览：Soft Prompt、可扩展预训练与跨本体适配（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-x-vla/intro_small.54yhv9zq5y.webp)
+
+### 一句话总结
+
+**【Analysis】** X-VLA 的关键不是再增加一个复杂 decoder，而是让模型在“看到相同图像和指令”之前，先知道这条数据来自哪种 embodiment；这样共享 backbone 学通用策略，少量 domain-specific 参数负责解释硬件差异。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出面向异构机器人数据的 `Soft Prompt`：每个数据源有一组 learnable embeddings，在动作生成早期提供 embodiment-aware 条件。
+2. 设计只由标准 self-attention Transformer 组成的 Flow-Matching VLA，配合分离的高维视觉语言流与低维本体感知—动作流。
+3. 给出完整的数据与训练 recipe：EE6D 动作对齐、意图抽象、平衡采样、两阶段 domain adaptation 和较小学习率保护预训练视觉语言表示。
+4. X-VLA-0.9B 在 6 个仿真 benchmark、3 个真实机器人上评估；论文报告其在多数 benchmark 达到 SOTA，并可用约 1% 参数进行 PEFT 适配。
+
+**【Code】** 官方仓库同时提供 Hugging Face checkpoint、FastAPI inference server、数据域注册表和 LoRA 训练脚本；项目页还给出 LeRobot 集成入口。
+
+## 2. 背景与相关工作
+
+**【Paper】** VLA 通常从大规模 VLM 初始化，再用机器人示教做行为克隆。问题在于，异构数据的差异不只存在于 action head：
+
+- 机械臂的自由度、控制频率和运动学不同，导致相同数值的 action 可能有不同物理含义；
+- 主视角、腕部相机数量和画面域不同，视觉 token 的语义分布发生偏移；
+- 任务分布与采集策略不同，数据量较大的域容易主导训练。
+
+已有做法主要在输出端放 domain-specific action projection，或在输入端使用 HPT-style projection、手写语言描述。**【Paper】** 论文认为输出端条件太晚，HPT projection 可能破坏预训练 VLM 特征，而语言 prompt 依赖可扩展性较差的人工描述。Soft Prompt 将域信息变成少量连续参数，不要求人为定义硬件文本，也不需要复制整套 backbone。
+
+**【Analysis】** 这使 X-VLA 与普通 multi-task VLA 的区别落在“条件注入位置”：它不是只在最后把动作维度映射回各自空间，而是在多模态融合前后都保留 domain signal，让视觉、proprioception 和 noisy action 的交互都能被本体条件调制。
+
+## 3. 问题定义
+
+**【Paper】** 给定来自 $H$ 个硬件配置的数据集混合：
+
+$$
+\mathcal D^H=\{\mathcal D_i\}_{i=1}^{H},\qquad h_i\in\mathcal H,
+$$
+
+每个样本包含多视角图像 $\mathrm{Img}$、语言指令 $L$、本体状态 $R$ 和专家动作块 $A$。模型需要学习一个共享策略 $\pi_\theta(A\mid \mathrm{Img},L,R,h_i)$，并在新的 $h_{\mathrm{new}}$ 上快速适配。
+
+**【Paper】** X-VLA-0.9B 的预训练混合包含 Droid、RoboMind 和 AGIBOT 的约 290K episodes，覆盖 7 个数据源、5 类机械臂，既有单臂也有双臂设置。动作统一为端执行器 EE6D：位置 xyz、Rotate6D 姿态以及夹爪状态；双臂向量的最大维度为 20。
+
+**【Code】** 当前仓库的默认配置为 `num_actions=30`、`action_mode='ee6d'`、`max_action_dim=20`，即每次输出未来 30 个 action tokens。`XVLAProcessor` 期望最多 3 个图像视角，缺失视角用零填充并由 `image_mask` 标记。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![X-VLA 详细架构：Florence 编码器、动作流和 Soft Prompt 共同进入 Transformer（论文 Figure 1 中的 architecture）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-x-vla/archi.8okfl32fwx.webp)
+
+**【Paper】** 数据流可以概括为：主视角图像与语言经预训练 Florence-Large 编码，辅助腕部视角经共享视觉编码器编码；noisy action、proprioception 和 flow-matching 时间 $t$ 经过动作投影后，与对应 domain 的 Soft Prompt 一起送入标准 Transformer，最后只读取动作 token 并解码为 EE6D action chunk。
+
+### 4.2 核心模块
+
+#### Soft Prompt Library
+
+- **输入**：离散 `domain_id`，代表数据源或目标 embodiment。
+- **输出**：$K$ 个 hidden-size 的 learnable tokens $P_{h_i}\in\mathbb R^{K\times d}$。
+- **作用**：把硬件、相机与数据采集差异压缩成可优化的连续条件，和所有模态 token 一起参与 self-attention。
+- **为什么需要**：如果只在 output head 区分域，主干在早期仍需用同一套表示解释不同物理语义；prompt 让域信息在推理前就可见。
+
+**【Code】** `SoftPromptedTransformer` 使用 `nn.Embedding(num_domains, len_soft_prompts * hidden_size)` 存储 prompt；前向时按照 `domain_id` reshape 成 `[B, K, H]`，拼接到视觉、动作序列末尾。默认配置为 32 个 prompt tokens、1024 hidden size、24 个 Transformer blocks。
+
+#### 高维 observation stream
+
+**【Paper】** 主视角和指令进入 Florence-Large 的 encoder；额外视角只复用 vision encoder，不经过完整语言模型。这样固定视角承担任务级语义，腕部相机保留精细接触线索，同时避免当前 VLM 对多视角输入处理能力不足。
+
+**【Code】** `forward_vlm` 将有效图像展平后调用 `_encode_image`，第一个视角与 `input_ids` 合并进入 Florence encoder，其余视角展平为 `aux_visual_inputs`。`XVLAProcessor` 用 `image_mask` 支持不同样本拥有不同数量的相机。
+
+#### 低维 proprioception—action stream
+
+**【Paper】** 对每个时间步，将 noisy action $A_t$、重复后的本体状态 $R_t$ 和时间 embedding $T(t)$ 拼接，再经轻量线性层投影到 Transformer hidden space。动作和 proprioception 的物理语义接近，因此在 flow-matching 分支中进行早期融合。
+
+**【Code】** `action_encoder` 是按 domain 条件化的 `DomainAwareLinear`，输入维度为 `dim_action + dim_time + dim_propio`；`timestep_embedding` 产生正弦时间特征。Transformer 输出后只截取最前面的动作 token，再由按域的 `action_decoder` 投影回 20 维 EE6D。
+
+#### EE6D Action Space
+
+**【Paper】** 位置和 Rotate6D 使用 MSE，夹爪使用 BCE；位置、姿态与夹爪的损失权重分别强调不同物理量，避免直接混合不同尺度的原始控制接口。
+
+**【Code】** `EE6DActionSpace` 将夹爪索引设为 9 和 19，位置索引为 0–2、10–12，Rotate6D 索引为 3–8、13–18。训练时会把夹爪通道从 proprio/action 中置零，推理后对夹爪 logits 使用 sigmoid；仓库还保留 `joint`、`agibot_ee6d` 和 `auto` 等 action-space 实现。
+
+### 4.3 关键公式
+
+#### Soft Prompt 参数化
+
+**【Paper】** 对每个数据源学习：
+
+$$
+P_H=\{p_i\}_{i=1}^{H},\qquad p_i\approx\Phi(h_i),
+$$
+
+其中 $h_i$ 是硬件配置，$\Phi$ 是没有预先定义的潜在映射，$p_i$ 是训练得到的 prompt。这里的“约等于”表示 prompt 不需要重建完整硬件参数，只需成为能帮助策略解释该域的表示。
+
+#### Flow Matching 目标
+
+**【Paper】** 从高斯噪声 $A_0\sim\mathcal N(0,I)$ 到专家动作块 $A$ 构造线性路径：
+
+$$
+A_t=(1-t)A_0+tA,\qquad t\sim\mathcal U(0,1).
+$$
+
+策略预测速度场 $v_\theta(A_t,o,t)$，训练目标为：
+
+$$
+\mathcal L_{\mathrm{FM}}=\mathbb E\left[\left\|v_\theta(A_t,o,t)-(A-A_0)\right\|_2^2\right].
+$$
+
+$A_t$ 是当前噪声动作，$o$ 包含视觉、语言和 proprioception，$A-A_0$ 是最优传输路径的目标速度。**【Analysis】** 因此模型并非一次回归最终轨迹，而是在推理时沿时间方向逐步把噪声搬运到可执行 action chunk。
+
+#### 端执行器损失
+
+**【Code】** 在默认 `ee6d` 实现中，位置损失为两臂 xyz 的 MSE 之和乘以 500，Rotate6D 损失乘以 10，两个夹爪的 BCE 平均后再求和。论文只概括了 MSE/BCE 的组成，具体权重来自官方代码，因此单独标为 `【Code】`。
+
+### 4.4 Training
+
+**【Paper】** 预训练阶段联合优化共享 backbone $\pi_\theta$ 与所有数据源的 Soft Prompt，recipe 包含三点：
+
+1. 将示教动作对齐为 EE6D，减少不同控制接口的物理语义错位；
+2. 将未来 4 秒轨迹暂时下采样为 30 个 anchor points，先学习高层意图而不是人类示教中的高频抖动；
+3. 同时跨域、跨轨迹打乱并按权重采样，避免 AGIBOT 等大数据源支配梯度。
+
+**【Paper】** 论文报告 X-VLA-0.9B 使用 64 张 A100、global batch size 1024、约 4 天训练，AdamW 的 $\beta=(0.9,0.95)$、学习率 $10^{-4}$、weight decay 0.01、200K iterations，混合精度为 bfloat16。
+
+<Algorithm number={1} title='X-VLA 异构数据预训练' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>多域示教数据 \(\{(\mathrm{Img},L,R,A,h_i)\}\)、共享 VLM/Transformer 参数和每域 Soft Prompt。</div>
+  <div slot='output'>共享的 embodiment-agnostic policy 与更新后的 Soft Prompt Library。</div>
+  <AlgorithmStep>按数据域权重采样一个 batch，并把动作转换到统一 EE6D 空间。</AlgorithmStep>
+  <AlgorithmStep>对每条动作块采样 \(t\)，生成 \(A_t=(1-t)A_0+tA\)，编码主视角、辅助视角、语言和 proprioception。</AlgorithmStep>
+  <AlgorithmStep>查询对应 \(p_i\)，将所有 token 输入 SoftPromptedTransformer，预测速度场/动作残差。</AlgorithmStep>
+  <AlgorithmStep>计算 Flow-Matching 与 EE6D 分量损失，反向传播更新 backbone、动作投影和 Soft Prompt。</AlgorithmStep>
+  <AlgorithmStep>跨域与跨轨迹打乱，重复迭代并用留出的 AGIBOT validation set 监控 \(\ell_1\) prediction error。</AlgorithmStep>
+</Algorithm>
+
+**【Code】** `train.py` 将 VLM 与 Transformer core 的初始学习率设为 0，只先更新 Soft Prompt 和 action heads；达到 `freeze_steps=1000` 后再打开其余参数，可选 cosine decay。该实现与论文所述“降低视觉语言模块与 prompt 学习率、保护预训练表示”的目的相符，但仓库默认参数仍需按具体 checkpoint/数据配置调整。
+
+### 4.5 Inference
+
+**【Paper】** 对新 embodiment，论文提出两阶段适配：先冻结预训练 backbone，只 warm-up 新的 prompt；再解冻并联合微调 policy。这样新 prompt 先对齐到已有 embodiment-agnostic 表示，再让整个策略做小幅域内专化。
+
+<Algorithm number={2} title='X-VLA Flow-Matching 推理与域适配' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>多视角图像、语言指令、当前 proprioception、domain id，以及随机动作块初值。</div>
+  <div slot='output'>未来 30 步 EE6D action chunk；执行器只执行当前窗口并滚动获取新观测。</div>
+  <AlgorithmStep>调用 `XVLAProcessor` 生成 `input_ids`、`image_input` 和 `image_mask`，查询当前 domain 的 Soft Prompt。</AlgorithmStep>
+  <AlgorithmStep>采样高斯动作块 \(x_1\)，从 \(t=1\) 到 \(t=0\) 用线性 schedule 反复构造 \(x_t\)。</AlgorithmStep>
+  <AlgorithmStep>每一步把 \(x_t\)、proprioception、时间 embedding 和视觉语言 token 输入 Transformer，得到下一步动作估计。</AlgorithmStep>
+  <AlgorithmStep>完成指定 denoising steps 后，对夹爪 logits 做 sigmoid，输出后处理后的 EE6D chunk。</AlgorithmStep>
+  <AlgorithmStep>适配新域时先只训练新 prompt 与 action heads，再进行联合微调；若采用 PEFT，则在 backbone 上挂 LoRA。</AlgorithmStep>
+</Algorithm>
+
+**【Code】** `generate_actions` 默认执行 10 次迭代去噪；`deploy.py` 将模型封装为 FastAPI `/act` 服务，请求字段包括 `proprio`、`language_instruction`、最多三个图像、`domain_id` 和 `steps`。服务端返回 30 个动作。README 明确提示：HF 格式转换后不同数据集可能出现约 1% 的性能下降，说明发布格式也是复现实验时的变量。
+
+### 4.6 代码实现对照
+
+| 论文概念 | 官方代码位置 | 对照结论 |
+| --- | --- | --- |
+| VLM encoder | `models/modeling_xvla.py`、`models/modeling_florence2.py` | 使用 Florence2 encoder-only 路径，删除语言 decoder 与 lm head。 |
+| Soft Prompt | `models/transformer.py` 的 `soft_prompt_hub` | 每个 domain 一行 embedding，前向 reshape 为 prompt token 序列。 |
+| Domain-specific projection | `DomainAwareLinear`、`action_encoder/decoder` | action/proprio 输入和输出投影按 domain 取独立权重。 |
+| 多视角输入 | `models/processing_xvla.py` | 最多 3 视角；不足时零填充并记录 mask。 |
+| Flow Matching | `XVLA.forward` 与 `generate_actions` | 训练采样随机 $t$ 并构造 noisy action，推理线性迭代去噪。 |
+| PEFT | `peft_train.py` | LoRA target 为 `all-linear`，并保存 prompt、action encoder/decoder。 |
+| 部署 | `deploy.py`、`XVLA.run` | FastAPI 服务支持本地、SLURM 与远程 client。 |
+
+**【Analysis】** 论文把 Soft Prompt 描述为主要新增参数，但代码还为 action encoder/decoder 保留按域的 `DomainAwareLinear`；因此实际模型的 domain-specific capacity 不只来自 prompt。论文附录称这些未共享参数约占总参数 0.04%，阅读代码时应把两者合并理解。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![X-VLA 评测设置：跨本体、跨环境、跨任务与真实机器人（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-x-vla/all_setup.67y765vjv8.webp)
+
+**【Paper】** 仿真评测覆盖 Simpler-WidowX、Simpler-Franka、NAVSIM、LIBERO、RoboTwin-2.0、Calvin 和 VLABench 等设置；真实评测覆盖 WidowX 简单操作、Agilex 双臂布料折叠以及 AIRBOT 的 PEFT 适配。预训练 validation 使用 AGIBOT-beta 中未参与训练的 189 个任务、每任务 3 条轨迹，主要指标是动作预测的平均 $\ell_1$ error。
+
+### 5.2 Main Results
+
+![仿真 benchmark 汇总结果（论文 Figure 6 / Table 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-x-vla/all_bench.6m4mx13unv.webp)
+
+**【Paper】** 表 2 报告 X-VLA-0.9B（0.9B）在 Simpler VM/VA 上为 80.4/75.7，在 Simpler-WidowX 为 95.8，在 LIBERO 四类任务的平均为 97.6，在 RoboTwin-2.0 为 98.1，在 Calvin 为 4.43，在 VLABench 为 51.1，NAVSIM PDMS 为 87.3。论文据此声称在 6 个仿真 benchmark 中多数取得新的 SOTA。
+
+**【Paper】** 真实实验中，X-VLA 在五个任务上超过对比方法；Soft-Fold 布料折叠使用 1,200 条示教，报告接近 100% 成功率与每小时 33 次折叠（约每件两分钟以内）。
+
+![真实机器人结果：WidowX、Agilex 与 AIRBOT（论文 Figure 7）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-x-vla/real_exp.4xv9zudkty.webp)
+
+![Soft-Fold 双臂布料折叠任务与数据采集流程（论文 Appendix Figure）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-x-vla/softfold.1zizwc5bgt.webp)
+
+**【Code】** 官方 README 发布的 checkpoint 数字与论文略有更新，例如 X-VLA-Libero 标为 98.1%，Simpler-WidowX 为 95.8%，不同于论文表格中的 98.1/95.8 组合。复现时应以具体 checkpoint、评测脚本和版本为准。
+
+### 5.3 Ablation Study
+
+**【Paper】** 表 1 给出了从 baseline 到完整 X-VLA 的累积路径：仅自定义学习率时 Simpler-WidowX 适配率为 39.6%；直接异构预训练反而降到 25.0%；加入 action alignment、intention abstraction 和 balanced sampling 后达到 50.0%；替换为标准 Transformer encoding pipeline 后为 64.6；加入 Soft Prompt 为 73.8；扩大模型后为 89.6；两阶段 adaptation 最终为 95.8。验证误差从 0.11 逐步降至 0.032。
+
+**【Analysis】** 这条 ablation path 很重要：Soft Prompt 的收益建立在动作对齐和数据 recipe 已经稳定的基础上；如果把“异构数据直接混训”当成唯一改动，结果会变差，不能把最终提升全部归因于 prompt。
+
+### 5.4 Generalization
+
+![Soft Prompt 的 t-SNE：相似硬件配置形成结构化簇（论文 Figure 8）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-x-vla/tsne.4qs24erflk.webp)
+
+**【Paper】** t-SNE 显示不同数据源的 prompt 形成与硬件配置对应的簇；两个只改变主视角的 Franka 设置部分混合，说明 prompt 不只是机械地记住 dataset id。对未在预训练出现的 WidowX，使用预训练的相近单臂 prompt 能在早期带来迁移收益，但最终仍需要适配。
+
+![模型规模、数据多样性和数据量的 scaling trend（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-x-vla/scaling.4ubo24ki69.webp)
+
+**【Paper】** 在模型容量、数据多样性和数据量三个轴上，validation prediction error 都持续下降，最大测试配置（0.9B、290K episodes、7 sources）仍未观察到明显饱和。论文报告 prediction error 与下游适配率强相关，因此将其作为预训练阶段的 proxy。
+
+**【Paper】** PEFT 只调约 9M 参数（约完整模型的 1%）时，LIBERO 达到 93%，Simpler-WidowX 达到 54%，与全量微调的强基线相近。**【Analysis】** 这说明预训练 backbone 可能已学到可迁移的 embodiment-agnostic 表示，但并不等价于对任意新机器人零样本工作。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** Soft Prompt 同时解决了“共享知识”和“域差异”两个相反目标：共享 Transformer 负责跨数据源复用视觉语言和动作规律，prompt 则提供低容量的条件通道，让注意力在早期区分不同 proprioception 语义与相机域。相比复制完整 expert，prompt 的参数成本近似随域数线性增长、与 backbone 深度无关。
+
+**【Analysis】** Flow Matching 还把动作学习改成连续 transport 问题。模型在训练时看到不同噪声水平，推理时逐步修正整段 action chunk；这比单步回归更适合多模态、长时域的操作轨迹，也让同一套 Transformer 能处理不同 action horizon。
+
+### 6.2 核心创新
+
+1. **【Paper】** 将 NLP 中的 Soft Prompt 迁移到 cross-embodiment robot learning，并把 prompt 放到多模态 action generation 的早期阶段。
+2. **【Paper】** 用“主视角 VLM + 辅助视角视觉 encoder + 低维 action/proprio stream”的简化 pipeline 替代复杂的专用 DiT/MLP-Mixer 组合。
+3. **【Paper】** 把动作空间对齐、意图抽象、平衡采样、两阶段适配组合成可扩展 recipe，而不是只报告一个孤立模块。
+
+### 6.3 与已有方法的本质区别
+
+| 路线 | 域信息注入位置 | 需要人工描述 | 对视觉/本体差异的覆盖 |
+| --- | --- | --- | --- |
+| Domain-specific action head | 输出端 | 否 | 主要覆盖 action space |
+| HPT-style projection | observation 中间层 | 否 | 可能改变 VLM 特征分布 |
+| Language prompt | 输入文本 | 是 | 依赖硬件描述质量 |
+| X-VLA Soft Prompt | 多模态 token 融合早期 | 否 | 同时影响视觉、proprioception 与动作生成 |
+
+**【Analysis】** X-VLA 的本质差异是把 embodiment 当作“可学习任务条件”，而不是把它当成最后一层的输出格式转换器。
+
+### 6.4 关键假设
+
+**【Paper】** 方法隐含或明确依赖以下假设：
+
+- 同一数据源的硬件与采集配置在训练中相对稳定，可以由一个 prompt 表示；
+- EE6D 能够提供跨机械臂足够一致的动作语义；
+- 预训练 VLM 的视觉语言知识值得保留，动作学习应通过较小学习率进行接地；
+- 预训练覆盖的 embodiment 足够多，新的 embodiment 能从已有 prompt 或 backbone 中获得相似性迁移。
+
+**【Analysis】** 如果新机器人与所有已见平台在相机、动力学和动作控制接口上都很远，单个 prompt 可能不足以补偿系统差异，仍需要较多示教或更强的 action representation。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 附录 N 明确指出，X-VLA-0.9B 的规模仍小于语言和视觉语言领域的大型 foundation model，主要受计算资源与高质量机器人数据稀缺限制。当前机器人语料的规模、多样性仍远低于 web-scale 语料；扩大 backbone、换用更强 VLM、收集更广泛数据，以及研究 VLA scaling law 是后续方向。
+
+### 7.2 自己分析得到的局限
+
+1. **【Analysis】** Prompt 是按 `domain_id` 查表的离散 embedding。代码中新域必须先分配 id，无法自然处理连续变化的相机位姿或逐渐变化的机械磨损。
+2. **【Analysis】** 官方代码默认最多 3 个视角，且第一个视角必须进入 VLM；更多相机需要改 processor、序列长度和显存预算。
+3. **【Analysis】** Flow-Matching 推理默认 10 次迭代，每一步都运行 Transformer；在真实机器人控制频率较高时，延迟和 action chunk 执行策略仍是部署瓶颈。
+4. **【Code】** README 提到 HF 格式转换后可能有约 1% 性能下降，说明权重转换、预处理与评测脚本的一致性会影响复现。
+5. **【Analysis】** 论文的主结果集中在作者选定的 benchmark 与特定 action normalization 上，尚不足以证明 Soft Prompt 对完全未知的自由形态机器人、低资源视觉域或长时间在线纠错同样有效。
+
+## 8. 启发与研究思考
+
+**【Analysis】** X-VLA 给出的一个可迁移设计原则是：当多域数据的共享规律已经足够强时，优先增加“条件化表示”而不是复制模型。对后续 VLA，可以继续探索：
+
+- 用硬件参数、相机标定或 proprioception 统计量生成 prompt，替代离散 domain lookup；
+- 让 prompt 检索变成连续的 mixture-of-prompts，以覆盖未见 embodiment；
+- 将 Soft Prompt 与 action tokenizer、latent action 或 diffusion/flow policy 结合，比较不同动作表示对跨本体迁移的影响；
+- 在训练阶段显式加入 prompt dropout、域插值和在线校准，测试模型是否能在没有新域标签的情况下自适应；
+- 把论文的 validation error—adaptation success 相关性扩展成真正可预测的 scaling law。
+
+**【Analysis】** 最值得复用的并不是“给每个域加 32 个 token”这一具体超参数，而是把 embodiment 差异提升到策略表示层：让模型知道动作的物理上下文，再让共享 backbone 学习可复用的控制规律。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】` 表示基于论文和代码的分析推断。论文数字以 arXiv v1 为准，代码和项目页中更新的 checkpoint 数字已单独标注。
+</Aside>
