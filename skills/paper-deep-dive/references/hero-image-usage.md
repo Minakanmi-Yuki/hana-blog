@@ -11,33 +11,30 @@ This is the shared cover-image allocation document for `Paper Deep Dive` posts. 
 5. If no count-1 image fits, choose a count-2 image, but only after checking that it is not already overused within the same collection.
 6. After choosing an image, increment its count and add the new post to the `Current Posts` column.
 
-## Avoid Heavy Reuse
-
-| Use Count | Pixiv ID    | URL                                                                | Current Posts                                                                                         |
-| --------: | ----------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
-|         4 | `105886628` | `https://pic.hana0721.top/105886628_p0_master1200.5fl6its319.webp` | `paper-deep-dive-cogact`, `paper-deep-dive-diffusion-policy`, `paper-deep-dive-tinyvla`, `rl-note-24` |
-
 ## Count 2 Pool
 
 Use only after the count-1 pool is exhausted.
 
-| Use Count | Pixiv ID    | URL                                                               | Current Posts                                   |
-| --------: | ----------- | ----------------------------------------------------------------- | ----------------------------------------------- |
-|         2 | `133535742` | `https://pic.hana0721.top/133535742_p0_master1200.icpovr2id.webp` | `paper-deep-dive-openvla`, `paper-reading-eba1` |
-|         2 | `57793944`  | `https://pic.hana0721.top/57793944_p0_master1200.4xv4u7fok2.webp` | `paper-deep-dive-rt2`, `paper-reading-vlm2`     |
-|         2 | `66119164`  | `https://pic.hana0721.top/66119164_p0_master1200.3d5duqih46.webp` | `rl-note-2`, `robotic-grasp-detection-1`        |
-|         2 | `66952181`  | `https://pic.hana0721.top/66952181_p0_master1200.6ikvtocw16.webp` | `rl-note-3`, `robotic-grasp-detection-2`        |
-|         2 | `67997247`  | `https://pic.hana0721.top/67997247_p0_master1200.6po3p2g2e0.webp` | `paper-deep-dive-act`, `paper-reading-eba4`     |
-|         2 | `70217040`  | `https://pic.hana0721.top/70217040_p0_master1200.77e5dp0f1s.webp` | `rl-note-4`, `robotic-grasp-detection-3`        |
-|         2 | `71849616`  | `https://pic.hana0721.top/71849616_p0.1sfmv9l9of.webp`            | `rl-note-5`, `robotic-grasp-detection-4`        |
-|         2 | `72072963`  | `https://pic.hana0721.top/72072963_p0_master1200.mo0d1wsi.webp`   | `rl-note-6`, `robotic-grasp-detection-5`        |
-|         2 | `72300463`  | `https://pic.hana0721.top/72300463_p0_master1200.83amt5a3ia.webp` | `rl-note-7`, `robotic-grasp-detection-6`        |
-|         2 | `74378589`  | `https://pic.hana0721.top/74378589_p0_master1200.5j4sgia4w5.webp` | `rl-note-8`, `robotic-grasp-detection-7`        |
-|         2 | `74502138`  | `https://pic.hana0721.top/74502138_p0_master1200.7i0z6ufn7r.webp` | `rl-note-9`, `robotic-grasp-detection-8`        |
-|         2 | `75863098`  | `https://pic.hana0721.top/75863098_p0_master1200.8aduokw8y2.webp` | `rl-note-10`, `robotic-grasp-detection-9`       |
-|         2 | `76117294`  | `https://pic.hana0721.top/76117294_p0_master1200.2rvq8fo0ul.webp` | `rl-note-11`, `robotic-grasp-detection-10`      |
-|         2 | `78075718`  | `https://pic.hana0721.top/78075718_p0_master1200.51eqrx8rbi.webp` | `rl-note-12`, `robotic-grasp-detection-11`      |
-|         2 | `78391247`  | `https://pic.hana0721.top/78391247_p0_master1200.5j4sgia4wg.webp` | `rl-note-13`, `robotic-grasp-detection-12`      |
+| Use Count | Pixiv ID    | URL                                                                | Current Posts                                    |
+| --------: | ----------- | ------------------------------------------------------------------ | ------------------------------------------------ |
+|         2 | `133535742` | `https://pic.hana0721.top/133535742_p0_master1200.icpovr2id.webp`  | `paper-deep-dive-openvla`, `paper-reading-eba1`  |
+|         2 | `57793944`  | `https://pic.hana0721.top/57793944_p0_master1200.4xv4u7fok2.webp`  | `paper-deep-dive-rt2`, `paper-reading-vlm2`      |
+|         2 | `105886628` | `https://pic.hana0721.top/105886628_p0_master1200.5fl6its319.webp` | `paper-deep-dive-diffusion-policy`, `rl-note-24` |
+|         2 | `66119164`  | `https://pic.hana0721.top/66119164_p0_master1200.3d5duqih46.webp`  | `rl-note-2`, `robotic-grasp-detection-1`         |
+|         2 | `66952181`  | `https://pic.hana0721.top/66952181_p0_master1200.6ikvtocw16.webp`  | `rl-note-3`, `robotic-grasp-detection-2`         |
+|         2 | `67997247`  | `https://pic.hana0721.top/67997247_p0_master1200.6po3p2g2e0.webp`  | `paper-deep-dive-act`, `paper-reading-eba4`      |
+|         2 | `70217040`  | `https://pic.hana0721.top/70217040_p0_master1200.77e5dp0f1s.webp`  | `rl-note-4`, `robotic-grasp-detection-3`         |
+|         2 | `71849616`  | `https://pic.hana0721.top/71849616_p0.1sfmv9l9of.webp`             | `rl-note-5`, `robotic-grasp-detection-4`         |
+|         2 | `72072963`  | `https://pic.hana0721.top/72072963_p0_master1200.mo0d1wsi.webp`    | `rl-note-6`, `robotic-grasp-detection-5`         |
+|         2 | `72300463`  | `https://pic.hana0721.top/72300463_p0_master1200.83amt5a3ia.webp`  | `rl-note-7`, `robotic-grasp-detection-6`         |
+|         2 | `74378589`  | `https://pic.hana0721.top/74378589_p0_master1200.5j4sgia4w5.webp`  | `rl-note-8`, `robotic-grasp-detection-7`         |
+|         2 | `74502138`  | `https://pic.hana0721.top/74502138_p0_master1200.7i0z6ufn7r.webp`  | `rl-note-9`, `robotic-grasp-detection-8`         |
+|         2 | `75863098`  | `https://pic.hana0721.top/75863098_p0_master1200.8aduokw8y2.webp`  | `rl-note-10`, `robotic-grasp-detection-9`        |
+|         2 | `76117294`  | `https://pic.hana0721.top/76117294_p0_master1200.2rvq8fo0ul.webp`  | `rl-note-11`, `robotic-grasp-detection-10`       |
+|         2 | `78075718`  | `https://pic.hana0721.top/78075718_p0_master1200.51eqrx8rbi.webp`  | `rl-note-12`, `robotic-grasp-detection-11`       |
+|         2 | `78391247`  | `https://pic.hana0721.top/78391247_p0_master1200.5j4sgia4wg.webp`  | `rl-note-13`, `robotic-grasp-detection-12`       |
+|         2 | `139369087` | `https://pic.hana0721.top/139369087_p0_master1200.9gx5x7w6ei.webp` | `rl-note-28`, `paper-deep-dive-cogact`           |
+|         2 | `142350190` | `https://pic.hana0721.top/142350190_p0_master1200.2yyy3wl757.webp` | `rl-note-29`, `paper-deep-dive-tinyvla`          |
 
 ## Count 1 Pool
 
@@ -63,8 +60,6 @@ Preferred candidates for new posts.
 |         1 | `133376054` | `https://pic.hana0721.top/133376054_p0_master1200.1ziuqmv790.webp` | `vscode-ssh-setup`               |
 |         1 | `134041716` | `https://pic.hana0721.top/134041716_p0_master1200.5q80bz7b6v.webp` | `rl-note-27`                     |
 |         1 | `139063757` | `https://pic.hana0721.top/139063757_p0_master1200.2yyzxgr9fg.webp` | `paper-reading-cv2`              |
-|         1 | `139369087` | `https://pic.hana0721.top/139369087_p0_master1200.9gx5x7w6ei.webp` | `rl-note-28`                     |
-|         1 | `142350190` | `https://pic.hana0721.top/142350190_p0_master1200.2yyy3wl757.webp` | `rl-note-29`                     |
 |         1 | `143484250` | `https://pic.hana0721.top/143484250_p0_master1200.9ddjzdu0z1.webp` | `linux-dl-env-setup`             |
 |         1 | ``          | `https://pic.hana0721.top/145491169_p0_master1200.2dpccm5v9t.webp` | `openssh-server-setup`           |
 |         1 | `42175762`  | `https://pic.hana0721.top/42175762_p0_master1200.6m4jay5vlg.webp`  | `paper-reading-eba5`             |

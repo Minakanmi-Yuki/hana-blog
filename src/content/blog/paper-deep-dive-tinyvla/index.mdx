@@ -1,0 +1,464 @@
+---
+title: 'TinyVLA 论文精读：轻量 VLM 与扩散策略打造快速 VLA'
+publishDate: 2026-08-23
+updatedDate: 2026-08-23
+description: '精读 TinyVLA：用 1.3B 以下的 Llava-Pythia 骨干和 Diffusion Policy decoder 替代大模型自回归动作 token，在少量机器人数据下获得更快推理、更强数据效率与跨任务泛化。'
+heroImage:
+  { src: 'https://pic.hana0721.top/142350190_p0_master1200.2yyy3wl757.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '142350190'
+tags:
+  - 'paper deep dive'
+  - 'TinyVLA'
+  - 'vision-language-action model'
+  - 'diffusion policy'
+  - 'robot learning'
+paper:
+  arxivId: '2409.12514'
+  title: 'TinyVLA: Towards Fast, Data-Efficient Vision-Language-Action Models for Robotic Manipulation'
+  authors:
+    - 'Junjie Wen'
+    - 'Yichen Zhu'
+    - 'Jinming Li'
+    - 'Minjie Zhu'
+    - 'Zhibin Tang'
+    - 'Kun Wu'
+    - 'Zhiyuan Xu'
+    - 'Ning Liu'
+    - 'Ran Cheng'
+    - 'Chaomin Shen'
+    - 'Yaxin Peng'
+    - 'Feifei Feng'
+    - 'Jian Tang'
+  venue: 'IEEE Robotics and Automation Letters (RA-L) 2025'
+  year: 2025
+  code: 'https://github.com/liyaxuanliyaxuan/TinyVLA'
+  project: 'https://tiny-vla.github.io/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2409.12514'
+  tldr='TinyVLA 用轻量预训练 VLM 做骨干，把 Diffusion Policy 作为连续动作解码器，避免大模型自回归动作 token，因此能在无需 OpenX 级机器人预训练的前提下获得更快推理和更好的数据效率。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《TinyVLA: Towards Fast, Data-Efficient Vision-Language-Action Models for Robotic Manipulation》
+
+**作者**：Junjie Wen、Yichen Zhu、Jinming Li、Minjie Zhu、Zhibin Tang、Kun Wu、Zhiyuan Xu、Ning Liu、Ran Cheng、Chaomin Shen、Yaxin Peng、Feifei Feng、Jian Tang
+
+**机构**：华东师范大学、美的集团 AI Lab、雪城大学、北京人形机器人创新中心、上海大学
+
+**会议 / 期刊**：IEEE Robotics and Automation Letters (RA-L) 2025
+
+**论文链接**：[arXiv](https://arxiv.org/abs/2409.12514)
+
+**代码链接**：[liyaxuanliyaxuan/TinyVLA](https://github.com/liyaxuanliyaxuan/TinyVLA)
+
+**项目主页**：[TinyVLA](https://tiny-vla.github.io/)
+
+### 一句话总结
+
+**【Paper】** TinyVLA 提出一条更轻量的 VLA 构建路线：用按 LLaVA 流程预训练的紧凑视觉语言模型（VLM）初始化策略骨干，再用 Diffusion Policy 作为连续动作解码器；机器人微调阶段只更新少量 LoRA 参数和完整的 diffusion head，从而在无需 OpenX 级大规模机器人预训练的情况下，实现更快的推理、更高的数据效率，以及在多任务操作中与 OpenVLA 相当或更优的成功率。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出 TinyVLA，一个由轻量 VLM 骨干和 diffusion policy decoder 组成的新 VLA 架构。论文称其模型参数从 70M 到 1.4B，能够显著降低推理成本。
+2. 证明可以在不依赖 OpenX 等大规模机器人数据集预训练的情况下训练 VLA，只使用每个真实任务约 100 条遥操作轨迹。
+3. 在 MetaWorld 仿真、Franka 单臂真机、UR5 双臂真机上系统验证；TinyVLA-H 在单臂 5 任务平均成功率上比 OpenVLA 高 25.7%，参数量少约 5.5 倍，推理速度快约 20 倍。
+4. 展示语言指令、新视角、背景、光照、干扰物、物体外观和空间位置等多类泛化能力，很多场景达到或超过 OpenVLA。
+
+## 2. 背景与相关工作
+
+**【Paper】** 现有 VLA 主要沿两条路线发展：RT-2、OpenVLA 等把动作表示成离散 token，交给大 VLM 做自回归生成；这类方法能继承互联网图文知识，但推理慢、训练成本高。论文指出 OpenVLA 使用约 970K 条 OpenX 机器人轨迹做预训练，并且动作 token 需要逐 token 生成，导致真机部署对算力和延迟都很敏感。
+
+相关工作的另一个来源是视觉语言模型。LLaVA 等 VLM 已经证明视觉 patch 可以进入 LLM embedding 空间并完成图文对齐，但大多数模型规模在 7B 以上。小规模 VLM（如 MobileVLM、Phi 系模型）研究则更多关注效率和速度，机器人学习社区对“小 VLM 能否直接作为策略骨干”仍缺少系统性验证。
+
+**【Paper】** 在动作输出侧，Diffusion Policy 已经证明连续动作可以用条件去噪过程建模，能表达多模态动作分布并避免离散化信息损失。TinyVLA 的核心选择是把这两条线组合起来：保留小 VLM 的世界知识和语言理解能力，用 diffusion head 直接输出连续动作，而不是把动作塞进文本词表。
+
+与 RT-2 相比，TinyVLA 不做大规模机器人数据 co-training；与 OpenVLA 相比，它不依赖 7B 骨干和自回归动作 token；与普通 Diffusion Policy 相比，它把语言条件改由预训练 VLM 统一编码，而不是额外训练一套语言 embedding 或 FiLM 模块。
+
+## 3. 问题定义
+
+**【Paper】**
+
+- **Task**：多任务真实/仿真机器人操作，包括单臂任务与双臂协作任务，要求策略理解语言指令并输出低层控制动作。
+- **Observation**：多视角 RGB 图像与机器人本体状态。单臂 Franka 场景使用两侧 ZED 2 相机；双臂 UR5 场景使用两个 wrist 相机加一个顶部 RealSense D435i。
+- **Action**：论文描述为 7 维动作，包括位置 $(x,y,z)$、旋转 $(\text{roll}, \text{pitch}, \text{yaw})$ 和归一化夹爪开度 $\text{gripper\_width}$。
+- **Action Space**：连续动作。论文没有使用动作 tokenization，而是用 Diffusion Policy 直接生成连续动作序列。
+- **Robot / Embodiment**：Franka Panda 7-DoF 单臂，以及两台 UR5 组成的双臂平台。
+- **Dataset**：单臂 5 个任务各 100 条遥操作轨迹；双臂 3 个任务采用遥操作数据。除 OpenBox 任务外，数据收集时不额外放置干扰物。
+- **Training Objective**：学习给定视觉、语言和机器人状态条件下的动作条件分布。
+
+形式上，TinyVLA 学习的策略可以写作：
+
+$$
+\pi_\theta(a_{t:t+K} \mid o_t, l, q_t)
+$$
+
+其中 $o_t$ 是多视角视觉观测，$l$ 是语言指令，$q_t$ 是机器人本体状态，$a_{t:t+K}$ 是长度为 $K$ 的连续动作 chunk。TinyVLA 不直接回归单步动作，而是用条件扩散过程表达这一分布。
+
+**【Code】** 官方代码 `train_tinyvla.py` 的默认动作定义与论文正文不完全一致：`action_dim=10`、`state_dim=7`、`chunk_size=16`。推理脚本 `eval_real_franka.py` 把前 3 维当位置，第 4-9 维当 6D rotation，最后一维当 gripper，再把 6D rotation 转成 euler 输出。因此论文说的“7 维动作”是最终控制接口，而模型内部实际处理 10 维动作。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+<img
+  src='https://pic.hana0721.top/blog/paper-deep-dive-tinyvla/tinyvla_framework.64el88fgnt.webp'
+  alt='TinyVLA 模型架构：左侧为紧凑 VLM 预训练流程，右侧为 LoRA 微调与 Diffusion Policy 动作头（论文 Figure 2）'
+  class='zoomable'
+  width='1642'
+  height='873'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+**【Paper】** TinyVLA 的架构分成两阶段：先按 LLaVA 流程预训练一个紧凑 VLM，再把 VLM 的 multimodal embedding 投影成 diffusion policy 的条件。机器人微调时，VLM 用 LoRA 参数高效更新，diffusion head 全参数训练。
+
+整体数据流是：多视角图像和语言指令进入 VLM，VLM 输出变长 multimodal embedding；该 embedding 经 adaptive pooling 和 layer normalization 变成定长表示，再与机器人本体状态拼接，经过 3 层 MLP 后作为 diffusion policy 的条件；diffusion head 从噪声中逐步恢复一整段连续动作。
+
+### 4.2 核心模块
+
+#### 紧凑 VLM 骨干
+
+- **输入**：多视角 RGB 图像和语言指令。
+- **输出**：融合了视觉与语言信息的 hidden representation。
+- **功能**：把预训练图文知识迁移到机器人策略中。
+- **为什么需要**：论文认为 VLM 预训练带来的语言理解、物体识别和场景语义是 TinyVLA 泛化能力的主要来源，因此即使不用机器人数据预训练，也能理解新指令和新物体。
+
+**【Paper】** 论文使用 Pythia 作为 LLM 后端，按 LLaVA 训练流程构建 VLM，保留 visual backbone 与 vision-language alignment module。论文给出 S/B/H 三种规模，基于 70M 到 1.4B 的紧凑 VLM。
+
+**【Code】** 官方 README 提供 `Llava-Pythia-400M`、`Llava-Pythia-700M`、`Llava-Pythia-1.3B` 三个权重，分别用于 TinyVLA-S/B/H。代码中的 `LlavaPythiaForCausalLM` 继承 `GPTNeoX` 并组合 `LlavaMetaForCausalLM`，视觉特征通过 `mm_projector` 映射到 LLM hidden space。
+
+#### LoRA 参数高效微调
+
+- **输入**：预训练 VLM 的线性层权重。
+- **输出**：带低秩增量 $\Delta W = BA$ 的新权重。
+- **功能**：只更新低秩矩阵，保留预训练知识。
+- **为什么需要**：论文希望模型在机器人数据上调整时，不破坏 VLM 已有的语言与视觉语义。
+
+**【Paper】** 论文说明 LoRA 被加到 attention 机制的 $Q,K,V$ 权重上，其余 Transformer 权重冻结；可训练参数约占整个 Transformer 的 5.0%。训练结束后把 LoRA 做 re-parameterization 融合回标准模型，以提升推理速度。
+
+**【Code】** 官方 `scripts/train.sh` 设置 `--lora_module 'vit llm'`、`--lora_r 64`、`--lora_alpha 256`、`--freeze_vision_tower True`、`--freeze_backbone True`、`--tune_mm_mlp_adapter True`。实际 `find_all_linear_names` 会对视觉塔和 LLM 中几乎所有 `nn.Linear` 加 LoRA，不只限于 attention 的 Q/K/V；`mm_projector` 则默认被排除在 LoRA 之外。
+
+#### Diffusion Policy Decoder
+
+- **输入**：VLM hidden representation、机器人状态、diffusion timestep、noisy action chunk。
+- **输出**：预测噪声，或经迭代去噪后的连续动作 chunk。
+- **功能**：把连续动作生成建模为条件扩散过程。
+- **为什么需要**：论文认为离散动作 tokenization 对连续、高维动作数据训练困难，容易收敛到单一状态；直接生成连续动作可以避免昂贵的自回归 token 生成。
+
+**【Paper】** 论文使用标准 DDPM 训练方式训练 diffusion head，并称该 head 为 policy decoder。VLM 输出的 embedding 先变成固定、紧凑的特征，再作为 denoising network 的条件。
+
+**【Code】** `LlavaPythiaForCausalLM` 中 `droid_diffusion` 分支使用 `DDIMScheduler(num_train_timesteps=100, beta_schedule='squaredcos_cap_v2', prediction_type='epsilon')`，`ConditionalUnet1D` 默认 `down_dims=[256,512,1024]`、`kernel_size=5`、`n_groups=8`；训练噪声样本数 `noise_samples=1`，推理去噪步数 `num_inference_timesteps=10`，`num_queries=chunk_size=16`。
+
+#### 多视角视觉融合
+
+**【Paper】** 单臂任务有两路视觉输入，双臂任务有三路视觉输入。论文没有把多视角建模为额外特殊结构，而是让 VLM 同时消费所有视角的图像。
+
+**【Code】** 数据处理器把每个视角分别预处理，`forward_process` 生成 `image`、`image_r`，三视角时还会生成 `image_top`；模型在 `get_image_fusion_embedding` 中分别编码后沿 token 维拼接，再送入 LLM。
+
+### 4.3 关键公式
+
+#### LoRA 权重更新
+
+$$
+W' = W_0 + \frac{\alpha}{r} BA
+$$
+
+其中 $W_0 \in \mathbb{R}^{d \times k}$ 是冻结的原始权重，$B \in \mathbb{R}^{d \times r}$、$A \in \mathbb{R}^{r \times k}$ 是可训练低秩矩阵，$r \ll \min(d,k)$，$\alpha$ 是 LoRA 缩放系数。论文正文只写 $W_0 + BA$，代码中额外使用 LoRA 的 $\alpha/r$ 缩放。
+
+#### 条件扩散训练目标
+
+训练时，对干净动作 $a$ 采样噪声 $\epsilon \sim \mathcal N(0, I)$ 和 diffusion timestep $t$，得到 noisy action：
+
+$$
+\tilde a_t = \sqrt{\bar\alpha_t}\, a + \sqrt{1-\bar\alpha_t}\, \epsilon
+$$
+
+目标是让条件 UNet 预测该噪声：
+
+$$
+\mathcal L = \mathbb E_{t,\epsilon}\left[\left\| \epsilon - \epsilon_\theta(\tilde a_t, t, c, q) \right\|^2\right]
+$$
+
+其中 $c$ 是 VLM 输出的条件表示，$q$ 是机器人状态，$\bar\alpha_t$ 是 DDIM/DDPM 前向噪声调度中的累积系数。代码中会对 `is_pad` 为真的位置做 mask，不计算 loss。
+
+#### 条件表示
+
+$$
+c = \text{MLP}\left(\left[ \text{LN}(\text{Pool}(h));\ q \right]\right)
+$$
+
+$h$ 是 VLM 的 multimodal hidden states，$\text{Pool}$ 是 adaptive pooling，$\text{LN}$ 是 layer normalization，$q$ 是本体状态，$\text{MLP}$ 是论文描述的 3 层投影。代码中对应部分位于 `ConditionalUnet1D` 的 `global_1d_pool`、`norm_after_pool` 和 `combine`，但实际 `combine` 只使用一个 `nn.Linear(global_cond_dim + state_dim, global_cond_dim)`。
+
+### 4.4 Training
+
+**【Paper】**
+
+- **VLM 预训练**：按 LLaVA pipeline，在 vision-language 数据上训练紧凑 VLM，不进行机器人数据预训练。
+- **机器人微调**：保留 VLM 全部模块，对 VLM 使用 LoRA，对 diffusion head 全参数训练。
+- **数据量**：单臂 5 个真实任务各 100 条遥操作轨迹；任务间长度差异较大，例如 StackCubes 轨迹长度从 100 到 300 不等。
+- **训练损失**：diffusion 的 noise prediction MSE loss，并对 padding 位置 mask。
+
+**【Code】**
+
+- 入口：`train_tinyvla.py`，训练脚本 `scripts/train.sh`。
+- 数据格式：与 ACT 一致，HDF5 中保存 `action`、`language_raw`、`observations/images`、`observations/joint_positions`、`qpos`、`qvel`；`TASK_CONFIGS` 指定 camera names。
+- 数据归一化：`get_norm_stats` 对 action 和 qpos 计算 mean/std，std 下限裁剪到 `1e-2`；数据集按 `train_ratio` 默认 0.95 划分 train/val。
+- 超参数：`lora_r=64`、`lora_alpha=256`、LoRA 学习率 `2e-4`、非 LoRA（diffusion head）学习率 `2e-5`、`weight_decay=0`、`warmup_ratio=0.005`、cosine scheduler、`bf16=True`、`max_steps=10000`、`per_device_train_batch_size=32`、8 卡 DeepSpeed ZeRO-2、`pretrain_image_size=320`、`image_aspect_ratio=pad`。
+- 动作配置：`action_dim=10`、`state_dim=7`、`chunk_size=16`。
+
+<Algorithm number={1} title='TinyVLA Training' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>预训练 Llava-Pythia VLM、遥操作 HDF5 数据集、语言指令、机器人状态</div>
+  <div slot='output'>LoRA 微调后的 VLM 与训练完成的 Diffusion Policy decoder</div>
+  <AlgorithmStep keyword='Given'>
+    紧凑 VLM $f_\theta$、示教数据集 $D$、动作 chunk size $K$、LoRA rank $r$
+  </AlgorithmStep>
+  <AlgorithmStep>用 LLaVA 流程预训练紧凑 VLM，得到图文对齐的初始化权重</AlgorithmStep>
+  <AlgorithmStep>
+    冻结 VLM backbone 和视觉塔，在 VLM 线性层加入 LoRA，并保留 mm projector 可训练
+  </AlgorithmStep>
+  <AlgorithmStep>初始化 Conditional UNet 作为 diffusion policy decoder</AlgorithmStep>
+  <AlgorithmStep keyword='for'>每个训练 step</AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    采样一个 episode 起始时间步，读取多视角图像、语言指令、状态和动作 chunk
+  </AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    VLM 编码图像与指令，adaptive pooling + layer normalization 得到条件 $c$
+  </AlgorithmStep>
+  <AlgorithmStep indent={1}>把 $c$ 与状态 $q$ 拼接并投影为 diffusion 条件</AlgorithmStep>
+  <AlgorithmStep indent={1}>采样噪声 $\epsilon$ 和 timestep $t$，对动作 chunk 加噪</AlgorithmStep>
+  <AlgorithmStep indent={1}>用 Conditional UNet 预测噪声，计算 masked MSE loss</AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    AdamW 更新 LoRA 参数（lr `2e-4`）和 diffusion head（lr `2e-5`）
+  </AlgorithmStep>
+  <AlgorithmStep keyword='end for' />
+  <AlgorithmStep keyword='return'>训练后的 TinyVLA policy</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】**
+
+- VLM 只前向一次，把图像、指令和状态编码成 diffusion condition。
+- Diffusion head 从高斯噪声出发，经过少量去噪步直接得到连续动作，不逐 token 自回归。
+- 论文强调速度来自两个部分：更小的 VLM，以及避免动作 token 自回归生成。
+
+**【Code】** `eval_real_franka.py` 以 `temporal_agg=True` 运行，`query_frequency=1`，每次获得一个 `chunk_size=16` 的动作 chunk 后写入 `all_time_actions` 缓冲，再对同一目标时间步的多个历史预测用指数权重（`k=0.01`）做 temporal ensembling。`convert_actions` 会把模型输出的 10 维动作转换为 xyz + euler + gripper。
+
+<Algorithm number={2} title='TinyVLA Inference' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前多视角 RGB 观测、语言指令、机器人状态</div>
+  <div slot='output'>连续动作 chunk，执行前转为末端执行器位置、旋转与夹爪开度</div>
+  <AlgorithmStep>预处理多视角图像，tokenize 语言指令</AlgorithmStep>
+  <AlgorithmStep>VLM 编码图像和指令，得到 multimodal hidden states</AlgorithmStep>
+  <AlgorithmStep>
+    adaptive pooling、layer normalization，并与机器人状态拼接投影为条件 $c$
+  </AlgorithmStep>
+  <AlgorithmStep>初始化动作 chunk 为高斯噪声 $a^{10}$</AlgorithmStep>
+  <AlgorithmStep keyword='for'>10 个 DDIM inference step</AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    Conditional UNet 预测噪声 $\epsilon_\theta(a^k, k, c, q)$
+  </AlgorithmStep>
+  <AlgorithmStep indent={1}>DDIM scheduler 去噪得到 $a^{k - 1}$</AlgorithmStep>
+  <AlgorithmStep keyword='end for' />
+  <AlgorithmStep>对多个重叠 chunk 做 temporal ensembling，得到当前目标动作</AlgorithmStep>
+  <AlgorithmStep>将 10 维模型动作转换为 xyz、euler、gripper 输出</AlgorithmStep>
+  <AlgorithmStep keyword='return'>执行连续机器人动作</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】**
+
+| 论文描述                            | 官方代码位置                                                            | 实际行为                                                                                   |
+| ----------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| 紧凑 VLM，参数 70M 到 1.4B          | `README.md`、`llava-pythia/model/language_model/pythia/llava_pythia.py` | 发布权重为 400M / 700M / 1.3B 三档                                                         |
+| LoRA 加在 attention 的 Q/K/V 上     | `llava-pythia/llava_pythia_utils.py`                                    | `lora_module='vit llm'` 时对视觉塔和 LLM 中几乎所有 Linear 层加 LoRA，范围比 Q/K/V 更广    |
+| 3 层 MLP 生成 diffusion condition   | `policy_heads/models/droid_unet_diffusion.py`                           | 实际是 adaptive pooling + LayerNorm + 单个 `Linear` 组合状态；另有 diffusion step encoder  |
+| 标准 Diffusion Policy 训练与推理    | `llava-pythia/.../llava_pythia.py`                                      | 使用 DDIM scheduler，训练 timestep 100，推理去噪 10 步，chunk size 16                      |
+| 7 维动作                            | `train_tinyvla.py`、`eval_real_franka.py`                               | 默认 `action_dim=10`，内部使用 6D rotation，推理时转 euler                                 |
+| VLM 冻结、diffusion head 全参数训练 | `scripts/train.sh`、`llava_pythia_utils.py`                             | `freeze_vision_tower=True`、`freeze_backbone=True`，`embed_out` 和 `proj_to_action` 可训练 |
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+<img
+  src='https://pic.hana0721.top/blog/paper-deep-dive-tinyvla/robot_settings.2h91kpjo8g.webp'
+  alt='TinyVLA 真机设置：单臂 Franka 与双臂 UR5（论文 Figure 3）'
+  class='zoomable'
+  width='2137'
+  height='706'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+**【Paper】**
+
+- **仿真**：MetaWorld 50 个任务，按 easy、medium、hard、very hard 分组；每个方法用 50 条 demonstration 做多任务训练，3 个 seed，每个 seed 的成功率在 5 个 iteration 上平均。
+- **单臂真机**：Franka Panda，5 个任务：CloseDrawer、StackCubes、OpenBox、PlaceTennis、FlipMug；每任务 100 条遥操作轨迹，每个模型每任务评测 20 trials，报告 3 个 checkpoint 的 mean/std。
+- **双臂真机**：两台 UR5，3 个任务：PlaceBread、StackCubes、PlaceTennisBag；每任务评测 10 trials。
+- **Baseline**：Diffusion Policy、Multimodal Diffusion、OpenVLA。OpenVLA 被改成多视角输入；DP 被加上 FiLM 语言条件，保证对比公平。
+- **硬件**：单臂使用两侧 ZED 2 相机；双臂使用两个 wrist 相机加一个顶部 RealSense D435i。
+
+### 5.2 Main Results
+
+**【Paper】** 仿真实验中，TinyVLA-H 平均成功率 31.6%，Diffusion Policy 为 10.5%；在 Hard 任务上，TinyVLA-H 是 DP 的约 6 倍。
+
+| MetaWorld 50 tasks | Easy (28) | Medium (11) | Hard (6) | Very Hard (5) |  Avg |
+| ------------------ | --------: | ----------: | -------: | ------------: | ---: |
+| Diffusion Policy   |      23.1 |        10.7 |      1.9 |           6.1 | 10.5 |
+| TinyVLA-H          |      77.6 |        21.5 |     11.4 |          15.8 | 31.6 |
+
+**【Paper】** 单臂真机主表如下。TinyVLA-H 平均成功率 94.0%，比 OpenVLA 的 68.3% 高 25.7%，同时总参数为 1.3B，远小于 OpenVLA 的 7.2B；TinyVLA-H 可训练参数 143M，OpenVLA 为 195M。
+
+| 真实单臂任务         | Pre-trained Traj | Total Params | Trainable Params | PlaceTennis | FlipMug | StackCubes | CloseDrawer | OpenBox |  Avg |
+| -------------------- | ---------------- | -----------: | ---------------: | ----------: | ------: | ---------: | ----------: | ------: | ---: |
+| Diffusion Policy     | N/A              |         111M |             111M |        16.7 |    30.0 |        3.3 |        73.3 |    53.3 | 35.3 |
+| Multimodal Diffusion | N/A              |         230M |             230M |        23.3 |    13.3 |        6.7 |        36.7 |    10.0 | 18.0 |
+| OpenVLA              | 970K             |         7.2B |             195M |        83.3 |    51.7 |       40.0 |        85.0 |    81.7 | 68.3 |
+| TinyVLA-S            | N/A              |         422M |             101M |         8.3 |     6.7 |        6.7 |        60.0 |    35.0 | 23.3 |
+| TinyVLA-B            | N/A              |         740M |             138M |        76.7 |    76.7 |       71.7 |        81.7 |    80.0 | 77.4 |
+| TinyVLA-H            | N/A              |         1.3B |             143M |        90.0 |    98.3 |       98.3 |        96.7 |    86.7 | 94.0 |
+
+**【Paper】** 双臂 UR5 实验中，OpenVLA 在 3 个任务上全部失败，作者推测原因是 OpenX 数据全是单臂轨迹；TinyVLA-H 在 PlaceBread、StackCubes、PlaceTennisBag 上分别为 76.7、36.7、30.0。
+
+| 真实双臂任务     | PlaceBread | StackCubes | PlaceTennisBag |
+| ---------------- | ---------: | ---------: | -------------: |
+| Diffusion Policy |       40.3 |       31.3 |           43.0 |
+| OpenVLA          |          0 |          0 |              0 |
+| TinyVLA-H        |       76.7 |       36.7 |           30.0 |
+
+**【Analysis】** 需要提醒的是，正文称双臂平均成功率为 44.5%，但表格三项的平均是 47.8%。表格中的逐任务数值更具体，正文的平均值可能是早期版本数字；精读时应以表格逐任务结果为准。
+
+<img
+  src='https://pic.hana0721.top/blog/paper-deep-dive-tinyvla/compare.7sny5f5qzo.webp'
+  alt='TinyVLA 与 OpenVLA 的推理延迟和平均成功率对比（论文 Figure 1）'
+  class='zoomable'
+  width='1656'
+  height='1089'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+**【Paper】** 在单张 A6000 GPU 上，OpenVLA-7B 的单次动作预测约 292ms，替换成 OpenVLA-1B 后约 140ms，而 TinyVLA-1B 约 14ms。作者把 OpenVLA 的 Prismatic-7B 骨干替换为 TinyVLA 同架构骨干后仍有 10 倍差距，说明速度优势不只来自小 VLM，还来自 diffusion head 避免了动作 token 的自回归生成。
+
+### 5.3 Ablation Study
+
+**【Paper】**
+
+- **VLM 规模**：作者比较 TinyVLA-0.4B、TinyVLA-1.3B 和基于 PaliGemma 的 TinyVLA-3B。规模越大，成功率越高；TinyVLA-0.4B 有 3 次因误解指令而失败，增大到 1.3B 后消失；更大模型还能减少定位不准和到达错误目标位置。
+- **Policy head 选择**：用 TinyVLA-H 作基座，替换 diffusion head 为 MLP 或 ACT。MLP 在 5 个真实任务上全部失败；ACT 有一定成功率；diffusion head 显著最高。
+- **速度来源**：即使使用相似参数量的骨干，OpenVLA 仍因自回归动作 token 而显著更慢，证明扩散动作解码对推理速度贡献明显。
+
+<img
+  src='https://pic.hana0721.top/blog/paper-deep-dive-tinyvla/failure_rate_comparison.1sfs0ow5jy.webp'
+  alt='TinyVLA 不同 VLM 规模下的失败类型分布（论文 failure case study 图）'
+  class='zoomable'
+  width='1675'
+  height='1050'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+### 5.4 Generalization
+
+**【Paper】** 所有泛化实验大多采用单次 trial 或少量 trial 的 checkmark/cross 记录方式。TinyVLA 在未训练的新指令、新物体、新位置、物体颜色变化、背景变化和光照变化上表现出与 OpenVLA 相当或更优的鲁棒性。
+
+<img
+  src='https://pic.hana0721.top/blog/paper-deep-dive-tinyvla/instruction.46f3i5v7n.webp'
+  alt='TinyVLA 的三种递进式指令泛化实验（论文 Figure 4）'
+  class='zoomable'
+  width='2687'
+  height='1431'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+**语言指令泛化**：TinyVLA-H 能区分训练中未见过的绿色 mug、按指令“pick the cube”抓住训练见过但组合未见的物体，并能对新物体 toy car 执行“pick and place into box”的组合指令。作者认为这说明预训练 VLM 已经提供了物体属性理解和功能组合能力。
+
+**视角泛化**：Diffusion Policy 对视角变化非常敏感，TinyVLA 在 StackCube 和 FlipMug 等任务上能容忍约左右 30 度的视角偏移，强于 DP 和 OpenVLA。
+
+**背景与光照**：在 6 种不同背景上，TinyVLA 能完成 PlaceTennis 等位置敏感任务；在关灯等低光照场景下，TinyVLA 仍能完成任务，而 OpenVLA 会失败。
+
+**干扰物**：在 StackCube 任务中加入书本、杯子等无关物体，或加入不同颜色的同类 cube，TinyVLA 仍能成功；作者指出该结果是在没有训练数据增强的情况下取得的。
+
+**物体外观与空间**：TinyVLA 能泛化到训练中未见过的物体形状/颜色；空间泛化上 OpenVLA 表现略好，作者认为这可能来自 OpenX 大规模机器人预训练见过更多动作分布，TinyVLA 仍明显强于同数据训练的 DP。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】**
+
+1. **VLM 提供语义先验**：TinyVLA 不依赖机器人预训练，而是依靠图文预训练带来的物体识别、颜色属性、语言指令理解和新物体概念。这让模型能完成“pick the car and place into box”这类训练外组合。
+2. **Diffusion head 保留连续动作精度**：动作不经过离散 token，避免量化误差和自回归误差累积；10 步 DDIM 又把推理成本控制在很低水平。
+3. **LoRA 保护预训练知识**：机器人数据只改变低秩增量，VLM 的通用能力不容易被 100 条任务数据覆盖或遗忘。
+4. **模型变小直接降低单次前向成本**：TinyVLA-H 总参数 1.3B，远小于 OpenVLA 的 7.2B，同时训练和部署门槛都大幅下降。
+
+### 6.2 核心创新
+
+**【Paper】** 本文的核心创新不是设计一个新的扩散模型，而是提出一个明确的 VLA 组合范式：紧凑预训练 VLM + 连续动作 diffusion decoder，并把“大规模机器人数据预训练”从必要步骤中移除。
+
+**【Analysis】** 对社区更有价值的是“数据效率 + 推理效率”的实验证明：只用 100 条每任务轨迹，TinyVLA-H 就超过了依赖 970K 轨迹预训练的 OpenVLA。这说明对有限任务，机器人数据预训练可能不是小 VLA 的硬前提。
+
+### 6.3 与已有方法的本质区别
+
+**【Paper】** 与 RT-2/OpenVLA 的动作 tokenization 不同，TinyVLA 使用连续动作扩散；与 Diffusion Policy 相比，TinyVLA 用预训练 VLM 统一处理视觉和语言；与 RoboFlamingo 等小模型路线相比，TinyVLA 额外引入了 diffusion head，并系统验证了真机单臂和双臂。
+
+**【Analysis】** 本质区别可以概括为“动作生成方式”和“预训练来源”两个维度的组合：TinyVLA 用 VLM 提供语义、用 diffusion 提供连续动作表达，机器人数据只做少量适配。
+
+### 6.4 关键假设
+
+**【Analysis】**
+
+1. 预训练 VLM 的图文知识能直接迁移到机器人操作语义，不需要机器人动作数据预训练。
+2. 100 条遥操作轨迹足以在紧凑 VLM 上适配一个新任务。
+3. VLM hidden representation 与 diffusion condition 之间可以用简单 pooling/projection 对齐。
+4. 当前评测任务的成功率足以代表操作质量，且少量 trial 的泛化结果具有稳定信号。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 论文没有独立 limitations 小节，但实验部分提到几处边界：空间泛化上 OpenVLA 略优于 TinyVLA；双臂任务中 Diffusion Policy 在 PlaceTennisBag 上达到 43%，比 TinyVLA-H 的 30% 更高；小模型 TinyVLA-S 会出现指令误解、定位不准等问题。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+1. **任务规模有限**：单臂 5 任务、双臂 3 任务，每个任务 100 条轨迹，不能证明模型在跨 embodiment、跨任务库或开放词汇指令上具备通用 VLA 能力。
+2. **泛化统计弱**：视角、背景等泛化实验很多只有 1-6 次 trial，checkmark/cross 形式能展示定性趋势，但不足以给出高置信度的成功率。
+3. **论文与代码存在差异**：动作维度、LoRA 范围、projection 结构不完全一致；官方 eval 脚本更像适配特定机器人环境的参考实现，而不是开箱即用的完整部署代码。
+4. **双臂实验规模小**：每个任务 10 trials，且 Table 与正文平均成功率不一致，复现时需要以逐任务原始记录为准。
+5. **没有充分讨论失败场景**：失败率图展示的是错误类型，但缺少对真实接触、夹持滑动、轨迹平滑等操作细节的定量分析。
+
+## 8. 启发与研究思考
+
+**【Analysis】**
+
+1. **动作表示决定 VLA 的实时性**：TinyVLA 用 10 步 DDIM 替代 7 个动作 token 的自回归生成，把单次动作预测降到 14ms。未来 VLA 设计可以更多考虑“连续动作解码器”而不是只在离散 token 上优化采样策略。
+2. **预训练权重来源比机器人预训练更容易迁移**：只用视觉语言数据训练的紧凑 VLM 就能理解新指令和新物体，说明 robot data pretraining 和 web-scale VLM pretraining 在功能上并不完全等价。
+3. **LoRA 与全参数 head 的分工值得复用**：冻结大部分 VLM、只训练低秩增量和动作头，既保留语义知识，又能让动作解码器充分拟合任务。
+4. **需要更严格的多 trial 泛化基准**：当前泛化实验采用少量 checkmark/cross，未来研究应把视角、背景、光照、干扰物和空间位置都纳入统一的统计评测，减少结论波动。
+5. **小模型 VLA 的边界仍是 open question**：TinyVLA-S 的失败说明模型太小会损失指令理解；TinyVLA-H 表现最好，但能否通过更大 VLM、更好投影或更多数据继续扩展，论文只提供了有限证据。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。
+</Aside>

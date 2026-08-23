@@ -1,0 +1,624 @@
+---
+title: 'CogACT 论文精读：让 VLM 负责认知，让 Diffusion Transformer 负责动作'
+publishDate: 2026-08-23
+updatedDate: 2026-08-23
+description: '精读 CogACT：在 7B VLM 后接最大 308M 参数的 Diffusion Transformer 动作模块，用 cognition token 连接认知与动作，在 SIMPLER 与多台真实机器人上超过 OpenVLA 和 RT-2-X。'
+heroImage:
+  { src: 'https://pic.hana0721.top/139369087_p0_master1200.9gx5x7w6ei.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '139369087'
+tags:
+  - 'paper deep dive'
+  - 'CogACT'
+  - 'vision-language-action model'
+  - 'diffusion policy'
+  - 'robot learning'
+paper:
+  arxivId: '2411.19650'
+  title: 'CogACT: A Foundational Vision-Language-Action Model for Synergizing Cognition and Action in Robotic Manipulation'
+  authors:
+    - 'Qixiu Li'
+    - 'Yaobo Liang'
+    - 'Zeyu Wang'
+    - 'Lin Luo'
+    - 'Xi Chen'
+    - 'Mozheng Liao'
+    - 'Fangyun Wei'
+    - 'Yu Deng'
+    - 'Sicheng Xu'
+    - 'Yizhong Zhang'
+    - 'Xiaofan Wang'
+    - 'Bei Liu'
+    - 'Jianlong Fu'
+    - 'Jianmin Bao'
+    - 'Dong Chen'
+    - 'Yuanchun Shi'
+    - 'Jiaolong Yang'
+    - 'Baining Guo'
+  venue: 'arXiv'
+  year: 2024
+  code: 'https://github.com/microsoft/CogACT'
+  project: 'https://cogact.github.io/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2411.19650'
+  tldr='CogACT 把 7B VLM 的最后一个 cognition token 当作条件，交给独立的大型 Diffusion Transformer 动作模块生成连续动作序列，并用 Adaptive Action Ensemble 融合历史预测，在多个仿真和真实机器人基准上大幅超过 OpenVLA 与 RT-2-X。'
+  rank={5}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《CogACT: A Foundational Vision-Language-Action Model for Synergizing Cognition and Action in Robotic Manipulation》
+
+**作者**：Qixiu Li、Yaobo Liang、Zeyu Wang、Lin Luo、Xi Chen、Mozheng Liao、Fangyun Wei、Yu Deng、Sicheng Xu、Yizhong Zhang、Xiaofan Wang、Bei Liu、Jianlong Fu、Jianmin Bao、Dong Chen、Yuanchun Shi、Jiaolong Yang、Baining Guo
+
+**机构**：Tsinghua University、Microsoft Research Asia、USTC、Institute of Microelectronics CAS
+
+**会议 / 期刊**：arXiv 预印本（2024）
+
+**论文链接**：[arXiv](https://arxiv.org/abs/2411.19650)
+
+**代码链接**：[microsoft/CogACT](https://github.com/microsoft/CogACT)
+
+**项目主页**：[CogACT](https://cogact.github.io/)
+
+**模型**：[CogACT-Small / CogACT-Base / CogACT-Large](https://huggingface.co/CogACT)
+
+<img
+  src='https://pic.hana0721.top/blog/paper-deep-dive-cogact/cogact-teaser.7zr60usl61.webp'
+  alt='CogACT 论文 Figure 1：仿真与真实机器人成功率对比、动作模块 scaling 行为和真实机器人执行示例'
+  class='zoomable'
+  width='3521'
+  height='1401'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+### 一句话总结
+
+**【Paper】** CogACT 不再让 7B VLM 直接输出离散动作 token，而是保留 VLM 的视觉与语言推理能力，只取一个 `cognition token` 的 hidden feature 作为条件，交给一个独立的 Diffusion Transformer（DiT）动作模块，用扩散过程生成连续、多模态、时间相关的动作序列；在 SIMPLER 仿真与 Realman、Franka 真实机器人上，任务成功率显著超过 OpenVLA 和 RT-2-X。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出 componentized VLA 架构：`Vision Module + Language Module + Diffusion Action Module`，把 VLM 的“认知”能力和专门的动作建模能力解耦。
+2. 系统研究动作模块设计，发现大型 DiT 动作模块比单步动作预测、MLP 动作头和小型 diffusion head 更适合机器人动作建模。
+3. 验证动作模块的 favorable scaling behavior：DiT 参数从 13M 增加到 308M 时成功率持续提升，而且相对于 7B VLM 参数增加很少。
+4. 提出 Adaptive Action Ensemble（AAE），用当前预测与历史预测的余弦相似度做自适应加权，避免把不同动作模式简单平均。
+5. 在 Google Robot、WidowX、Realman、Franka 等 embodiment 上评测，并公开代码、模型和部署脚本。
+
+## 2. 背景与相关工作
+
+**【Paper】** 大型 VLA 的泛化能力主要来自互联网规模预训练的 VLM。RT-2、OpenVLA 等方法直接把 VLM 当作策略：把连续动作离散成 token，让 VLM 用 next-token prediction 输出动作。论文认为这种“简单复用”忽略了动作信号本身的三个性质：
+
+- **Continuous**：机器人控制动作本质上是连续信号，均匀离散化会损失精度。
+- **Multimodal**：同一个任务状态可以有多种可行轨迹，确定性回归或分类可能只能学到平均行为。
+- **Temporally correlated**：动作不是独立样本，单步预测容易产生不连贯、不平稳的运动。
+
+RoboFlamingo 这类工作加入 LSTM 等 action head 做回归，但论文指出 regression-based 训练没有显式建模动作分布的多模态性。另一个方向是用视频生成预训练增强机器人学习，但通常没有直接继承大 VLM 的互联网视觉-语言知识。
+
+**【Paper】** 与 Concurrent Large Action Models（如 DiT Policy、RDT）相比，CogACT 没有使用冻结的独立 vision/language encoder，而是直接基于 Prismatic VLM 做端到端训练，因此可以保留大 VLM 的开放词汇识别和指令跟随能力。与 Octo 相比，Octo 只在 transformer backbone 后接约 3M 参数的 compact diffusion head，CogACT 则把 action module 本身做大，并研究其 scaling。
+
+**【Analysis】** 这篇论文最重要的判断是：VLM 的 token 输出空间并不适合直接承载高精度机器人动作。与其强行让语言模型生成动作，不如让 VLM 产生一个“该做什么”的认知特征，再由专门模型把它解码成连续动作。这个判断直接导致后续所有设计都围绕 action module 展开。
+
+## 3. 问题定义
+
+**【Paper】**
+
+- **Task**：给定语言指令 $l$ 和当前视觉观测 $\bm{o}_t$，输出从 $t$ 开始的连续动作序列。
+- **Observation**：单张 RGB 图像，经 DINOv2 和 SigLIP 编码为视觉 token；论文正文不依赖 proprioception 或历史观测。
+- **Action**：7 维末端执行器动作，定义为相对平移、旋转增量和夹爪开合：
+
+$$
+\bm{a}_t = [\Delta x, \Delta y, \Delta z, \Delta \phi, \Delta \theta, \Delta \psi, g]
+$$
+
+其中 $\Delta x, \Delta y, \Delta z$ 是末端执行器相对平移，$\Delta \phi, \Delta \theta, \Delta \psi$ 是旋转变化，$g \in \{0,1\}$ 表示夹爪开/闭。
+
+- **Policy**：模型 $\bm{\pi}$ 一次预测当前动作和未来 $N$ 步动作：
+
+$$
+\bm{\pi}: (\bm{l},\bm{o}_t) \rightarrow (\bm{a}_t,\bm{a}_{t+1},...,\bm{a}_{t+N})
+$$
+
+- **Robot / Embodiment**：仿真评测 Google Robot 与 WidowX；真实评测 Realman 与 Franka。论文摘要称覆盖 5 种 robot embodiment，正文明确出现的评测平台主要是这 4 类。
+- **Dataset**：主预训练数据为 Open X-Embodiment（OXE）中筛选出的 25 个数据集，共约 0.4M 条轨迹、22.5M 帧。
+- **Training Objective**：对动作模块做 diffusion noise prediction，以 MSE 最小化预测噪声与真实噪声的误差；VLM 与动作模块端到端联合训练。
+
+**Embodied AI Checklist**
+
+- **Vision Encoder**：DINOv2 + SigLIP，双视觉 transformer 输出特征图后按 channel 拼接。
+- **Language Model**：LLaMA-2 7B，作为 causal language backbone。
+- **Multimodal Fusion**：视觉 token、语言 token、learnable cognition token 组成同一序列，通过 causal attention 融合。
+- **Action Tokenization**：不量化，动作保持连续；动作模块直接用 diffusion 建模。
+- **Action Decoder**：DiT-S / DiT-B / DiT-L。
+- **Policy**：VLM 输出 cognition feature 后由 DiT 生成动作序列。
+- **Training Objective**：预测噪声的 MSE loss，配合 VLM 端到端训练。
+- **Dataset**：OXE 25 个单臂数据集，排除 Language Table 与 DROID。
+- **Action Horizon / Chunking**：默认预测当前 + 15 个未来动作，动作模块上下文长度 17。
+- **Inference Pipeline**：VLM 生成 1 个 cognition token，DDIM 10 步去噪，CFG scale 1.5，Adaptive Action Ensemble 融合历史预测。
+- **Real-world Deployment**：官方 `deploy.py` 提供 HTTP 推理服务，BF16 下约 5.5 Hz。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+CogACT 把模型拆成三个部分：
+
+1. **Vision Module**：DINOv2 和 SigLIP 分别提取图像特征，拼接并线性投影为 256 个视觉 token。
+2. **Language Module**：LLaMA-2 对视觉 token、语言指令 token 和一个 learnable cognition token 做 causal attention，输出对应 cognition token 的 hidden feature。
+3. **Diffusion Action Module**：以 cognition feature 为条件，对一整段连续动作序列做扩散去噪。
+
+<img
+  src='https://pic.hana0721.top/blog/paper-deep-dive-cogact/cogact-method.1hsy7jhlqq.webp'
+  alt='CogACT 论文 Figure 2：Vision Module、Language Module、Diffusion Action Module 的整体架构'
+  class='zoomable'
+  width='2177'
+  height='507'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+整体数据流只有一句话：图像和语言指令进入 VLM，VLM 输出 1 个 cognition feature，DiT 以它和噪声动作 token 为输入，经过多次去噪输出 16 步连续动作；训练和推理的完整流程分别在 4.4 和 4.5。
+
+### 4.2 核心模块
+
+#### DINOv2 + SigLIP Vision Module
+
+- **输入**：当前 RGB 图像。
+- **输出**：256 个视觉 perceptual token。
+- **功能**：用两个预训练视觉 transformer 获得空间细节和开放语义。
+- **为什么需要**：DINOv2 擅长空间/局部特征，SigLIP 擅长语言对齐的语义特征；两者互补。
+- **实现细节**：两路特征图先 downsampled，再沿 channel 维度拼接，经 linear projection 序列化为 token。
+
+**【Code】** 对应 `PrismaticVLM` 的 vision backbone。官方代码通过 Prismatic 的 `prism-dinosiglip-224px+7b` 配置加载，最终视觉 token 进入 LLM。
+
+#### LLaMA-2 Language Module
+
+- **输入**：视觉 token $\mathcal{V}$、语言 token $\mathcal{T}$、learnable cognition token $\bm{c}$。
+- **输出**：cognition token 对应的 hidden feature $\bm{f}_t^{\bm c}$，维度 4096。
+- **功能**：把“看到什么 + 指令要求什么”融合成当前动作的高层认知条件。
+- **为什么需要**：这是 CogACT 与“VLM 直接输出动作”的本质区别：VLM 不再负责生成动作 token，只负责压缩出动作条件。
+
+**【Code】** `vla/cogactvla.py` 的 `CogACT.forward` 会先调用 VLM forward，取最后 hidden state，去掉视觉 patch 部分，再按 attention mask 取最后一个 token 的 hidden feature 作为 cognition feature。推理时 `predict_action` 用 `max_new_tokens=1` 生成这个 token，并额外拼接 token `29871` 和 `2`，以匹配训练时的 prompt 格式。
+
+#### Diffusion Action Module（DiT）
+
+- **输入**：cognition feature、当前 diffusion timestep、带噪动作序列。
+- **输出**：预测噪声，等价于逐步去噪后的连续动作序列。
+- **功能**：建模连续、多模态、时间相关的动作分布。
+- **为什么需要**：扩散模型天然适合连续多模态输出；DiT 的 self-attention 能建模动作序列内部的时间相关性。
+- **实现细节**：DiT 用 action embedder 把每个 7 维动作映射到 hidden size，timestep embedder 提供 diffusion step，label embedder 把 cognition feature 投影成 condition token；condition 与动作 token 一起经过多个 DiT block，最后输出噪声。
+
+**【Code】** `action_model/models.py` 定义了 `DiT`。`DiTBlock` 是 pre-norm self-attention + MLP，condition token 与动作 token 一起参与 self-attention。`DiT_S/B/L` 分别对应：
+
+| Action Model  | Layers | Emb Dim | Heads | Params |
+| ------------- | -----: | ------: | ----: | -----: |
+| MLP (3-Layer) |      3 |     256 |   N/A |     3M |
+| MLP (7-Layer) |      7 |    1024 |   N/A |    89M |
+| DiT-Small     |      6 |     384 |     4 |    13M |
+| DiT-Base      |     12 |     768 |    12 |    89M |
+| DiT-Large     |     24 |    1024 |    16 |   308M |
+
+#### Adaptive Action Ensemble
+
+- **输入**：当前预测的 16 步动作序列，以及历史上对当前时间步的预测。
+- **输出**：当前时间步实际执行的动作。
+- **功能**：把历史预测和当前预测按相似度加权，而不是固定权重平均。
+- **为什么需要**：动作分布是多模态的。如果两个预测属于不同模式，直接平均会得到一个不属于任何模式的动作。
+
+**【Code】** `sim_cogact/adaptive_ensemble.py` 中的 `AdaptiveEnsembler` 维护一个 `deque(maxlen=pred_action_horizon)`，计算当前动作与历史预测的 cosine similarity，用 `weights = exp(alpha * cos_similarity)` 归一化后加权。
+
+### 4.3 关键公式
+
+#### 问题形式
+
+策略输入语言指令和当前观测，输出连续动作序列：
+
+$$
+\bm{\pi}: (\bm{l},\bm{o}_t) \rightarrow (\bm{a}_t,\bm{a}_{t+1},...,\bm{a}_{t+N})
+$$
+
+#### Diffusion Noise Prediction Loss
+
+论文训练目标为：
+
+$$
+\mathcal{L}_{\text{MSE}} = \mathbb{E}_{\bm{\epsilon}\sim\mathcal{N}(0,1),i} \|\hat{\bm{\epsilon}}^i - \bm{\epsilon}\|_2
+$$
+
+其中：
+
+- $\bm{\epsilon}$ 是加入干净动作序列的 Gaussian noise；
+- $\hat{\bm{\epsilon}}^i$ 是 DiT 在 denoising step $i$ 预测的 noise；
+- $i$ 表示当前 diffusion step；
+- 期望遍历训练样本、噪声和随机 timestep。
+
+**【Code】** `action_model/action_model.py` 的 `loss` 先用 `torch.randn_like` 采样噪声，再随机采样 timestep，用 `diffusion.q_sample` 构造 noisy action，最后计算 `((noise_pred - noise) ** 2).mean()`。代码使用 squaredcos cap v2 noise schedule，默认 100 diffusion steps。
+
+#### Adaptive Action Ensemble
+
+最终执行动作由当前预测和最近 $K$ 次历史预测加权：
+
+$$
+\hat{\bm{a}}_t = \sum_{k=0}^{K} w^{\text{ada}}_k \cdot \bm{a}_t|\bm{o}_{t-k}
+$$
+
+自适应权重由当前预测与历史预测的 cosine similarity 决定：
+
+$$
+w_k^{\text{ada}} = \exp\left(\alpha \cdot \langle \bm{a}_t|\bm{o}_t,\ \bm{a}_t|\bm{o}_{t-k}\rangle\right)
+$$
+
+其中 $\langle\cdot,\cdot\rangle$ 是 cosine similarity，$\alpha=0.1$。
+
+**【Analysis】** 这个公式与 ACT 的 temporal ensemble 很相似，但关键区别是权重不是预设的指数衰减，而是由动作方向的一致性决定。一致的历史预测得到更高权重，不一致的模式则被压低，从而避免不同轨迹模式被平均掉。
+
+#### Action Normalization
+
+**【Paper】** 论文附录说明动作归一化到 $[-1,1]$；也试过归一化为 Gaussian，但未带来性能提升。
+
+**【Code】** 推理时 `predict_action` 使用 `dataset_statistics.json` 中的 `q01/q99` 反归一化：
+
+$$
+\hat{\bm{a}} = 0.5 \cdot (\hat{\bm{a}}_{\text{norm}} + 1) \cdot (q_{99} - q_{01}) + q_{01}
+$$
+
+并把归一化动作 clip 到 $[-1,1]$；夹爪维度按 `<0.5` 二值化为 0、否则为 1。
+
+### 4.4 Training
+
+**【Paper】**
+
+- **Base Model**：Prismatic VLM，视觉模块 DINOv2 + SigLIP，语言模块 LLaMA-2 7B；视觉和语言模块用 OpenVLA 的预训练权重初始化。
+- **Training Data**：OXE 中 25 个单臂、有第三视角相机的数据集，约 0.4M 条轨迹、22.5M 帧。数据 mixture 主要沿用 Octo/OpenVLA，但不使用 Language Table 和 DROID。
+- **Action Horizon**：默认当前动作 + 15 个未来动作，动作模块 context length 为 17。
+- **Optimization**：global batch size 256，constant learning rate `2e-5`，训练超过 135K iterations。
+- **Hardware**：16 张 NVIDIA A100，使用 PyTorch FSDP，约 5 天。
+- **Diffusion Training**：每个 sample 使用 8 个 diffusion step/noise 实例参与 loss。
+- **Data Augmentation**：随机 crop、brightness、contrast、saturation、hue。
+- **Padding**：示教末端不足未来动作窗口时，用 stationary action padding。
+
+**【Code】**
+
+- `conf/vla.py` 注册 `prism-dinosiglip-224px+oxe+diffusion`，data mix 为 `oxe_magic_soup_plus_minus`，`global_batch_size=256`、`learning_rate=2e-5`。
+- `scripts/train.py` 默认 `future_action_window_size=15`、`action_model_type='DiT-B'`、`repeated_diffusion_steps=8`。
+- `training/strategies/base_strategy_cogact.py` 在训练循环中把 `repeated_diffusion_steps` 传给 `CogACT.forward`。
+- 官方 README 明确建议 fine-tune 用 full finetuning 而不是 LoRA，理由是“full finetuning 更短时间得到更好性能”；这属于代码仓库的工程建议，论文正文没有详细比较。
+
+<Algorithm number={1} title='CogACT Training' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>
+    OXE 数据集、预训练 Prismatic
+    VLM、action_dim=7、future_action_window_size=15、repeated_diffusion_steps=8
+  </div>
+  <div slot='output'>训练完成的 CogACT VLA：VLM + DiT 动作模块</div>
+  <AlgorithmStep keyword='Given'>
+    加载 OpenVLA/Prismatic VLM 权重，初始化 DiT 动作模块
+  </AlgorithmStep>
+  <AlgorithmStep keyword='for'>每个 training step</AlgorithmStep>
+  <AlgorithmStep indent={1}>采样图像、指令、长度为 16 的连续动作序列</AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    对图像和指令做 VLM forward，提取最后一个 cognition token 的 hidden feature
+  </AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    对每个 sample 重复 8 次：采样 noise 和 diffusion timestep，构造 noisy action
+  </AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    DiT 以 cognition feature + timestep + noisy action 为输入，预测 noise
+  </AlgorithmStep>
+  <AlgorithmStep indent={1}>计算 noise prediction MSE loss，反向传播更新 VLM 和 DiT</AlgorithmStep>
+  <AlgorithmStep indent={1}>用 FSDP、BF16、constant LR 2e-5 更新参数</AlgorithmStep>
+  <AlgorithmStep keyword='end for' />
+  <AlgorithmStep keyword='return'>训练或 fine-tune 后的 CogACT checkpoint</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】**
+
+- 推理时 VLM 只生成 1 个 cognition token，不生成动作 token。
+- 动作模块从标准 Gaussian noise 开始，用 DDIM 10 步去噪。
+- 默认使用 CFG scale 1.5；CFG 通过同时计算 conditioned 和 unconditioned 预测提升动作质量。
+- Adaptive Action Ensemble 把当前预测和最近 $K$ 次历史预测按 cosine similarity 加权；$K$ 与机器人单帧移动距离成反比，用训练集 action std 估计，Google Robot 为 2、WidowX 为 7。
+- 最终只执行当前时间步动作，而不是把 16 步动作全部开环执行。
+
+**【Code】**
+
+- `vla/cogactvla.py` 的 `predict_action` 构造 prompt `What action should the robot take to {instruction.lower()}?`，调用 VLM `generate(max_new_tokens=1)` 提取 cognition feature。
+- DDIM 由 `action_model.create_ddim(ddim_step=10)` 创建；`deploy.py` 默认 `num_ddim_steps=10`、`cfg_scale=1.5`、`action_ensemble_horizon=2`。
+- `sim_cogact/cogact_policy.py` 为 Google Robot 默认 `action_ensemble_horizon=2`，WidowX 默认 7；Google Robot 还对夹爪命令做 sticky gripper repeat。
+
+<img
+  src='https://pic.hana0721.top/blog/paper-deep-dive-cogact/cogact-inference.83aryklnoz.webp'
+  alt='CogACT 论文 Figure 3：K=2 时的 Adaptive Action Ensemble 推理示意图'
+  class='zoomable'
+  width='974'
+  height='470'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+<Algorithm number={2} title='CogACT Inference with Adaptive Action Ensemble' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前 RGB 图像、语言指令、unnorm_key、CFG scale、DDIM steps</div>
+  <div slot='output'>当前时间步实际执行的 7 维动作</div>
+  <AlgorithmStep>预处理图像和 prompt，拼接训练时的特殊 empty token 与 cognition token</AlgorithmStep>
+  <AlgorithmStep>VLM 以 max_new_tokens=1 生成 cognition feature</AlgorithmStep>
+  <AlgorithmStep>从标准 Gaussian 采样初始 noise，shape 为 [16, 7]</AlgorithmStep>
+  <AlgorithmStep>若 CFG scale > 1，把 noise 复制一份并拼接 unconditioned condition</AlgorithmStep>
+  <AlgorithmStep>用 DDIM 10 步逐步去噪，得到 normalized action sequence</AlgorithmStep>
+  <AlgorithmStep>clip 到 [-1,1]，夹爪按 0.5 阈值二值化</AlgorithmStep>
+  <AlgorithmStep>用目标 dataset 的 q01/q99 反归一化为真实动作</AlgorithmStep>
+  <AlgorithmStep>用 Adaptive Action Ensemble 融合当前与历史预测，输出当前动作</AlgorithmStep>
+  <AlgorithmStep keyword='return'>7 维末端执行器相对动作交给低层控制器执行</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】**
+
+| 论文描述                 | 代码位置                          | 实际行为                                                                       |
+| ------------------------ | --------------------------------- | ------------------------------------------------------------------------------ |
+| VLM 与动作模块组合       | `vla/cogactvla.py`                | `CogACT` 包装 `PrismaticVLM` 和 `ActionModel`；训练时输出 VLM loss 与动作 loss |
+| Cognition token 提取     | `vla/cogactvla.py`                | 去掉视觉 patch 后，取 attention mask 最后一个 token 的 hidden feature          |
+| DiT action module        | `action_model/models.py`          | `DiT_S/B/L`，condition token 与动作 token 一起 self-attention                  |
+| Diffusion process        | `action_model/action_model.py`    | squaredcos cap v2，100 steps；loss 为 noise prediction MSE                     |
+| DDIM inference           | `action_model/action_model.py`    | `create_ddim(ddim_step=10)`                                                    |
+| Adaptive Action Ensemble | `sim_cogact/adaptive_ensemble.py` | cosine similarity + `exp(alpha * cos)` 加权                                    |
+| Training config          | `conf/vla.py`、`scripts/train.py` | `prism-dinosiglip-224px+oxe+diffusion`、`DiT-B`、8 diffusion steps             |
+| Deployment               | `scripts/deploy.py`               | Flask HTTP 服务，默认 CFG 1.5、DDIM 10、BF16                                   |
+
+**【Code】** 两处值得注意：
+
+1. 官方 README 里把 adaptive ensemble 文件写成 `evaluation/adaptive_ensemble.py`，实际仓库中路径是 `sim_cogact/adaptive_ensemble.py`。
+2. README 报告 CogACT-Base 在单张 A6000、BF16 下平均推理约 181ms，约 5.5 Hz；同设备 OpenVLA 约 307ms。CogACT 一次生成 16 个动作，OpenVLA 一次只生成 1 个动作。该数据来自官方代码仓库 README，论文正文没有给出这一组速度数字。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+**【Paper】**
+
+- **Simulation**：SIMPLER 环境。Google Robot 有 Visual Matching（VM）和 Variant Aggregation（VA）两种设置，任务为 Pick Coke Can、Move Near、Open/Close Drawer、Open Top Drawer and Place Apple。WidowX 只有 VM，任务为 Put Spoon on Towel、Put Carrot on Plate、Stack Green Block on Yellow Block、Put Eggplant in Yellow Basket。
+- **Evaluation metric**：success rate。
+- **Simulation implementation**：单张 A6000 或 A100 GPU；DDIM 10 步；CFG scale 1.5；统一使用 Adaptive Action Ensemble。
+- **Real-world Realman**：7-DoF Realman 机械臂 + 1-DoF gripper，RGB 图像由 Intel RealSense 采集，手眼标定后把动作统一到相机/机器人坐标系。
+- **Realman tasks**：Pick（Banana / Lemon / Avocado 放到指定颜色 plate）、Stack（cup / bowl 按颜色堆叠）、Place（把 block 放到另一种颜色 block 上）。
+- **Realman data**：Pick 48 条、Stack 67 条、Place 79 条、其他任务 197 条，共 391 条 demo；与评测完全相同的任务 demo 很少，例如“香蕉放到黄色 plate”只有 2 条。
+- **Real-world Franka**：7-DoF Franka 机械臂 + 1-DoF gripper，Kinect DK 采集 RGB；任务为 Close the oven door、Open the oven door、Pick up the green brush、Pick up a bowl containing food。
+- **Franka data**：每个任务 100 条，共 400 条 demo。
+- **Fine-tuning implementation**：全部模型在 OXE 预训练后 full fine-tune；CogACT 只测 10K steps checkpoint（约 7.5 小时），Octo/OpenVLA 测多个 checkpoint 并选真实任务表现最好的。
+- **Trials**：Realman Pick 每 object 8 trials，Stack 每 object 24 trials，Place 24 trials；Franka 每任务 11 trials；WidowX 原 24 trials 用 5 个随机 seed 重复以增强统计性。
+
+<img
+  src='https://pic.hana0721.top/blog/paper-deep-dive-cogact/cogact-task-realman.3gp4xvn45g.webp'
+  alt='CogACT 论文 Figure 4：Realman 与 Franka 的真实世界评测环境'
+  class='zoomable'
+  width='2928'
+  height='455'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+<img
+  src='https://pic.hana0721.top/blog/paper-deep-dive-cogact/cogact-seen-setting.41ysk6hkex.webp'
+  alt='CogACT 论文附录 Figure III：Realman seen task setup'
+  class='zoomable'
+  width='1150'
+  height='482'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+### 5.2 Main Results
+
+**【Paper】** Google Robot 仿真结果：
+
+| Google Robot |   VM Avg |   VA Avg |
+| ------------ | -------: | -------: |
+| RT-1         |     52.4 |     43.7 |
+| RT-1-X       |     42.4 |     30.2 |
+| RT-2-X       |     46.3 |     54.4 |
+| Octo-Base    |     11.0 |      1.2 |
+| OpenVLA      |     34.3 |     39.3 |
+| CogACT       | **74.8** | **61.3** |
+
+在 VM 设置中，CogACT 在四个子任务上的成功率分别为 91.3、85.0、71.8、50.9；在 VA 设置中为 89.6、80.8、28.3、46.6。
+
+**【Paper】** WidowX 仿真结果：
+
+| WidowX     |   VM Avg |
+| ---------- | -------: |
+| RT-1-X     |      1.1 |
+| Octo-Base  |     17.5 |
+| Octo-Small |     26.7 |
+| OpenVLA    |      4.2 |
+| CogACT     | **51.3** |
+
+**【Paper】** Realman 真实任务结果：
+
+| Method    | Pick Avg | Stack Avg | Place Avg | Task All Avg |
+| --------- | -------: | --------: | --------: | -----------: |
+| Octo-Base |      8.3 |       0.0 |       6.3 |          4.9 |
+| OpenVLA   |      8.3 |      15.6 |      12.5 |         12.1 |
+| CogACT    | **70.8** |  **82.3** |  **60.4** |     **71.2** |
+
+**【Paper】** Franka 真实任务结果：
+
+| Method    | Close Oven | Open Oven | Pick Bowl | Pick Brush |      Avg |
+| --------- | ---------: | --------: | --------: | ---------: | -------: |
+| Octo-Base |        0.0 |       0.0 |      27.3 |        0.0 |      5.8 |
+| OpenVLA   |       18.2 |       0.0 |       9.1 |        0.0 |      6.8 |
+| CogACT    |   **63.6** |  **72.7** |  **72.7** |   **36.4** | **61.4** |
+
+**【Paper】** 论文摘要给出总体对比：CogACT 在仿真平均成功率上比相同量级（7B）的 OpenVLA 高约 35 个百分点以上，在真实机器人实验中高约 55 个百分点以上；在仿真中比 55B 的 RT-2-X 高约 18 个百分点。
+
+### 5.3 Ablation Study
+
+**【Paper】Action Model Architectures**
+
+| Action Model       | GR VM | GR VA | WR VM | Average |
+| ------------------ | ----: | ----: | ----: | ------: |
+| MLP (3-Layer, 3M)  |  52.2 |  52.4 |  47.1 |    50.6 |
+| MLP (7-Layer, 89M) |  61.4 |  48.0 |  48.1 |    52.5 |
+| DiT-Small (13M)    |  73.3 |  51.3 |  51.0 |    58.5 |
+| DiT-Base (89M)     |  74.8 |  61.3 |  51.3 |    62.5 |
+| DiT-Large (308M)   |  76.7 |  59.3 |  58.3 |    64.8 |
+
+论文认为：相同参数量下 transformer 优于 MLP，DiT 比 MLP 更擅长动作序列建模；DiT-Large 平均成功率最高，且动作模块平均成功率大致随参数量的对数线性增长。
+
+**【Paper】Multi-Step Action Prediction**
+
+| Future Steps | GR VM | GR VA | WR VM | Average |
+| ------------ | ----: | ----: | ----: | ------: |
+| 0            |  73.4 |  49.0 |   6.3 |    42.8 |
+| 3            |  70.4 |  58.9 |  37.1 |    55.5 |
+| 15           |  74.8 |  61.3 |  51.3 |    62.5 |
+| 31           |  54.3 |  47.6 |  51.7 |    51.2 |
+
+15 future steps 效果最好；预测 31 步时 GR 反而明显下降，说明动作窗口过长会损害任务性能。
+
+**【Paper】Adaptive Action Ensemble**
+
+| Strategy          | GR VM | GR VA | WR VM | Average |
+| ----------------- | ----: | ----: | ----: | ------: |
+| Action Chunking   |  67.4 |  52.5 |  32.1 |    50.7 |
+| Temporal Ensemble |  75.0 |  59.9 |  41.9 |    58.9 |
+| Adaptive Ensemble |  74.8 |  61.3 |  51.3 |    62.5 |
+
+**【Paper】Classifier-Free Guidance**
+
+| CFG Scale | GR VM | GR VA | WR VM | Average |
+| --------- | ----: | ----: | ----: | ------: |
+| 1.0       |  66.9 |  54.0 |  46.3 |    55.7 |
+| 1.5       |  74.8 |  61.3 |  51.3 |    62.5 |
+| 3.0       |  76.6 |  63.1 |  48.3 |    62.7 |
+
+论文默认 CFG scale 为 1.5，因为它在三个设置上整体提升明显，且与 3.0 差距很小。
+
+### 5.4 Generalization
+
+**【Paper】** 论文把泛化拆成三类：
+
+1. **Unseen tables + unseen distractors**：把桌子颜色改成接近背景/地面，加入三个未见过的干扰物。Realman 上 CogACT 平均 58.4%，OpenVLA 为 9.7%。
+2. **Unseen colors**：Pick 任务中使用绿色、粉色 plate 等未见颜色。CogACT 87.5%，OpenVLA 0%。
+3. **Unseen shapes / categories**：三角形、拱形 block、小罐子、圆柱 block、茄子、锤子等未见物体。CogACT 81.3% / 25.0%，OpenVLA 6.3% / 12.5%；三组平均 CogACT 64.6%，OpenVLA 6.3%。
+
+<img
+  src='https://pic.hana0721.top/blog/paper-deep-dive-cogact/cogact-unseen-setting.lwgs37xof.webp'
+  alt='CogACT 论文附录 Figure IV：Realman unseen task setup 与干扰物'
+  class='zoomable'
+  width='1150'
+  height='482'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+**【Paper】** 在 Franka 上的结果也属于 embodiment generalization：CogACT 不需要重新设计架构，只 fine-tune 400 条 demo，就在开/关烤箱门、拾取 brush 和食物 bowl 上显著超过 OpenVLA 与 Octo。
+
+**【Analysis】** 这些泛化结果主要集中在物体外观、桌面背景、干扰物和机器人本体，任务本身仍是训练中见过的 Pick/Stack/Place 类操作。论文没有声称模型能完成完全未见过的长时序任务，也没有做语言指令组合的独立泛化评测。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** CogACT 的有效性可能来自四个叠加因素：
+
+1. **VLM 只做认知压缩**：7B VLM 不需要在粗糙的离散 token 空间里表达毫米级动作，只需要输出一个 4096 维 hidden feature，这降低了 VLM 输出层的负担。
+2. **DiT 专门建模动作**：扩散模型天然匹配连续、多模态动作分布，self-attention 又能建模 16 步动作序列的时间相关性。
+3. **动作模块规模足够大**：13M 的小 DiT 已经比 3M diffusion head 好很多，89M/308M 继续提升；这说明 VLA 的瓶颈不只是 VLM，动作解码器也需要足够容量。
+4. **Adaptive Ensemble 保留模式信息**：动作是多模态的，按相似度加权比固定 temporal ensemble 更少产生“不存在的平均动作”。
+
+### 6.2 核心创新
+
+**【Paper】** 核心创新可以压缩成一句：CogACT 把 VLA 从“让 VLM 说动作”改成“让 VLM 想动作、让大型 DiT 做动作”，并系统验证了这种 componentized 架构与 action module scaling。
+
+**【Analysis】** 比起具体的某个网络层，论文更重要的贡献是“动作模块应该被当作第一等研究对象”这个范式。它用实验说明，给 VLA 增加几百 M 参数的专用动作模型，比继续盲目增大 VLM 更划算。
+
+### 6.3 与已有方法的本质区别
+
+**【Analysis】**
+
+- **vs RT-2 / OpenVLA**：CogACT 不用 action tokenization，不把动作放进 VLM 词汇表；动作由独立连续扩散模型生成。
+- **vs RoboFlamingo 等 action head**：CogACT 不用简单 LSTM/MLP 回归，而是用概率扩散模型建模多模态动作序列。
+- **vs Octo**：Octo 的 diffusion head 只有约 3M 参数，CogACT 研究 13M 到 308M 的大型 DiT action module。
+- **vs 独立 Large Action Model（DiT Policy/RDT）**：这些方法使用冻结视觉/语言 encoder，CogACT 直接基于可端到端训练的 7B VLM，保留更强的互联网视觉-语言知识。
+
+### 6.4 关键假设
+
+**【Paper】** 方法隐含以下假设：
+
+- VLM 的最后一个 hidden token 能压缩出足够指导动作生成的高层认知信息；
+- 单张 RGB 图像足以决定接下来 16 步的相对动作；
+- 动作分布可以用 diffusion process 有效建模；
+- 不同机器人的 7 维末端执行器相对动作表示足够统一，因此 OXE 预训练可以迁移到新机器人。
+
+**【Analysis】** 其中“单张图像决定 16 步动作”是短期 open-loop 假设。Adaptive Ensemble 每步重新推理并融合历史预测，正是为了在保持轨迹平滑的同时重新引入视觉反馈，因此它部分缓解了纯 action chunking 的误差累积。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 论文没有独立的 Limitations 章节，也没有系统列出失败模式。正文和结论主要强调优势；附录对评测细节的说明较多，但对“哪些任务失败、为什么失败”没有给出专门分析。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+- **Long-horizon / 高精度接触任务**：论文实验以桌面 pick/place、stack、简单 drawer 和 oven door 为主，没有验证线缆、布料、可变形物体或高精度装配等更长 horizon 任务。
+- **真实机器人评测样本量有限**：Realman 每 object 8 次、Franka 每任务 11 次，虽然超过很多 VLA 论文，但统计置信区间仍较宽。
+- **Baseline 选择差异**：真实实验对所有模型用同样数据 fine-tune，但 CogACT 只测 10K steps，OpenVLA/Octo 测多个 checkpoint 并选最好；这种选择对 CogACT 更“保守”，却不能完全排除 checkpoint 选择的公平性问题。
+- **没有 proprioception 与历史观测**：模型只依赖单帧图像，对机械臂自遮挡、深度歧义或需要连续力感知的任务可能不足。
+- **固定 7 维动作空间**：动作定义为末端相对位姿 + 夹爪，不直接支持灵巧手、全身移动或非笛卡尔控制。
+- **动作模块 scaling 的边界未完全刻画**：论文测到 308M，没有给出更大 action module 的收益是否持续，以及何时开始过拟合或计算不可控。
+- **CFG scale、K 等超参数仍依赖仿真/数据集统计**：K 用 `C=K*std` 估计，但如何为新机器人稳定选择 K 仍需要工程经验。
+
+## 8. 启发与研究思考
+
+### 8.1 最值得借鉴的地方
+
+**【Analysis】** 最值得借鉴的是“认知与动作解耦”的建模思路：保留强大 VLM 的感知和语义能力，但不强迫它的 tokenizer 表达连续动作。用 hidden feature 作为条件，再接一个专门的连续生成模型，既能获得 VLM 的泛化能力，又能为动作精度保留独立容量。
+
+### 8.2 可改进点
+
+**【Analysis】**
+
+- 在 DiT 中加入动作历史或 proprioception，增强闭环和接触相关任务。
+- 用 flow matching、consistency model 或更少采样步数降低推理成本，同时保持成功率。
+- 对 Adaptive Action Ensemble 做不确定性估计，避免相似但都不正确的历史预测获得过高权重。
+- 评测更细粒度失败模式，例如物体位姿、光照、指令长度、干扰物类型对成功率的影响。
+
+### 8.3 潜在 Research Gap
+
+**【Analysis】**
+
+- VLA 目前仍主要用 RGB 做策略输入，力、触觉、深度和多帧时间信息很少进入统一模型。
+- “动作模块多大才够”仍缺少跨任务、跨 embodiment 的系统研究。
+- 真实机器人泛化评测缺少统一协议，不同论文的 fine-tune 数据量、checkpoint 选择、任务定义差异很大。
+
+### 8.4 如果基于 CogACT 做下一篇工作
+
+**【Analysis】**
+
+1. **CogACT + Long-Horizon Action Chunking**：保留 cognition token，把 DiT 输出扩展到更长、带 subgoal 或 skill 边界的动作序列。为什么：当前 16 步窗口适合短程桌面操作，但长任务仍依赖每步重规划。实现难度：中。
+2. **CogACT + History/Proprioception**：在 DiT 输入中加入上一段动作或关节状态。为什么：很多操作问题来自状态估计和接触反馈，而单帧 RGB 无法完全表达。实现难度：中。
+3. **更快的动作采样**：研究 consistency models 或 flow matching，让 DiT 在少步数下保持成功率。为什么：当前 10 步 DDIM 已经较高效，但 5.5 Hz 对高动态操作仍有压力。实现难度：中。
+4. **跨 embodiment 的 action module 共享**：把 DiT 的 7 维动作输入换成 canonical action space 或 skill-level token。为什么：CogACT 已经在多 embodiment 上表现不错，但动作模块仍绑定末端位姿 + 夹爪。实现难度：高。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。论文正文没有独立 Limitations 章节，因此 7.1 如实说明 这一事实，7.2
+  仅代表本精读的分析。
+</Aside>
