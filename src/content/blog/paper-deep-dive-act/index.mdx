@@ -122,22 +122,7 @@ ACT 的本质是一个 Conditional VAE。训练时有一个额外的 CVAE encode
 
 ![ACT 的 CVAE 架构：左侧 encoder 只在训练时使用，右侧 decoder 作为策略（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-act/act-architecture-crop.64el78s53p.webp)
 
-```text
-Training:
-[CLS] + joints + action sequence
-  -> CVAE encoder (transformer encoder)
-  -> mu, logvar -> sample z (32 dim)
-
-4 RGB images -> ResNet18 -> image tokens
-qpos (14) -> linear -> 512
-z (32) -> linear -> 512
-concat -> transformer encoder -> memory
-  -> transformer decoder (k queries)
-  -> action head -> k x 14
-
-Inference:
-same observations -> z = 0 -> predict k x 14
-```
+整体数据流是多视角图像与关节位置共同编码为 token，再由 decoder 生成未来 $k$ 步关节目标。训练和推理的具体步骤分别在 4.4 和 4.5。
 
 ### 4.2 核心模块
 
@@ -203,22 +188,6 @@ $q_\phi$ 是 CVAE encoder，$\bar o_t$ 是不含图像、只含关节位置的�
 
 **【Code】** 官方 `policy.py` 中 ACT 的 reconstruction loss 确实使用 `F.l1_loss`，总损失为 `l1 + kl_weight * KL`，所以正文描述和代码一致，Algorithm 1 的 MSE 应视为旧写法。
 
-<Algorithm number={1} title='ACT Training' inputLabel='输入' outputLabel='输出'>
-  <div slot='input'>示教数据集 $D$、chunk size $k$、KL 权重 $\beta$</div>
-  <div slot='output'>训练后的策略 $\pi_\theta(\hat a_{t:t+k} \mid o_t)$</div>
-  <AlgorithmStep keyword='Given'>示教数据集 $D$、chunk size $k$、KL 权重 $\beta$</AlgorithmStep>
-  <AlgorithmStep>初始化 CVAE encoder $q_\phi(z \mid a_{t:t+k}, \bar o_t)$</AlgorithmStep>
-  <AlgorithmStep>初始化策略 decoder $\pi_\theta(\hat a_{t:t+k} \mid o_t, z)$</AlgorithmStep>
-  <AlgorithmStep keyword='for'>迭代训练</AlgorithmStep>
-  <AlgorithmStep indent={1}>从 $D$ 采样当前观测 $o_t$ 和动作序列 $a_{t:t+k}$</AlgorithmStep>
-  <AlgorithmStep indent={1}>从 $q_\phi(z \mid a_{t:t+k}, \bar o_t)$ 采样风格变量 $z$</AlgorithmStep>
-  <AlgorithmStep indent={1}>预测 $\hat a_{t:t+k}$，计算 reconstruction loss（论文 Algorithm 1 写 MSE，正文与代码使用 L1）</AlgorithmStep>
-  <AlgorithmStep indent={1}>计算 $D_{KL}(q_\phi(z \mid a_{t:t+k}, \bar o_t) \parallel \mathcal N(0, I))$，组合为 $\mathcal L$</AlgorithmStep>
-  <AlgorithmStep indent={1}>用 AdamW 更新参数 $\theta, \phi$</AlgorithmStep>
-  <AlgorithmStep keyword='end for' />
-  <AlgorithmStep keyword='return'>验证集 loss 最低的策略参数</AlgorithmStep>
-</Algorithm>
-
 #### Temporal Ensembling
 
 每次得到一个新的 action chunk 后，同一个目标时间步可能被多个重叠 chunk 预测。Temporal Ensembling 用指数权重加权平均：
@@ -253,15 +222,25 @@ $$
 - 超参数配置在 `imitate_episodes.py`：`enc_layers=4`、`dec_layers=7`、`nheads=8`、`hidden_dim=512`、`dim_feedforward=3200`。
 - 官方 README 建议真实数据至少训练 5000 epochs，或者 loss 平台后继续训练 3-4 倍时间。
 
+<Algorithm number={1} title='ACT Training' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>示教数据集 $D$、chunk size $k$、KL 权重 $\beta$</div>
+  <div slot='output'>训练后的策略 $\pi_\theta(\hat a_{t:t+k} \mid o_t)$</div>
+  <AlgorithmStep keyword='Given'>示教数据集 $D$、chunk size $k$、KL 权重 $\beta$</AlgorithmStep>
+  <AlgorithmStep>初始化 CVAE encoder $q_\phi(z \mid a_{t:t+k}, \bar o_t)$</AlgorithmStep>
+  <AlgorithmStep>初始化策略 decoder $\pi_\theta(\hat a_{t:t+k} \mid o_t, z)$</AlgorithmStep>
+  <AlgorithmStep keyword='for'>迭代训练</AlgorithmStep>
+  <AlgorithmStep indent={1}>从 $D$ 采样当前观测 $o_t$ 和动作序列 $a_{t:t+k}$</AlgorithmStep>
+  <AlgorithmStep indent={1}>从 $q_\phi(z \mid a_{t:t+k}, \bar o_t)$ 采样风格变量 $z$</AlgorithmStep>
+  <AlgorithmStep indent={1}>预测 $\hat a_{t:t+k}$，计算 reconstruction loss（论文 Algorithm 1 写 MSE，正文与代码使用 L1）</AlgorithmStep>
+  <AlgorithmStep indent={1}>计算 $D_{KL}(q_\phi(z \mid a_{t:t+k}, \bar o_t) \parallel \mathcal N(0, I))$，组合为 $\mathcal L$</AlgorithmStep>
+  <AlgorithmStep indent={1}>用 AdamW 更新参数 $\theta, \phi$</AlgorithmStep>
+  <AlgorithmStep keyword='end for' />
+  <AlgorithmStep keyword='return'>验证集 loss 最低的策略参数</AlgorithmStep>
+</Algorithm>
+
 ### 4.5 Inference
 
-**【Paper】**
-
-- 推理输入：当前 4 路 RGB 图像和当前关节位置。
-- 推理过程：CVAE encoder 被丢弃，$z$ 固定为 prior 均值，即零向量。
-- Action 产生方式：transformer decoder 一次性输出未来 `k` 步目标关节位置。
-- Action 转换：目标关节位置交给 Dynamixel 的低层 PID 控制器跟踪；论文强调使用 leader 机器人关节位置而不是 follower 位置，因为两者差值隐含力的大小。
-- Action Horizon / Chunking：默认 `k = 100`；不使用 temporal ensemble 时每隔 `k` 步重新查询，使用 temporal ensemble 时每个时间步都查询。
+**【Paper】** 推理时丢弃 CVAE encoder，$z$ 固定为零向量。给定当前 4 路 RGB 图像和关节位置，decoder 输出未来 `k` 步目标关节位置，并由 Dynamixel 的低层 PID 控制器跟踪；默认 `k = 100`。启用 temporal ensemble 时每个时间步重新查询并加权平均，否则每隔 `k` 步查询。
 
 **【Code】** 推理时若开启 `--temporal_agg`，`query_frequency=1`，并维护一个 `[T, T+num_queries, state_dim]` 的缓冲，对同一时间步的所有预测做指数加权平均；否则直接取 `all_actions[:, t % query_frequency]`。
 

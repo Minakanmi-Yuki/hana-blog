@@ -116,6 +116,19 @@ Use this structure in the MDX body:
 
 Use `ArxivRating` for the paper card at the top.
 
+## Section Ownership and Duplication Rules
+
+Assign each technical detail to one canonical section. Do not repeat the same training/inference pipeline in multiple sections.
+
+- `4.1 Overall Architecture`: show one paper architecture figure and one concise data-flow sentence. Do not write separate training and inference ASCII pipelines here.
+- `4.2 核心模块`: explain modules, inputs, outputs, and purpose. Do not include full training loops or inference loops.
+- `4.3 关键公式`: only formulas and variable explanations. Do not place `Algorithm` blocks here.
+- `4.4 Training`: describe data, loss, optimizer, and hyperparameters; put the formal training algorithm here with `Algorithm`.
+- `4.5 Inference`: describe runtime behavior and action execution; put the formal inference algorithm here with `Algorithm`.
+- `5.2` / `5.3`: describe results and ablations; do not restate method architecture unless directly explaining an ablation.
+
+If an `Algorithm` component exists for a process, keep surrounding prose concise and let the algorithm component be the authoritative step-by-step description. Avoid an ASCII flow that duplicates the same steps.
+
 ## Method Depth
 
 For every core method, answer:
@@ -141,6 +154,8 @@ import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
 ```
 
 Follow the usage in `src/content/blog/paper-deep-dive-act/index.mdx`.
+
+Place the training algorithm only in `4.4 Training` and the inference algorithm only in `4.5 Inference`.
 
 ## Figure Extraction
 

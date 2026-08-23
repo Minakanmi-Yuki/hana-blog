@@ -25,6 +25,7 @@ Choose one workflow:
 - Mark facts with `【Paper】`, `【Code】`, and `【Analysis】`.
 - Include key paper figures such as the system overview, architecture, method diagrams, and experimental results.
 - Crop paper figures before inserting them; verify the final image URL returns HTTP 200.
+- Keep each section's responsibilities distinct; do not repeat the same training or inference flow across overviews and algorithm blocks.
 - Use `Algorithm` and `AlgorithmStep` components for pseudocode.
 - Use `ArxivRating` at the top of generated posts.
 - Write one post per paper.
