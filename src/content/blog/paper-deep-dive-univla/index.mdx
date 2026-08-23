@@ -1,0 +1,351 @@
+---
+title: 'UniVLA 论文精读：Task-centric Latent Actions'
+publishDate: 2026-08-24
+updatedDate: 2026-08-24
+description: '精读 UniVLA：用任务中心的跨 embodiment latent action，把机器人轨迹、导航视频和人类视频统一到一个可迁移的 VLA policy。'
+heroImage:
+  { src: 'https://pic.hana0721.top/102841826_p0_master1200.4clh7xw95k.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '102841826'
+tags:
+  - 'paper deep dive'
+  - 'UniVLA'
+  - 'VLA'
+  - 'latent action'
+  - 'robot learning'
+paper:
+  arxivId: '2505.06111'
+  title: 'UniVLA: Learning to Act Anywhere with Task-centric Latent Actions'
+  authors:
+    - 'Qingwen Bu'
+    - 'Yanting Yang'
+    - 'Jisong Cai'
+    - 'Shenyuan Gao'
+    - 'Guanghui Ren'
+    - 'Maoqing Yao'
+    - 'Ping Luo'
+    - 'Hongyang Li'
+  venue: 'Robotics: Science and Systems (RSS)'
+  year: 2025
+  code: 'https://github.com/OpenDriveLab/UniVLA'
+  project: 'https://github.com/OpenDriveLab/UniVLA'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+
+<ArxivRating
+  id='2505.06111'
+  tldr='UniVLA 先从无动作视频中学习任务中心的 latent action，再让 Prismatic-7B 预测 latent action token，最后用轻量 action decoder 还原为不同机器人的连续动作。'
+  rank={5}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《UniVLA: Learning to Act Anywhere with Task-centric Latent Actions》
+
+**作者**：Qingwen Bu、Yanting Yang、Jisong Cai、Shenyuan Gao、Guanghui Ren、Maoqing Yao、Ping Luo、Hongyang Li
+
+**机构**：香港大学、OpenDriveLab、AgiBot
+
+**会议 / 期刊**：Robotics: Science and Systems（RSS）2025
+
+**论文链接**：[arXiv:2505.06111](https://arxiv.org/abs/2505.06111)
+
+**代码链接**：[OpenDriveLab/UniVLA](https://github.com/OpenDriveLab/UniVLA)
+
+<img
+  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-univla/univla-teaser_new.5j4xm54rwk.webp'
+  alt='UniVLA 跨 embodiment 预训练与部署概览（论文 Figure 1）'
+  class='zoomable'
+  width='2303'
+  height='685'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+### 一句话总结
+
+**【Paper】** UniVLA 的核心问题是：机器人数据中的动作标签依赖 embodiment，但互联网视频通常没有动作标签，怎样仍然训练一个能迁移到机械臂、导航车和真实机器人的 generalist VLA？作者先从相邻视频帧中学习离散的 **task-centric latent action**，再让 VLA 预测这些与机器人无关的 token，最后只用一个小型 action decoder 把 token 映射到目标机器人的低层动作。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出统一、无需人工 action alignment 的跨 embodiment latent action space，可混合 Open X-Embodiment、GNM 导航数据和 Ego4D 人类视频。
+2. 用两阶段 Latent Action Model（LAM）把视觉变化分解为 task-irrelevant 与 task-centric 部分，并冻结第一阶段 codebook，避免把背景运动误当成可执行动作。
+3. 以 Prismatic-7B 为 backbone，自回归预测 4 个 latent action tokens；16 个 code 的组合空间为 $16^4$，远小于直接预测 7 个 256-bin 动作 token 的空间。
+4. 用约 12.6M 参数的 action decoder 和 LoRA 完成 downstream adaptation；论文报告 LIBERO 平均成功率 95.2%、R2R oracle success 47.1%，真实 Piper 任务平均成功率 81.7%。
+
+**【Analysis】** 这篇论文的真正转折点不是“给 VLA 增加一个 tokenizer”，而是把“可迁移的中间监督”从机器人 action 改成了视频中可观察、跨 embodiment 的短时动态。这样，action-free human video 才能直接贡献给 policy，而不是只能做视觉预训练。
+
+## 2. 背景与相关工作
+
+**【Paper】** RT-1、Octo、OpenVLA 等 generalist policy 通常在机器人轨迹上学习统一 policy，但它们仍依赖 action labels。不同机器人的 action space、控制频率、相机视角和 proprioception 不同；把 Franka 的末端位姿、导航车的速度和人手运动放进同一 action vocabulary，需要手工定义映射，扩展性很差。
+
+已有的 latent-action 工作（例如 Genie、LAPA）说明可以从视频中压缩“发生了什么”，但如果 latent action 把所有视觉变化都编码进去，就会包含蒸汽、相机抖动和旁观者移动等与任务无关的因素。**【Analysis】** UniVLA 的关键判断是：通用 policy 需要的不是“所有变化的压缩”，而是“在语言任务约束下，哪些变化值得被执行”。
+
+## 3. 问题定义
+
+**【Paper】** 给定当前图像 $o_t$、约一秒后的图像 $o_{t+k}$ 和语言指令 $ell$，LAM 学习离散 latent action $z_t$：
+
+$$
+z_t = q_psi(o_t,o_{t+k},ell),\qquad
+\hat o_{t+k}=d_phi(o_t,z_t,ell).
+$$
+
+预训练阶段不使用机器人 action；下游阶段给定新 embodiment 的图像、语言和可选 proprioception，policy 预测 latent token，再由 decoder 输出目标 action chunk。
+
+| 维度              | UniVLA 设置                                    |
+| ----------------- | ---------------------------------------------- |
+| Observation       | RGB frame；下游可附加 proprioception           |
+| Language          | 数据集提供的 task instruction                  |
+| Latent action     | 4 个 token；每个 codebook 16 个 code           |
+| Latent interval   | 约 1 秒的相邻帧间隔                            |
+| Policy backbone   | Prismatic-7B（SigLIP + DINOv2 + LLaMA-2）      |
+| Downstream action | LIBERO/CALVIN 为 7-D，R2R 为 4-D，Piper 为 7-D |
+| 评测              | LIBERO、CALVIN、SimplerEnv、R2R 与真实 Piper   |
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![UniVLA 两阶段 task-centric latent action learning（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-univla/lam_v3.6bht3vldpu.webp)
+
+**【Paper】** 整体由三段组成：
+
+1. **LAM pretraining**：冻结 DINOv2，把两帧图像编码成 patch feature，预测并量化 latent action，再重建未来帧 feature。
+2. **Next-latent prediction**：把量化 code 映射到 LLaMA vocabulary，Prismatic-7B 根据当前视觉和语言自回归输出 4 个 token。
+3. **Latent decoding**：用视觉 attention pooling 和 latent-action attention pooling 汇聚 hidden states，线性投影为目标机器人动作 chunk。
+
+### 4.2 核心模块
+
+#### 两阶段 LAM：先学变化，再筛任务相关变化
+
+![UniVLA 的 latent action decoder 与 policy head（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-univla/post-train_v1.8vnngilcdj.webp)
+
+**【Paper】** Stage 1 使用 language-conditioned inverse dynamics encoder。输入 $o_t,o_{t+k}$ 和 $ell$，spatiotemporal transformer 通过 4 个 learnable action query 生成 task-irrelevant latent，再经 VQ codebook 量化；spatial-transformer decoder 根据 $o_t$ 和量化 latent 重建 $o_{t+k}$ 的 DINO patch features。T5 的语言 embedding 让模型知道当前动作语境。
+
+Stage 2 复制 Stage 1 的网络并冻结其 VQ codebook，额外学习 task-centric codebook。encoder 同时输出 uncontrollable latent $a_{TI}$ 与 controllable latent $a_{TC}$，decoder 使用两者重建未来视觉。这样模型可以把“画面里发生了什么”和“任务要求机器人做什么”分开。
+
+**【Code】** `latent_action_model/genie/modules/lam.py` 中 `UncontrolledDINOLatentActionModel` 与 `ControllableDINOLatentActionModel` 都固定 `num_codes = 4`；Stage 2 通过 `vq_action` 学新 codebook，并保留第一阶段的 `vq_uncontrol`。`DINO_LAM` 在 `genie/model.py` 中加载 Stage 1 checkpoint 时只恢复 `vq` 与 action-latent 相关权重，明确实现了“冻结旧 codebook、学习新控制变量”的设计。
+
+#### Prismatic-7B 的 next-latent policy
+
+**【Paper】** UniVLA 不直接预测低层动作，而是扩展 tokenizer 加入 `ACT_i` token。给定当前观测和语言，policy 自回归预测长度 $N=4$ 的 latent action group。16 个 code 的组合只需 $4\log_2 16=16$ bit 的离散选择，远低于 OpenVLA 的 7 个 256-bin action token。
+
+**【Code】** `finetune_libero.py`、`finetune_calvin.py` 和 `finetune_r2r.py` 从 VLM 最后一层取视觉 hidden states 与最后 4 个 latent token hidden states，过滤标签大于 action vocabulary 的位置，并将 latent token 序列送入低层 decoder。
+
+#### Action decoder：让同一个 latent 能落到不同机器人
+
+**【Paper】** 视觉 embedding 先通过 multi-head attention pooling 得到 $E_v'$；再以 $q_a+E_v'$ 查询 latent action embedding，得到 $E_a'$，最后用线性层输出目标 action space。训练同时优化 next-latent cross entropy 与 low-level action 的 L1 loss。decoder 仅约 12.6M 参数，LoRA 后总 trainable parameters 约 123M。
+
+**【Code】** `vla-scripts/finetune_libero.py` 的 `ActionDecoder` 使用两个 `MAPBlock`，hidden size 为 512，输出 `7 × window_size`，默认 `window_size=12`。R2R 改成 4-D action；`real_world_deployment.py` 额外加入 7-D proprio projection 和 temporal aggregation。代码中的配置还允许 `freeze_vla`，因此可以只训练 decoder 做低成本适配。
+
+#### 历史 latent action：用自己的输出做紧凑记忆
+
+**【Paper】** 每个 timestep 将上一组 4 个 latent token 追加到 instruction prompt，形成反馈回路。它只增加 4 个 token，而不是重复输入多帧图像；在 R2R 上从 30.6% 提升到 47.1%，LIBERO-Long 从 88.1% 提升到 92.0%。
+
+### 4.3 关键公式
+
+#### Stage 1：task-irrelevant latent
+
+$$
+\hat a_{TI}=I_\psi([O_t;O_{t+k};\ell]),\quad
+\tilde a_{TI}=VQ_{TI}(\hat a_{TI}),\quad
+\hat O_{t+k}=F_\phi([O_t;\tilde a_{TI};\ell]).
+$$
+
+$O_t$ 和 $O_{t+k}$ 是冻结 DINOv2 的 patch features；$I_\psi$ 是 inverse-dynamics encoder；$VQ_{TI}$ 把连续 latent 替换为最近的 code；$F_\phi$ 只看当前帧和 latent，不能偷看未来帧。
+
+#### Stage 2：task-centric decomposition
+
+$$
+(\hat a_{TI},\hat a_{TC})=I([O_t;O_{t+k};a_{TI};a_{TC}]),\quad
+\hat O_{t+k}=F([O_t;VQ_{TI}(a_{TI});VQ_{TC}(a_{TC})]).
+$$
+
+第一阶段的 $VQ_{TI}$ 冻结，$VQ_{TC}$ 学习语言任务所需的 controllable dynamics。损失由未来 DINO feature 的 MSE、两套 codebook loss 和 commitment loss 组成。
+
+#### Policy 与 action decoder
+
+$$
+\mathcal L_{latent}= -\sum_{i=1}^{4}\log\pi_\theta(a_{z,i}\mid o_t,\ell,a_{z,<i}),
+\qquad
+\mathcal L=\mathcal L_{latent}+\lambda\lVert \hat A-A\rVert_1.
+$$
+
+$a_z$ 是 4 个离散 latent token，$A$ 是目标机器人动作 chunk。前一项训练 VLA 学会“下一步发生什么”，后一项让 decoder 学会“这个 latent 在当前 embodiment 上怎样执行”。
+
+### 4.4 Training
+
+**【Paper】** LAM 使用约一秒间隔的 frame pair，Stage 1 先训练语言条件的变化编码，Stage 2 在其上学习 task-centric code。policy 预训练混合 OXE 单臂操作、GNM 导航和 Ego4D 人类视频；动作和 proprioception 在 LAM 预训练时全部丢弃，只保留帧与文字。完整 policy 预训练使用 global batch size 1,024、学习率 $2\times10^{-5}$、约 20,000 steps，论文报告 32 张 A100 约 30 小时；Bridge/Human 子集约 200 A100 GPU-hours。
+
+**【Code】** `latent_action_model/config/lam-stage-1.yaml` 与 `lam-stage-2.yaml` 默认 `lam_num_latents=16`、`lam_latent_dim=128`、`lam_num_codes=4`；`finetune_libero.py` 默认 batch 8、LoRA rank 32、学习率 `3.5e-4`、30k steps（Long 为 40k），action window 为 12。代码中的配置与论文摘要的“轻量 decoder”一致，但具体参数会随 benchmark 脚本变化，不能把单个脚本默认值当成所有实验的唯一设置。
+
+<Algorithm number={1} title='UniVLA Training' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>无动作视频与指令 $D_v$、机器人示教 $D_r$、两阶段 LAM、Prismatic-7B</div>
+  <div slot='output'>跨 embodiment latent-action policy 与目标机器人 action decoder</div>
+  <AlgorithmStep keyword='Stage 1'>
+    从 $D_v$ 采样 $(O_t,O_{t + k},\ell)$，训练 inverse-dynamics encoder、VQ$_{TI}$ 和 DINO feature
+    decoder
+  </AlgorithmStep>
+  <AlgorithmStep keyword='Stage 2'>
+    冻结 VQ$_{TI}$，加入 VQ$_{TC}$，用 controllable / uncontrollable latents 重建未来 DINO features
+  </AlgorithmStep>
+  <AlgorithmStep>
+    用两个 codebook 对跨 embodiment 视频生成 4-token latent action labels
+  </AlgorithmStep>
+  <AlgorithmStep>扩展 tokenizer，在 Prismatic-7B 上训练 next-latent cross entropy</AlgorithmStep>
+  <AlgorithmStep>
+    用机器人示教训练 MAP-based action decoder，联合优化 latent loss 与 L1 action loss；可用 LoRA
+    降低可训练参数
+  </AlgorithmStep>
+  <AlgorithmStep keyword='return'>
+    输出可迁移的 latent policy 与 embodiment-specific low-level decoder
+  </AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 推理时只需当前 RGB observation、指令和历史 latent action。VLA 一次生成 4 个 latent token；action decoder 将其展开为约一秒的动作 chunk，机器人执行 chunk 的一部分后重新观测，重复闭环。真实部署在 RTX 4090 上达到 10 Hz，论文实践中的 chunk size 为 12。
+
+**【Code】** `real_world_deployment.py` 对每个预测 chunk 做 temporal aggregation，使用指数权重融合不同时间步的重叠预测，并把 gripper 输出裁剪到合法范围。`run_libero_eval.py` 保存最近几组 latent action，下一次推理把它们编码为 `<ACT_i>` 后追加到 prompt。
+
+<Algorithm number={2} title='UniVLA Inference' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前图像 $o_t$、语言 $ell$、历史 latent token、目标 embodiment 的 decoder</div>
+  <div slot='output'>执行中的 action chunk</div>
+  <AlgorithmStep>编码当前图像和指令，并将最近历史 latent action 追加到 prompt</AlgorithmStep>
+  <AlgorithmStep>Prismatic-7B 自回归预测 4 个 latent action tokens</AlgorithmStep>
+  <AlgorithmStep>
+    取视觉与 latent hidden states，经两个 attention pooling block 得到 action representation
+  </AlgorithmStep>
+  <AlgorithmStep>线性 action head 输出目标机器人的连续 action chunk</AlgorithmStep>
+  <AlgorithmStep>对重叠 chunk 做 temporal aggregation，执行当前控制窗口</AlgorithmStep>
+  <AlgorithmStep keyword='loop'>获取新观测，保存本次 latent action，循环直到任务完成</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+| 论文概念          | 官方代码位置                                     | 实际行为                                                 |
+| ----------------- | ------------------------------------------------ | -------------------------------------------------------- |
+| LAM               | `latent_action_model/genie/modules/lam.py`       | DINOv2 patch feature + spatial/temporal transformer + VQ |
+| Stage 2           | `latent_action_model/genie/model.py`             | 加载 Stage 1 的 VQ / action-latent 权重并冻结旧 codebook |
+| Latent policy     | `vla-scripts/finetune_*.py`                      | 将 `<ACT_i>` 作为新增 vocabulary token 训练              |
+| Low-level decoder | `finetune_libero.py`, `real_world_deployment.py` | MAPBlock 汇聚视觉与 latent，输出 7-D/4-D action chunk    |
+| History feedback  | `run_libero_eval.py`, `finetune_realworld.py`    | 保存最近 latent groups，追加到下一次 prompt              |
+
+**【Analysis】** 论文用“约 10.8M”描述轻量 decoder，当前代码版本的部分脚本实际为约 12.6M action head；这是论文修订与代码实现之间的参数口径差异，阅读时应以具体 checkpoint 和脚本为准。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![LIBERO 四个 task suites 的任务设置（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-univla/libero-intro.1hsy7r0op4.webp)
+
+**【Paper】** LIBERO 每个 suite 有 10 个任务、每个任务 50 条人类遥操作示教；Long 训练 40k steps，其余 30k，global batch 128。R2R 使用 10,819 条训练样本和 1,839 条 val-unseen 样本，以 3 米内到达目标计为成功。真实实验采用 AgileX Piper 7-DoF 机械臂和第三视角 RGB-D 相机（只用 RGB），每个任务收集 20–80 条轨迹。
+
+真实任务分别测试空间关系、工具使用、可变形物体和语义排序：Store screwdriver、Clean cutting board、Fold towel twice、Stack tower of Hanoi。每项任务分成 3 个 sub-goal，除了 success rate 还报告 step-wise score。
+
+### 5.2 Main Results
+
+**【Paper】** LIBERO 成功率如下，UniVLA Full 在四个 suite 均为最高：
+
+| 方法            |  Spatial |   Object |     Goal |     Long |  Average |
+| --------------- | -------: | -------: | -------: | -------: | -------: |
+| OpenVLA         |     84.7 |     88.4 |     79.2 |     53.7 |     76.5 |
+| MaIL            |     74.3 |     90.1 |     81.8 |     78.6 |     83.5 |
+| UniVLA Human    |     91.2 |     94.2 |     90.2 |     79.4 |     88.7 |
+| UniVLA Bridge   |     95.2 |     95.4 |     91.9 |     87.5 |     92.5 |
+| **UniVLA Full** | **96.5** | **96.8** | **95.6** | **92.0** | **95.2** |
+
+仅用 Bridge-V2 或人类视频预训练也分别达到 92.5% 和 88.7%，说明 latent space 不需要把下游 embodiment 的 action label 搬回预训练阶段。
+
+![真实 Piper 机器人四项任务（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-univla/real-world-exp.4g58b98y8b.webp)
+
+真实 Piper 的 Full 模型平均 success 为 81.7%、平均 score 为 2.63；在 Store screwdriver、Clean cutting board、Stack tower of Hanoi 上分别达到 93.3%、100% 和 86.7%。Fold towel 的 Diffusion Policy success 为 53.3%，高于 UniVLA 的 46.7%，但 UniVLA 的 step-wise score 2.47 高于 DP 的 2.33，说明它更常完成中间阶段。
+
+R2R 的 oracle success 为 47.1%，比 OpenVLA 高 29.6 个百分点，并接近需要全部历史图像的 NaVid；UniVLA 只输入当前图像和历史 latent action。
+
+### 5.3 Ablation Study
+
+**【Paper】**
+
+| 设计                           | Average success |
+| ------------------------------ | --------------: |
+| Auto-regressive action decoder |            73.6 |
+| UniVLA w/o visual query        |            92.5 |
+| **UniVLA**                     |        **95.2** |
+
+视觉 embedding 作为 query 能减少 latent 到低层动作的多峰歧义；相对没有 visual query 的 decoder 平均提升 2.2 个百分点。相对 autoregressive 离散动作，在 LIBERO-Long 上提升 43.0 个百分点。
+
+**【Paper】** latent action 的对照也直接验证了 task-centric 设计：Ego4D-only 预训练下，Genie-style latent 平均 82.3%，task-irrelevant latent 56.5%，UniVLA task-centric latent 88.7%；task-irrelevant 版本在 LIBERO-Long 几乎为 0.2%。
+
+### 5.4 Generalization
+
+![跨光照、视觉干扰物和新物体的真实泛化设置（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-univla/realworld-gen.4jou8z7bgq.webp)
+
+**【Paper】** 在真实泛化测试中，UniVLA 的平均 success / score 为 68.9% / 2.49，明显高于 LAPA 的 28.9% / 1.36 和 OpenVLA 的 20.0% / 0.98。光照变化下为 66.7%，视觉干扰物下为 53.3%，把 screwdriver 换成未见过的 marker 后仍有 86.7%，相对原设置下降仅 6.6%。
+
+数据效率同样突出：只使用 10% LIBERO-Goal 示教时，UniVLA 达到 86.3%，超过使用全部数据训练的 OpenVLA（79.2%）；在 Long 上用 50% 数据即可达到新的 state of the art。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** UniVLA 把跨 embodiment transfer 拆成两个更容易学习的映射：视频帧到语义动态、语义动态到机器人动作。第一段只需要视觉可预测性，第二段才需要少量目标机器人示教。这个分解让人类视频提供“做什么”的先验，而不要求它与 Piper 或 Franka 共享关节坐标。
+
+### 6.2 核心创新
+
+1. **Task-centric，而非全变化 latent**：语言作为筛选器进入 LAM，明确压低背景运动的监督权重。
+2. **Latent token 作为跨域接口**：policy 的离散输出与 embodiment-specific decoder 解耦。
+3. **历史输出作为反馈**：用 4 个 token 提供时间上下文，避免历史图像带来的 token 和延迟膨胀。
+4. **数据规模的边际收益可持续**：Bridge → OXE → Ego4D 逐步加入 embodiment 与视角多样性，真实任务和导航仍持续受益。
+
+### 6.3 与已有方法的本质区别
+
+| 路线         | 学习的中间对象                        | 跨 embodiment 代价                        |
+| ------------ | ------------------------------------- | ----------------------------------------- |
+| OpenVLA      | 离散低层 action token                 | 需要适配 action vocabulary / action space |
+| LAPA / Genie | 视频中所有可见变化                    | 容易包含 task-irrelevant dynamics         |
+| UniVLA       | 语言约束的 task-centric latent action | 只需训练轻量 low-level decoder            |
+
+### 6.4 关键假设
+
+**【Paper】** 论文假设约一秒的 frame interval 足以概括可迁移的短时行为，且任务 instruction 能帮助区分 controllable 与 uncontrollable dynamics。
+
+**【Analysis】** 这也意味着 UniVLA 更适合“动作具有视觉后果”的任务。对纯接触力、不可见状态或需要毫秒级反应的操作，RGB frame pair 可能无法唯一确定 latent；此时 decoder 只能学习平均策略。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** latent action 的时间粒度与 codebook size 是固定的，未必适合所有任务；实验主要集中在单臂操作。扩展到双臂、humanoid 或 dexterous hand 可能需要更细粒度、更高容量的 latent space。论文还指出，多数数据使用细粒度短时 instruction，语言粒度对 latent 学习的影响仍值得研究。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+- Stage 2 依赖 Stage 1 的 codebook；如果第一阶段已把某种动态错误地压缩掉，后续 task-centric code 无法完全恢复。
+- VQ code 的语义是由数据分布决定的，不保证跨数据集保持同一编号；因此迁移 checkpoint 时必须同时迁移 codebook 和 tokenizer 映射。
+- 真实 Piper 结果证明了泛化，但并不等于零样本部署：每个新 embodiment 仍要收集 20–80 条轨迹训练 decoder。
+- 自回归预测 4 个 latent token 仍有串行延迟；它只是把串行长度从低层 action 的 $7\times K$ 压缩到 4，不能视为完全并行的 VLA。
+
+## 8. 启发与研究思考
+
+**【Analysis】** UniVLA 给 embodied learning 的启发是，数据统一不一定要统一 action。更可扩展的系统可以把训练拆成：
+
+```text
+web / human video ──> task-centric latent dynamics ──> VLA planner
+robot demos       ──> embodiment-specific decoder ──> executable action
+```
+
+这条路径仍有三个值得继续追问的问题：
+
+1. 能否让 latent horizon 根据任务阶段自适应，而不是固定约一秒？
+2. 能否把触觉、深度和 proprioception 作为 latent decoder 的条件，而不破坏跨域共享的 token？
+3. 如果 latent token 是 policy 的“思考步骤”，是否可以像 language model 一样用 offline preference 或失败轨迹进一步校正它？
+
+**【Analysis】** 我认为 UniVLA 最值得复用的不是具体的 4-token 设计，而是“先学习可迁移语义动态，再学习 embodiment 执行器”的接口思想。对于下一代 generalist robot policy，这种接口可能比强行把所有机器人的关节坐标塞进一个 universal action vocabulary 更稳健。
