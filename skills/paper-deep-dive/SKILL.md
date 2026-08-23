@@ -21,7 +21,7 @@ Choose one workflow:
 - Write in Chinese and keep important English technical terms.
 - Do not create an English `index-en` version unless the user explicitly asks.
 - Use `category: 'research'` and the slug prefix `paper-deep-dive-`.
-- Use a Pixiv hero image already used by another post if possible; avoid images reused many times.
+- Use `references/hero-image-usage.md` to choose a Pixiv cover from the shared pool; prefer count-1 images and avoid heavy reuse.
 - Mark facts with `【Paper】`, `【Code】`, and `【Analysis】`.
 - Include key paper figures such as the system overview, architecture, method diagrams, and experimental results.
 - Crop paper figures before inserting them; verify the final image URL returns HTTP 200.
@@ -36,5 +36,6 @@ Choose one workflow:
 
 - `references/create-post.md`: detailed generation workflow, structure, fact-label rules, and validation.
 - `references/extract-paper-figures.md`: how to extract figures from arXiv LaTeX source or PDF fallback and upload them.
+- `references/hero-image-usage.md`: shared cover-image inventory and selection policy for Paper Deep Dive posts.
 - `references/revise-post.md`: feedback revision workflow and feedback classification.
 - `assets/post-template.mdx`: copyable MDX skeleton for new posts.

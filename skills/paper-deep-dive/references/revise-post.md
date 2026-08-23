@@ -50,20 +50,21 @@ Run `npm run build` when the change touches config, routes, or shared components
 
 ## Feedback Mapping Examples
 
-| Feedback                | Action                                                                                                        |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------- |
-| "这个数字不对"          | Verify against the paper/code, correct it, and keep the correct label.                                        |
-| "4.1 看不懂"            | Rewrite the data-flow explanation and ASCII diagram.                                                          |
-| "缺少训练细节"          | Add Training Data, Loss, Optimizer, and pipeline details from the paper/code.                                 |
-| "文章太长"              | Condense optional sections such as related work and research directions; keep method and experiments.         |
-| "伪代码格式不统一"      | Replace plain algorithm text with `Algorithm` / `AlgorithmStep`.                                              |
-| "公式变量没解释"        | Add variable definitions to every formula.                                                                    |
-| "缺少架构图"            | Extract the relevant figure with `references/extract-paper-figures.md` and insert it in the matching section. |
-| "图片看不清"            | Re-crop the figure at higher resolution and verify the labels remain readable.                                |
-| "白边空隙太大"          | Re-crop the figure from the LaTeX source using the paper's `trim` parameters, then replace the URL.           |
-| "图片无法显示"          | Check `curl` status and use the GitHub Raw fallback if the custom-domain URL returns 404.                     |
-| "正文和 Algorithm 重复" | Remove the duplicated prose or ASCII flow and keep the `Algorithm` component as the authoritative pseudocode. |
-| "4.1 和训练/推理冲突"   | Keep 4.1 as one architecture figure plus one-sentence data flow; move training/inference loops to 4.4/4.5.    |
+| Feedback                | Action                                                                                                         |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------- |
+| "这个数字不对"          | Verify against the paper/code, correct it, and keep the correct label.                                         |
+| "4.1 看不懂"            | Rewrite the data-flow explanation and ASCII diagram.                                                           |
+| "缺少训练细节"          | Add Training Data, Loss, Optimizer, and pipeline details from the paper/code.                                  |
+| "文章太长"              | Condense optional sections such as related work and research directions; keep method and experiments.          |
+| "伪代码格式不统一"      | Replace plain algorithm text with `Algorithm` / `AlgorithmStep`.                                               |
+| "公式变量没解释"        | Add variable definitions to every formula.                                                                     |
+| "缺少架构图"            | Extract the relevant figure with `references/extract-paper-figures.md` and insert it in the matching section.  |
+| "图片看不清"            | Re-crop the figure at higher resolution and verify the labels remain readable.                                 |
+| "白边空隙太大"          | Re-crop the figure from the LaTeX source using the paper's `trim` parameters, then replace the URL.            |
+| "图片无法显示"          | Check `curl` status and use the GitHub Raw fallback if the custom-domain URL returns 404.                      |
+| "正文和 Algorithm 重复" | Remove the duplicated prose or ASCII flow and keep the `Algorithm` component as the authoritative pseudocode.  |
+| "4.1 和训练/推理冲突"   | Keep 4.1 as one architecture figure plus one-sentence data flow; move training/inference loops to 4.4/4.5.     |
+| "封面重复/分配不公"     | Re-run cover selection with `references/hero-image-usage.md`; prefer a count-1 image and update the inventory. |
 
 ## Output
 

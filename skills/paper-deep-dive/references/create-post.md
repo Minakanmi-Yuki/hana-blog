@@ -43,7 +43,14 @@ paper:
 ---
 ```
 
-Use a Pixiv cover image already used by another post if possible. Hero images are covers, not paper figures.
+Use `references/hero-image-usage.md` to choose the `heroImage`:
+
+- Prefer a Pixiv cover with `Use Count = 1`.
+- Do not reuse an image already used by another `paper-deep-dive-*` post.
+- Avoid images with `Use Count >= 3` unless the user explicitly overrides this rule.
+- After assigning a cover, update the shared usage document.
+
+Hero images are covers, not paper figures.
 
 ## Paper Figures
 
