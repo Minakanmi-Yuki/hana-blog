@@ -1,0 +1,325 @@
+---
+title: 'ChatVLA-2 论文精读：让 VLA 保留 VLM 的开放世界推理'
+publishDate: 2026-08-24
+updatedDate: 2026-08-24
+description: '精读 ChatVLA-2：通过 Dynamic MoE、reasoning-following action expert 与两阶段训练，让 VLA 在数学、OCR 和空间关系任务中利用预训练 VLM 的开放世界知识。'
+heroImage:
+  { src: 'https://pic.hana0721.top/56422576_p0_master1200.7i0z6ufn65.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '56422576'
+tags:
+  - 'paper deep dive'
+  - 'ChatVLA-2'
+  - 'vision-language-action model'
+  - 'embodied reasoning'
+paper:
+  arxivId: '2505.21906'
+  title: 'ChatVLA-2: Vision-Language-Action Model with Open-World Embodied Reasoning from Pretrained Knowledge'
+  authors:
+    - 'Zhongyi Zhou'
+    - 'Yichen Zhu'
+    - 'Junjie Wen'
+    - 'Chaomin Shen'
+    - 'Yi Xu'
+  venue: 'NeurIPS 2025'
+  year: 2025
+  code: ''
+  project: 'https://chatvla-2.github.io/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2505.21906'
+  tldr='ChatVLA-2 用 Dynamic Mixture-of-Experts 保住 VLM 的多模态知识，再用 reasoning-following action expert 和两阶段训练把开放世界推理落实为机器人动作。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《ChatVLA-2: Vision-Language-Action Model with Open-World Embodied Reasoning from Pretrained Knowledge》<br />
+**作者**：Zhongyi Zhou、Yichen Zhu、Junjie Wen、Chaomin Shen、Yi Xu<br />
+**机构**：美的集团、华东师范大学<br />
+**会议**：NeurIPS 2025（项目主页标注为 accepted）<br />
+**论文链接**：[arXiv](https://arxiv.org/abs/2505.21906)<br />
+**项目主页**：[ChatVLA-2](https://chatvla-2.github.io/)
+
+![ChatVLA-2 从训练数据、Dynamic MoE 到开放世界机器人任务的总览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-chatvla-2/chatvla2_overview-crop.7w7k3cvtcb.webp)
+
+### 一句话总结
+
+**【Paper】** ChatVLA-2 关注的不是“在训练集任务上把成功率再提高一点”，而是让 VLA 微调后仍能调用预训练 VLM 的识别、OCR、数学和空间推理能力，并把这些 reasoning 可靠地转成动作。它用 Dynamic Mixture-of-Experts（Dynamic MoE）分离冲突特征，用 reasoning-following enhancement module 让 action expert 读取推理 token，再用两阶段训练分别完成知识保留和动作跟随。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 把 VLA 的泛化目标明确拆成 **open-world embodied reasoning** 与 **reasoning following**：前者要求保留 VLM 的世界知识，后者要求动作真的遵循模型推理。
+2. 在 Qwen2-VL/DexVLA 风格骨干中加入 Dynamic MoE，论文采用 8 个 experts、推理时 top-2 routing，以减少多模态理解和机器人控制在参数空间中的相互干扰。
+3. 提出只在 action expert 后半层注入 reasoning token 的调制模块，用 scale/shift 条件化替代原 observation embedding 的一部分。
+4. 提出两阶段训练：Stage 1 混合图文与机器人数据，Stage 2 冻结 VLM、只训练 action expert，让动作学习“跟随”上层推理。
+5. 在数学匹配和玩具摆放两个真机任务上测试开放世界泛化；ChatVLA-2 在数学任务达到 3.58/4 OCR、1.73/2 数学推理和 43/52 成功，在空间任务达到 0.94 物体识别、0.88 spatial affordance 与 127/156 成功。
+
+## 2. 背景与相关工作
+
+**【Paper】** 传统 VLA 通常把预训练 VLM 微调成“看图、读指令、输出动作”的端到端策略。问题在于，机器人数据的分布远小于互联网图文数据：微调参数被动作监督牵引后，模型可能忘记原本会识别的物体、文字和数学关系。论文用一个直观例子说明这种遗忘：一个 VLM 可能知道 `10 + 11 = 21`，但在从未见过该式子的机器人任务中，控制 expert 未必能拿起答案卡。
+
+相关工作大致有两条路线：
+
+- **通用 VLA**（OpenVLA、DexVLA、π₀ 等）扩大机器人数据或改进动作头，擅长训练分布内的操控，但开放世界 reasoning 不是主要优化目标。
+- **Embodied reasoning VLA**（Embodied-CoT、CoT-VLA、DiffusionVLA、π₀.₅ 等）把链式推理或子步骤写入训练标注，能让动作更可解释，却容易把能力限制在训练时出现过的 reasoning 模板。
+
+**【Analysis】** ChatVLA-2 的切入点是“少教具体技能，多保护预训练先验”：它不专门加入数学或 OCR 训练集，而是希望通用图文知识在机器人微调后仍然可用，再用 action expert 学会执行这种新推理。
+
+## 3. 问题定义
+
+**【Paper】** 给定视觉观察 $o_t$、语言指令 $l$ 和机器人本体状态，模型同时产生语言 reasoning tokens 与动作序列。任务是学习：
+
+$$
+\pi_\theta(a_{t:t+H}\mid o_t,l),
+$$
+
+其中 $a_{t:t+H}$ 是 action expert 生成的动作 chunk，$H$ 为动作预测 horizon。与纯行为克隆不同，ChatVLA-2 还要求 reasoning $r_t$ 与动作一致：
+
+$$
+\text{Action}_t \sim \pi_\theta(\cdot\mid o_t,l,r_t).
+$$
+
+- **Observation**：相机 RGB 图像、语言指令，以及由 DexVLA 风格骨干处理的机器人状态；论文没有把统一的输入维度全部列出。
+- **Action representation**：论文采用预训练 ScaleDP 1B 作为 action expert，输出连续机器人动作；具体动作维度和控制频率随两种真机设置而变化。
+- **Embodiment**：数学匹配使用 ARX R5 双臂、顶部 RealSense L515，14 维联合状态/动作、50 Hz 遥操作；玩具摆放使用 7-DoF Franka、Robotiq gripper 与侧置 ZED 2、15 Hz 遥操作。
+- **Data**：Stage 1 使用 COCO、TextVQA、GQA、RoboPoint、真实机器人图文对和机器人轨迹；另外采集数学匹配 600 条、玩具摆放 300 条轨迹。TextVQA 特意过滤含数字 OCR token 或数学运算符的样本。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![ChatVLA-2 的 Dynamic MoE、reasoning-following action expert 与机器人动作路径（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-chatvla-2/Structure-crop.2ksnin9qhv.webp)
+
+**【Paper】** 图像 patch 与语言 token 进入带 Dynamic MoE 的 VLM；上层输出 reasoning tokens 和 action tokens，后者经 projection 进入 ScaleDP action expert，最终输出连续机器人动作。推理时 router 为每个输入选择少数 experts，action expert 的后半层再接收 reasoning 条件。
+
+### 4.2 核心模块
+
+#### Dynamic Mixture-of-Experts
+
+- **输入**：VLM 的视觉与语言 token。
+- **中间模块**：router、8 个 MLP experts，以及 top-2 expert aggregation。
+- **输出**：融合后的 token 表示，继续送入 LLM head 与 action expert。
+- **作用**：把多模态理解、机器人控制和共享的空间推理特征分配到不同参数子空间；router 根据输入动态选 expert，而不是把所有 token 都压进同一组 dense MLP。
+- **为什么需要**：论文引用先前 ChatVLA 观察到的“多模态能力在机器人微调后退化”。静态/shared expert 会改变 Qwen2-VL 原有 dense LLM 结构，可能更快破坏预训练知识；Dynamic MoE 则保留主干结构，只在需要时激活新增 experts。
+
+**【Paper】** 专家 MLP 用预训练 MLP 权重初始化；实验中 8 experts/top-2 比 6/3 或 4/2 有更高 OCR 和数学分数。
+
+#### Reasoning-following enhancement module
+
+- **输入**：VLM 生成的 reasoning tokens、当前 diffusion timestep embedding。
+- **中间模块**：MLP 投影 reasoning，生成后半 action-expert layers 的 scale 与 shift 参数。
+- **输出**：被 reasoning 条件化的 action features。
+- **关键设计**：用 reasoning representation 替换原 observation embedding 的对应输入，并只注入 action expert 的后半层，而不是全层注入。
+- **为什么需要**：前半层更负责稳定的动作/观测表征，后半层对高层条件更敏感；把开放世界 reasoning 直接注入后半层，可增强指令跟随而少干扰低层控制。
+
+#### VLM 与 Action Expert
+
+**【Paper】** ChatVLA-2 以 DexVLA 为基础，使用 Qwen2-VL 作为 VLM，图像编码后与语言 token 拼接；VLM 同时生成 reasoning tokens 和 action tokens，action tokens 经过两层 Linear 与 LayerNorm projection，再进入预训练 1B ScaleDP action expert。
+
+**【Analysis】** 因而它不是“VLM 先完整规划、另一个策略再执行”的串联系统：reasoning 和 action 在一个端到端模型中共同生成，但通过 MoE 与后半层条件注入显式建立了较清晰的功能边界。
+
+### 4.3 关键公式
+
+#### Dynamic MoE
+
+对第 $l$ 层输入 token $x$，router 产生 experts 的打分 $g(x)\in\mathbb R^N$，选择 top-$k$ 专家集合 $\mathcal T(x)$：
+
+$$
+y = \sum_{i\in\mathcal T(x)} \operatorname{softmax}(g(x))_i E_i(x).
+$$
+
+$E_i$ 是第 $i$ 个 MLP expert，$N=8$，论文默认 $k=2$。**【Analysis】** 这个公式的要点不是减少参数总量，而是让每个 token 只激活一小部分参数，同时让理解与控制学习到不同的子空间。
+
+#### Reasoning-conditioned modulation
+
+设 reasoning token 经 MLP 投影为 $h_r$，action expert 第 $j$ 层的中间表示为 $u_j$，则调制可写为：
+
+$$
+\tilde u_j = \gamma_j(h_r,t)\odot u_j + \beta_j(h_r,t),
+$$
+
+其中 $t$ 是 diffusion timestep，$\gamma_j$、$\beta_j$ 分别是由 reasoning 与 timestep 条件生成的 scale/shift。论文只在后半层使用该机制；前半层继续保留更直接的动作表征。
+
+#### 两阶段目标
+
+Stage 1 同时优化图文理解和机器人动作目标：
+
+$$
+\mathcal L_1 = \mathcal L_{\text{image-text}} + \lambda_a\mathcal L_{\text{action}}.
+$$
+
+Stage 2 冻结 VLM 参数 $\phi$，只优化 action expert 参数 $\theta_a$：
+
+$$
+\min_{\theta_a}\;\mathbb E\left[\mathcal L_{\text{action}}\big(\pi_{\theta_a}(o_t,l,r_t)\big)\right],\qquad \phi\;\text{fixed}.
+$$
+
+**【Paper】** 论文未给出完整的 action diffusion loss 展开式；上式只表达训练边界和参数冻结关系，不把未公开的实现细节补写成确定事实。
+
+### 4.4 Training
+
+![ChatVLA-2 的两阶段训练：Stage 1 保留开放世界理解，Stage 2 冻结 VLM 并训练 reasoning-following action expert（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-chatvla-2/Stages-crop.3k8qvtchi9.webp)
+
+**【Paper】** Stage 1 在图文数据和机器人数据上 co-training。图文部分约包含 COCO 32k、TextVQA 20k、GQA 54k、RoboPoint 约 2k，以及约 5k 个真实环境样本；机器人部分包含数学匹配 600 条与玩具摆放 300 条轨迹，图文:机器人采样比例为 1:3。训练 15k steps，初始 learning rate 为 $2\times10^{-5}$。
+
+**【Paper】** Stage 2 冻结整个 VLM，只训练 action expert，使它把上层输出的 reasoning 当作可执行条件。论文实现细节给出 50k steps、AdamW、FP16、3k steps warm-up、cosine scheduler，学习率从 $2\times10^{-5}$ 衰减到 $2\times10^{-6}$，总训练成本约 340 GPU hours。
+
+<Algorithm number={1} title='ChatVLA-2 Two-Stage Training' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>图文数据 $D_{vl}$、机器人轨迹 $D_r$、预训练 VLM 与 action expert</div>
+  <div slot='output'>保留开放世界推理且能跟随 reasoning 执行动作的 VLA</div>
+  <AlgorithmStep keyword='Stage 1'>
+    初始化 Dynamic MoE 与 action expert，在 $D_{vl}$ 和 $D_r$ 上联合训练
+  </AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    对图文样本优化 VLM 的理解/生成目标，对机器人样本优化 reasoning 与 action 输出
+  </AlgorithmStep>
+  <AlgorithmStep indent={1}>使用文本增强和机器人子推理标注，避免模型只记住固定句式</AlgorithmStep>
+  <AlgorithmStep keyword='Stage 2'>冻结 VLM、router 与 reasoning 生成部分</AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    仅更新 action expert，使后半层的 scale/shift 读取 reasoning tokens
+  </AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    用机器人轨迹训练动作预测，验证动作是否跟随未见过的 reasoning
+  </AlgorithmStep>
+  <AlgorithmStep keyword='return'>最终 VLA policy</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 运行时输入当前图像、语言指令与机器人状态，VLM 先生成 reasoning 和 action tokens；router 动态激活 top-2 experts，action expert 在每个 diffusion step 中用 reasoning 条件化，输出动作 chunk，再交给机器人控制器执行。数学匹配中，reasoning 需要先读白板、计算结果、定位候选卡片，再产生“从 left/middle/right 取哪一张”的动作；玩具摆放中则需要识别目标物、参考物和 left/right/front/behind/top/bottom 关系。
+
+**【Analysis】** 论文没有公开完整的 runtime scheduler、chunk horizon 或控制器 API，因此下面算法只保留论文明确的高层行为。
+
+<Algorithm number={2} title='ChatVLA-2 Open-World Inference' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前视觉观察 $o_t$、语言指令 $l$、机器人状态</div>
+  <div slot='output'>执行动作 $a_t$ 与可解释 reasoning $r_t$</div>
+  <AlgorithmStep>将图像 patch 和语言 token 编码到 Qwen2-VL 表示空间</AlgorithmStep>
+  <AlgorithmStep>由 Dynamic router 为当前 token 选择 top-2 experts</AlgorithmStep>
+  <AlgorithmStep>生成 reasoning tokens $r_t$ 与 action tokens</AlgorithmStep>
+  <AlgorithmStep>把 $r_t$ 投影后注入 action expert 后半层的 scale/shift 条件</AlgorithmStep>
+  <AlgorithmStep>采样/解码动作 chunk，交给低层机器人控制器执行当前动作</AlgorithmStep>
+  <AlgorithmStep keyword='repeat'>重复读取观察，直到任务完成或终止</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** 截至本文撰写时，论文项目主页只提供论文、演示与视频资源，未提供 ChatVLA-2 官方 GitHub 代码、训练配置或 checkpoint。项目页中曾保留一个注释掉的 `ChatVLA_public` 链接，但它不是 ChatVLA-2 的可用实现。因此无法对模型定义、DataLoader、loss、checkpoint 和 inference API 做逐文件核对。
+
+**【Analysis】** 这会影响复现：读者可以根据论文重建 Qwen2-VL + Dynamic MoE + ScaleDP 的原型，但无法确认 router loss、expert 初始化的精确代码、diffusion scheduler、动作归一化、停止条件和真实机器人控制接口。本文后续所有“实现层面”的表述都以论文正文/附录为准，并明确标注为 `【Paper】`，没有把推测写成 `【Code】`。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![数学匹配与玩具摆放的真机平台、开放世界指令和执行过程（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-chatvla-2/task-crop.1hsy7rdxuk.webp)
+
+**【Paper】** 论文使用两个专门设计的真机评测：
+
+| 任务               | 机器人与传感器                                   | 训练/开放世界划分                | 主要指标                                 |
+| ------------------ | ------------------------------------------------ | -------------------------------- | ---------------------------------------- |
+| Math Matching Game | ARX R5 双臂、顶部 RealSense L515、50 Hz          | 数字/符号与组合是否见过训练集    | OCR 4 分、数学推理 2 分、操控成功率      |
+| Toy Placement      | Franka 7-DoF、Robotiq gripper、侧置 ZED 2、15 Hz | 目标物、参考物和方向指令是否未见 | 物体识别、spatial affordance、操控成功率 |
+
+数学任务的开放世界测试使用训练集中没有出现过的方程与手写风格；空间任务要求模型识别新物体、找到指令中的参考物，并理解相对位置。
+
+### 5.2 Main Results
+
+**【Paper】** 数学匹配结果如下，分数分母是论文定义的总分或试次数：
+
+| 方法          | In-domain 推理 | In-domain 成功 | Open-world OCR | Open-world 数学 |    Open-world 成功 |
+| ------------- | -------------: | -------------: | -------------: | --------------: | -----------------: |
+| DexVLA        |          5.2/6 |          12/13 |         0.21/4 |          0.06/2 |              10/52 |
+| ChatVLA       |          5.8/6 |          10/13 |         1.08/4 |          0.42/2 |               4/52 |
+| π₀            |              — |          12/13 |              — |               — |               8/52 |
+| **ChatVLA-2** |      **6.0/6** |          11/13 |     **3.58/4** |      **1.73/2** | **43/52（82.7%）** |
+
+**【Paper】** 在 toy placement 的 open-world 设置中，ChatVLA-2 达到 0.94 物体识别、0.88 spatial affordance 与 127/156（81.4%）任务成功率；DexVLA 为 0.23、0.12 和 36/156，ChatVLA 为 0.71、0.35 和 22/156。论文称 ChatVLA-2 的操控成功率约为 DexVLA 的 3.52 倍。
+
+**【Analysis】** 结果差异主要出现在 open-world，而不是 in-domain：在已见任务上，多个 VLA 已接近饱和；真正拉开差距的是模型能否把“未见过的方程/物体/方向关系”变成可执行动作。
+
+### 5.3 Ablation Study
+
+**【Paper】** Dynamic MoE 消融（数学匹配 open-world）：
+
+| 变体                            |        OCR |       Math |      成功 |
+| ------------------------------- | ---------: | ---------: | --------: |
+| Dynamic MoE（8 experts, top-2） | **3.58/4** | **1.73/2** | **43/52** |
+| Static MoE + Dynamic MoE        |     2.38/4 |     0.92/2 |     11/52 |
+| Shared MoE + Dynamic MoE        |     3.07/4 |     1.12/2 |     25/52 |
+| 3B Dense                        |     0.04/4 |     0.00/2 |      2/52 |
+| 7B Dense                        |     0.08/4 |     0.00/2 |      8/52 |
+
+两阶段训练消融显示：只做 Stage 1 时成功率为 12/52，只做 Stage 2 时为 3/52，完整两阶段为 43/52。Stage 1 缺失会让 OCR/数学推理几乎消失；Stage 2 缺失则说明“会推理”尚未转化成“会按推理行动”。
+
+附录还比较了专家数量和 reasoning 注入层位：8/2 优于 6/3 与 4/2；后半层注入成功率为 43/52，全层为 36/52，前半层为 22/52。
+
+### 5.4 Generalization
+
+**【Paper】** 泛化并非来自专门训练数学、OCR 或方向词。Stage 1 的 TextVQA 样本还过滤了数字 OCR 与数学运算符，作者希望测试模型是否能调用预训练知识，而不是背诵目标技能。开放世界成功因此同时依赖三层能力：VLM 认出新内容，语言头组织成 reasoning，action expert 按 reasoning 选择正确的接触动作。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** 我认为有三条互补机制：
+
+1. **参数隔离降低遗忘**：Dynamic MoE 让“识别/推理”和“控制”不必争用同一组 dense MLP 权重。
+2. **推理成为动作条件**：reasoning-following module 不是把 reasoning 只作为展示文本，而是把它变成 action expert 的逐层调制信号。
+3. **训练顺序解决目标冲突**：Stage 1 先保住通用知识与机器人动作之间的连接，Stage 2 再冻结上层，迫使 action expert 学会读取已有 reasoning，而不是让整个 VLM 继续为了局部动作损失漂移。
+
+### 6.2 核心创新
+
+**【Paper】** 真正的创新点不是单独提出一个 MoE 或一个 FiLM 变体，而是把“知识保留”和“动作跟随”作为两个可分解的优化问题：Dynamic MoE 处理表示冲突，后半层 reasoning modulation 处理条件注入，两阶段训练处理时间顺序。
+
+### 6.3 与已有方法的本质区别
+
+| 对比                   | 主要依赖                  | ChatVLA-2 的不同                                                 |
+| ---------------------- | ------------------------- | ---------------------------------------------------------------- |
+| OpenVLA / DexVLA       | 机器人数据上的 VLA 微调   | 把预训练 VLM 知识保留与调用作为一等目标                          |
+| CoT-VLA / Embodied-CoT | 训练集显式 reasoning 标注 | 主要依赖预训练 VLM 的开放世界能力，机器人 reasoning 只做动作跟随 |
+| ChatVLA                | 静态理解/控制 experts     | 用 Dynamic MoE 动态选择并保留共享特征                            |
+| 分层 planner + policy  | 外部 VLM 规划后调用策略   | 在端到端 VLA 内部把 reasoning 与 action expert 连接起来          |
+
+### 6.4 关键假设
+
+**【Paper】** 方法隐含的关键假设包括：预训练 VLM 的 reasoning 能迁移到机器人观察；图文与机器人数据之间存在足够的共享特征；reasoning token 能提供比原始语言指令更有用的动作条件。
+
+**【Analysis】** 还存在一个工程假设：后半 action-expert layers 的修改足够表达复杂 reasoning，同时不会损害低层动作稳定性。附录的 layer ablation 支持这一折中，但尚不能证明它对不同 embodiment 或更长 horizon 普遍成立。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 作者承认当前方法仍不能完全保留 VLM 的全部能力，机器人数据微调后仍有不少 capacity 消失；实验主要集中在 tabletop task，未来希望扩展到 mobile manipulator、更长时程和更复杂的真实世界任务。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+- 只有两个开放世界任务，且都以桌面抓取/放置为主；不能直接推出导航、双臂长时程协作或接触丰富任务中的泛化。
+- 论文没有公开代码与 checkpoint，外部研究者难以复核 router、diffusion scheduler、动作归一化和控制频率等关键实现。
+- 8 experts/top-2 的选择依赖当前数据与算力；专家数、路由负载和新增参数带来的推理成本缺少完整报告。
+- 82.7% 与 81.4% 是任务级成功率，不等于每一步 reasoning 都正确；如果模型生成了偶然有效的动作，文本 reasoning 与真实因果过程是否一致仍待更细粒度验证。
+- Stage 1 图文:机器人比例、GPT-4o 扩增的子推理标注和真机数据收集成本会影响可复现性。
+
+## 8. 启发与研究思考
+
+1. **VLA 的“泛化”应该拆成知识泛化与控制泛化。** 只报告已见任务成功率，很难知道模型是否还拥有 VLM 的世界知识；数学匹配和玩具摆放提供了更接近 open-world prior 的压力测试。
+2. **知识保留可能比继续扩大机器人数据更先要解决。** 如果微调先把 VLM 的 OCR/空间能力抹掉，后续再加数据只是学习更多局部动作，无法得到真正的开放世界策略。
+3. **Reasoning supervision 的价值在于连接动作，而不只是增加可读文本。** ChatVLA-2 的 Stage 2 ablation 提醒我们：模型“说对”与机器人“做对”是两个目标，必须通过 action expert 的条件化显式耦合。
+4. **后续工作应建立能力保持曲线。** 除成功率外，可以在微调前后统一测 VQA、OCR、空间关系、数学和物体识别，并报告不同 robot-data budget 下的遗忘速度。
+5. **开放代码将决定这条路线能否成为可复现范式。** 对研究者而言，最有价值的开源内容不仅是 checkpoint，还包括 expert routing 统计、冻结策略、reasoning/action 对齐评测和真实控制安全边界。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文或附录明确内容，`【Code】` 表示官方代码实现；由于 ChatVLA-2
+  尚未公开可用官方代码，本文没有虚构代码行为；`【Analysis】` 表示基于论文的分析推断。
+</Aside>
