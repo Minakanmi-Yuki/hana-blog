@@ -1,0 +1,377 @@
+---
+title: 'RoboDual 论文精读：让通才 VLA 与扩散专家协同控制'
+publishDate: 2026-08-23
+updatedDate: 2026-08-23
+description: '精读 RoboDual：以 OpenVLA 负责语义规划、DiT 专家负责快速多模态动作去噪，解析双系统的条件桥接、异步推理、实验结果与官方代码差异。'
+heroImage:
+  { src: 'https://pic.hana0721.top/131135880_p0_master1200.9rjzqc0dp5.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '131135880'
+tags:
+  - 'paper deep dive'
+  - 'RoboDual'
+  - 'vision-language-action'
+  - 'diffusion policy'
+  - 'robotic manipulation'
+paper:
+  arxivId: '2410.08001'
+  title: 'Towards Synergistic, Generalized, and Efficient Dual-System for Robotic Manipulation'
+  authors:
+    - 'Qingwen Bu'
+    - 'Hongyang Li'
+    - 'Li Chen'
+    - 'Jisong Cai'
+    - 'Jia Zeng'
+    - 'Heming Cui'
+    - 'Maoqing Yao'
+    - 'Yu Qiao'
+  venue: 'arXiv'
+  year: 2024
+  code: 'https://github.com/OpenDriveLab/RoboDual'
+  project: 'https://opendrivelab.com/RoboDual/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2410.08001'
+  tldr='RoboDual 让慢而通用的 OpenVLA 输出任务语义和粗动作，再由轻量 DiT 专家结合多模态观测做高频动作去噪；关键不在串联两个模型，而在把离散动作与隐藏 token 同时做成可校正的条件。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《Towards Synergistic, Generalized, and Efficient Dual-System for Robotic Manipulation》
+
+**作者**：Qingwen Bu、Hongyang Li、Li Chen、Jisong Cai、Jia Zeng、Heming Cui、Maoqing Yao、Yu Qiao
+
+**论文链接**：[arXiv](https://arxiv.org/abs/2410.08001)
+
+**代码链接**：[OpenDriveLab/RoboDual](https://github.com/OpenDriveLab/RoboDual)
+
+**项目主页**：[RoboDual](https://opendrivelab.com/RoboDual/)
+
+### 一句话总结
+
+**【Paper】** RoboDual 把一个经过适配的 OpenVLA 作为低频、具备语言语义的 **generalist**，把一个仅约 20M 可训练参数的 Diffusion Transformer（DiT）作为高频 **specialist**；后者不只读取 generalist 的 hidden states，还把其离散 action chunk 当作显式轨迹条件，在多模态观测下去噪生成更精细的连续动作。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出双系统操控框架：slow generalist 负责跨任务语义理解，fast specialist 负责实时、任务内的精细控制。
+2. 设计以 DiT 为骨干的 specialist，同时接收 proprioception、RGB / depth / tactile 等传感输入、generalist latent 和离散动作；不同条件以 AdaLN、拼接和 cross-attention 分工注入。
+3. 通过 shifted-window conditioning 处理两个系统的异步节拍，并把延迟视为训练时的数据增强。
+4. 在 CALVIN ABC→D 和 ALOHA 真机上报告对通才-only、专家-only 基线的性能、数据效率和控制频率改进。
+
+## 2. 背景与相关工作
+
+**【Paper】** 通才策略（如 RT-2、Octo、OpenVLA）从大规模跨 embodiment 数据中得到语言理解和迁移能力，但进入新的相机位姿、动作归一化统计或机器人构型时仍需适配；其 autoregressive token decoding 也会使控制频率成为瓶颈。专家策略（如 ACT、Diffusion Policy）可以用少量任务内示教学习稳定的连续控制，却通常难以处理未见物体、自由措辞指令或视觉干扰。
+
+**【Paper】** 因此，RoboDual 的问题不是「怎样再训练一个更大的 VLA」，而是：能否把 VLA 已有的高层知识压缩为一个局部策略可消费的接口，让局部策略保留闭环、高频和多传感器优势？这使它不同于只用 LLM 做离散任务分解的分层系统，也不同于只从 VLM latent 直接回归动作的 action head。
+
+**【Analysis】** 论文选择的桥梁很有针对性：hidden states 提供难以解释但信息密度高的语义，离散 action chunk 提供可在物理空间校正的显式先验。二者缺一不可：只给 latent 容易让 specialist 自己重新学「计划」，只给粗动作又会丢失语言中的对象与任务区分。
+
+## 3. 问题定义
+
+**【Paper】** 在时间步 $t$，generalist 接收第三视角 RGB 图像 $I_t$ 与语言指令 $l$，生成长度为 $k_g$ 的离散动作 token，并导出对应的 task / action hidden tokens。specialist 接收自身观测 $o_t$（可包括多视角 RGB、depth、tactile 与 7 维 proprioception）、generalist 条件 $c_t$，输出长度为 $k_s$ 的 7-DoF 连续动作序列：
+
+$$
+\pi_\theta(\hat a^s_{t:t+k_s-1} \mid o_t, c_t), \quad
+c_t = \{z^{\text{task}}_t, z^{\text{action}}_t, \hat a^g_{t:t+k_g-1}\}.
+$$
+
+其中 $\hat a^g$ 是 generalist token 反量化后的粗动作，$z^{\text{task}}$ 与 $z^{\text{action}}$ 是 generalist 的最后层 token 表示。两段长度在论文主要实验中都设为 8。
+
+| 要素                | CALVIN 设置                                             | 真机设置                                           |
+| ------------------- | ------------------------------------------------------- | -------------------------------------------------- |
+| 机器人 / 动作       | Franka Panda；长程语言操控                              | ALOHA；7-DoF 动作空间                              |
+| 训练与评测          | A、B、C 环境训练，未见 D 环境评测；1,000 条五任务指令链 | 取放、推动、开抽屉与多指令任务；每项 20–120 条示教 |
+| generalist 输入     | 第三视角 RGB + language                                 | 单第三视角 RGB + language                          |
+| specialist 可用输入 | static / gripper RGB、depth，且可扩展 tactile           | 论文真机主要使用单视角 RGB                         |
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+<img
+  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-robodual/robodual-architecture.7i14ce12c6.webp'
+  alt='RoboDual 总体架构：OpenVLA generalist 产生 latent 与离散动作，DiT specialist 接收多模态条件并去噪动作（论文 Figure 2）'
+  class='zoomable'
+  width='2270'
+  height='920'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+**【Paper】** 数据流只有一条：generalist 将图像和语言转成 latent 与粗 action chunk；specialist 将这些条件与当前多模态观测融合，在 DiT 中把随机噪声动作变为可执行的连续 chunk。训练和部署的时序分别在 4.4 与 4.5 展开。
+
+### 4.2 核心模块
+
+#### Generalist：OpenVLA 的语义与粗轨迹
+
+**【Paper】** generalist 以 OpenVLA 为基础，即 Prismatic-7B 风格的融合 DINOv2 + SigLIP 视觉编码器、投影层与 LLaMA-2。作者用 LoRA 在目标环境的多任务数据上适配它，而不是指望预训练模型零样本适用于新的相机和 embodiment。
+
+**【Paper】** 与原始 OpenVLA 一样，RoboDual 将 LLaMA tokenizer 中最少使用的 256 个词映射到 $[-1, 1]$ 的均匀动作 bin。它逐 token 自回归产生每个 DoF；不同时间步以 `[space]` token 分隔，并扩展为长度 $k_g$ 的 action chunk。这里的输出一分为二：反量化结果给 specialist 一个明确的运动方向，hidden tokens 则携带任务、物体和动作上下文。
+
+#### Specialist：条件 DiT 动作策略
+
+**【Paper】** specialist 把一帧 7-DoF 动作当作 7 通道「像素」，将 $k_s$ 帧动作组成的序列当作 DiT 的 token 序列。每个 DiT block 含 causal self-attention、cross-attention 与前馈网络：前者保证 chunk 内的时间因果性，后者从观测和 VLA token 中读取条件。
+
+**【Paper】** 四类条件采用不同注入方式。
+
+| 条件来源                            | 注入位置                                                              | 作用                                     |
+| ----------------------------------- | --------------------------------------------------------------------- | ---------------------------------------- |
+| proprioception + diffusion timestep | 两层 MLP 后生成 AdaLN 的 scale / shift / residual scale               | 让去噪动态与机器人本体状态、噪声等级对齐 |
+| generalist 离散动作                 | 与同一时刻的 noised action 拼接，再线性投影                           | 给出可直接修正的粗轨迹                   |
+| generalist task / action latents    | 线性投影后作为 cross-attention 的 key / value                         | 保留长上下文语义和 VLA 的位置关系        |
+| 视觉 / depth / tactile              | 各自编码后经 Perceiver resampler 压缩，再并入 cross-attention context | 为局部接触、遮挡和新传感器提供闭环证据   |
+
+**【Paper】** RGB 使用冻结的 DINO 预训练编码器；非 RGB 传感器用 6 层、hidden size 256 的轻量 ViT。每种观测通过 8 个 learnable queries 被压缩为少量 token，因此多步去噪不会反复在长图像 token 序列上做 attention。
+
+#### Shifted-window conditioning：为异步留出时间对齐空间
+
+**【Paper】** generalist 比 specialist 慢，因此 specialist 已执行 $\tau_s$ 步后，下一次条件不是继续使用整段旧计划，而是保留 generalist chunk 最后的 $k_g - \tau_s$ 个动作。训练时还随机让 specialist 的观测相对 generalist 输出前移 $\tau \in [0, k_g]$ 步，模拟部署延迟。
+
+**【Analysis】** 这相当于不把两者间的 latency 当实现噪声，而是把它定义为条件分布的一部分。若不这样训练，specialist 只见过「完全同步的计划 + 当前图像」，实机中就会把过期目标当成当前目标，快模型反而会更快地放大偏差。
+
+### 4.3 关键公式
+
+#### Generalist 的离散 token 目标
+
+**【Paper】** 令 $\mathbf p$ 为图像和指令组成的 prompt，$a_i$ 为第 $i$ 个 ground-truth action token，generalist $g_\phi$ 使用标准 next-token negative log-likelihood：
+
+$$
+\mathcal L_{\text{gen}}
+= \mathbb E_{\mathbf p, a_{<i}}
+  \left[-\sum_{i=1}^{N_a}\log g_\phi(a_i \mid \mathbf p, a_{<i})\right].
+$$
+
+$N_a$ 是整个 chunk 中的 action token 数。训练时条件使用真值前缀 $a_{<i}$，推理时改为已生成 token $\hat a_{<i}$；这正是 VLA 推理慢的原因之一。
+
+#### Specialist 的扩散去噪目标
+
+**【Paper】** 对干净专家轨迹 $a_0 \sim \mathcal D^a$，采样 $\epsilon \sim \mathcal N(0, I)$ 和 $t \sim \mathcal U(1,T)$，前向加噪为：
+
+$$
+a_t = \sqrt{\bar\alpha_t}a_0 + \sqrt{1-\bar\alpha_t}\epsilon.
+$$
+
+$\bar\alpha_t$ 是噪声调度在第 $t$ 步的累计系数，$T=100$。specialist $\pi_\theta$ 以条件集合 $c$ 预测噪声：
+
+$$
+\mathcal L_{\text{spec}}
+= \mathbb E_{t,c,a_0,\epsilon}
+  \left[\lVert\epsilon-
+  \pi_\theta(a_t,c,t)\rVert^2\right].
+$$
+
+这不是让 DiT 直接复制 generalist 动作，而是让它在每个噪声等级都学会依据 $c$ 恢复「此时应出现的局部连续轨迹」。
+
+#### Temporal aggregation
+
+**【Paper】** 推理的相邻 chunk 会对同一执行时刻给出多个候选动作，论文用指数权重融合：
+
+$$
+\hat a_t =
+\frac{\sum_i \exp(-m i)\,\hat a_t^{(i)}}
+     {\sum_i \exp(-m i)}.
+$$
+
+其中 $i$ 是候选 chunk 的相对时间位置，$m$ 控制衰减速度；真机实验默认 $m=0.1$。它避免每次新 chunk 到来时控制目标突变。
+
+### 4.4 Training
+
+**【Paper】** 训练是两阶段的。首先对 generalist 做 LoRA 适配；随后在其输出固定为条件的前提下训练 lightweight specialist。CALVIN 中，论文描述 generalist 训练 50 epochs，specialist 以 batch size 64 训练 100k iterations（约 8 epochs），两者 chunk 长度均为 8；specialist 使用 AdamW，学习率 $10^{-4}$、weight decay $10^{-3}$、1,000 warm-up steps 和 cosine schedule。
+
+**【Paper】** 为得到 classifier-free guidance，训练时会以 0.1 概率丢弃 generalist latent 与 proprioception 条件。论文将这一点解释为：specialist 不应完全依赖 privileged VLA 信息，仍要有仅凭局部观测完成基础模仿的能力。
+
+<Algorithm number={1} title='RoboDual 两阶段训练' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>
+    跨任务示教 $\mathcal D$、预训练 OpenVLA $g_\phi$、动作 tokenizer 与 specialist $\pi_\theta$。
+  </div>
+  <div slot='output'>
+    适配后的 generalist 与条件 DiT specialist。
+  </div>
+  <AlgorithmStep>
+    从 $\mathcal D$ 采样图像、语言、proprioception、观测与连续动作 chunk；将动作量化为 VLA action tokens。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    用 $\mathcal L_{\text{gen}}$ 对 $g_\phi$ 做 LoRA 微调，得到可适配当前任务分布的 token 生成器。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    固定 generalist，提取其最后层 task / action latents，并反量化预测 token 得到粗动作条件。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    采样 $t$ 与 $\epsilon$，构造 $a_t$；随机施加 latency offset 和条件 dropout。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    将 $a_t$、多模态观测与 VLA 条件输入 $\pi_\theta$，以 $\mathcal L_{\text{spec}}$ 更新 specialist。
+  </AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 部署时 generalist 不需要每一控制步运行。在论文的真机延迟分析中，generalist 生成一个动作后，系统取其中第 8 个动作；随后 specialist 连续运行 8 步，每步以残余的 generalist chunk、当前观测和历史动作生成新的连续 action chunk。specialist 采用 DDIM，训练时间步 100、推理仅 5 步，并用 temporal aggregation 输出最终单步动作。
+
+<Algorithm number={2} title='RoboDual 异步控制' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>
+    当前图像 / 语言、最新 proprioception 与传感观测；generalist 和 specialist checkpoint。
+  </div>
+  <div slot='output'>高频执行的 7-DoF 连续动作。</div>
+  <AlgorithmStep>
+    在启动或 slow window 更新时运行一次 generalist，缓存其离散动作与 hidden states。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    按已执行步数截取缓存的 action window，形成 shifted reference action。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    每个控制步读取最新多模态观测，由 specialist 经少量 DDIM steps 去噪出长度为 $k_s$ 的 chunk。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    将新 chunk 写入时间聚合缓冲，对当前时刻的重叠候选加权平均，并执行第一个 7-DoF 动作。
+  </AlgorithmStep>
+</Algorithm>
+
+**【Analysis】** 这条控制链的计算分工是「偶尔昂贵的 token planning + 每步便宜的连续 refinement」，而非把 VLA 简单降频。只要 specialist 能从最新观测纠正粗计划，generalist 的慢速度就被摊销到多个控制步；如果任务需要频繁重规划，$k_g$ 变大又会增大过期计划风险，这是其核心 trade-off。
+
+### 4.6 代码实现对照
+
+**【Code】** 官方仓库在 2025 年 4 月发布实现和 checkpoint；README 指向 generalist、specialist 的 Hugging Face 权重，并把 CALVIN 训练 / 评测入口集中在 `vla-scripts/`。
+
+| 论文概念     | 公开实现                                                 | 核查结果                                                                                                                                           |
+| ------------ | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 专家训练包装 | `vla-scripts/train_spacialist_calvin.py` 的 `DualSystem` | `slow_forward()` 提取 VLA logits 与最后层 hidden states；`fast_forward()` 把 token 解码为 `ref_actions` 后训练专家。文件名确为 `spacialist` 拼写。 |
+| 轻量 DiT     | `prismatic/models/policy/diffusion_transformer.py`       | `DiT_Tiny_STA` 是 6 层、8 heads、hidden size 256；包含 causal mask、context adapter、Perceiver resampler 和 cross-attention。                      |
+| 扩散策略     | `prismatic/models/policy/diffusion_policy.py`            | 冻结 DINO ViT-S/16 视觉编码器；`conditional_sample()` 每个 scheduler timestep 都做条件预测与可选 CFG。                                             |
+| 异步执行     | `vla-scripts/dual_sys_evaluation.py`                     | 每 8 步运行一次 slow system；fast system 每步预测 8 个动作，并以指数 temporal weights 聚合。                                                       |
+| 数据         | `prismatic/vla/datasets/calvin_dataset.py`               | specialist 训练脚本使用 `window_size=8` 与 `action_chunking_size=8`。                                                                              |
+
+**【Code】** 公开默认配置与论文正文有三处值得复现者注意的差异。
+
+1. `train_generalist_calvin.py` 将数据集的 `action_chunking_size` 固定为 `0`，而论文叙述 generalist 预测 $k_g=8$ 的 chunk，评测代码又把 slow system 输出 reshape 为 8 帧。仅按公开 generalist 脚本训练，无法从参数层面复现论文所述的 generalist chunking，需要依赖提供 checkpoint 或自行补齐数据管线。
+2. 训练脚本默认 `freeze_slow = True`，且 `DualSystem.forward()` 无条件以 `torch.no_grad()` 包裹 slow system。代码虽然在 `freeze_slow=False` 时将 VLA loss 加进总 loss，但该前向路径没有梯度；因此 README 所称可切换的 co-training 在此版本中实际上不能更新 slow system。
+3. 论文附录称直接预测 sample 更稳健，但公开 specialist 配置实例化 `DDIMScheduler(..., prediction_type='epsilon')`。`compute_loss()` 支持 `'sample'` 分支，不过默认运行的是噪声预测，和论文最终表述不完全一致。
+
+**【Analysis】** 这些不是否定论文结果的证据，而是清晰划定了「论文方法」和「当前公开可复现实验」的边界。尤其是第一项会影响比较：若 slow model 的 action chunk 训练方式不同，specialist 接收到的粗轨迹质量也会不同。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+<img
+  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-robodual/robodual-calvin-setting.8z79e55766.webp'
+  alt='CALVIN 的四个模拟环境 A、B、C、D；RoboDual 在 A、B、C 训练并在 D 测试（论文 Appendix Figure 7）'
+  class='zoomable'
+  width='1473'
+  height='398'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+**【Paper】** CALVIN 的 34 个语言操控任务使用 ABC→D protocol：在 A、B、C 示教上训练，在纹理和物体布局不同的 D 环境做 zero-shot evaluation。评测的每条序列含 5 个连续指令，报告完成 1 到 5 个任务的成功率和平均完成长度（Avg. Len.）。
+
+**【Paper】** 真机采用 ALOHA，覆盖单指令的取放、倾倒、推动，以及「把指定物体放入篮子」「推倒指定物体」等多指令任务。所有方法在每个任务上独立执行 15 次；ACT、Diffusion Policy 是单任务专家，Octo 与 OpenVLA 是先多任务训练再场景适配的通才基线。
+
+### 5.2 Main Results
+
+<img
+  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-robodual/robodual-real-world-results.8z79e5579s.webp'
+  alt='RoboDual 与 ACT、Diffusion Policy、Octo、OpenVLA 在五个 ALOHA 真机任务上的成功率对比（论文 Figure 3）'
+  class='zoomable'
+  width='2450'
+  height='742'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+**【Paper】** 在 CALVIN ABC→D 上，RoboDual 的平均完成长度为 **3.66**，高于此前表中最强的 3D Diffuser Actor（3.27）；连续完成 5 个任务的成功率为 **54.4%**，对比 41.2%。论文还用 GPT-4 扩写的自由措辞指令测试：RoboDual 达到 3.47 Avg. Len.，LCB 为 1.78。
+
+| 方法              | 连续完成 1 / 3 / 5 项任务 | Avg. Len. |
+| ----------------- | ------------------------: | --------: |
+| RoboFlamingo      |        82.4 / 46.6 / 23.5 |      2.48 |
+| GR-1              |        85.4 / 59.6 / 40.1 |      3.06 |
+| 3D Diffuser Actor |        92.2 / 63.9 / 41.2 |      3.27 |
+| **RoboDual**      |    **94.4 / 72.1 / 54.4** |  **3.66** |
+
+**【Paper】** 真机图中，RoboDual 在五项任务上均保持至少 60% 成功率；摘要报告它相对 OpenVLA 在真机提高 **26.7%**，在 CALVIN 提高 **12%**。速度上，论文在 NVIDIA A5000 Ada 的实机系统测得 RoboDual **15 Hz**，OpenVLA 为 **3.9 Hz**；specialist 单次快速推理延迟为 0.035 秒。
+
+### 5.3 Ablation Study
+
+<img
+  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-robodual/robodual-ablation.2vfhbp2imo.webp'
+  alt='RoboDual 消融：generalist 输出、附加传感输入与条件注入方式（论文 Figure 5）'
+  class='zoomable'
+  width='1900'
+  height='581'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+**【Paper】** 消融直接支持「双桥梁」设计。去掉 generalist 的离散 trajectory condition 会使 Avg. Len. 从 3.66 降到 3.58；再去掉 action latent 降至 3.54；去掉 task latent 则降至 3.52。也就是说，显式动作给出的收益最大（0.08），但 latent 对多任务语义同样不可替代。
+
+**【Paper】** 传感输入从 static RGB 依次加入 tactile、depth、gripper view，Avg. Len. 由 3.54 提升到 3.66。条件融合方面，cross-attention 略优于 in-context conditioning（3.63）和 FiLM（3.58），论文同时认为它在计算上更合适。
+
+### 5.4 Generalization
+
+<img
+  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-robodual/robodual-generalization-setting.b9mz22k6w.webp'
+  alt='RoboDual 真机泛化设置：位置变化、视觉干扰、未见背景和新物体（论文 Figure 4）'
+  class='zoomable'
+  width='1895'
+  height='603'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+**【Paper】** 作者在真实环境从四个方向测试泛化：红块在 $20\text{ cm}\times10\text{ cm}$ 区域随机放置、抽屉颜色与玩具等视觉干扰、棋盘布替换为白色背景、以及把 banana 换成未见过的 eggplant。结果中，RoboDual 单任务版的平均成功率为 **70.0%**，multi-task 版为 **68.3%**；Diffusion Policy、OpenVLA 的平均值分别为 40.0% 和 41.7%。
+
+**【Analysis】** 单任务版在位置变化和视觉干扰上更高，而 multi-task 版在 novel object 上为 60.0%（单任务版 46.7%）。这与两种信息来源的分工一致：任务内专家会使几何控制更尖锐，多任务 generalist 适配则更有机会保留对象语义的覆盖度。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** RoboDual 的有效性来自控制带宽的重新分配，而不是参数量相加。VLA 不再承担每一个 servo step 的连续决策，只负责以 8 步为尺度给出语义一致的方向；DiT 则把有限的建模容量集中在「在当前视觉和本体状态下，怎样把这条粗路径落到可执行动作上」。两者的误差类型互补：VLA 的 token 量化与延迟由专家校正，专家的任务歧义由 VLA 的 token 和 latent 消除。
+
+### 6.2 核心创新
+
+**【Analysis】** 最核心的创新是把 generalist 输出拆成 **可解释的离散轨迹** 和 **不可解释但高容量的 latent**，再按数据性质选择条件接口。离散轨迹在 action token 维度拼接，适合逐时间步的几何 refinement；latent 和图像 token 在 cross-attention 相遇，适合让专家按需读取语义。这个设计比「把一个 embedding 接到 policy 上」更明确地处理了 planning 与 control 的带宽差。
+
+### 6.3 与已有方法的本质区别
+
+**【Analysis】** Diffusion Policy 直接从局部观测采样动作，RoboDual 让它在采样时始终看到 VLA 的先验；OpenVLA 直接 autoregressive 输出动作，RoboDual 则不让这些 token 单独闭环执行。与 LLM 高层规划器相比，RoboDual 的上层输出是时间对齐的 action token 与视觉语言 hidden states，不需要人为定义 skill API，但也因此更依赖两套模型的时序和动作坐标系兼容。
+
+### 6.4 关键假设
+
+**【Paper】** 方法假设两套系统的推理时间在部署时近似恒定，因此一个 generalist window 对应固定数量的 specialist steps。
+
+**【Analysis】** 还隐含三个假设：粗 action 反量化后的坐标系与专家训练数据一致；慢模型的语言语义足以覆盖局部专家未见的情况；以及 specialist 能够从当前观测识别并纠正过期计划。任何一个不成立时，cross-attention 可能把错误的高层条件放大，而不是修复它。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 作者明确指出固定推理时延假设：若 generalist 或 specialist 的实际耗时波动，一个 generalist 推理对应固定 specialist 步数的安排会失配。作者也认为当前 generalist 只输出离散动作，未来可将任务分解、affordance grounding 和 image goal generation 等能力作为更丰富的桥梁。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】** 首先，20M 指的是 specialist 的训练规模，不是完整部署系统的成本：每隔一个 window 仍要运行 7B generalist，显存、首次响应延迟与硬件依赖没有消失。其次，文章同时报告了多传感输入的收益和单视角真机设置，但跨传感器、跨 embodiment 的训练数据分布如何影响 bridge 的可靠性并未被系统拆开。最后，公开训练代码的 chunking 和冻结逻辑与论文存在差异，使得读者很难从零复现「generalist + specialist 的确切协同点」，而不仅是复现一个扩散专家。
+
+## 8. 启发与研究思考
+
+**【Analysis】** RoboDual 给出的研究方向不是「所有机器人都应有两个模型」，而是：应当按照信息更新频率分配模型职责。高层语义、对象关系和任务意图可以低频更新；接触、末端微调和遮挡恢复必须高频闭环。下一步更值得探索的是让 bridge 自带不确定性：当 generalist 计划过期、token 置信度低或传感器与计划冲突时，specialist 应学会降低对 VLA 条件的依赖，并主动触发重规划，而不是只靠固定的 8-step 日程。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。图床自定义域尚未刷新新图缓存，本文暂使用已校验 HTTP 200 的 GitHub
+  Raw 链接。
+</Aside>
