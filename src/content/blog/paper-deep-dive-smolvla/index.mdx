@@ -1,0 +1,350 @@
+---
+title: 'SmolVLA 论文精读：面向低成本机器人的高效 Vision-Language-Action 模型'
+publishDate: 2026-08-24
+updatedDate: 2026-08-24
+description: '精读 SmolVLA：用 450M 参数的 SmolVLM、轻量 Flow Matching Action Expert 与异步推理解耦，让 VLA 可在单 GPU 训练并部署到消费级硬件。'
+heroImage:
+  { src: 'https://pic.hana0721.top/103975128_p0_master1200.8vniavqp93.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '103975128'
+tags:
+  - 'paper deep dive'
+  - 'SmolVLA'
+  - 'VLA'
+  - 'flow matching'
+  - 'efficient robotics'
+paper:
+  arxivId: '2506.01844'
+  title: 'SmolVLA: A Vision-Language-Action Model for Affordable and Efficient Robotics'
+  authors:
+    - 'Mustafa Shukor'
+    - 'Dana Aubakirova'
+    - 'Francesco Capuano'
+    - 'Pepijn Kooijmans'
+    - 'Steven Palma'
+    - 'Adil Zouitine'
+    - 'Michel Aractingi'
+    - 'Caroline Pascal'
+    - 'Martino Russi'
+    - 'Andres Marafioti'
+    - 'Simon Alibert'
+    - 'Matthieu Cord'
+    - 'Thomas Wolf'
+    - 'Remi Cadene'
+  venue: 'arXiv'
+  year: 2025
+  code: 'https://github.com/huggingface/lerobot'
+  project: 'https://huggingface.co/papers/2506.01844'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2506.01844'
+  tldr='SmolVLA 用冻结的 SmolVLM-2 加轻量 Flow Matching Action Expert，在 450M 参数规模下预测 50 步动作块，并通过异步 client/server 推理解耦感知、预测和执行。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+### 一句话总结
+
+**【Paper】** SmolVLA 不是把一个大 VLA 再压缩一点，而是重新划分计算职责：小型 VLM 负责“看懂图像、语言和机器人状态”，独立的 Action Expert 负责“生成连续动作块”，再用异步执行栈把低功耗机器人上的控制循环从昂贵的策略推理中解耦出来。
+
+![SmolVLA architecture from paper Figure 1](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-smolvla/smolvla-architecture.webp)
+
+**【Paper】** 论文报告的主模型约 450M 参数，预训练使用 481 个 community datasets、约 22.9K episodes 和 10.6M frames；模型可在单 GPU 训练，推理目标是消费级 GPU 甚至 CPU。仿真和真实机器人结果显示，它可以与参数量约 7–10 倍的 VLA 竞争。
+
+### 核心贡献
+
+**【Paper】**
+
+1. **轻量 VLA 架构**：以 SmolVLM-2 为感知骨干，只保留前 16 个语言层，去掉高成本的 image tiling，并将每帧视觉 token 压到 64 个。
+2. **Flow Matching Action Expert**：把动作块作为连续随机变量建模，交替使用 Cross-Attention（读取 VLM 特征）与 causal Self-Attention（建模动作块内部依赖）。
+3. **Community-driven pretraining**：从 Hugging Face 社区数据中筛选 481 个数据集，并用 Qwen2.5-VL-3B-Instruct 修复模糊任务描述、统一相机视角命名。
+4. **Asynchronous inference**：RobotClient 持续执行已有 action queue，PolicyServer 在后台预测新 action chunk，避免同步推理时的空转等待。
+
+**【Code】** 官方实现已经并入 LeRobot：`SmolVLAPolicy` 负责队列、预处理和训练接口，`VLAFlowMatching` 实现 flow matching 训练与 Euler 采样，`SmolVLMWithExpertModel` 组装 VLM 与 Action Expert；`lerobot.async_inference` 提供 client/server 通信栈。
+
+## 2. 背景与相关工作
+
+**【Paper】** 现有 VLA 的主要瓶颈不是“是否能理解语言”，而是模型太大、训练成本太高、推理延迟太高。π₀、OpenVLA 等模型通常依赖数十亿参数和规模较大的机器人数据集，普通研究者很难在自己的低成本机械臂上复现或微调。
+
+SmolVLA 试图同时解决三个互相关联的问题：
+
+- **模型规模**：完整 VLM 的最后几层未必对控制最有用，但它们会增加每次推理的延迟。
+- **动作建模**：单步回归容易产生抖动，也难以表达一段动作中的多峰分布；动作块和 Flow Matching 更适合生成连续轨迹。
+- **运行时瓶颈**：即使模型本身较小，只要执行线程等待下一段 action chunk，机器人仍会出现 idle gap。
+
+**【Analysis】** 这使 SmolVLA 的重点从“扩张 backbone”转移到“压缩每次决策的有效计算”：视觉 token 更少、语言层更浅、Action Expert 更窄、动作一次生成一段，并让预测线程与执行线程并行。
+
+与 ACT、Diffusion Policy 的区别在于，SmolVLA 保留了预训练 VLM 的语言与视觉知识；与 π₀ 的区别在于，它使用更小的 SmolVLM-2，并将 Action Expert 从 VLM 中拆出来；与只用 Cross-Attention 的方案相比，它在 Expert 内显式加入 causal Self-Attention 来平滑动作块。
+
+## 3. 问题定义
+
+**【Paper】** 给定机器人在时刻 $t$ 的多视角 RGB 观测、sensorimotor state 和语言指令，策略需要输出长度为 $n$ 的连续动作块：
+
+$$
+\pi_\theta(o_t, l_t, s_t) = A_t = (a_t, a_{t+1}, \ldots, a_{t+n-1}).
+$$
+
+其中：
+
+| 变量 | 含义 |
+| --- | --- |
+| $o_t$ | 一个或多个 RGB camera 的当前观测 |
+| $l_t$ | 任务语言，如 “pick up the cube and place it in the box” |
+| $s_t$ | 关节、夹爪等 sensorimotor state |
+| $A_t$ | 连续动作 chunk，而非离散 action token |
+| $n$ | chunk size；论文主设置为 50 |
+
+**【Paper】** 预训练数据涵盖低成本 SO100/SO101 等社区机器人数据，评测包含 LIBERO、Meta-World 以及 SO100/SO101 真实任务。动作维度随 embodiment 改变，因此模型必须通过 state/action projector 处理不同输入输出维度。
+
+**【Code】** `SmolVLAConfig` 默认 `chunk_size=50`、`n_action_steps=50`、`max_state_dim=32`、`max_action_dim=32`；较短的状态和动作会 padding，策略输出后再裁剪回目标机器人的原始维度。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+**【Paper】** SmolVLA 的数据流是：RGB images + language + state → SmolVLM-2 prefix features → Flow Matching Action Expert → $n$ 个连续低层动作。VLM 只提供条件特征，动作生成由独立的 Expert 完成。
+
+**【Code】** `VLAFlowMatching.embed_prefix()` 依次编码图像、语言和 state token；`embed_suffix()` 将带噪 action chunk 与时间步编码；两者拼接后进入 `SmolVLMWithExpertModel.forward()`。
+
+### 4.2 核心模块
+
+#### SmolVLM-2 感知骨干
+
+- **输入**：全局 RGB 图像、语言 token、经过线性投影的 state token。
+- **输出**：用于条件化 Action Expert 的 VLM hidden features。
+- **视觉压缩**：论文不使用 SmolVLM-2 的 image tiling，只保留 global image，并通过 pixel shuffle 将每帧视觉 token 控制为 64 个。
+- **层截断**：完整语言模型有 $L$ 层，SmolVLA 只使用前 $N=L/2$ 层；论文主实验与代码默认是 `num_vlm_layers=16`。
+
+**【Analysis】** 层截断不是简单地把模型换成更小的 VLM：它保留了原始 VLM 的宽度和预训练表征，只跳过被认为对动作条件化贡献较小的后半段计算。
+
+#### State、Action 与 Feature Projector
+
+**【Code】** `state_proj` 将最多 32 维 state 映射到 VLM 的 hidden size；`action_in_proj` 将 noisy actions 映射到 Expert hidden size；`action_out_proj` 再把 Expert 输出映射回最多 32 维的连续动作。`prepare_images()` 负责 resize-with-padding，并把 ([0,1]) 归一化到 SigLIP 使用的 ([-1,1])。
+
+#### Flow Matching Action Expert
+
+- **输入**：VLM prefix features、带噪动作 $A_t^\tau$ 和时间步 $\tau$。
+- **输出**：动作空间中的 vector field $v_\theta(A_t^\tau, o_t)$。
+- **结构**：Transformer blocks 交替执行 Cross-Attention 和 causal Self-Attention；Cross-Attention 读取冻结 VLM 的 key/value，Self-Attention 只让动作 token 看见过去 token。
+- **容量**：Expert hidden size 是 VLM hidden size 的 0.75 倍；代码默认 `expert_width_multiplier=0.75`。
+
+**【Paper】** 作者观察到，Self-Attention 让动作 chunk 更平滑，而 Cross-Attention 负责把动作锚定在视觉与语言条件上。两者交替比只使用一种注意力机制有更高的 LIBERO 成功率。
+
+### 4.3 关键公式
+
+#### Flow Matching 训练目标
+
+论文使用线性 probability path：
+
+$$
+A_t^\tau = \tau A_t + (1-\tau)\epsilon, \qquad \epsilon \sim \mathcal{N}(0, I).
+$$
+
+目标 vector field 为：
+
+$$
+u(A_t^\tau \mid A_t)=\epsilon-A_t.
+$$
+
+因此 Action Expert 的损失是：
+
+$$
+\mathcal{L}^{\tau}(\theta)=
+\mathbb{E}\left[
+\left\|v_\theta(A_t^\tau, o_t)-u(A_t^\tau\mid A_t)\right\|_2^2
+\right].
+$$
+
+其中 $A_t$ 是示教动作块，$\epsilon$ 是高斯噪声，$\tau$ 是从 Beta 分布采样的时间变量。模型学习的是从噪声流向真实动作块的速度场，而不是直接回归单一均值。
+
+**【Code】** `VLAFlowMatching.forward()` 生成 `noise`、`time`、`x_t` 和 `u_t`，再通过 `F.mse_loss(u_t, v_t, reduction='none')` 计算逐时间步、逐动作维度的损失；默认采样使用 `num_steps=10` 的 Euler integration。
+
+#### 异步队列阈值
+
+**【Paper】** 设 action chunk 长度为 $n$，控制周期为 $\Delta t$，服务器推理延迟为 $\ell_S$，当队列剩余比例低于阈值 $g$ 时触发下一次预测。为了避免队列耗尽，论文给出近似条件：
+
+$$
+g \geq \frac{\mathbb{E}[\ell_S]/\Delta t}{n}.
+$$
+
+这个公式揭示了一个直接权衡：增大 $g$ 会更早触发预测、减少 idle，但也会提高服务器计算负担；减小 $g$ 节省计算，却更容易在新 chunk 返回前耗尽旧队列。
+
+### 4.4 Training
+
+**【Paper】** 训练分为两类：预训练在社区数据上学习通用动作先验，随后在目标机器人数据上进行 imitation-learning fine-tuning。预训练使用 200,000 steps、global batch size 256、AdamW、初始 learning rate $10^{-4}$，100-step warmup 后使用 cosine decay，最低学习率为 $2.5\times10^{-6}$。图片 resize 到 $512\times512$，动作块长度为 50。
+
+**【Paper】** 预训练集合包含 481 个社区数据集、22.9K episodes 和 10.6M frames。作者用 Qwen2.5-VL-3B-Instruct 从代表性帧和原始描述生成简洁的动作型任务句子，并人工把 camera 映射为 `OBS_IMAGE_1/2/3`，减少不同数据集的视角顺序漂移。
+
+**【Code】** 默认 `train_expert_only=True`、`freeze_vision_encoder=True`，因此主要更新 Action Expert、state projector 与 action projector；`SmolVLAConfig.get_optimizer_preset()` 使用 AdamW，`optimizer_betas=(0.9,0.95)`，并支持 `torch.compile()` 与 bfloat16。
+
+<Algorithm number={1} title='SmolVLA Flow Matching Training' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>多视角图像、语言 token、state，以及示教动作块 $A_t$</div>
+  <div slot='output'>训练后的 VLM-conditioned Action Expert</div>
+  <AlgorithmStep>将图像、语言和 state 编码为 prefix embeddings，并构造 attention mask。</AlgorithmStep>
+  <AlgorithmStep>采样高斯噪声 $\epsilon$ 与 Beta 时间步 $\tau$，构造 $A_t^\tau=\tau A_t+(1-\tau)\epsilon$。</AlgorithmStep>
+  <AlgorithmStep>把带噪动作和时间嵌入送入 Action Expert，交替执行 Cross-Attention 与 causal Self-Attention。</AlgorithmStep>
+  <AlgorithmStep>用 $u_t=\epsilon-A_t$ 监督预测速度，计算 MSE，并对有效 action/state 维度求平均。</AlgorithmStep>
+  <AlgorithmStep>更新 Expert 与 projector；默认保持 VLM 主体冻结。</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 推理时从高斯噪声动作块开始，固定执行 10 个 Euler steps，逐渐把噪声积分到条件动作分布。实时机器人可以同步执行整个 chunk，也可以使用论文提出的异步模式：RobotClient 消费旧队列，PolicyServer 在后台处理新观测，返回后把新旧 chunk 的重叠部分聚合起来。
+
+<Algorithm number={2} title='Asynchronous Action-Chunk Inference' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>控制时长 $T$、chunk size $n$、队列阈值 $g$、RobotClient 与 PolicyServer</div>
+  <div slot='output'>连续执行的低层动作序列</div>
+  <AlgorithmStep>初始化观测 $o_0$，发送到 PolicyServer 并接收第一个 action chunk。</AlgorithmStep>
+  <AlgorithmStep>RobotClient 从当前队列 PopFront 一个动作并立即执行。</AlgorithmStep>
+  <AlgorithmStep>当剩余队列比例低于 $g$ 时采集新观测；对 joint-space 做相似度过滤，丢弃近重复观测。</AlgorithmStep>
+  <AlgorithmStep>以 non-blocking 方式请求服务器预测新 chunk；旧队列继续执行，不等待网络和推理返回。</AlgorithmStep>
+  <AlgorithmStep>新 chunk 到达后，对重叠时间步做聚合；若推理尚未完成，则继续使用旧队列。</AlgorithmStep>
+</Algorithm>
+
+**【Code】** LeRobot 的 `SmolVLAPolicy.select_action()` 在本地维护 `ACTION` deque；`predict_action_chunk()` 则直接返回完整 chunk。官方 `async_inference` 模块把策略封装为 PolicyServer 和 RobotClient，并通过配置项控制 `actions_per_chunk`、队列阈值、观测相似度和通信地址。
+
+### 4.6 代码实现对照
+
+| 论文描述 | 官方代码 | 对照结论 |
+| --- | --- | --- |
+| SmolVLM-2 感知骨干 | `policies/smolvla/smolvlm_with_expert.py` | 从 `HuggingFaceTB/SmolVLM2-500M-Video-Instruct` 加载 VLM，并可截断到前 16 层 |
+| 交替 CA/SA Expert | `SmolVLMWithExpertModel` | `self_attn_every_n_layers=2` 时每隔两层插入 Self-Attention，其余层使用 Cross-Attention |
+| Flow Matching | `modeling_smolvla.py::VLAFlowMatching` | `x_t`、`u_t`、MSE loss 与 Euler sampling 均有直接实现 |
+| 50 步 action chunk | `SmolVLAConfig` | `chunk_size=50`、`n_action_steps=50` |
+| 10 步采样 | `SmolVLAConfig.num_steps` | 默认值为 10 |
+| 异步推理 | `async_inference/robot_client.py`、`policy_server.py` | client 执行队列，server 后台推理；论文中的接口在官方仓库可运行 |
+
+**【Analysis】** 论文将异步栈描述为“策略创新”，而代码把它抽象成通用 LeRobot runtime：因此不仅 SmolVLA 可以使用这套 client/server，其他支持的策略也能复用相同的异步基础设施。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![SmolVLA real-world tasks from paper Figure 2](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-smolvla/real-world-tasks.webp)
+
+**【Paper】** 仿真评测使用 LIBERO（Spatial、Object、Goal、Long 四类）和 Meta-World（Easy、Medium、Hard、Very Hard）。真实评测覆盖 SO100 的 pick-place、stacking、sorting，以及未参与预训练的 SO101 Pick-Place-Lego OOD 任务。
+
+**【Paper】** 主模型 450M 参数，其中约 100M 属于 Action Expert；只保留 VLM 的前 16 层，chunk size 为 50，flow matching inference steps 为 10。仿真中每执行一个 action 就可更新观测，真实实验则主要采用同步 chunk 执行，并额外比较 async 模式。
+
+### 5.2 Main Results
+
+**【Paper】** LIBERO 平均成功率如下：
+
+| Policy | 参数量 | Spatial | Object | Goal | Long | Average |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| OpenVLA | 7B | 84.7 | 88.4 | 79.2 | 53.7 | 76.5 |
+| π₀（3.3B，预训练） | 3.3B | 90 | 86 | 95 | 73 | 86.0 |
+| SmolVLA（0.45B） | 0.45B | 90 | 96 | 92 | 71 | 87.3 |
+| SmolVLA（2.25B） | 2.25B | 93 | 94 | 91 | 77 | **88.75** |
+
+**【Paper】** 450M SmolVLA 在 LIBERO 平均 87.3%，超过 OpenVLA 的 76.5%，并接近预训练机器人数据的 π₀。2.25B 版本进一步达到 88.75%，说明该结构在增大容量后仍可扩展。
+
+**【Paper】** Meta-World 平均成功率中，450M 版本为 57.3%，2.25B 版本为 68.24%；后者超过表中 3.5B π₀ 的 47.9%。论文同时指出，SmolVLA 相比 π₀ 训练速度约快 40%，显存占用约减少 6 倍。
+
+**【Paper】** SO100 真实任务中，ACT 平均 48.3%，π₀ 平均 61.7%，SmolVLA 平均 **78.3%**；Pick-Place、Stacking、Sorting 分别为 75%、90%、70%。在 SO101 Pick-Place-Lego 上，SmolVLA 的 in-distribution / OOD 成功率为 90% / 50%，高于 ACT 的 70% / 40%。
+
+### 5.3 Ablation Study
+
+![Action queue evolution in paper Figure 4](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-smolvla/action-queues.webp)
+
+**【Paper】** 关键结构消融（LIBERO 平均成功率）：
+
+| 变量 | 设置 | 平均成功率 |
+| --- | --- | ---: |
+| 注意力 | CA | 79.0 |
+| 注意力 | SA | 74.5 |
+| 注意力 | 交替 CA+SA | **85.5** |
+| action mask | Bidirectional | 67.5 |
+| action mask | Causal | **74.5** |
+| 训练目标 | L1 Regression | 75.25 |
+| 训练目标 | Flow Matching | **80.25** |
+| VLM 层数 | 前 16 层 | 78.5 |
+| VLM 层数 | 前 32 层 | 80.3 |
+
+**【Paper】** 交替 CA+SA 比单独 CA 高 6.5 个百分点；causal mask 明显优于 bidirectional，说明动作块内部不能泄漏未来动作；Flow Matching 比 L1 regression 高 5 个百分点，支持其对多模态连续动作分布的建模优势。
+
+**【Paper】** action chunk size 的最佳区域在 10–50：chunk=1 的平均成功率只有 50.0%，chunk=10 为 84.0%，chunk=100 降到 74.5%。执行层面每 1 或 10 步更新观测明显优于每 50 步更新，说明“预测块大”不代表“必须长时间开环执行”。
+
+### 5.4 Generalization
+
+**【Paper】** 预训练与多任务共同训练是关键：SO100 上单任务无预训练平均 40%，多任务无预训练 51.7%，多任务加社区预训练升到 78.3%。这说明 community data 的作用不只是扩大样本量，还提供了跨任务的动作先验。
+
+![Asynchronous inference stack from paper Figure 3](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-smolvla/async-inference.webp)
+
+**【Paper】** async 与 sync 的真实成功率接近（平均分别为 73.3% 和 78.3%），但 async 平均完成时间从 13.75 秒降到 9.70 秒，约快 30%；固定时间测试中，async 完成 19 个 pick-place 循环，sync 只有 9 个。它的价值主要体现为减少 idle 和提高单位时间内可完成的交互次数，而不是单纯提高单次成功率。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** SmolVLA 的收益来自三个互补的偏置：
+
+1. **早层表征足够做控制**：控制不一定需要 VLM 最后一层的完整语言推理，前半层特征已经包含物体、空间和指令条件，截断后可直接减少一半语言计算。
+2. **动作专家处理连续性**：VLM 输出的是条件信息，Action Expert 专门处理连续轨迹和动作块，避免让语言模型直接承担高维连续回归。
+3. **Flow Matching 保留多峰性**：同一视觉状态可能对应多条可行轨迹，随机流场比单一 L1 均值更适合表达这种分布。
+
+### 6.2 核心创新
+
+**【Paper】** 最重要的创新并非单个模块，而是将“轻量 backbone、窄 action expert、chunked control、异步 runtime”作为完整系统共同优化。特别是 async inference 把机器人控制问题中的网络与推理延迟显式纳入设计目标。
+
+### 6.3 与已有方法的本质区别
+
+| 方法 | 感知骨干 | 动作生成 | 主要代价 |
+| --- | --- | --- | --- |
+| ACT | CNN/Transformer | CVAE 回归 action chunk | 需要每个任务单独训练 |
+| Diffusion Policy | 视觉 encoder | Diffusion action sequence | 采样成本高，语言知识弱 |
+| OpenVLA | 大型 VLM | 离散 action token | 参数量与推理延迟高 |
+| π₀ | 大型 VLM + Expert | Flow Matching | 需要更大模型与更多资源 |
+| SmolVLA | SmolVLM-2 | 轻量 Flow Matching Expert | 依赖规范化 community data 与目标任务微调 |
+
+**【Analysis】** SmolVLA 的“通用”更多来自可迁移的 VLM 条件特征和数据配方，而不是让单一模型直接覆盖所有机器人 action space；最后的 action projector 与 fine-tuning 仍承担 embodiment 对齐。
+
+### 6.4 关键假设
+
+**【Paper】** 方法依赖以下假设：
+
+- community datasets 可以通过任务描述重写和 camera ordering 规范化而被联合训练；
+- 前半段 VLM layers 的表征足以支持动作条件化；
+- 50 步左右的 action chunk 能在响应速度与计算利用率之间取得平衡；
+- 机器人可以容忍在 chunk 执行期间短暂使用旧观测，且 action queue 的重叠聚合不会破坏稳定性。
+
+**【Analysis】** 这些假设在低成本桌面操作中较合理，但在快速接触、强碰撞或需要毫秒级反射的任务中可能失效。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 论文强调机器人数据仍远少于互联网级视觉语言数据；community data 虽然便宜，却存在 noisy demonstrations、任务文本缺失、相机命名不一致和 embodiment 差异。当前版本主要在低成本单臂操作与有限仿真任务上验证，尚不能据此推断对双臂、灵巧手或高速移动机器人的表现。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+1. **异步模式引入 stale observation**：旧队列被执行时环境可能已经改变；相似度过滤只能避免重复请求，不能保证动作 chunk 仍然安全。
+2. **Flow Matching 仍需多步采样**：代码默认 10 个 Euler steps；在 CPU 或低端设备上，VLM 与 Expert 的联合开销仍可能超过控制周期。
+3. **固定 chunk size 不适应所有任务**：chunk=10–50 在 LIBERO 上较好，但抓取接触、插入、避障等任务可能需要动态 horizon。
+4. **数据筛选仍有人力成本**：论文中的 camera mapping 是人工完成的，任务描述自动重写也可能把细粒度控制需求概括得过度。
+5. **只训练 Expert 的迁移边界**：默认冻结 VLM 有利于低成本训练，但面对全新传感器、视角或语言分布时，固定视觉表征可能成为瓶颈。
+
+## 8. 启发与研究思考
+
+**【Analysis】** SmolVLA 给出的启发不是“所有 VLA 都应该变小”，而是应把系统的三个时间尺度分开：
+
+- **语义时间尺度**：VLM 低频地理解语言、物体和场景；
+- **动作时间尺度**：Action Expert 在一个 chunk 内生成平滑的连续轨迹；
+- **控制时间尺度**：RobotClient 高频执行动作，并根据队列阈值决定何时重新请求策略。
+
+这套分解可以自然延伸到后续研究：让 chunk size 随接触状态自适应；把 joint-space similarity filter 换成视觉-状态联合不确定性；在服务器端缓存 VLM prefix，只为新状态增量计算；或者让多个 action chunk 候选由安全 critic 进行筛选。
+
+**【Analysis】** 对个人实验室而言，SmolVLA 的真正价值是把 VLA 研究的最小可行闭环降到了可操作范围：一张消费级 GPU、LeRobot 数据格式、一个低成本机械臂和少量目标任务示教，就可以复现从预训练、fine-tuning 到异步部署的完整链路。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方 LeRobot 代码实现，`【Analysis】` 表示基于论文和代码的分析推断。
+</Aside>
