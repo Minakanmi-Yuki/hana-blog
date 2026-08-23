@@ -1,0 +1,530 @@
+---
+title: 'Diffusion Policy 论文精读：用动作扩散学习视觉运动策略'
+publishDate: 2026-08-23
+updatedDate: 2026-08-23
+description: '精读 Diffusion Policy：用条件去噪扩散在动作空间生成动作序列，结合 receding-horizon、视觉 conditioning 和 Time-series Diffusion Transformer，并对照官方代码拆解训练与推理。'
+heroImage:
+  { src: 'https://pic.hana0721.top/105886628_p0_master1200.5fl6its319.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '105886628'
+tags:
+  - 'paper deep dive'
+  - 'Diffusion Policy'
+  - 'imitation learning'
+  - 'visuomotor policy'
+  - 'robot learning'
+paper:
+  arxivId: '2303.04137'
+  title: 'Diffusion Policy: Visuomotor Policy Learning via Action Diffusion'
+  authors:
+    - 'Cheng Chi'
+    - 'Zhenjia Xu'
+    - 'Siyuan Feng'
+    - 'Eric Cousineau'
+    - 'Yilun Du'
+    - 'Benjamin Burchfiel'
+    - 'Russ Tedrake'
+    - 'Shuran Song'
+  venue: 'RSS 2023 / IJRR 2025'
+  year: 2023
+  code: 'https://github.com/real-stanford/diffusion_policy'
+  project: 'https://diffusion-policy.cs.columbia.edu/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2303.04137'
+  tldr='Diffusion Policy 把 visuomotor policy 表达为条件去噪扩散过程，在动作空间生成一整段动作序列，再用 receding-horizon 执行，兼顾多模态表达、时间一致性和闭环响应。'
+  rank={5}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《Diffusion Policy: Visuomotor Policy Learning via Action Diffusion》
+
+**作者**：Cheng Chi、Zhenjia Xu、Siyuan Feng、Eric Cousineau、Yilun Du、Benjamin Burchfiel、Russ Tedrake、Shuran Song
+
+**机构**：Columbia University、Toyota Research Institute、MIT、Stanford University
+
+**会议 / 期刊**：RSS 2023，扩展版发表于 IJRR
+
+**论文链接**：[arXiv](https://arxiv.org/abs/2303.04137)
+
+**代码链接**：[real-stanford/diffusion_policy](https://github.com/real-stanford/diffusion_policy)
+
+**项目主页**：[Diffusion Policy](https://diffusion-policy.cs.columbia.edu/)
+
+<img
+  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-diffusion-policy/DP_teaser-1.4ubo1tbsfg.webp'
+  alt='三类策略表示：显式策略、隐式能量策略与 Diffusion Policy 的梯度场（论文 Figure 1）'
+  class='zoomable'
+  width='2439'
+  height='600'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+### 一句话总结
+
+**【Paper】** 本文把 robot visuomotor policy 表示成 conditional denoising diffusion process，让网络不直接回归单步动作，而是学习动作分布 score function 的梯度场；推理时从高斯噪声出发，经过多步 denoise 生成一整段动作序列，并在闭环中只执行前 `Ta` 步。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出 Diffusion Policy，将 DDPM 从图像生成迁移到机器人动作生成，利用扩散模型表达多模态、高维和时间相关的动作分布。
+2. 用 receding-horizon 结合动作序列预测：输入最近 `To` 步观测，预测 `Tp` 步动作，只执行 `Ta` 步后重新规划。
+3. 提出 vision-conditioned diffusion policy：观测只作为 condition，不在 denoise 循环中生成，因此视觉编码器每次推理只跑一次，显著降低实时推理成本。
+4. 提出 Time-series Diffusion Transformer，缓解 1D temporal CNN 对高频动作变化过平滑的问题。
+5. 在 4 个 benchmark、15 个任务上系统验证，平均成功率相对 baselines 提升 46.9%，并在多个真实机器人任务上验证。
+
+## 2. 背景与相关工作
+
+**【Paper】** 最简单的 policy learning from demonstration 可以看成从 observation 到 action 的监督回归。但机器人动作预测有三个特殊性：
+
+1. **多模态**：同一观测下可能存在多条合理动作，例如绕障时从左走或从右走。
+2. **序列相关**：连续动作不能独立预测，否则会来回横跳。
+3. **高精度**：接触密集的 manipulation 对动作精度很敏感。
+
+传统 explicit policy 直接输出 action 或其分布。L2 regression 隐含单峰 Gaussian 假设，GMM、离散化或 clustering 又容易遇到 mode 数量难选、高维 bin 指数增长和 mode collapse。Implicit policy 用 energy-based model 表达分布，理论上有任意分布的表达能力，但训练时需要对不可求的归一化常数做 negative sampling，实践上不稳定。
+
+Diffusion models 已经从图像生成中证明了高维输出扩展能力和稳定训练能力。Diffusion Policy 的核心不是继续设计更好的单步动作表示，而是把 policy 本身替换成一个带观测条件的去噪过程。
+
+## 3. 问题定义
+
+**【Paper】**
+
+- **Task**：Imitation learning / Behavior Cloning。给定专家示教，学习从观测到动作的条件分布。
+- **Observation**：最近 `To` 步观测 $O_t$。真实任务中主要是多视角 RGB 图像，仿真中还包括 state 或 keypoints。
+- **Action**：未来 `Tp` 步动作序列 $A_t$，其中前 `Ta` 步交给机器人执行。
+- **Action Space**：连续动作。论文推荐 Diffusion Policy 使用 absolute position control，而不是 velocity control；旋转使用 6D rotation representation。
+- **Robot / Embodiment**：UR5 和 Franka Panda，单臂任务以及扩展版中的双臂任务。
+- **Dataset**：Robomimic、Push-T、Multimodal Block Push、Franka Kitchen，以及多个真实任务的数据集。
+- **Training Objective**：学习条件分布 $p(A_t \mid O_t)$。
+
+形式上，policy 要建模：
+
+$$
+p(A_t \mid O_t), \quad A_t = a_{t:t+T_p-1}
+$$
+
+其中 $a_t$ 是单个时间步动作，$T_p$ 是 action prediction horizon。论文用 DDPM 学习该条件分布，而不是直接输出其均值或单一 mode。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+<img
+  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-diffusion-policy/policy_input_output-1.lwgrzinog.webp'
+  alt='Diffusion Policy 总览：receding-horizon、CNN FiLM conditioning 与 Transformer cross-attention（论文 Figure 2）'
+  class='zoomable'
+  width='4270'
+  height='1184'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+整体数据流是：观测先编码成 condition，再以 action sequence 为去噪对象，逐步从噪声恢复动作轨迹。训练和推理的逐步过程分别见 4.4 和 4.5。
+
+**【Paper】** Diffusion Policy 有两个主干选择：
+
+- **CNN-based Diffusion Policy**：采用 1D temporal CNN，把 observation feature 和 diffusion step 用 FiLM 条件注入每一层卷积。
+- **Time-series Diffusion Transformer**：把 noisy action token 输入 transformer decoder，observation embedding 通过 cross-attention 作为 condition，action token 之间使用 causal attention。
+
+### 4.2 核心模块
+
+#### Action-sequence prediction 与 receding-horizon
+
+- **输入**：最近 `To` 步观测。
+- **输出**：未来 `Tp` 步动作。
+- **执行**：只把前 `Ta` 步交给 low-level controller，之后用新观测重新规划。
+- **为什么需要**：输出整个 action sequence 可以鼓励时间一致性，同时避免预测完整 episode 带来的响应延迟。
+
+**【Code】** 官方代码中 `horizon` 对应 `Tp`，`n_obs_steps` 对应 `To`，`n_action_steps` 对应 `Ta`。仿真 CNN 默认常见配置是 `horizon=16, n_obs_steps=2, n_action_steps=8`。`MultiStepWrapper` 每次执行 `n_action_steps` 个动作后再查询 policy。
+
+#### Visual encoder
+
+- **输入**：一个或多个相机的 RGB 图。
+- **输出**：视觉 embedding $O_t$。
+- **功能**：把高维图像变成 diffusion network 可消费的 condition。
+- **为什么需要**：不同视角需要独立编码器，时间步之间先独立编码再 concat，保持空间信息。
+
+**【Paper】** 默认使用未预训练 ResNet-18，做两个修改：
+
+1. 把 global average pooling 替换为 spatial softmax pooling，保留空间信息。
+2. 把 BatchNorm 替换为 GroupNorm，因为 DDPM 常与 EMA 一起使用，BatchNorm 会破坏 EMA 训练稳定性。
+
+**【Code】** `diffusion_unet_image_policy.py` 的 `MultiImageObsEncoder` 直接使用 `resnet18`，`weights=null`，`use_group_norm=True`，并支持 random crop。Robomimic hybrid policy 则通过 `get_robomimic_config` 构造 Robomimic 的 observation encoder，再用 `replace_submodules` 把 BatchNorm 替换为 GroupNorm。
+
+#### CNN noise prediction network
+
+- **输入**：noisy action sequence、diffusion step、observation embedding。
+- **输出**：预测噪声 $\epsilon_\theta(O_t, A_t^k, k)$。
+- **功能**：在 1D temporal CNN 上逐步去噪。
+- **为什么需要**：对多数任务开箱即用，训练稳定。
+
+**【Code】** 对应 `ConditionalUnet1D`。`down_dims=[512,1024,2048]`、`kernel_size=5`、`n_groups=8` 是仿真 CNN image policy 的常见配置；condition 进入 FiLM 模块，输出逐通道 scale 和 bias。
+
+#### Time-series diffusion transformer
+
+- **输入**：noisy action token、diffusion step embedding、observation embedding。
+- **输出**：对应每个 action token 的预测噪声。
+- **功能**：缓解 CNN 对高频动作变化的过平滑。
+- **为什么需要**：velocity command、快速切换动作等任务更适合 transformer。
+
+**【Code】** 对应 `TransformerForDiffusion`。代码里 observation 条件先通过 `cond_obs_emb` 线性投影，再通过一个 shared MLP（默认 `n_cond_layers=0` 时为 `Linear-Mish-Linear`），作为 transformer decoder 的 memory；action token 使用 causal attention。
+
+### 4.3 关键公式
+
+#### DDPM 去噪更新
+
+$$
+\mathbf x^{k-1}
+=
+\alpha\left(
+\mathbf x^k - \gamma \epsilon_\theta(\mathbf x^k, k)
++ \mathcal N(0, \sigma^2 I)
+\right)
+$$
+
+- $\mathbf x^k$：第 $k$ 步的 noisy sample。
+- $\epsilon_\theta$：noise prediction network。
+- $k$：diffusion step。
+- $\alpha, \gamma, \sigma$：noise schedule 决定每一步的缩放、步长和随机噪声。
+
+这个公式也可以理解为一次 noisy gradient descent：
+
+$$
+\mathbf x' = \mathbf x - \gamma \nabla E(\mathbf x)
+$$
+
+其中 $\epsilon_\theta$ 近似了 energy landscape 的梯度方向。
+
+#### 条件 Diffusion Policy
+
+Diffusion Policy 建模条件分布而不是 joint distribution：
+
+$$
+\mathbf A_t^{k-1}
+=
+\alpha\left(
+\mathbf A_t^k
+-
+\gamma \epsilon_\theta(O_t, \mathbf A_t^k, k)
++ \mathcal N(0, \sigma^2 I)
+\right)
+$$
+
+训练 loss：
+
+$$
+\mathcal L
+=
+\mathrm{MSE}\left(
+\epsilon^k,
+\epsilon_\theta(O_t, A_t^0 + \epsilon^k, k)
+\right)
+$$
+
+- $O_t$：最近 `To` 步 observation。
+- $A_t^0$：真实未来动作序列。
+- $\epsilon^k$：扩散步 $k$ 采样的 Gaussian noise。
+
+#### 与 implicit policy 的关系
+
+Implicit policy 的 EBM 形式是：
+
+$$
+p_\theta(\mathbf a \mid \mathbf o)
+=
+\frac{
+e^{-E_\theta(\mathbf o, \mathbf a)}
+}{
+Z(\mathbf o, \theta)
+}
+$$
+
+其中 $Z$ 是难以估计的归一化常数。Diffusion Policy 直接建模 score function：
+
+$$
+\nabla_{\mathbf a} \log p(\mathbf a \mid \mathbf o)
+\approx
+-\epsilon_\theta(\mathbf a, \mathbf o)
+$$
+
+$Z$ 对 $\mathbf a$ 的梯度为零，因此训练和推理都不需要估计 $Z$。这是 Diffusion Policy 相比 IBC 训练更稳定的核心原因。
+
+### 4.4 Training
+
+**【Paper】**
+
+- **Noise schedule**：Square Cosine Schedule，来自 iDDPM；仿真训练和推理均使用 100 diffusion steps。
+- **Action normalization**：每个 action dimension 独立 min-max 缩放到 `[-1,1]`；旋转表示保持不变或使用 6D rotation。
+- **Vision encoder**：默认从零训练，ResNet-18，spatial softmax + GroupNorm。
+- **Image augmentation**：训练 random crop，推理 static center crop。
+- **Optimization**：AdamW；CNN learning rate `1e-4`，warmup 500 steps；Transformer learning rate `1e-4`，warmup 1000 steps；cosine schedule。
+- **Batch size**：state-based experiments 256，image-based experiments 64。
+- **EMA**：与 DDPM 一起使用，因此用 GroupNorm 替代 BatchNorm。
+
+**【Code】**
+
+- `compute_loss` 对 action sequence 加噪，用 `DDPMScheduler.add_noise`；loss 是 `F.mse_loss(pred, noise)`，并且只计算非 condition 部分。
+- `LinearNormalizer` 默认 `mode='limits'`，把每个 action dim 的 min/max 映射到 `[-1,1]`。
+- 数据集通过 `SequenceSampler` 从 episode 中采样长度为 `horizon` 的片段；首尾 pad 由 `pad_before` 和 `pad_after` 控制。
+- 训练 workspace 每 `rollout_every=50` 个 epoch 做一次 rollout，每 `checkpoint_every=50` 保存 checkpoint，并使用 top-k checkpoint manager。
+
+<Algorithm number={1} title='Diffusion Policy Training' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>示教数据集 $D$、noise schedule、observation horizon $T_o$、prediction horizon $T_p$</div>
+  <div slot='output'>训练后的 noise prediction network $\epsilon_\theta(O_t, A_t^k, k)$</div>
+  <AlgorithmStep keyword='Given'>从 $D$ 采样 observation $O_t$ 和 action sequence $A_t^0$</AlgorithmStep>
+  <AlgorithmStep>采样 diffusion step $k \sim \{0,\ldots,K-1\}$</AlgorithmStep>
+  <AlgorithmStep>采样 Gaussian noise $\epsilon^k$，构造 noisy action $A_t^k$</AlgorithmStep>
+  <AlgorithmStep>用 visual encoder 计算 observation embedding</AlgorithmStep>
+  <AlgorithmStep>预测噪声 $\hat \epsilon = \epsilon_\theta(O_t, A_t^k, k)$</AlgorithmStep>
+  <AlgorithmStep>计算 MSE loss，并用 AdamW 更新参数</AlgorithmStep>
+  <AlgorithmStep keyword='end for' />
+  <AlgorithmStep keyword='return'>验证 loss 或 rollout score 最优的 checkpoint</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】**
+
+- 从 Gaussian noise 初始化未来动作序列，经过 diffusion process 生成完整 prediction horizon。
+- 只执行前 `Ta` 步，再根据最新 observation 重新规划。
+- 使用 DDIM 减少推理 diffusion steps。论文正文提到 100 个 training steps、10 个 inference steps 时，在 Nvidia 3080 上达到约 0.1s inference latency；补充材料中的真实任务表使用 16 个 inference steps。
+
+**【Code】**
+
+- `conditional_sample` 每次从 `torch.randn` 初始化 noisy trajectory，随后调用 `scheduler.set_timesteps(num_inference_steps)` 并循环 `scheduler.step`。
+- 视觉 embedding 在循环外计算，CNN image policy 的 `obs_as_global_cond=True`，因此 denoise 循环只跑 action diffusion network。
+- 真实机器人脚本 `eval_real_robot.py` 显式把 `policy.num_inference_steps = 16`，并把 `policy.n_action_steps` 改为 `horizon - n_obs_steps + 1`；实际执行循环使用 `steps_per_inference` 控制重新规划频率。
+- 论文正文的 `10` 和代码/补充材料中的 `16` 是推理 step 数的一个实现差异。
+
+<Algorithm number={2} title='Diffusion Policy Inference' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>训练好的 $\epsilon_\theta$、当前 observation $O_t$、推理 diffusion steps $K_{\text{eval}}$</div>
+  <div slot='output'>机器人实际执行的 $T_a$ 步动作</div>
+  <AlgorithmStep>从标准 Gaussian 采样 $A_t^K$</AlgorithmStep>
+  <AlgorithmStep>用 visual encoder 计算 $O_t$ 的 embedding，且只在去噪循环外计算一次</AlgorithmStep>
+  <AlgorithmStep keyword='for'>$k = K, K-1, \ldots, 1$</AlgorithmStep>
+  <AlgorithmStep indent={1}>调用 $\epsilon_\theta(O_t, A_t^k, k)$ 预测噪声</AlgorithmStep>
+  <AlgorithmStep indent={1}>用 scheduler.step 得到 $A_t^{k-1}$</AlgorithmStep>
+  <AlgorithmStep keyword='end for' />
+  <AlgorithmStep>对 $A_t^0$ 做 action unnormalization</AlgorithmStep>
+  <AlgorithmStep>取前 $T_a$ 步交给 low-level controller 执行</AlgorithmStep>
+  <AlgorithmStep keyword='return'>执行后的新 observation 用于下一次推理</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】**
+
+| 论文描述                                          | 官方代码实现                                       | 实际行为                                                                      |
+| ------------------------------------------------- | -------------------------------------------------- | ----------------------------------------------------------------------------- |
+| CNN 用 FiLM 注入 observation 与 diffusion step    | `ConditionalUnet1D` + `ConditionalResidualBlock1D` | 每个 residual block 预测 scale/bias，对卷积特征做逐通道调制                   |
+| Transformer 用 cross-attention 条件化 observation | `TransformerForDiffusion`                          | observation embedding 作为 decoder memory，action token causal self-attention |
+| 视觉编码器 ResNet-18，spatial softmax + GroupNorm | `MultiImageObsEncoder` / Robomimic obs encoder     | 从零训练 ResNet-18，`use_group_norm=True`，多相机不共享 encoder               |
+| action min-max 到 `[-1,1]`                        | `LinearNormalizer` 的 `limits` mode                | 低方差维度不会按接近零的 range 缩放                                           |
+| receding-horizon 只执行 `Ta` 步                   | `MultiStepWrapper`                                 | 环境接收 `n_action_steps` 个动作后返回新观测                                  |
+| DDIM 加速真实推理                                 | `DDIMScheduler` / `eval_real_robot.py`             | 代码真实 eval 设置 16 inference steps                                         |
+| 论文提到可用前次预测 warm-start                   | 未实现                                             | `conditional_sample` 每次重新从 Gaussian 采样                                 |
+
+**【Analysis】** 论文对 receding-horizon 描述中的 warm-start 是一个潜在优化方向，但官方仓库当前没有把上一段 noisy action 作为下一次采样起点；因此代码层面的 receding-horizon 更接近“每 `Ta` 步重新采样”，而不是严格 warm-started model predictive control。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+**【Paper】**
+
+- **Benchmarks**：Robomimic、Push-T、Multimodal Block Push、Franka Kitchen，加上真实机器人任务。
+- **Task 数量**：仿真和真实共 15 个任务；扩展版再加入 Egg Beater、Mat Unrolling、Shirt Folding 三个双臂任务。
+- **Observation**：state 和 image 两类；image 分辨率根据任务为 `84x84`、`96x96`、`240x240` 或真实任务的 `320x240`。
+- **Baselines**：LSTM-GMM / BC-RNN、IBC、BET。
+- **Metrics**：多数任务为 success rate；Push-T 使用 target area coverage，真实 sauce tasks 使用 IoU 或 coverage。
+- **Evaluation**：仿真报告 best checkpoint 与最后 10 个 checkpoint 平均，跨 3 seeds 和多个 initial conditions。
+
+<img
+  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-diffusion-policy/real_task_setup-1.8hh7pc4pcy.webp'
+  alt='真实 Push-T 硬件设置、任务定义和结果指标（论文 Realworld Push-T Experiment）'
+  class='zoomable'
+  width='2834'
+  height='1914'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+### 5.2 Main Results
+
+**【Paper】** 在仿真 benchmark 上，Diffusion Policy 在所有 state/image 任务和 variant 上都超过 baselines，按论文给出的相对改进计算方法，平均提升 46.9%。
+
+部分 Robomimic 视觉 policy 的 best/avg checkpoint 成功率如下：
+
+| Task         |    LSTM-GMM |         IBC | DiffusionPolicy-C | DiffusionPolicy-T |
+| ------------ | ----------: | ----------: | ----------------: | ----------------: |
+| Lift PH      | 1.00 / 0.96 | 0.94 / 0.73 |       1.00 / 1.00 |       1.00 / 1.00 |
+| Can PH       | 1.00 / 0.88 | 0.08 / 0.01 |       1.00 / 0.97 |       1.00 / 0.98 |
+| Square PH    | 0.82 / 0.59 | 0.03 / 0.00 |       0.98 / 0.92 |       1.00 / 0.90 |
+| Transport PH | 0.88 / 0.62 | 0.00 / 0.00 |       1.00 / 0.93 |       0.98 / 0.81 |
+| ToolHang PH  | 0.68 / 0.49 | 0.00 / 0.00 |       0.95 / 0.73 |       0.76 / 0.47 |
+| Push-T       | 0.69 / 0.54 | 0.75 / 0.64 |       0.91 / 0.84 |       0.78 / 0.66 |
+
+多阶段 state 任务中，Diffusion Policy 尤其能处理 long-horizon multimodality。论文报告 Block Push `p2` 相对改进 32%，Kitchen `p4` 相对改进 213%。
+
+<img
+  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-diffusion-policy/multimodal_sim-1.51evx8v1sk.webp'
+  alt='Push-T 中短时程多模态行为：Diffusion Policy 能同时保留左右两侧 mode，并在单次 rollout 中 commit 到一条轨迹（论文 Figure 3）'
+  class='zoomable'
+  width='2700'
+  height='845'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+真实 Push-T 的关键结果是：
+
+| Method             |      IoU |  Success |  Duration |
+| ------------------ | -------: | -------: | --------: |
+| Human              |     0.84 |     1.00 |     20.3s |
+| IBC pos            |     0.14 |     0.00 |     56.3s |
+| IBC vel            |     0.19 |     0.00 |     41.6s |
+| LSTM-GMM pos       |     0.24 |     0.20 |     47.3s |
+| LSTM-GMM vel       |     0.25 |     0.10 |     51.7s |
+| DP Transformer E2E |     0.53 |     0.65 |     57.5s |
+| DP ImageNet        |     0.24 |     0.15 |     55.8s |
+| DP R3M             |     0.66 |     0.80 |     31.7s |
+| DP CNN E2E         | **0.80** | **0.95** | **22.9s** |
+
+<img
+  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-diffusion-policy/real_results-1.8s41ihjxbp.webp'
+  alt='真实 Push-T 轨迹与最终状态对比：End-to-end Diffusion Policy 更准确且更稳定（论文 Figure 7）'
+  class='zoomable'
+  width='2684'
+  height='1284'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+其他真实任务总结：
+
+| Task                  | Human | LSTM-GMM | Diffusion Policy |
+| --------------------- | ----: | -------: | ---------------: |
+| Mug Flipping success  |   1.0 |      0.0 |              0.9 |
+| Sauce Pour IoU        |  0.79 |     0.06 |             0.74 |
+| Sauce Pour success    |  1.00 |     0.00 |             0.79 |
+| Sauce Spread coverage |  0.79 |     0.27 |             0.77 |
+| Sauce Spread success  |  1.00 |     0.00 |             1.00 |
+
+扩展版中的三个双臂任务：Egg Beater 55%、Mat Unrolling 75%、Shirt Folding 75% success rate，分别使用 210、162、284 条示教。
+
+### 5.3 Ablation Study
+
+**【Paper】**
+
+- **Action horizon**：`Ta=8` 在多数任务上最好。太小失去时间一致性，太大降低响应速度。
+- **Position vs velocity control**：Diffusion Policy 从 velocity 换到 position 后性能提升，而 BC-RNN、BET 等 baseline 换到 position 后通常下降。
+- **Latency robustness**：receding-horizon position control 在模拟 latency 最多 4 步时仍能维持 peak performance；velocity control 受 latency 影响更大。
+- **Observation horizon**：state-based policy 对 observation horizon 不敏感；vision-based CNN policy 偏好较小的 `To`，2 步在多数任务中是较好折中。
+- **Data efficiency**：在每个训练数据规模上，Diffusion Policy 都优于 LSTM-GMM。
+- **Vision encoder**：从零训练 ResNet、frozen pretrained、finetune pretrained 三种设置中，finetune 最好，尤其 CLIP ViT-B/16 达到 0.98；但从零训练 ResNet 已经接近，真实系统仍以 end-to-end training 为最佳。
+
+<img
+  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-diffusion-policy/ablation_figure-1.icuu9pkse.webp'
+  alt='Action horizon 的 temporal consistency 与 responsiveness 权衡，以及 position control 的 latency robustness（论文 Figure 5）'
+  class='zoomable'
+  width='1745'
+  height='903'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+**【Analysis】** 这张消融图说明了 Diffusion Policy 与一般“predict full trajectory”方法的关键区别：它并不是预测一整条开环轨迹，而是预测一段足够长的局部轨迹，再通过高频重新规划保持闭环反应能力。
+
+### 5.4 Generalization
+
+**【Paper】** 论文没有做大规模跨 embodiment、跨任务或 language-conditioned generalization 评测。其泛化证据主要来自：
+
+- 初始位置随机化下的同任务鲁棒性。
+- 真实 Push-T 中视觉遮挡、物体被推动后的重新规划。
+- 在未示教的“离开 T block 后又被挪动”场景中，policy 会返回目标区重新修正。
+
+【Paper】还展示了一种“合成新行为”：训练数据中没有“已经前往 end-zone 又回来继续推 T block”的轨迹，但 Diffusion Policy 在物理扰动下能做到。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** Diffusion Policy 的有效性来自三个层面的协同：
+
+1. 扩散模型允许 policy 输出任意可归一化分布，因此同一观测下多个合理 action mode 可以被保留，并在单次采样中 commit 到其中一个。
+2. 高维 action sequence 一次生成，使连续动作共享同一去噪过程，避免 BC-RNN、BET 等把每个时间步独立 sample 时出现的 jittery mode switch。
+3. observation 被移到 diffusion loop 外，使视觉编码只需执行一次；这降低了实时推理成本，同时让 end-to-end visual encoder 训练可行。
+
+### 6.2 核心创新
+
+**【Paper】** 如果只保留一句，Diffusion Policy 的核心创新是：不把 policy 设计成显式回归或 EBM 优化器，而是用条件 DDPM 学习动作分布的 score function，并把这个生成式 policy 直接用于 visuomotor control。
+
+### 6.3 与已有方法的本质区别
+
+**【Analysis】**
+
+- 与 BC-RNN/LSTM-GMM 相比：不预设 Gaussian 或 GMM mode 数，表达能力不受指数族限制。
+- 与 IBC 相比：不估计 EBM 的归一化常数，训练目标只是 noise prediction，避免 negative sampling 导致的不稳定。
+- 与 Diffuser 相比：建模 $p(A_t \mid O_t)$ 而不是 joint $p(A_t, O_t)$，不需要在 denoise 过程中同时生成 future observation，因此能实时运行。
+- 与 ACT 相比：ACT 用 CVAE 生成 chunk，Diffusion Policy 用迭代去噪生成 chunk；两者都强调 action chunk，但概率建模和采样机制不同。
+
+### 6.4 关键假设
+
+**【Paper】**
+
+- 当前 observation 足够决定未来 `Tp` 步动作。
+- 专家示教质量足够高，且 action 可被 min-max normalization 合理表示。
+- 任务的控制频率适合 diffusion inference latency；论文真实任务通常运行在 10Hz 左右。
+- `Ta` 需要在时间一致性与响应性之间选择，缺少自适应 horizon 机制。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】**
+
+1. Diffusion Policy 继承 Behavior Cloning 的局限，在示教不足或示教质量较差时性能会下降；论文建议未来与 offline RL、negative data 等方法结合。
+2. 相比 LSTM-GMM 等简单 policy，计算成本和 inference latency 更高。action sequence prediction 部分缓解了这个问题，但对需要高控制频率的任务可能仍不够。
+3. 论文建议未来探索更快的 noise schedule、inference solver 和 consistency model，以进一步减少 inference steps。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+- 推理本质上是随机采样，即使 observation 相同，输出也会不同；在需要严格可重复或安全认证的场景中，需要固定 seed 或增加后处理。
+- 官方代码的 receding-horizon 并未实现论文提到的 warm-start，因此相邻两次规划之间的动作连续性主要依赖 action sequence 本身，而不是显式沿用上一段 noisy trajectory。
+- 论文的真实系统以 10Hz 控制为主，diffusion 推理开销决定它不能直接迁移到数百 Hz 的力控或高动态任务。
+- 实验未覆盖开放性、长序列语言指令或跨机器人大规模泛化，不能把 Push-T 上的扰动恢复直接解释为 open-world generalization。
+
+## 8. 启发与研究思考
+
+**【Analysis】**
+
+Diffusion Policy 之后的大量工作继续围绕几个方向展开：
+
+1. 用 Consistency Model、DDIM distillation 等减少 diffusion steps，把 Diffusion Policy 从约 10Hz 推近实时。
+2. 把 action diffusion 接到 VLA、多模态 foundation model 上，作为连续动作 head，而不是从零训练 vision encoder。
+3. 将 action chunk 与 VLA 的 action tokenization 结合，在离散 token 与连续 diffusion 之间寻找更紧凑的 action representation。
+4. 从 Behavior Cloning 扩展到 offline RL，让 diffusion policy 能利用 suboptimal 和 failure data。
+
+对这个仓库的工程实现，最值得借鉴的不是“diffusion 很新”，而是它把 observation、action normalization、receding-horizon、EMA、scheduler 和 evaluation runner 都作为独立模块组合起来，使同一个 policy core 可以快速换到 CNN、Transformer、state 或 image observation。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。
+</Aside>
