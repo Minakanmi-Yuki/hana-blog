@@ -17,6 +17,7 @@ Use only after the count-1 pool is exhausted.
 
 | Use Count | Pixiv ID    | URL                                                                | Current Posts                                              |
 | --------: | ----------- | ------------------------------------------------------------------ | ---------------------------------------------------------- |
+|         2 | `116834498` | `https://pic.hana0721.top/116834498_p0_master1200.1e974fnzok.webp` | `rl-note-26`, `paper-deep-dive-onetwovla`                  |
 |         2 | `133535742` | `https://pic.hana0721.top/133535742_p0_master1200.icpovr2id.webp`  | `paper-deep-dive-openvla`, `paper-reading-eba1`            |
 |         2 | `57793944`  | `https://pic.hana0721.top/57793944_p0_master1200.4xv4u7fok2.webp`  | `paper-deep-dive-rt2`, `paper-reading-vlm2`                |
 |         2 | `104724685` | `https://pic.hana0721.top/104724685_p0_master1200.7p472bcti3.webp` | `rl-note-23`, `paper-deep-dive-bagel`                      |
@@ -52,7 +53,6 @@ Preferred candidates for new posts.
 |         1 | `102841826` | `https://pic.hana0721.top/102841826_p0_master1200.4clh7xw95k.webp` | `rl-note-22`                                      |
 |         1 | `42175762`  | `https://pic.hana0721.top/42175762_p0_master1200.6m4jay5vlg.webp`  | `paper-reading-eba5`                              |
 |         2 | `112236596` | `https://pic.hana0721.top/112236596_p0_master1200.232gogbiox.webp` | `rl-note-25`, `paper-deep-dive-qwen-robotmanip`   |
-|         1 | `116834498` | `https://pic.hana0721.top/116834498_p0_master1200.1e974fnzok.webp` | `rl-note-26`                                      |
 |         1 | `120188807` | `https://pic.hana0721.top/120188807_p0_master1200.1lcf3tjzx5.webp` | `vibe-coding-3`                                   |
 |         1 | `120269913` | `https://pic.hana0721.top/120269913_p0_master1200.3k8lu5pi8s.webp` | `vibe-coding-4`                                   |
 |         1 | `124956717` | `https://pic.hana0721.top/124956717_p0_master1200.83amt2xvmx.webp` | `galgame-2`                                       |

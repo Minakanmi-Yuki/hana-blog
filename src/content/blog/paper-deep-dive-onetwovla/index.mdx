@@ -1,0 +1,277 @@
+---
+title: 'OneTwoVLA 论文精读：让 VLA 在必要时思考、其余时间行动'
+publishDate: 2026-08-25
+updatedDate: 2026-08-25
+description: '精读 OneTwoVLA：用统一 VLA、自适应 Reason/Act 决策和 reasoning-centric 数据，提升机器人长程规划、纠错、交互与视觉指代。'
+heroImage:
+  { src: 'https://pic.hana0721.top/116834498_p0_master1200.1e974fnzok.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '116834498'
+tags:
+  - 'paper deep dive'
+  - 'OneTwoVLA'
+  - 'vision-language-action'
+  - 'robot reasoning'
+paper:
+  arxivId: '2505.11917'
+  title: 'OneTwoVLA: A Unified Vision-Language-Action Model with Adaptive Reasoning'
+  authors:
+    - 'Fanqi Lin'
+    - 'Ruiqian Nai'
+    - 'Yingdong Hu'
+    - 'Jiacheng You'
+    - 'Junming Zhao'
+    - 'Yang Gao'
+  venue: 'ICLR'
+  year: 2026
+  code: 'https://github.com/Fanqi-Lin/OneTwoVLA'
+  project: 'https://one-two-vla.github.io/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2505.11917'
+  tldr='OneTwoVLA 将语言推理和连续动作置于同一个 π0 架构，并自主选择 [BOR]（Reason）或 [BOA]（Act）：仅在计划更新、异常和交互等关键时刻推理。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《OneTwoVLA: A Unified Vision-Language-Action Model with Adaptive Reasoning》
+
+**作者**：Fanqi Lin、Ruiqian Nai、Yingdong Hu、Jiacheng You、Junming Zhao、Yang Gao
+
+**会议**：ICLR 2026
+
+**论文 / 代码 / 项目**：[arXiv](https://arxiv.org/abs/2505.11917) · [GitHub](https://github.com/Fanqi-Lin/OneTwoVLA) · [Project Page](https://one-two-vla.github.io/)
+
+![OneTwoVLA 同一模型在关键节点 Reason、其余节点 Act 的总览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-onetwovla/overview.77ealttgsd.webp)
+
+### 一句话总结
+
+**【Paper】** OneTwoVLA 是一个统一的 Vision-Language-Action（VLA）模型：它不把大模型规划器和低层控制器拆成两个系统，而是在同一模型内自适应选择输出文字推理或 action chunk；同时以 reasoning 标注的机器人数据和 16,000 条合成视觉语言数据共同训练。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出统一的 Reasoning–Acting VLA，在每个决策点预测 `[BOR]` 或 `[BOA]`。
+2. 将轨迹划为 reasoning / acting interval，并以场景、计划、历史、下一步构造 embodied reasoning 标注。
+3. 构建“文本布局 → FLUX 图像 → Gemini 指令与推理”的数据流水线，合成 16,000 条样本。
+4. 在真实长程操作、失败恢复、人机交互与视觉 grounding 上验证；长程任务平均成功率为 87%，VL co-training 后开放世界 grounding 为 73%。
+
+## 2. 背景与相关工作
+
+**【Paper】** Dual-system 方案通常让 VLM/LLM 做慢速高层计划、让 VLA 做低层执行。但规划器未必理解动作 policy 的能力边界，且外部大模型的时延可能使建议过期。Flat VLA 则直接图像/语言到动作，实时却缺少任务进度、失败原因和下一步的显式表征。
+
+**【Paper】** 本文不主张每个控制周期都 Chain-of-Thought，而是学习何时更新认知状态：在完成子任务、发现失败或发生人机交互等关键时刻 Reason，其他时间复用最新 reasoning 来 Act。
+
+**【Analysis】** 关键不在于展示一段可读文字，而在于让文字 $R$ 成为后续动作条件的一部分。它提供闭环重规划接口，又避免把昂贵的自回归文本生成塞进每一帧控制。
+
+## 3. 问题定义
+
+**【Paper】** 时间 $t$ 的输入为多相机观测 $I_t^{1:n}$、上次 reasoning 时保存的参考图像 $I_{ref}^{1:n}$、语言指令 $\ell$、最近 reasoning content $R$；行动时还输入本体状态 $s_t$：
+
+$$
+\hat R \sim \pi_\theta(\cdot \mid I_t^{1:n}, I_{ref}^{1:n}, \ell, R), \qquad
+A_t \sim \pi_\theta(\cdot \mid I_t^{1:n}, I_{ref}^{1:n}, \ell, R, s_t).
+$$
+
+$\hat R$ 是更新后的自然语言状态，$A_t$ 是连续 action chunk。$I_{ref}$ 让模型能比较“计划建立时”与“当前”的视觉状态，避免仅靠当前图像或文字摘要而产生歧义。
+
+**【Paper】** 主实验使用带平行夹爪与鱼眼 GoPro 的单臂 7-DoF Franka；泛化规划另用双 6-DoF ARX 平台和三路相机。动作 expert 基于 $\pi_0$，输出连续动作。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![Reasoning Mode 与 Acting Mode 的统一推理流程（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-onetwovla/inference.1764h3jv53.webp)
+
+**【Paper】** OneTwoVLA 以 $\pi_0$ 为基座：视觉语言模型自回归地产生 decision / reasoning token，Action Expert 用 flow matching 建模连续动作。两条路径共享视觉、指令、reference 与 reasoning 上下文。
+
+### 4.2 核心模块
+
+#### 自适应决策 token
+
+**【Paper】** `[BOR]`（Beginning of Reasoning）触发文本生成，直到 `[EOS]`；`[BOA]`（Beginning of Action）触发 action chunk。论文的假设是大部分执行时间应为 Act，因此只在少数关键点产生语言推理。
+
+**【Code】** `src/openpi/models/pi0_fuse.py` 的 `prefill()` 将 next-token logit 限制在 `BEGIN_OF_ACTION`、`BEGIN_OF_REASONING` 两个候选，再以 argmax 或采样决定模式。这证实触发器由模型学习，而不是测试时的外部固定规则。
+
+#### 四段式 embodied reasoning
+
+**【Paper】** 每次 reasoning 含四个字段：任务相关物体位置的 **Scene description**、子任务序列的 **High-level plan**、已完成步骤的 **Historical summary**、以及眼下动作的 **Next step**。人类问题/回答会追加到 $\ell$；失败时 reasoning 输出诸如“后撤、对齐、再次抓取”的恢复意图。
+
+#### Reference image 与 Action Expert
+
+**【Paper】** Reason 后将 $I_{ref}\leftarrow I_t$，使“最新文本状态 + 建立状态时的视觉锚点”共同表示 history。动作端继承 $\pi_0$ action expert，以 flow matching 处理复杂连续动作分布；文字端使用 cross-entropy。
+
+### 4.3 关键公式
+
+决策可写成：
+
+$$
+d_t = \arg\max_{d \in \{[BOR],[BOA]\}} p_\theta(d \mid I_t^{1:n}, I_{ref}^{1:n}, \ell, R).
+$$
+
+**【Paper】** 动作端继承 $\pi_0$ 的 flow matching。其常见目标为：
+
+$$
+\mathcal L_{\mathrm{FM}} = \mathbb E_{t,x_0,x_1}\left[\|v_\theta(x_t, c, t) - (x_1-x_0)\|_2^2\right],
+$$
+
+其中 $x_0$ 为噪声、$x_1$ 为真实 action chunk、$x_t$ 为插值状态，$c$ 汇集观测、语言、reasoning 与状态。论文主体没有给出具体噪声调度及 chunk 长度，应以基座 $\pi_0$ 实现为准。
+
+### 4.4 Training
+
+**【Paper】** 对每条专家示教，作者先定义 $K$ 个有序子任务，再均匀抽取 $N=32$ 帧，调用 Gemini 2.5 找出各子任务完成后的 $K+1$ 个 reasoning interval。每个 interval 的中点图像生成 scene description，结合计划 $P$、已完成子序列 $H_j=(p_1,\ldots,p_j)$ 与下一步 $X_j=p_{j+1}$，构成监督目标。
+
+**【Paper】** 当已有 reasoning 已过期时监督 `[BOR]`；更新后监督 `[BOA]`；acting interval 始终监督 `[BOA]`。由此，“应该思考”来自数据而非固定频率。
+
+<Algorithm number={1} title='OneTwoVLA 训练' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>机器人示教轨迹、子任务计划、reasoning 标注，以及合成视觉语言样本。</div>
+  <div slot='output'>
+    可预测 decision token、reasoning 文本与连续 action chunk 的策略 $\pi_\theta$。
+  </div>
+  <AlgorithmStep>
+    将示教划为 reasoning / acting intervals，并标注场景、计划、历史与下一步。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    采样图像、reference image、指令、历史 reasoning 与状态，构造 [BOR]、[BOA] 或动作监督。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    以交叉熵优化文字和 decision token，以 flow matching loss 优化 Action Expert。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    将合成 VL 与机器人样本共同训练，扩展视觉 grounding 与抽象计划的覆盖。
+  </AlgorithmStep>
+</Algorithm>
+
+**【Code】** 训练入口为 `scripts/train.py`；`train_scripts/train_onetwovla_cocktail.sh` 通过 `--reasoning_json_path` 传入标注。脚本按 GPU 数设定总 batch（单卡训练 batch 为 20），并提示先单卡运行 `scripts/compute_norm_stats.py` 计算归一化统计。
+
+**【Code】** `src/openpi/policies/umi_dataset.py` 默认 `pred_reasoning_prob = 0.7`，会从 reasoning、过期 reasoning、人类回答/干预等分支构造不同 `thought` 输入输出；配置也默认启用 `use_reference_image`、`use_outdated_reasoning`。代码的训练状态覆盖比论文两模式摘要更细。
+
+### 4.5 Inference
+
+<Algorithm number={2} title='自适应 Reason–Act 推理' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>初始 reference images、语言指令 $\ell$、当前观测与状态。</div>
+  <div slot='output'>直至任务完成所执行的 action chunks 与必要时更新的 reasoning。</div>
+  <AlgorithmStep>以初始图像设为 $I_{ref}$，令 $R$ 为空；读取当前多相机图像。</AlgorithmStep>
+  <AlgorithmStep>在 [BOR] / [BOA] 上预测 decision token。</AlgorithmStep>
+  <AlgorithmStep>
+    若为 [BOR]，生成 $\hat R$，并更新 $R\leftarrow\hat R$、$I_{ref}\leftarrow I_t$。
+  </AlgorithmStep>
+  <AlgorithmStep>若为 [BOA]，以观测、$I_{ref}$、$R$ 与状态生成并执行 action chunk。</AlgorithmStep>
+  <AlgorithmStep>循环至 reasoning 报告 Task Finished。</AlgorithmStep>
+</Algorithm>
+
+**【Paper】** Figure 2 的 Tomato-Egg 计时显示 OneTwoVLA 总耗时接近 flat VLA，而固定间隔“持续 reasoning”的 dual-system 显著更慢。不过，单次 Reason 仍会造成约 2–3 秒暂停。
+
+### 4.6 代码实现对照
+
+| 论文概念           | 官方实现位置                             | 可核对的行为                                                     |
+| ------------------ | ---------------------------------------- | ---------------------------------------------------------------- |
+| Reason / Act 选择  | `src/openpi/models/pi0_fuse.py::prefill` | 仅在 `BEGIN_OF_ACTION`、`BEGIN_OF_REASONING` 两个 token 间选择。 |
+| 文本推理解码       | `pi0_fuse.py::reason`                    | 复用 prefix KV cache，最多解码 256 token，遇 EOS 停止。          |
+| 推理增强的数据采样 | `src/openpi/policies/umi_dataset.py`     | 读取 reasoning JSON，构造旧/新 thought、干预和回答样本。         |
+| 训练配方           | `train_scripts/train_onetwovla_*.sh`     | 提供 Cocktail 与 visual grounding 的 OneTwoVLA / π0 对照脚本。   |
+| 合成图像域增强     | `scripts/augment_vl_data/augment.py`     | README 明确提供鱼眼畸变、机械爪合成与自适应亮度。                |
+
+**【Analysis】** 仓库公开了核心模型、Cocktail 和 open-world grounding 的数据/脚本，但 README 没有列出 Hotpot、Tomato-Egg 全量复现实验资源。复现时需区分“方法实现开源”和“全部数字可直接复跑”。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![长程规划、纠错、人机交互和泛化规划的任务示例（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-onetwovla/tasks.2ksnl4ux6i.webp)
+
+**【Paper】** 长程任务包括 Tomato-Egg、Hotpot、Cocktail：它们涉及倒油、抓取滤网、翻炒/盛盘或从近十种外观相似材料中倒入 3–4 种。物体初始位置在 $10\times10\,\mathrm{cm}^2$ 内随机化。
+
+**【Paper】** baseline 是同数据微调的 $\pi_0$，以及由 Gemini 2.5 Pro 定期产生原子命令、$\pi_0$ 执行命令的 dual-system；每项长程与泛化规划任务均有 20 次 trial。Open-World grounding 包含 16 个场景、933 条有效 UMI 示教、180 种家庭物体，并在 8 个未见环境测试。
+
+### 5.2 Main Results
+
+![长程规划与泛化规划的主结果（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-onetwovla/results.icux2wc6c.webp)
+
+**【Paper】** 长程任务中，$\pi_0$ / Dual-System / OneTwoVLA 的平均成功率为 **50% / 63% / 87%**。OneTwoVLA 在 Tomato-Egg、Hotpot、Cocktail 分别为 85%、80%、95%，比 $\pi_0$ 高 30 个百分点、比 dual-system 高 24 个百分点。
+
+**【Paper】** 泛化规划中，加入合成 VL co-training 的 OneTwoVLA-VL 平均为 **70%**；纯 OneTwoVLA 为 10%，$\pi_0$ 为 6%。任务包括“给我冰可乐”（开冰箱寻找不可见物体）、“空盘子”（先移开水果）和根据“让我清醒”准备咖啡。这表明统一 Reason/Act 不会自动带来开放任务知识，数据覆盖仍是关键变量。
+
+**【Paper】** 失败恢复中 OneTwoVLA 成功 8/10（80.0%），$\pi_0$ 为 8/14（57.1%），Dual-System 为 7/12（58.3%）。人机交互的子任务级评测中，OneTwoVLA 为 20/20（100%），Dual-System 为 13/20（65%）；20 个未见交互情境中 OneTwoVLA-VL 为 72.5%。
+
+### 5.3 Ablation Study
+
+**【Paper】** 论文未提供逐模块移除的完整 ablation table，因此不能把这些对照误写成严格的因果消融。它给出的关键比较是：
+
+| 对照                      | 隔离出的因素                                                | 观察                                                |
+| ------------------------- | ----------------------------------------------------------- | --------------------------------------------------- |
+| $\pi_0$ vs OneTwoVLA      | 显式 reasoning、reference/history、adaptive decision 的组合 | 长程 50% → 87%；Single-Env grounding 5% → 78%。     |
+| OneTwoVLA vs OneTwoVLA-VL | 16,000 synthetic VL co-training                             | 泛化规划 10% → 70%；Open-World grounding 8% → 73%。 |
+| OneTwoVLA vs Dual-System  | 统一自适应模型 vs 固定间隔外部规划                          | 长程 87% vs 63%，后者更受能力错配与时延影响。       |
+
+**【Analysis】** 这些实验支持设计组合有效，但未量化 reference image、四段 reasoning、`[BOR]/[BOA]` 及各合成增强的独立边际贡献；这是最值得补齐的后续实验。
+
+### 5.4 Generalization
+
+![Single-Env 与 Open-World 视觉 grounding 示例（论文 Figure 7）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-onetwovla/grounding.4ubo4mfnpi.webp)
+
+**【Paper】** Single-Env grounding 中，$\pi_0$ / OneTwoVLA / OneTwoVLA-VL 分别为 **5% / 78% / 88%**；Open-World 中为 **3% / 8% / 73%**。指令可通过空间关系、属性或语义特征引用物体，而非只报物名。候选物体涵盖 robot data 见过、只在 VL data 见过、两个训练集均未见三类。
+
+**【Paper】** 合成数据流水线为：Gemini 2.5 Pro 生成桌面布局文字，FLUX.1-dev 生成图像，随机加入鱼眼畸变或机械爪与亮度合成，最后由 Gemini 生成指令和 reasoning。它试图将预训练 VLM 中的语义知识经数据 co-training 接入动作 policy。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** OneTwoVLA 把时序责任拆开：连续控制层跟随相对稳定的“下一步”，reasoning 层在事件边界修订全局状态。动作 policy 不再同时承担进度记忆、异常解释、新对话解析和高精度轨迹的所有压力。
+
+**【Analysis】** reference image 是小而关键的设计。文本说“糖浆已倒入”但不一定说明当前物体位置；当前帧也未必显示之前发生了什么。图像锚点加文本摘要提供一种轻量的视觉历史比较。
+
+### 6.2 核心创新
+
+**【Analysis】** 本文真正的创新是一个闭环接口组合：可学习的 mode switch、可被动作消费的 reasoning state、视觉 reference、连续 action expert，以及针对这些接口的训练标注。它们同处一个模型，减少外部 API 串联时的语义断裂。
+
+### 6.3 与已有方法的本质区别
+
+| 路线        | Reason 与 Act 的关系                | 主要代价                            |
+| ----------- | ----------------------------------- | ----------------------------------- |
+| Flat VLA    | 图像/语言直接到动作，无显式推理状态 | 长程进度、异常解释与开放语义较弱。  |
+| Dual-system | 外部 VLM 规划、独立 VLA 执行        | latency，且规划不一定可执行。       |
+| 每步 CoT    | 每个控制周期先文字再行动            | 推理频繁，实时性差。                |
+| OneTwoVLA   | 同模型稀疏选择 Reason 或 Act        | Reason 仍需暂停，触发质量依赖标注。 |
+
+### 6.4 关键假设
+
+**【Analysis】** 方法假设关键 reasoning 时刻能通过子任务边界可靠标注、文字足以概括低层执行需要的隐状态、预训练 VLM 知识可经合成 VL 数据安全迁移。若视觉误判但模型自信地产生错误计划，统一模型会把该错误状态一致传给动作端。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】**
+
+1. 推理时刻依赖人工选择的 heuristic；作者认为 RL 可能学习到更优策略。
+2. Reason 时机器人暂停约 2–3 秒，未来可用 asynchronous architecture 并行推理和行动。
+3. 没有专门优化 action inference；模型变大后动作时延可能成为瓶颈。
+4. 只研究高质量合成 VL 数据，未系统比较数据来源。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】** 成功率来自有限试验和作者构建的数据分布，不能直接等同于开放家庭环境的长期可靠性。公开实现也未覆盖论文全部 benchmark 的完整复现资源，外部研究者难以评估每组数字的方差和采集成本。
+
+**【Analysis】** 可读 reasoning 不必然是 action 的忠实因果解释。需要文本替换、reference image 遮蔽、强制决策 token 等干预测试，才能验证它是可控的内部状态还是相关性文本。
+
+## 8. 启发与研究思考
+
+**【Analysis】** 对具身模型，test-time reasoning 的价值或许不在更长 CoT，而在**事件驱动、可持久、可被执行模块消费的状态更新**。可将 `[BOR]` 视为有计算成本的 option-selection：只有预期纠错/重规划收益超过等待成本才思考。
+
+**【Analysis】** 下一步可探索 asynchronous 双速率系统：低层 action chunk 连续滚动，后台生成 candidate reasoning，在风险或价值模型判定必要时切换；也可把四段文字收敛为可验证的对象、关系、进度和不确定性状态，保留自然语言用于人机沟通。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。文章图片来自论文 PDF 的裁切；CDN 尚未刷新时使用 GitHub Raw
+  链接保证可访问。
+</Aside>
