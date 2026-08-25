@@ -44,6 +44,7 @@ Use only after the count-1 pool is exhausted.
 |         2 | `103975128` | `https://pic.hana0721.top/103975128_p0_master1200.8vniavqp93.webp` | `rl-note-19`, `paper-deep-dive-smolvla`                    |
 |         2 | `102841826` | `https://pic.hana0721.top/102841826_p0_master1200.4clh7xw95k.webp` | `rl-note-22`, `paper-deep-dive-inspire`                    |
 |         2 | `120188807` | `https://pic.hana0721.top/120188807_p0_master1200.1lcf3tjzx5.webp` | `vibe-coding-3`, `paper-deep-dive-vista`                   |
+|         2 | `124956717` | `https://pic.hana0721.top/124956717_p0_master1200.83amt2xvmx.webp` | `galgame-2`, `paper-deep-dive-hex`                         |
 
 ## Count 1 Pool
 
@@ -55,7 +56,6 @@ Preferred candidates for new posts.
 |         2 | `42175762`  | `https://pic.hana0721.top/42175762_p0_master1200.6m4jay5vlg.webp`  | `paper-reading-eba5`, `paper-deep-dive-cot-vla`, `paper-deep-dive-pi05` |
 |         2 | `112236596` | `https://pic.hana0721.top/112236596_p0_master1200.232gogbiox.webp` | `rl-note-25`, `paper-deep-dive-qwen-robotmanip`                         |
 |         1 | `120269913` | `https://pic.hana0721.top/120269913_p0_master1200.3k8lu5pi8s.webp` | `vibe-coding-4`                                                         |
-|         1 | `124956717` | `https://pic.hana0721.top/124956717_p0_master1200.83amt2xvmx.webp` | `galgame-2`                                                             |
 |         1 | `125160058` | `https://pic.hana0721.top/125160058_p0_master1200.6ikvtm0o6l.webp` | `sts-silent-cards-rating`                                               |
 |         1 | `126839080` | `https://pic.hana0721.top/126839080_p0_master1200.232gprncye.webp` | `upload-project-to-github`                                              |
 |         1 | `126903857` | `https://pic.hana0721.top/126903857_p0_master1200.2dpaix2l3u.webp` | `tmux-ssh-session-management`                                           |

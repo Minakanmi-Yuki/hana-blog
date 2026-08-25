@@ -1,0 +1,318 @@
+---
+title: 'HEX：跨形态人形全身操作论文精读'
+publishDate: 2026-08-25
+updatedDate: 2026-08-25
+description: '精读 HEX：用 body-part 对齐状态、UPP-MoE、视觉历史缓存与 flow matching，让全尺寸人形机器人跨形态完成协调的全身操作。'
+heroImage:
+  { src: 'https://pic.hana0721.top/124956717_p0_master1200.83amt2xvmx.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '124956717'
+tags:
+  - 'paper deep dive'
+  - 'humanoid robot'
+  - 'VLA'
+  - 'whole-body manipulation'
+paper:
+  arxivId: '2604.07993'
+  title: 'HEX: Humanoid-Aligned Experts for Cross-Embodiment Whole-Body Manipulation'
+  authors:
+    - 'Shuanghao Bai'
+    - 'Meng Li'
+    - 'Xinyuan Lv'
+    - 'Jiawei Wang'
+    - 'Xinhua Wang'
+    - 'Fei Liao'
+    - 'Chengkai Hou'
+    - 'Langzhe Gu'
+    - 'Wanqi Zhou'
+    - 'Kun Wu'
+    - 'Ziluo Ding'
+    - 'Zhiyuan Xu'
+    - 'Lei Sun'
+    - 'Shanghang Zhang'
+    - 'Zhengping Che'
+    - 'Jian Tang'
+    - 'Badong Chen'
+  venue: 'arXiv'
+  year: 2026
+  code: 'https://github.com/Open-X-Humanoid/HEX'
+  project: 'https://hex-humanoid.github.io/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2604.07993'
+  tldr='HEX 把跨形态人形机器人的 proprioception 组织成共享 body-part slots，用 UPP-MoE 预测未来全身状态，再与视觉语言特征通过 gated flow-matching Action Expert 融合。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**【Paper】** 《HEX: Humanoid-Aligned Experts for Cross-Embodiment Whole-Body Manipulation》关注一个经常被 VLA 论文略过的问题：机器人不仅要“看懂并完成任务”，还要在走路、转身、下蹲、抓取和放置之间维持同一个全身动力学状态。作者在 Tienkung 2.0/3.0 上展示了一个高层 VLA 与低层 RL whole-body controller 的分层系统，并用七种人形形态、超过 12M 帧的轨迹做跨形态预训练。
+
+![HEX 系统总览：跨形态数据、VLA 与全身控制器（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-hex/teaser-crop.1apqexan65.webp)
+
+### 一句话总结
+
+**【Analysis】** HEX 的真正主线不是“再加一个 VLA head”，而是把 humanoid 的状态空间先变成可迁移的身体部件语言，再让策略同时回看视觉历史、预测未来本体状态，最后用 flow matching 生成与全身平衡相容的动作。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出面向全尺寸双足人形机器人的 whole-body VLA，并用低层 RL 控制器负责高频、保持平衡的腿部执行。
+2. 用固定的 canonical body-part slots（左右臂、左右手、左右腿、头、腰和 others）对齐异构 proprioceptive state；缺失部件使用 learned missing-part token。
+3. 提出 Unified Proprioceptive Predictor（UPP）：共享 Transformer 建模时空依赖，输入/输出边界用 morphology-aware Mixture-of-Experts 做形态和部件特化。
+4. 提出 review-and-forecast：用短 history query cache 保留视觉语境，用 UPP 预测未来状态；两路特征通过 residual gate 与 flow-matching action head 融合。
+5. 在 seen、fast-reaction、distribution shift 和 long-horizon box convey 任务上验证，HEX 的 seen-task 平均成功率为 79.8%，泛化变体平均成功率为 61.8%。
+
+## 2. 背景与相关工作
+
+**【Paper】** 传统 humanoid whole-body control 多从 RL/模仿学习出发，先学 standing、walking 或 contact skill，再用手工设计的层级接口把 locomotion 与 manipulation 拼起来。层级化有利于稳定，但高层命令与低层动力学之间存在接口误差；当任务要求边走边操作、快速响应或多阶段切换时，错误会沿模块和时间累积。
+
+VLA 带来了更强的视觉语义理解，但多数模型把 action 直接写成高维关节动作或 latent command，没有显式表示“腿正在支撑、腰正在转、手正在接触”这类耦合关系。HEX 的区别在于：它把 proprioception 从一个 embodiment-specific 向量变成结构化的 body-part token 序列，并把状态预测放到动作生成之前。
+
+**【Analysis】** 因而 HEX 不是要替代低层控制器，而是把高层 VLA 的输出从“任务意图”推进到“带有未来身体动力学提示的任务意图”。
+
+## 3. 问题定义
+
+**【Paper】** 给定语言指令 $L$、当前多视角图像 $V_t$、本体状态 $s_t^{(e)}$ 和 embodiment tag $e$，高层策略输出未来动作 chunk：
+
+$$
+\hat A_{t:t+\tau_a}=\pi_\theta\left(L,V_t,s_t^{(e)},e\right).
+$$
+
+这里 $e$ 可以对应不同人形平台或不同状态/动作定义。由于各平台的关节数量、传感器和可控部件不同，原始状态维度并不相同；HEX 首先把它们投影到 $P$ 个 canonical body-part slots，每个 slot 使用 $d$ 维 latent，得到 $P_t^{(e)}\in\mathbb R^{P\times d}$。没有某一部件时，插入 learned missing-part token，而不是强行补零。
+
+高层动作主要直接控制 arm、hand、waist，并向低层 RL whole-body controller 提供中间命令；低层控制器以更高频率生成腿部动作和保持平衡的全身运动。**【Code】** 官方 README 明确说明，Tienkung 系列的低层控制器因商业限制未开源，公开仓库主要覆盖 VLA 的预训练、微调和推理。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![HEX 高层 VLA 架构：VLM、UPP 和 Action Expert（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-hex/model-crop.7p4caisj91.webp)
+
+**【Paper】** 数据流可以压缩成一句话：Qwen-VL 编码当前图像/语言并保留 query history，UPP 在 body-part token 上预测未来状态，Action Expert 以带噪动作 token 为 query，同时读取视觉语言与预测状态，输出连续动作 chunk。
+
+### 4.2 核心模块
+
+#### VLM 与 history query cache
+
+**【Paper】** 当前帧的语言 token、视觉 token 和 query token 一起输入 VLM：
+
+$$
+[L'_t,V'_t,Q'_t]=f_{\mathrm{vlm}}([L,V_t,Q_t]).
+$$
+
+模型只把 $Q'_t$ 放入固定长度缓存 $\mathcal M_t^{vl}=\{Q'_{t-\tau_v},\ldots,Q'_t\}$，而不重复编码过去的图片。论文实验中视觉历史窗口为 2。
+
+**【Code】** `hex/model/framework/HEX.py` 中，训练和 batch inference 会按 `vision_history_length` 逐个时间步调用 Qwen-VL，并取最后 8 个 hidden states 作为 query tokens；在线 `predict_action` 使用 queue 保存历史 query。仓库默认配置的 `vision_history_length` 可以按数据集覆盖，不能把“论文窗口为 2”误读成代码所有配置都固定为 2。
+
+#### UPP：body-part 对齐与 morphology-aware MoE
+
+![UPP、MoE 与 Action Expert 的细节（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-hex/model_details-crop.mt8lsnge.webp)
+
+**【Paper】** UPP 把当前部件 token 与未来 query tokens $N_{t+1:t+\tau_p}$ 拼成 part-time 网格，并加入时间位置和部件位置编码。共享 Transformer 在这个网格上交替建模 body-part 内部关系与视觉语言条件下的时间动态。输入和输出边界的 MoE 用 learned top-$k$ gate 路由 token：routed experts 负责形态/部件特化，shared experts 保留跨形态的公共变换。
+
+**【Code】** 官方配置 `hex_cotrain_eai_pretrain.yaml` 设置 state horizon 为 50、UPP Transformer 为 4 层、hidden size 为 768、16 个 routed experts、2 个 shared experts、top-1 softmax routing，并使用 0.01 的 load-balancing auxiliary loss。实际代码通过 `CrossEmnodiedStateMoEL2Head` 处理 padded state 和 embodiment tags；最多 128 维 state 被 padding 到统一张量，再由各 embodiment registry 选择对应头。
+
+#### Action Expert：双路 cross-attention 与 residual gate
+
+**【Paper】** Action Expert 不直接把视觉和状态拼接，而是让当前 noisy action representation 分别对两路 memory 做 cross-attention：
+
+$$
+H_t^{vl}=\operatorname{Attn}_{vl}(\operatorname{Norm}(X_t),H^{vl}),\quad
+H_t^{p}=\operatorname{Attn}_{p}(\operatorname{Norm}(X_t),H^{p}).
+$$
+
+门控值由两路结果和当前 action state 共同决定：
+
+$$
+g_t=\sigma\left(W_g[H_t^{vl};H_t^p;\operatorname{Norm}(X_t)]\right),\quad
+F_t=H_t^{vl}+g_t\odot H_t^p,
+$$
+
+随后用 residual update $X'_t=X_t+F_t$，再经过 self-attention 与 feed-forward refinement。
+
+**【Analysis】** 这个 gate 的意义是让状态分支“按动作生成阶段介入”：快速反应时视觉语义可能更关键，转身、行走或放置阶段则需要提高 future-state cue 的权重。
+
+### 4.3 关键公式
+
+#### Flow-matching action objective
+
+给定干净动作 chunk $A$ 和同形状高斯噪声 $N$，采样 $\lambda\sim U(0,1)$：
+
+$$
+\widetilde A=(1-\lambda)N+\lambda A,\qquad V=A-N.
+$$
+
+Action Expert 预测速度场 $\hat V=D_a(Z^a)$，动作损失为：
+
+$$
+\mathcal L_a=\|\hat V-V\|_2^2.
+$$
+
+其中 $Z^a$ 是 Action Expert 的最终 hidden representation，$D_a$ 是按 embodiment 选择的 action decoder。**【Code】** `HEX_ActionHeader.py` 按 tag 分组不同 action dimension，使用对应 encoder/decoder；推理从 padded action space 的高斯噪声出发，用 Euler integration 迭代更新有效维度。
+
+#### Future-state prediction objective
+
+UPP 输出未来 latent $P'_{t+1:t+\tau_p}$，状态 decoder $D_s$ 将其还原到真实 proprioceptive state：
+
+$$
+\mathcal L_s=\|D_s(P'_{t+1:t+\tau_p})-s_{t+1:t+\tau_p}\|_2^2,
+\qquad \mathcal L=\mathcal L_a+\alpha\mathcal L_s.
+$$
+
+$\alpha$ 控制预测状态对总训练目标的影响。它让 UPP 学到“下一步身体会怎么动”，而不只是把 state 当作当前时刻的额外 feature。
+
+### 4.4 Training
+
+**【Paper】** 预训练数据超过 12M 帧，来自七种 embodiment、四个来源：HEX 内部数据约 4M 帧、Humanoid Everyday 约 3.4M 帧、AgiBot World Colosseo 的 G1-retargeted 数据约 3.8M 帧，以及 RoboCOIN Leju 子集约 2.3M 帧。训练可先用 $\mathcal L_s$ warm up UPP，再以 $\mathcal L_a+\alpha\mathcal L_s$ 联合优化。
+
+**【Code】** 入口是 `hex/training/pretrain_hex.py` 和 `scripts/pretrain_hex.sh`。配置中主训练 200k steps，per-device batch size 为 16；Qwen-VL、state model、action model 学习率分别为 $1e\!-5$、$2e\!-5$、$2e\!-5$，优化器为 AdamW，cosine schedule 的最小学习率为 $1e\!-6$。官方 README 说明预训练约需 1K A100 GPU hours，公开 checkpoint 约 2.4B 参数。
+
+<Algorithm number={1} title='HEX Cross-Embodiment Training' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>多 embodiment 轨迹 $D$：图像、语言、state、action、embodiment tag</div>
+  <div slot='output'>训练后的 UPP 与 flow-matching Action Expert</div>
+  <AlgorithmStep>
+    将每个 embodiment 的 state 映射到 canonical body-part slots，并对缺失部件加入 missing-part token
+  </AlgorithmStep>
+  <AlgorithmStep>
+    用 Qwen-VL 编码当前视觉语言输入，提取 query feature 并更新 history cache
+  </AlgorithmStep>
+  <AlgorithmStep>
+    UPP 读取当前 state、VL feature 和 cache，预测未来 $\tau_p$ 步 state latent
+  </AlgorithmStep>
+  <AlgorithmStep>
+    对真实 action chunk 加噪，采样 flow time，计算 Action Expert 的速度回归损失 $\mathcal L_a$
+  </AlgorithmStep>
+  <AlgorithmStep>
+    用 state decoder 计算未来状态损失 $\mathcal L_s$，联合优化 $\mathcal L_a+\alpha\mathcal L_s$
+  </AlgorithmStep>
+  <AlgorithmStep keyword='return'>保存验证集表现最好的跨形态策略</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 每个控制周期，系统只对当前图像做一次 VLM 编码，同时把 compact query history 与当前语言/视觉特征交给 UPP。Action Expert 从高斯噪声开始进行少量 flow-matching Euler steps，得到 100-step action chunk；预测的 arm/hand action 在部署时额外做线性插值以提高平滑度。高层输出再交给低层 RL whole-body controller 执行腿部与平衡控制。
+
+**【Code】** `predict_action` 和 `predict_action_batch` 位于 `hex/model/framework/HEX.py`。前者维护在线 query queue，后者把多历史帧显式展开；两者都会 pad state/action 到最大维度，再由 `tags` 选择 embodiment-specific decoder。`FlowmatchingActionHead.predict_action` 从随机 action 初始化，经 `num_inference_timesteps` 次 Euler 更新返回 `normalized_actions`。
+
+<Algorithm number={2} title='HEX Whole-Body Inference' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前多视角图像 $V_t$、语言 $L$、state $s_t$、embodiment tag $e$</div>
+  <div slot='output'>高层 action chunk 与低层全身执行动作</div>
+  <AlgorithmStep>
+    编码当前图像与语言，生成 $L'_t,V'_t,Q'_t$，并写入固定长度 query cache
+  </AlgorithmStep>
+  <AlgorithmStep>将 $s_t$ 对齐到 body-part slots，UPP 预测未来 state latent</AlgorithmStep>
+  <AlgorithmStep>
+    从高斯噪声初始化 action tokens，交替进行视觉语言/状态双路条件的 flow Euler 更新
+  </AlgorithmStep>
+  <AlgorithmStep>
+    按 embodiment tag 解码有效的 arm、hand、waist action，并做必要的线性插值
+  </AlgorithmStep>
+  <AlgorithmStep>
+    把高层命令发送给低层 RL whole-body controller，由其生成平衡保持的腿部与全身运动
+  </AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+| 论文概念             | 官方代码位置                                                                                          | 实现观察                                                               |
+| -------------------- | ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| VLM                  | `hex/model/modules/vlm/QWen3.py`、`hex/model/framework/HEX.py`                                        | Qwen-VL 输出最后一层 hidden states；query 默认取最后 8 个 token        |
+| UPP / state MoE      | `hex/model/modules/state_model/HEX_L2_StateDecoder.py`                                                | state 先 padding，再由 embodiment registry 处理不同维度                |
+| Action Expert        | `hex/model/modules/action_model/HEX_ActionHeader.py`、`flow_matching_head/cross_attention_dit_hex.py` | 按 tag 分组 action encoder/decoder，支持 state-conditioned DiT         |
+| Training             | `hex/training/pretrain_hex.py`、`fine_tune_hex.py`                                                    | 公开了预训练和下游微调脚本                                             |
+| Inference            | `HEX.predict_action`、`predict_action_batch`                                                          | 返回 normalized action chunk；在线版本维护 query queue                 |
+| Low-level controller | 未公开                                                                                                | README 说明 Tienkung 控制器受商业限制；仓库只提供 deployment interface |
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![真实机器人遥操作数据采集设置（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-hex/hardware-crop.54yhxvskjj.webp)
+
+**【Paper】** 实验使用 Tienkung 2.0 与 Tienkung 3.0。高层模型统一使用同一个 RL-based low-level controller，以隔离 VLA policy 的贡献。对比方法包括 ACT、SwitchVLA、GR00T N1.5 和 $\pi_{0.5}$；HEX 使用 Qwen3-VL-2B-Instruct、4-layer UPP、50-step state horizon、16-layer DiT-B action head 和 100-step action chunk。
+
+任务覆盖 pose mimic、按人类指令倒液体、协助搬箱、避障行走、跪姿取放、整理桌面、取箱并打包，以及四阶段 long-horizon box convey。
+
+### 5.2 Main Results
+
+**【Paper】** seen scenarios 的总体平均成功率为：ACT 57.1%、SwitchVLA 40.5%、GR00T N1.5 70.2%、$\pi_{0.5}$ 71.8%、HEX 79.8%。在 long-horizon box convey 的四个阶段（Grasp、Turn、Walk、Place）中，HEX 分别为 100%、100%、73.3%、53.3%；最后的 Place Box 比最强 baseline 高约 13.3 个百分点，说明优势主要体现在错误累积最严重的末段。
+
+![延迟与成功率的权衡（论文 Figure 11）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-hex/latency-crop.6f1f47ajwf.webp)
+
+**【Paper】** 在 RTX 4090 上，HEX 以 73.34 ms 延迟取得 79.8% 成功率；它不是最低延迟模型，但在实际推理预算下提供最高成功率。
+
+### 5.3 Ablation Study
+
+![预训练与组件消融（论文 Figure 9）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-hex/ablation_all-crop.1apqexal8f.webp)
+
+**【Paper】** 消融显示 UPP 的贡献最大。在 Pouring 上，逐步加入 UPP、history cache 和 MoE 后成功率由 4/12 提升到完整 HEX 的 11/12；Box Conveying 则由 3/15 提升到 8/15。预训练主要改善早期优化和 sample efficiency：20k steps 时预训练模型成功率 10/12，未预训练为 7/12，但最终分别达到 11/12 与 10/12。
+
+### 5.4 Generalization
+
+![分布外泛化任务（论文 Figure 7）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-hex/generalization_tasks-crop.4joubky3pa.webp)
+
+![分布外泛化结果（论文 Figure 8）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-hex/generalization-crop.3gp50p29p5.webp)
+
+**【Paper】** 八个泛化变体的平均成功率为 HEX 61.8%、$\pi_{0.5}$ 44.3%、GR00T N1.5 41.0%、SwitchVLA 22.4%。变化包括更快的人体姿态切换、背景干扰、视觉 distractor、瓶子位置变化、动态物体、未见物体、周围物体和光照。尤其在 Pouring distractors 上，baseline 为 0%，HEX 为 53.3%；在未见球体的 Kneel Pick Objects 上，HEX 达到 100%。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** HEX 同时解决了三个不同时间尺度的问题：history cache 解决“当前帧看不全”的短期视觉记忆，UPP 解决“身体下一刻会怎样”的短期动力学预测，低层 RL controller 解决毫秒级的平衡与接触执行。三者分工清楚，避免让一个大 VLM 直接承担所有控制频率。
+
+UPP 的 body-part slots 还把跨形态迁移从“对齐每个关节”改成“对齐身体语义”。MoE 不破坏共享 backbone，而是在边界处为腿、手、腰等 token 提供轻量特化，这解释了它在长时程阶段切换中比单一 state encoder 更稳健。
+
+### 6.2 核心创新
+
+1. **State-centric VLA**：把 proprioceptive dynamics 提升为一等条件，而非附加输入。
+2. **Morphology-aware UPP-MoE**：共享可迁移动态模型与 token-level embodiment specialization 的组合。
+3. **Review-and-forecast**：过去由视觉 query cache 负责 review，未来由 UPP 负责 forecast。
+4. **Residual-gated flow matching**：让状态分支的影响随 denoising/action phase 自适应变化。
+
+### 6.3 与已有方法的本质区别
+
+**【Analysis】** ACT/扩散策略通常把重点放在 action chunk 的时间平滑；GR00T、$\pi_{0.5}$ 等 generalist VLA 更强调大规模视觉语言和异构轨迹。HEX 的本质差异是显式构造“全身状态的预测空间”，并让 action token 主动查询这一路 future state。它不是单纯扩大 VLM，也不是只把输出拆成多个 head，而是改变了高层 policy 的中间变量。
+
+### 6.4 关键假设
+
+- **【Paper】** 不同 embodiment 的状态可以被合理映射到有限的 canonical body-part slots。
+- **【Analysis】** body-part 粒度足以表达任务相关的动力学；如果任务依赖细粒度接触、柔性结构或强非刚体差异，slot abstraction 可能丢失必要信息。
+- **【Analysis】** 低层 controller 能把高层 arm/hand/waist command 稳定地翻译成全身运动；该接口的质量直接限制 VLA 的上限。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 论文没有给出单独、系统的 limitations 小节；它明确说明 Tienkung 系列低层 RL whole-body controller 受商业限制未开源。因此完整复现实验需要相同机器人、控制器和数据采集链路。
+
+### 7.2 自己分析得到的局限
+
+1. **真实跨形态验证仍有限**：预训练覆盖多种平台，但主要真实部署和对比集中在 Tienkung 2.0/3.0；新平台需要重新提供 embodiment registry、state/action mapping 与低层接口。
+2. **计算与数据成本高**：12M+ 帧、约 1K A100 GPU hours 和 2.4B 参数 checkpoint 对普通实验室并不轻量。
+3. **state padding 与 tags 依赖工程先验**：官方代码的最大 state/action 维度和 registry 是显式配置，遇到新传感器或新 action space 并非零配置迁移。
+4. **history cache 不是完整视觉记忆**：它只保存 query feature，无法保证遮挡、接触或快速物体运动信息不在压缩中丢失。
+5. **长时程成功率仍有提升空间**：Place Box 阶段成功率为 53.3%，说明预测状态和低层控制器还不能完全消除多阶段误差传播。
+
+## 8. 启发与研究思考
+
+**【Analysis】** HEX 给出的重要启发是：人形机器人 VLA 的 scaling 可能不只沿着“更多图像、更大语言模型、更多动作数据”展开，还需要一个可解释、可迁移的 state vocabulary。body-part slots 是一种工程上可行的 vocabulary，但未来可以继续问三个问题：
+
+1. 能否让 slot 从固定的 left/right arm、leg、waist，扩展为由接触关系和任务自动发现的动态部件图？
+2. UPP 的 future-state horizon 是否可以由不确定性自适应决定，而不是固定 50 steps？
+3. 能否把低层 RL controller 的 value、contact 和 balance margin 作为 differentiable 或至少可监督的反馈，闭环训练 gate 与高层 action head？
+
+如果这些问题得到解决，VLA 的“语言理解—动作生成”链条就会进一步变成“语言理解—身体预测—全身执行”，这可能是全尺寸 humanoid 从演示复现走向长期自主操作的关键接口。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。
+</Aside>
