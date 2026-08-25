@@ -52,44 +52,44 @@ Use only after the count-1 pool is exhausted.
 |         2 | `66497987`  | `https://pic.hana0721.top/66497987_p0_master1200.58hynbbxn8.webp`  | `paper-reading-eba3`, `paper-deep-dive-vla-0`                                 |
 |         2 | `134041716` | `https://pic.hana0721.top/134041716_p0_master1200.5q80bz7b6v.webp` | `rl-note-27`, `paper-deep-dive-caip`                                          |
 |         2 | `126839080` | `https://pic.hana0721.top/126839080_p0_master1200.232gprncye.webp` | `upload-project-to-github`, `paper-deep-dive-knowledge-insulating-vla`        |
-|         2 | `126903857` | `https://pic.hana0721.top/126903857_p0_master1200.2dpaix2l3u.webp` | `tmux-ssh-session-management`, `paper-deep-dive-internvla-m1`                  |
+|         2 | `126903857` | `https://pic.hana0721.top/126903857_p0_master1200.2dpaix2l3u.webp` | `tmux-ssh-session-management`, `paper-deep-dive-internvla-m1`                 |
 
 ## Count 1 Pool
 
 Preferred candidates for new posts.
 
-| Use Count | Pixiv ID    | URL                                                                | Current Posts                                                           |
-| --------: | ----------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------- |
-|         1 | `65089776`  | `https://pic.hana0721.top//65089776_p0_master1200.5c1kl2nzfo.webp` | `rl-note-1`                                                             |
-|         2 | `42175762`  | `https://pic.hana0721.top/42175762_p0_master1200.6m4jay5vlg.webp`  | `paper-reading-eba5`, `paper-deep-dive-cot-vla`, `paper-deep-dive-pi05` |
-|         2 | `112236596` | `https://pic.hana0721.top/112236596_p0_master1200.232gogbiox.webp` | `rl-note-25`, `paper-deep-dive-qwen-robotmanip`                         |
-|         1 | `129563571` | `https://pic.hana0721.top/129563571_p0_master1200.1ziuqmv78w.webp` | `vibe-coding-1`                                                         |
-|         1 | `133376054` | `https://pic.hana0721.top/133376054_p0_master1200.1ziuqmv790.webp` | `vscode-ssh-setup`                                                      |
-|         1 | ``          | `https://pic.hana0721.top/145491169_p0_master1200.2dpccm5v9t.webp` | `openssh-server-setup`                                                  |
-|         2 | `56422576`  | `https://pic.hana0721.top/56422576_p0_master1200.7i0z6ufn65.webp`  | `paper-reading-vlm1`, `paper-deep-dive-chatvla-2`                       |
-|         2 | `62258773`  | `https://pic.hana0721.top/62258773_p0_master1200.7zr0vfh0rf.webp`  | `paper-reading-cv1`, `paper-deep-dive-ace-ego-0`                        |
-|         2 | `64131498`  | `https://pic.hana0721.top/64131498_p0_master1200.45i9cfg3rk.webp`  | `paper-reading-eba2`, `paper-deep-dive-lap`                             |
-|         2 | `62423081`  | `https://pic.hana0721.top/62423081_p0_master1200.3ns7nvxp9b.webp`  | `paper-reading-bm1`, `paper-deep-dive-rdt2`                             |
-|         2 | `68232005`  | `https://pic.hana0721.top/68232005_p0_master1200.60uu51sjdo.webp`  | `paper-reading-llm1`, `paper-deep-dive-fast`                            |
-|         2 | `69461006`  | `https://pic.hana0721.top/69461006_p0_master1200.1e974ctzq9.webp`  | `paper-reading-llm2`, `paper-deep-dive-actioncodec`                     |
-|         1 | `69606244`  | `https://pic.hana0721.top/69606244_p0_master1200.64eg2rlm3q.webp`  | `paper-reading-marl1`                                                   |
-|         1 | `70434530`  | `https://pic.hana0721.top/70434530_p0_master1200.b9htgy5uw.webp`   | `paper-reading-mllm1`                                                   |
-|         1 | `70937229`  | `https://pic.hana0721.top/70937229_p0_master1200.6bhnz4ob71.webp`  | `matlab-ubuntu-24-04-install`                                           |
-|         2 | `70977889`  | `https://pic.hana0721.top/70977889_p0_master1200.9gx5x526gc.webp`  | `paper-reading-mllm2`, `paper-deep-dive-faster`                         |
-|         1 | `71187447`  | `https://pic.hana0721.top/71187447_p0_master1200.13mdb6lism.webp`  | `galgame-1`                                                             |
-|         1 | `71875434`  | `https://pic.hana0721.top/71875434_p0_master1200.7pvvr603z.webp`   | `paper-reading-umllm1`                                                  |
-|         1 | `86800103`  | `https://pic.hana0721.top/86800103_p0_master1200.4qrwyrtj6a.webp`  | `rl-note-14`                                                            |
-|         1 | `90399055`  | `https://pic.hana0721.top/90399055_p0_master1200.4g535npbv6.webp`  | `rl-note-21`                                                            |
-|         1 | `91341540`  | `https://pic.hana0721.top/91341540_p0_master1200.7pw5duffp.webp`   | `rustdesk-cli-server-setup`                                             |
-|         1 | `92079701`  | `https://pic.hana0721.top/92079701_p0_master1200.64eg2t4l77.webp`  | `rl-note-15`                                                            |
-|         1 | `93990522`  | `https://pic.hana0721.top/93990522_p0_master1200.et40soxif.webp`   | `scp-upload-to-server`                                                  |
-|         1 | `94819769`  | `https://pic.hana0721.top/94819769_p0_master1200.4xv4u7folx.webp`  | `rl-note-16`                                                            |
-|         1 | `95619535`  | `https://pic.hana0721.top/95619535_p0_master1200.8okafg4jti.webp`  | `rl-note-17`                                                            |
-|         1 | `98000873`  | `https://pic.hana0721.top/98000873_p0_master1200.491vjnsp6s.webp`  | `github-auth-local-setup`                                               |
-|         1 | `139063757` | `https://pic.hana0721.top/98073480.3rbvmy4uvn.webp`                | `paper-reading-cv3`                                                     |
-|         1 | `98259515`  | `https://pic.hana0721.top/98259515_p0_master1200.3ns7nvxpav.webp`  | `rl-note-18`                                                            |
-|         1 | `99213551`  | `https://pic.hana0721.top/99213551_p0_master1200.4jopcsx1ya.webp`  | `vim-detailed-guide`                                                    |
-|         1 | ``          | `https://pic.hana0721.top/99749488_p0_master1200.83an1pr7zr.webp`  | `linux-server-clash-verge-proxy`                                        |
+| Use Count | Pixiv ID    | URL                                                                | Current Posts                                                                   |
+| --------: | ----------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
+|         1 | `65089776`  | `https://pic.hana0721.top//65089776_p0_master1200.5c1kl2nzfo.webp` | `rl-note-1`                                                                     |
+|         2 | `42175762`  | `https://pic.hana0721.top/42175762_p0_master1200.6m4jay5vlg.webp`  | `paper-reading-eba5`, `paper-deep-dive-cot-vla`, `paper-deep-dive-pi05`         |
+|         2 | `112236596` | `https://pic.hana0721.top/112236596_p0_master1200.232gogbiox.webp` | `rl-note-25`, `paper-deep-dive-qwen-robotmanip`                                 |
+|         1 | `129563571` | `https://pic.hana0721.top/129563571_p0_master1200.1ziuqmv78w.webp` | `vibe-coding-1`                                                                 |
+|         1 | `133376054` | `https://pic.hana0721.top/133376054_p0_master1200.1ziuqmv790.webp` | `vscode-ssh-setup`                                                              |
+|         1 | ``          | `https://pic.hana0721.top/145491169_p0_master1200.2dpccm5v9t.webp` | `openssh-server-setup`                                                          |
+|         2 | `56422576`  | `https://pic.hana0721.top/56422576_p0_master1200.7i0z6ufn65.webp`  | `paper-reading-vlm1`, `paper-deep-dive-chatvla-2`                               |
+|         2 | `62258773`  | `https://pic.hana0721.top/62258773_p0_master1200.7zr0vfh0rf.webp`  | `paper-reading-cv1`, `paper-deep-dive-ace-ego-0`                                |
+|         2 | `64131498`  | `https://pic.hana0721.top/64131498_p0_master1200.45i9cfg3rk.webp`  | `paper-reading-eba2`, `paper-deep-dive-lap`                                     |
+|         2 | `62423081`  | `https://pic.hana0721.top/62423081_p0_master1200.3ns7nvxp9b.webp`  | `paper-reading-bm1`, `paper-deep-dive-rdt2`                                     |
+|         2 | `68232005`  | `https://pic.hana0721.top/68232005_p0_master1200.60uu51sjdo.webp`  | `paper-reading-llm1`, `paper-deep-dive-fast`                                    |
+|         2 | `69461006`  | `https://pic.hana0721.top/69461006_p0_master1200.1e974ctzq9.webp`  | `paper-reading-llm2`, `paper-deep-dive-actioncodec`, `paper-deep-dive-gr00t-n1` |
+|         2 | `69606244`  | `https://pic.hana0721.top/69606244_p0_master1200.64eg2rlm3q.webp`  | `paper-reading-marl1`, `paper-deep-dive-lapa`                                   |
+|         1 | `70434530`  | `https://pic.hana0721.top/70434530_p0_master1200.b9htgy5uw.webp`   | `paper-reading-mllm1`                                                           |
+|         1 | `70937229`  | `https://pic.hana0721.top/70937229_p0_master1200.6bhnz4ob71.webp`  | `matlab-ubuntu-24-04-install`                                                   |
+|         2 | `70977889`  | `https://pic.hana0721.top/70977889_p0_master1200.9gx5x526gc.webp`  | `paper-reading-mllm2`, `paper-deep-dive-faster`                                 |
+|         1 | `71187447`  | `https://pic.hana0721.top/71187447_p0_master1200.13mdb6lism.webp`  | `galgame-1`                                                                     |
+|         1 | `71875434`  | `https://pic.hana0721.top/71875434_p0_master1200.7pvvr603z.webp`   | `paper-reading-umllm1`                                                          |
+|         1 | `86800103`  | `https://pic.hana0721.top/86800103_p0_master1200.4qrwyrtj6a.webp`  | `rl-note-14`                                                                    |
+|         1 | `90399055`  | `https://pic.hana0721.top/90399055_p0_master1200.4g535npbv6.webp`  | `rl-note-21`                                                                    |
+|         1 | `91341540`  | `https://pic.hana0721.top/91341540_p0_master1200.7pw5duffp.webp`   | `rustdesk-cli-server-setup`                                                     |
+|         1 | `92079701`  | `https://pic.hana0721.top/92079701_p0_master1200.64eg2t4l77.webp`  | `rl-note-15`                                                                    |
+|         1 | `93990522`  | `https://pic.hana0721.top/93990522_p0_master1200.et40soxif.webp`   | `scp-upload-to-server`                                                          |
+|         1 | `94819769`  | `https://pic.hana0721.top/94819769_p0_master1200.4xv4u7folx.webp`  | `rl-note-16`                                                                    |
+|         1 | `95619535`  | `https://pic.hana0721.top/95619535_p0_master1200.8okafg4jti.webp`  | `rl-note-17`                                                                    |
+|         1 | `98000873`  | `https://pic.hana0721.top/98000873_p0_master1200.491vjnsp6s.webp`  | `github-auth-local-setup`                                                       |
+|         1 | `139063757` | `https://pic.hana0721.top/98073480.3rbvmy4uvn.webp`                | `paper-reading-cv3`                                                             |
+|         1 | `98259515`  | `https://pic.hana0721.top/98259515_p0_master1200.3ns7nvxpav.webp`  | `rl-note-18`                                                                    |
+|         1 | `99213551`  | `https://pic.hana0721.top/99213551_p0_master1200.4jopcsx1ya.webp`  | `vim-detailed-guide`                                                            |
+|         1 | ``          | `https://pic.hana0721.top/99749488_p0_master1200.83an1pr7zr.webp`  | `linux-server-clash-verge-proxy`                                                |
 
 ## Maintenance
 
