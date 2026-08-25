@@ -1,0 +1,338 @@
+---
+title: 'GR00T N1 论文精读：面向通用人形机器人的开放基础模型'
+publishDate: 2026-08-25
+updatedDate: 2026-08-25
+description: '精读 NVIDIA GR00T N1：双系统 VLA、Eagle-2、Flow Matching DiT 与数据金字塔如何共同支撑跨形态人形机器人策略。'
+heroImage:
+  { src: 'https://pic.hana0721.top/69461006_p0_master1200.1e974ctzq9.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '69461006'
+tags:
+  - 'paper deep dive'
+  - 'GR00T N1'
+  - 'VLA'
+  - 'humanoid robotics'
+paper:
+  arxivId: '2503.14734'
+  title: 'GR00T N1: An Open Foundation Model for Generalist Humanoid Robots'
+  authors:
+    - 'NVIDIA'
+  venue: 'arXiv'
+  year: 2025
+  code: 'https://github.com/NVIDIA/Isaac-GR00T'
+  project: 'https://developer.nvidia.com/isaac/gr00t'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2503.14734'
+  tldr='GR00T N1 用 Eagle-2 VLM 做 System 2 视觉语言理解，再用跨 embodiment 的 Flow Matching DiT 做 System 1 高频动作生成，并用真实机器人、仿真、神经生成视频和人类视频组成数据金字塔。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**【Paper】** 《GR00T N1: An Open Foundation Model for Generalist Humanoid Robots》提出一个面向通用人形机器人的开放式 Vision-Language-Action（VLA）基础模型。论文的关键判断是：人形机器人要进入开放的日常环境，硬件只是身体，还需要一个能理解语言、视觉和机器人状态，并且能在不同 robot embodiment 间迁移的策略模型。
+
+![GR00T N1 双系统 VLA 总览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-gr00t-n1/groot_inference_yuke_v2.wjao4p57s.webp)
+
+### 一句话总结
+
+**【Analysis】** GR00T N1 的真正贡献不是把一个 VLM 接到一个 Diffusion Policy 后面，而是把“语义理解”和“连续控制”放进同一个端到端训练框架，再用 embodiment-specific projector 与 action head 把不同机器人的动作空间接到共享表示上。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出双系统架构：System 2 是 Eagle-2 视觉语言模块，负责从图像和语言中形成任务语义；System 1 是基于 Diffusion Transformer（DiT）的 Flow Matching policy，负责生成平滑、高频的 motor action。
+2. 提出跨 embodiment 的统一策略接口。单臂、双臂和 GR-1 人形机器人的 state/action 维度不同，但都通过每个 embodiment 的 MLP projector 映射到共享 DiT 表示空间。
+3. 设计数据金字塔：底层是大量 web data 与 human video，中层是 simulation 和 neural-generated trajectories，顶层是少量但最接近部署的 real-robot demonstrations。
+4. 在无动作标签的视频上学习 latent action，并使用 inverse dynamics model（IDM）产生 pseudo-action，使人类视频和神经生成视频能够参与 action policy 训练。
+5. 在 RoboCasa、DexMimicGen、GR-1 simulation 和 Fourier GR-1 实机上进行验证；论文报告的 GR00T N1-2B 在 100 demonstrations/task 的三项仿真平均成功率为 45.0%，实机全量数据平均成功率为 76.8%。
+
+## 2. 背景与相关工作
+
+**【Paper】** 传统机器人学习数据通常被硬件切成一个个“data island”：不同机器人有不同的关节数、摄像头、控制频率、动作定义和 embodiment。把它们简单拼接并不会自动得到一个可泛化的 Internet-scale robotics dataset。
+
+此前常见的方案有两类：一类让 LLM/VLM 只做高层规划，再调用已有低层 skill；另一类直接微调 VLA，让视觉、语言和动作端到端优化。前者依赖稳定的 skill library 和接口，后者更适合直接面向部署目标，但会遇到动作标签稀缺和 embodiment gap。
+
+**【Analysis】** GR00T N1 的位置很明确：它不是把 VLM 当作黑盒 planner，而是让 VLM 的中间 hidden states 通过 cross-attention 直接调制动作生成；同时又不强迫所有机器人共享同一套原始关节坐标，而是只共享更高层的 embedding 和训练目标。
+
+论文还把 human video、仿真和生成视频视为三种互补信号：人类视频提供丰富的 affordance 与行为先验，仿真提供可扩展的动作标签，真实机器人数据负责把先验落到目标硬件上。
+
+![GR00T N1 的数据金字塔：从 web/human video 到 synthetic，再到 real-world data（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-gr00t-n1/data_pyramid.5q85k99tu7.webp)
+
+## 3. 问题定义
+
+**【Paper】** 在时间步 $t$，模型接收视觉观测、语言指令和机器人本体状态，输出未来 $H$ 步动作 chunk：
+
+$$
+  (I_t, l_t, q_t) \longrightarrow A_t = [a_t, a_{t+1}, \ldots, a_{t+H-1}].
+$$
+
+- **Observation**：一帧或多帧 RGB image、自然语言 task instruction，以及 joint position、end-effector pose、base position 等 proprioceptive state。
+- **Language**：例如“pick up the industrial object and place in yellow bin”。
+- **Action**：由 embodiment 决定，可以是末端执行器的相对位姿、关节/手部状态或其它连续控制量；论文中的 GR00T N1 实现将 chunk horizon 设为 $H=16$。
+- **Embodiment**：RoboCasa 的 Franka Panda、双臂 Panda、带 dexterous hands 的 GR-1，以及 Fourier GR-1 人形机器人。
+- **Policy**：学习条件向量场 $V_\theta$，通过少量 Euler denoising steps 从高斯噪声得到连续动作 chunk。
+- **数据**：真实 robot trajectories、人类 egocentric videos、neural trajectories、DexMimicGen/MimicGen simulation trajectories。
+
+论文并没有把所有 embodiment 的原始动作强行定义为同一物理坐标；共享的是模型内部的 latent action representation，具体 state/action 编码与解码仍由 embodiment-specific 模块负责。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+GR00T N1 的数据流可以压缩为一句话：**image + language 经过 Eagle-2 得到 vision-language tokens，robot state 与带噪 action 经过 embodiment-specific encoders 后进入 DiT，DiT 通过 cross-attention 读取 VLM tokens，最后由 action decoder 输出 $H$ 步 motor actions。**
+
+![GR00T N1 模型架构：Eagle-2 VLM 与跨 embodiment DiT action head（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-gr00t-n1/groot_model_v6.9kgx37rsjt.webp)
+
+论文给出的公开模型约 2.2B 参数，其中 VLM 约 1.34B；在 L40、bf16 上生成 16-step action chunk 的报告延迟为 63.9ms。VLM 以约 10Hz 运行，动作模块以更高频率闭环生成控制信号。
+
+### 4.2 核心模块
+
+#### Vision-Language Module（System 2）
+
+**【Paper】** Eagle-2 由 SigLIP-2 image encoder 与 SmolLM2 系列语言模型组成。图像先被编码到 $224\times224$，再经过 pixel shuffle 形成每帧 64 个 image token；这些 token 与文本一起送入语言模型。论文发现，中间层表示比最后一层表示更快且下游成功率更高，GR00T N1-2B 使用第 12 层表示。
+
+**【Code】** 官方 `n1d6` 分支的 `gr00t/model/modules/eagle_backbone.py` 将 Eagle-2 封装成 `EagleBackbone`，默认加载 `nvidia/Eagle-Block2A-2B-v2`，使用 bf16 与 Flash Attention。配置文件 `gr00t/configs/model/gr00t_n1d6.py` 默认 `select_layer=16`，并允许只微调顶部语言层或冻结视觉塔。
+
+#### State Encoder
+
+- **输入**：某个 embodiment 的 proprioceptive state $q_t$。
+- **输出**：共享 hidden size 的 state token。
+- **作用**：把不同机器人不同维度的状态投影到 DiT 能处理的公共空间。
+- **实现**：每个 embodiment 使用 category-specific MLP；因此 GR-1 的关节/腰部状态和 Panda 的末端状态不需要共享第一层参数。
+
+#### Action Encoder 与 Action Decoder
+
+- **输入**：带噪动作 chunk $A_t^\tau$、flow-matching timestep $\tau$、embodiment id。
+- **中间模块**：MLP 投影动作，并把 timestep 编码拼接进去；可选 positional embedding 保留 chunk 内的时间顺序。
+- **输出**：DiT hidden tokens，随后由 embodiment-specific action decoder 还原到原始动作维度。
+- **为什么需要**：共享 DiT 只负责学习跨 embodiment 的条件动作生成规律，最后一步仍然必须知道“这个机器人如何表达动作”。
+
+#### Diffusion Transformer（System 1）
+
+DiT 的 self-attention 处理 state token 与 action tokens，cross-attention 读取 Eagle-2 的 image/text features，并用 timestep-conditioned adaptive normalization 区分不同 denoising 阶段。论文采用交替的 cross-attention 与 self-attention block；官方 n1d6 配置默认 32 个 diffusion layers、32 个 attention heads、每个 chunk 16 个 action steps。
+
+### 4.3 关键公式
+
+#### Flow Matching 训练目标
+
+给定真实动作 chunk $A_t$、高斯噪声 $\epsilon\sim\mathcal N(0,I)$ 和 $\tau\in[0,1]$，论文定义插值状态：
+
+$$
+  A_t^\tau = \tau A_t + (1-\tau)\epsilon.
+$$
+
+模型 $V_\theta(\phi_t,A_t^\tau,q_t)$ 预测从噪声流向动作的向量场，训练目标是：
+
+$$
+  \mathcal L_{fm}(\theta)=
+  \mathbb E_\tau\left[\left\|V_\theta(\phi_t,A_t^\tau,q_t)-(\epsilon-A_t)\right\|^2\right].
+$$
+
+其中：
+
+- $\phi_t$ 是 Eagle-2 输出的 vision-language tokens；
+- $q_t$ 是 state embedding；
+- $A_t^\tau$ 是当前 denoising 位置；
+- $V_\theta$ 是 DiT 预测的速度场；
+- $\tau$ 的采样使用 $\text{Beta}(1.5,1)$ 变换，代码中对应 `noise_beta_alpha=1.5`、`noise_beta_beta=1.0`、`noise_s=0.999`。
+
+**【Code】** n1d6 的 `Gr00tN1d6ActionHead.forward` 使用 `noisy_trajectory = (1-t) * noise + t * actions`，监督信号写成 `velocity = actions - noise`；推理中执行 `actions = actions + dt * pred_velocity`。也就是说，代码以“从噪声指向动作”的速度方向实现同一条 flow，符号约定与论文公式的文字表达相反，阅读源码时应以这一实现为准。
+
+#### Euler 推理
+
+初始动作 $A_t^0\sim\mathcal N(0,I)$，执行 $K$ 次 Euler 更新：
+
+$$
+  A_t^{\tau+1/K}=A_t^\tau+\frac{1}{K}V_\theta(\phi_t,A_t^\tau,q_t).
+$$
+
+论文和代码都使用 $K=4$ 作为默认 inference steps。这里的 action chunking 让一次观测对应未来一段动作，而不是只预测一个动作；它是降低控制抖动和提高吞吐的关键。
+
+### 4.4 Training
+
+**【Paper】** 预训练阶段跨所有数据源 co-train：机器人数据使用真实 action，human/neural video 使用 latent action 或 IDM pseudo-action。post-training 阶段再针对目标 embodiment 和任务混入少量高质量 demonstrations。论文报告 neural trajectory 生成约 827 小时视频，把 88 小时 teleoperation 数据扩展约 10 倍；DexMimicGen 生成 780,000 条 simulation trajectories，相当于约 6,500 小时数据。
+
+**【Code】** n1d6 的训练实现将 batch 处理为 VLM 输入、state、action chunk、action mask 和 `embodiment_id`。`Gr00tN1d6ActionHead` 默认同时训练 projector、DiT 和 VLLN；Eagle 的视觉塔默认冻结，语言模型可通过配置选择冻结或只微调顶部层。action chunk 会 padding 到最大 horizon，mask 用来忽略无效尾部。
+
+<Algorithm number={1} title='GR00T N1 Flow-Matching Training' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>
+    异构数据集 $D$，包括图像、语言、state、action 或 latent/pseudo-action，embodiment id
+  </div>
+  <div slot='output'>跨 embodiment 的 VLA policy $\pi_\theta$</div>
+  <AlgorithmStep keyword='Given'>
+    从一个数据源采样 $(I_t,l_t,q_t,A_t)$，并读取该样本的 embodiment id
+  </AlgorithmStep>
+  <AlgorithmStep>用 Eagle-2 编码图像与语言，得到 $\phi_t$</AlgorithmStep>
+  <AlgorithmStep>用 embodiment-specific MLP 编码 $q_t$ 与动作 chunk $A_t$</AlgorithmStep>
+  <AlgorithmStep>
+    采样 $\epsilon\sim\mathcal N(0,I)$ 和 $\tau\sim\text{Beta}(1.5,1)$，构造 $A_t^\tau$
+  </AlgorithmStep>
+  <AlgorithmStep>将 state token、带噪 action token 与 VLM tokens 输入 DiT</AlgorithmStep>
+  <AlgorithmStep>
+    用 action decoder 得到速度预测，计算 flow-matching MSE，并按 action mask 聚合
+  </AlgorithmStep>
+  <AlgorithmStep keyword='backward'>
+    更新可训练的 VLM 层、projector、DiT 和 action decoder
+  </AlgorithmStep>
+  <AlgorithmStep keyword='return'>保存验证损失最低或按评测协议选择的 checkpoint</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 推理时只保留 System 2 的 VLM backbone 与 System 1 的 action module。给定当前 image、language 和 state，先得到固定的 VLM features，再从高斯噪声初始化 16-step action chunk，执行 4 次 DiT denoising，最后由 embodiment-specific decoder 输出实际动作。
+
+**【Code】** n1d6 `get_action_with_features` 明确维护形状为 `[batch, action_horizon, action_dim]` 的高斯初值；每个 denoising step 重新编码 action 与 timestep，经过 DiT 和 decoder 后用 Euler 更新。官方 open-loop evaluator 默认每次执行一个完整 16-step chunk；实际部署可以在 policy wrapper 中选择更短的 execution horizon。
+
+<Algorithm number={2} title='GR00T N1 Inference' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前图像 $I_t$、语言指令 $l_t$、机器人状态 $q_t$、训练好的 policy</div>
+  <div slot='output'>未来 $H=16$ 步可执行动作</div>
+  <AlgorithmStep>用 Eagle-2 编码 $(I_t,l_t)$，得到 vision-language features $\phi_t$</AlgorithmStep>
+  <AlgorithmStep>
+    用 state encoder 编码 $q_t$，并从 $A_t^0\sim\mathcal N(0,I)$ 初始化动作 chunk
+  </AlgorithmStep>
+  <AlgorithmStep keyword='for'>$k=0,\ldots,K-1$，其中默认 $K=4$</AlgorithmStep>
+  <AlgorithmStep indent={1}>用 action encoder 编码当前 noisy action 与 timestep</AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    DiT 通过 self-attention 与 $\phi_t$ cross-attention 预测速度场
+  </AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    执行 Euler 更新 $A\leftarrow A+\frac{1}
+    {K}V_\theta$
+  </AlgorithmStep>
+  <AlgorithmStep keyword='end for' />
+  <AlgorithmStep>
+    用 embodiment-specific action decoder 还原动作并交给机器人控制器执行
+  </AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+官方代码仓库是 [NVIDIA/Isaac-GR00T](https://github.com/NVIDIA/Isaac-GR00T)。论文发表时的实现对应仓库的 `n1d6` 代码路径；当前 `main` 已演进到 N1.7，使用不同的 Cosmos/Qwen VLM，因此下面只把 `n1d6` 作为论文代码对照。
+
+| 论文概念               | n1d6 代码位置                                                           | 代码行为                                                          |
+| ---------------------- | ----------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| VLM / System 2         | `gr00t/model/modules/eagle_backbone.py`                                 | 加载 Eagle-2，输出 hidden states、attention mask 和 image mask    |
+| State / Action Encoder | `gr00t/model/gr00t_n1d6/gr00t_n1d6.py`、`embodiment_conditioned_mlp.py` | 以 embodiment id 选择对应 MLP，并把不同维度投影到公共空间         |
+| DiT / System 1         | `gr00t/model/modules/dit.py`                                            | 处理 state/action tokens，并对 VLM tokens 做 cross-attention      |
+| Flow Matching          | `Gr00tN1d6ActionHead.forward`                                           | beta 采样 timestep，构造 noisy trajectory，回归 `actions - noise` |
+| Euler Sampling         | `get_action_with_features`                                              | 4 次 denoising，`actions += dt * pred_velocity`                   |
+| Action chunk           | `configs/model/gr00t_n1d6.py`                                           | `action_horizon=16`，最大 state/action dim 默认 29                |
+| 数据与 mask            | `processing_gr00t_n1d6.py`、`sharded_single_step_dataset.py`            | padding 到统一 horizon，并用 mask 屏蔽无效动作                    |
+
+**【Analysis】** 代码中最值得注意的工程选择是“共享 DiT、局部 projector”：它避免为每种机器人复制完整策略，同时又把 embodiment mismatch 限制在输入输出边界，给后续新增机器人留下了清晰的适配点。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+论文使用三个 simulation benchmark：RoboCasa Kitchen 24 tasks、DexMimicGen Cross-Embodiment 9 tasks、GR-1 Tabletop 24 tasks。它们分别覆盖单臂、双臂 dexterous manipulation 和人形机器人控制。
+
+![仿真任务示例：RoboCasa、DexMimicGen 与 GR-1 tabletop（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-gr00t-n1/fig_task_v6.7i14f5t73h.webp)
+
+实机部分使用 Fourier GR-1，任务包含 pick-and-place、articulated object、industrial manipulation 和 multi-agent coordination。仿真报告 100 trials 的平均成功率；实机多数任务报告 10 trials，Pack Machinery 因时间限制使用 5 trials 的部分评分。
+
+基线是 RoboMimic 的 BC-Transformer 和 Diffusion Policy。前者输入 10 帧并预测 10 个动作，后者从单帧观测生成 16-step action chunk。
+
+![GR-1 预训练与 post-training 任务（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-gr00t-n1/real_gr1_task_figure.45iekscnij.webp)
+
+### 5.2 Main Results
+
+**【Paper】** 使用 100 demonstrations/task 时，仿真结果如下：
+
+| 方法             |  RoboCasa |     DexMG |      GR-1 |      平均 |
+| ---------------- | --------: | --------: | --------: | --------: |
+| BC-Transformer   |     26.3% |     53.9% |     16.1% |     26.4% |
+| Diffusion Policy |     25.6% |     56.1% |     32.7% |     33.4% |
+| GR00T N1-2B      | **32.1%** | **66.5%** | **50.0%** | **45.0%** |
+
+GR-1 上的提升最大：相对 Diffusion Policy 提升 17.3 个百分点，说明预训练的跨 embodiment 先验对高维 dexterous humanoid 控制尤其重要。
+
+实机全量 demonstrations 的平均成功率为：Diffusion Policy 46.4%，GR00T N1-2B 76.8%。更有代表性的是，GR00T N1 使用 10% 数据时仍达到 42.6%，只比使用全量数据的 Diffusion Policy 低 3.8 个百分点；这说明预训练主要改善的是 data-limited regime，而非只在大规模目标域数据下获益。
+
+预训练 checkpoint 的 zero/post-training-free 评测也展示了迁移能力：left-to-right handover 任务为 76.6%（11.5/15），novel object 到 unseen container 为 73.3%（11/15）。
+
+### 5.3 Ablation Study
+
+论文专门比较了 neural trajectories、LAPA latent actions 与 IDM pseudo-actions。RoboCasa 中，在 30/100/300 demonstrations/task 三个数据规模下，加入神经轨迹的平均增益分别为 +4.2、+8.8、+6.8 个百分点；GR-1 实机低数据设置下，8 个任务平均提升 5.8 个百分点。
+
+![Neural trajectory、LAPA 与 IDM 的消融结果（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-gr00t-n1/dream_figure.4xva2it8dn.webp)
+
+在 RoboCasa 的低数据规模，LAPA 略优于 IDM；数据增加后 IDM 逐渐超过 LAPA。**【Analysis】** 一个合理解释是 IDM 的伪动作标签需要足够多样本才能学准，但一旦 IDM 与目标机器人动作空间对齐，其监督信号比纯 latent motion 更接近部署动作。
+
+### 5.4 Generalization
+
+**【Paper】** 泛化主要体现在三种变化：新物体、新容器/位置组合和新 embodiment。预训练 GR00T N1 能在“苹果位于左手够不到的位置”时先用左手抓取、再 handover 给右手；而只用右手 post-training 数据微调的 checkpoint 反而丢失了这一行为。
+
+**【Analysis】** 这组对比说明 post-training 不只是增加能力，也可能造成能力坍缩：如果目标域数据覆盖面比预训练窄，策略会把通用先验“压扁”为一个局部 skill。评估 generalist policy 时，不能只看新任务成功率，还要检查原有跨手、跨物体和跨容器行为是否被保留。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+1. **语义与控制共享条件**：语言指令不是在动作生成前被离散成 skill id，而是通过 VLM tokens 持续影响 DiT 的 cross-attention，因此“turn sink spout”和“pick object”可以在同一策略内区分。
+2. **chunk 级生成减少局部贪心**：一次生成 16 步动作使模型直接学习短时间内的轨迹形状，通常比每步独立回归更平滑。
+3. **flow matching 降低采样成本**：只用 4 次 Euler steps 就能得到 action chunk，兼顾连续生成模型的表达力与实时性。
+4. **数据金字塔分工明确**：human/web data 扩大语义和 affordance 覆盖，simulation 扩大动作数量，real data 负责 embodiment grounding。
+5. **projector 隔离 embodiment 差异**：共享主体学“如何根据视觉语言做动作”，局部 MLP 学“某个机器人如何表达这个动作”。
+
+### 6.2 核心创新
+
+**【Analysis】** 论文的创新组合可以概括为三个接口设计：
+
+- **表示接口**：Eagle-2 中间层作为 VLM-to-policy 的接口；
+- **动作接口**：latent action / IDM pseudo-action 把无动作视频接入统一 flow-matching objective；
+- **形态接口**：embodiment-specific state/action projector 把不同机器人接到共享 DiT。
+
+单独看每个部件都不是首次出现，但三者组合解决了“数据不够、动作不统一、实时控制困难”这三个互相耦合的问题。
+
+### 6.3 与已有方法的本质区别
+
+与 BC-Transformer 相比，GR00T N1 的 action distribution 是连续 flow 生成，而不是 GMM 回归；与 Diffusion Policy 相比，GR00T N1 有预训练 VLM 和跨 embodiment 数据；与“VLM 规划 + 低层 skill”相比，它的 System 2 与 System 1 共享训练目标，VLM 可以直接为连续动作提供上下文。
+
+### 6.4 关键假设
+
+- 不同 embodiment 的动作可以在一个足够平滑的 latent space 中对齐；
+- 从人类视频或生成视频抽取的 latent/IDM action 与机器人动作之间存在可迁移结构；
+- Eagle-2 的视觉语言中间表示包含足够的物体、空间和任务语义；
+- 4-step flow matching 的近似误差不会显著损害高频控制；
+- simulation 与 neural trajectories 的物理偏差可以由少量 real-robot data 修正。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 当前系统主要聚焦短时域 tabletop manipulation，还没有解决长时域 loco-manipulation。作者指出，视频生成模型和自动轨迹合成仍难以同时满足多样性、反事实变化和物理规律；这会限制 synthetic data 的质量和覆盖范围。作者还希望使用更强的 VLM、改进架构与 pre-training strategy。
+
+### 7.2 自己分析得到的局限
+
+1. **数据标签的语义偏差**：human video 的 latent action 更像视觉变化，不一定对应机器人可执行的动力学动作；IDM pseudo-action 又受 IDM 训练域影响。
+2. **VLM 冻结带来的上限**：n1d6 默认冻结 Eagle 视觉塔，只有少数语言层可调，这有利于稳定和效率，但也限制了对机器人视角、鱼眼畸变和细粒度接触线索的适应。
+3. **短 horizon 仍然明显**：16-step chunk 和 tabletop benchmark 不能证明模型能进行跨房间导航、全身平衡或长链工具使用。
+4. **跨 embodiment 并非无条件泛化**：projector 只解决表示维度和坐标接口，新的传感器、控制频率、延迟和动力学仍需要数据与校准。
+5. **post-training 可能遗忘**：论文中的“预训练能 handover，而窄域微调后失败”说明通用能力保持需要额外的 replay、正则或 mixture-of-data 设计。
+
+## 8. 启发与研究思考
+
+GR00T N1 给 embodied foundation model 的启发不是“收集越多数据越好”，而是要先设计数据之间的接口。没有 latent action、IDM 或 embodiment projector，人类视频、仿真和真实轨迹只是互不兼容的数据岛；有了这些接口，才可能用一个 objective 共同训练。
+
+**【Analysis】** 后续研究可以沿三条线推进：
+
+1. 把短 horizon action chunk 扩展为带 memory 的长时域 policy，并显式处理失败恢复；
+2. 用更可靠的 video-world-model 或物理过滤器筛掉违反接触和守恒规律的 neural trajectories；
+3. 把“通用能力保持”作为 post-training 的一等指标，联合训练目标任务与通用 replay，而不是只优化新任务 success rate。
+
+最后，GR00T N1 的工程价值也很突出：论文、模型、数据集和 simulation benchmark 一起开放，使研究者可以从“复现一个策略”转向“研究一个可扩展的 robot foundation model stack”。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方 `n1d6` 代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。当前官方仓库 `main` 已更新到 N1.7；文中代码对照以论文对应的 `n1d6`
+  分支为准。
+</Aside>
