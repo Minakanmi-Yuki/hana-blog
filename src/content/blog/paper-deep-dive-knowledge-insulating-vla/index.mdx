@@ -1,0 +1,352 @@
+---
+title: 'Knowledge Insulating Vision-Language-Action Models 论文精读'
+publishDate: 2026-08-25
+updatedDate: 2026-08-25
+description: '精读 Knowledge Insulation：用离散动作学习保护 VLM 表征，再用无梯度回传的 Flow Matching action expert 实现快速、连续且更会听指令的 VLA。'
+heroImage:
+  { src: 'https://pic.hana0721.top/126839080_p0_master1200.232gprncye.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '126839080'
+tags:
+  - 'paper deep dive'
+  - 'VLA'
+  - 'knowledge insulation'
+  - 'flow matching'
+  - 'robot learning'
+paper:
+  arxivId: '2505.23705'
+  title: 'Knowledge Insulating Vision-Language-Action Models: Train Fast, Run Fast, Generalize Better'
+  authors:
+    - 'Danny Driess'
+    - 'Jost Tobias Springenberg'
+    - 'Brian Ichter'
+    - 'Lili Yu'
+    - 'Adrian Li-Bell'
+    - 'Karl Pertsch'
+    - 'Allen Z. Ren'
+    - 'Homer Walke'
+    - 'Quan Vuong'
+    - 'Lucy Xiaoyang Shi'
+    - 'Sergey Levine'
+  venue: 'arXiv'
+  year: 2025
+  code: 'https://github.com/Physical-Intelligence/openpi'
+  project: 'https://pi.website/research/knowledge_insulation'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2505.23705'
+  tldr='知识隔离让 VLM backbone 用 FAST 离散动作学习机器人表征，同时让独立的 Flow Matching action expert 生成连续动作；梯度不从 expert 回传 backbone，因此训练更快、语言跟随更好且推理保持实时。'
+  rank={5}
+/>
+
+## 1. 论文概述
+
+### 一句话总结
+
+**【Paper】** 这篇论文研究的不是“连续动作头要不要用”，而是“随机初始化的连续动作头应该怎样接入预训练 VLM”。作者发现，直接让 Flow Matching / Diffusion action expert 的梯度更新 VLM，会同时拖慢收敛并破坏 web 预训练带来的语言知识；因此提出 Knowledge Insulation：训练时让 backbone 继续预测 FAST 离散动作，action expert 独立学习连续动作，但禁止 expert 梯度穿过注意力层回到 backbone。
+
+![Knowledge Insulation 的 backbone、离散动作与连续 action expert 总览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-knowledge-insulating-vla/model_v2.pg2sow9sf.webp)
+
+### 核心贡献
+
+**【Paper】**
+
+1. 系统分析连续 action expert 加入 VLA 后的三个问题：训练速度变慢、语言指令跟随退化、VLM / web 知识向机器人策略的迁移变差。
+2. 提出联合训练目标：用 FAST token 的 next-token prediction 学习机器人表征，用 Flow Matching 学习连续 action chunk；两种动作表示在训练时同时存在，推理时只运行较小的连续 expert。
+3. 提出 attention-level stop-gradient。信息可以从 VLM backbone 流向 action expert，但 action expert 的梯度不能反向改变 backbone 的预训练表征。
+4. 在静态单臂、静态双臂、移动双臂、DROID 和 LIBERO 上验证：方法取得更高任务成功率、更好的 language following，并且收敛速度接近 FAST、明显快于只用 Flow Matching 的 π₀。
+
+**【Analysis】** 论文的实际创新是一个训练接口：离散动作承担稳定的 representation learning，连续 expert 承担高频控制。它把“最容易优化的目标”和“最适合执行的表示”解耦，而不是再设计一个更大的 VLA backbone。
+
+## 2. 背景与相关工作
+
+**【Paper】** VLM 的预训练目标是离散 token 的 next-token prediction，而机器人控制需要高频、连续、精确的关节或末端位姿命令。把动作简单离散化可以复用语言模型训练，但会带来量化误差和自回归推理延迟；Flow Matching / Diffusion action head 可以一次生成连续 action chunk，却通常需要从零初始化一组新参数。
+
+已有路线各有取舍：
+
+| 路线                    | 训练信号               | 推理特点          | 主要问题                                    |
+| ----------------------- | ---------------------- | ----------------- | ------------------------------------------- |
+| π₀                      | Flow Matching 连续动作 | 快、连续          | expert 梯度可能干扰 VLM，训练慢、语言跟随差 |
+| π₀-FAST                 | FAST 离散动作          | 自回归，约 1.3 Hz | 动作分辨率和推理速度受限                    |
+| OpenVLA-OFT             | 并行离散解码           | 快                | 连续精细控制能力有限                        |
+| HybridVLA / Transfusion | 离散与连续联合         | 依实现而定        | 注意力或梯度耦合仍可能造成干扰              |
+| Knowledge Insulation    | 离散表征 + 连续 expert | 连续 action chunk | 训练成本增加约 20%，需要两套动作目标        |
+
+**【Analysis】** “冻结 backbone”看似能保留知识，但论文实验显示预训练 VLM 没有足够的机器人状态和动作表征；真正可行的方案是继续更新 backbone，只是换掉有害的梯度来源。
+
+## 3. 问题定义
+
+**【Paper】** 给定多视角图像 $I_{1:V}$、本体状态 $q\in\mathbb{R}^{s}$、语言指令 $\ell$，策略需要输出长度为 $H$ 的连续动作块 $a_{1:H}$：
+
+$$
+ a_{1:H}\sim\pi_\theta(\cdot\mid I_{1:V},q,\ell),\qquad a_i\in\mathbb{R}^{d}
+$$
+
+动作可以是关节角、末端位姿、夹爪或底盘相关控制量。论文同时为同一动作块构造 FAST 离散 token $y^{\mathrm{act}}$，并允许模型在一般 VLM 数据上输出语言 token $y^\ell$。
+
+| 对象           | 训练输入                                   | 训练输出                 | 推理用途                    |
+| -------------- | ------------------------------------------ | ------------------------ | --------------------------- |
+| VLM backbone   | 图像、语言、state、历史 token              | 文本 / FAST action token | 学习可迁移表示              |
+| Action expert  | backbone prefix、noisy action、时间 $\tau$ | vector field             | 生成连续 action chunk       |
+| Attention mask | token 类型与可见性                         | 信息流约束               | 防止离散 / 连续动作互相泄漏 |
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+**【Paper】** 模型以 PaliGemma 为 VLM backbone，并增加一个约 300M 参数的 Gemma action expert。图像和语言进入 backbone；FAST action token 作为自回归输出训练 backbone；连续 noisy action 进入 expert。backbone 可以影响 expert，但 VLM token 不读取 expert token，形成单向的信息流。
+
+**【Analysis】** 一句话数据流是：`图像 + 语言 + state → VLM prefix → (FAST 离散动作 loss, Flow Matching action expert) → 连续 action chunk`。架构图只负责说明连接关系，训练与推理步骤分别见 4.4 和 4.5。
+
+### 4.2 核心模块
+
+#### VLM Backbone
+
+- **输入**：多路图像 patch、语言 token、机器人 state。
+- **输出**：共享 transformer hidden states 与语言 / FAST token logits。
+- **作用**：把 web 规模的视觉语言知识适配到机器人观测。
+- **【Paper】** backbone 使用预训练 PaliGemma 2B；视觉输入由 vision transformer 编码，文本由 embedding matrix 编码，连续输入则可经 affine projection 转成模型维度。
+
+#### FAST Action Tokens
+
+- **输入**：连续动作块 $a_{1:H}$。
+- **中间步骤**：对每个动作维度做离散余弦变换（DCT），量化后使用 byte-pair encoding 压缩。
+- **输出**：长度远小于逐维逐时刻离散化的 token 序列。
+- **为什么需要**：它只在训练时提供稳定的 next-token learning signal，不承担最终的实时动作解码；因此可用更快的自回归目标塑造 backbone，而不把推理延迟带到部署端。
+
+#### Flow Matching Action Expert
+
+- **输入**：$a^{\tau,\omega}_{1:H}=\tau a_{1:H}+(1-\tau)\omega$、时间步 $\tau$ 和 backbone prefix。
+- **结构**：动作先经线性投影；时间步经 sinusoidal positional encoding 与 MLP，再注入 expert 的每层 RMSNorm；expert 宽度 1024、深度 18、MLP 维度 4096。
+- **输出**：每个动作位置的 vector field，经线性层还原到动作维度。
+- **为什么需要**：Flow Matching 能在少量积分步中生成连续、高分辨率的 action chunk，避免逐 token 自回归。
+
+#### Knowledge Insulation
+
+**【Paper】** 单头注意力的概率块可写为：
+
+$$
+P=\begin{pmatrix}P_{bb}&0\\P_{ab}&P_{aa}\end{pmatrix}
+$$
+
+其中 $b$ 表示 backbone token，$a$ 表示 action-expert token。计算 $P_{ab}$ 和 value 汇聚时，对 backbone 的 $K_b,V_b$ 使用 stop-gradient：
+
+$$
+P=\operatorname{softmax}\!\left(
+\begin{pmatrix}
+Q_b(X_b)K_b(X_b)^\top & 0\\
+Q_a(X_a)\operatorname{sg}(K_b(X_b))^\top & Q_a(X_a)K_a(X_a)^\top
+\end{pmatrix}+A\right)
+$$
+
+于是 action expert 仍能读取 backbone 的特征，但 Flow Matching loss 不会经由 $P_{ab}$ 回传到 backbone；backbone 则从语言与 FAST action loss 获得自己的训练信号。
+
+### 4.3 关键公式
+
+#### 自回归离散动作目标
+
+$$
+\mathcal{L}_{\mathrm{AR}}(\theta)=
+\mathbb{E}_{(x,y)\sim\mathcal{D}}
+\left[-\sum_{j=1}^{n-1}M_j\log p_\theta(y_{j+1}\mid x_{1:j})\right]
+$$
+
+$x$ 是多模态输入 token，$y$ 包含语言与 FAST action token，$M_j$ 是 loss mask。这个目标更新 backbone，使其学会从观测和指令直接表达机器人动作。
+
+#### Flow Matching 目标
+
+$$
+\mathcal{L}_{\mathrm{FLOW}}(\theta)=
+\mathbb{E}_{\mathcal{D},\tau,\omega}
+\left[\left\|\omega-a_{1:H}-f^a_\theta(a^{\tau,\omega}_{1:H})\right\|_2^2\right]
+$$
+
+$\omega\sim\mathcal{N}(0,I)$ 是噪声，$\tau\in[0,1]$ 是 flow 时间，$f^a_\theta$ 是 action expert 的 vector field。论文使用偏向低时间步的 Beta 分布，而不是简单均匀采样。
+
+#### 联合目标
+
+$$
+\mathcal{L}_{\mathrm{CO\text{-}VLA}}
+=\mathcal{L}_{\mathrm{AR}}+\alpha M^{\mathrm{act}}\mathcal{L}_{\mathrm{FLOW}}
+$$
+
+$M^{\mathrm{act}}$ 只在样本包含动作监督时打开；$\alpha$ 控制连续动作项。使用知识隔离后，论文指出可以取 $\alpha=1$，因为 Flow loss 不再与 backbone 的梯度竞争。
+
+### 4.4 Training
+
+![论文中的训练问题与标准 VLA 的失败模式（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-knowledge-insulating-vla/vla_problems.3gp50rie8b.webp)
+
+**【Paper】** 作者在单机器人 specialist 与跨 embodiment generalist 两种设置下训练。generalist 数据包含 12 类机器人配置（静态单臂、静态双臂、移动双臂）以及 OXE；同时混合图像描述、VQA、目标定位等 VLM 数据。机器人任务包括 table bussing、items in drawer、shirt folding、make bed、dish in sink、mobile items in drawer 和 laundry in basket。
+
+**【Paper】** 关键训练设置包括：action horizon $H=50$；PaliGemma backbone 宽度 2048、深度 18、MLP 维度 16384；action expert 宽度 1024、深度 18、MLP 维度 4096；时间步采样为偏向低 $\tau$ 的 Beta 分布。联合训练比单一目标多约 20% 计算，但由于收敛更快，墙钟时间仍优于只使用 Flow Matching 的 π₀。
+
+<Algorithm number={1} title='Knowledge Insulation 联合训练' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>机器人动作数据、VLM 图文数据、预训练 PaliGemma backbone，以及 FAST tokenizer</div>
+  <div slot='output'>VLM backbone 与连续 action expert 组成的 VLA</div>
+  <AlgorithmStep>从连续 action chunk 生成 FAST token，并构造 noisy action $a^{\tau,\omega}$</AlgorithmStep>
+  <AlgorithmStep>用 backbone 计算图像、语言、state 与 FAST token 的 next-token logits</AlgorithmStep>
+  <AlgorithmStep>用 action expert 读取 prefix 与 noisy action，预测 vector field</AlgorithmStep>
+  <AlgorithmStep>按 attention mask 计算联合前向；对 expert → backbone 的 key/value 路径施加 stop-gradient</AlgorithmStep>
+  <AlgorithmStep>最小化 $\mathcal{L}_{\mathrm{AR}}+\alpha\mathcal{L}_{\mathrm{FLOW}}$，只让各自的梯度更新对应模块</AlgorithmStep>
+  <AlgorithmStep>在机器人、VLM 与语言标注数据之间混合采样，重复至收敛</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 运行时不需要生成 FAST token。给定图像、state 和语言指令，先计算 backbone prefix；随后从高斯噪声初始化 50 步 action chunk，使用 action expert 做约 10 次 flow integration，输出连续动作。执行一部分 chunk 后再次观测并滚动预测。
+
+**【Code】** 官方 `openpi` 的 `Pi0.sample_actions` 会先对 prefix 做一次 forward 并缓存 KV，再在循环中只计算 action suffix；默认 `num_steps=10`，从 $t=1$ 的噪声端以 $dt=-1/N$ 积分到 $t=0$。README 的公开调用是 `policy.infer(example)['actions']`。
+
+<Algorithm number={2} title='连续动作推理' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>多视角图像、离散化 state、语言 prompt、噪声 action chunk</div>
+  <div slot='output'>长度为 50 的连续 action chunk</div>
+  <AlgorithmStep>编码图像与语言 prefix，并缓存 backbone 的 KV</AlgorithmStep>
+  <AlgorithmStep>采样 $x_1\sim\mathcal{N}(0,I)$，设置 $dt=-1/N$</AlgorithmStep>
+  <AlgorithmStep>
+    在每个 flow step 用 action expert 预测 $v_t$，更新 $x_{t + dt}=x_t+dt\,v_t$
+  </AlgorithmStep>
+  <AlgorithmStep>将 $x_0$ 反归一化为机器人动作，执行当前 chunk 的前缀</AlgorithmStep>
+  <AlgorithmStep>获得新观测后滚动重复，维持闭环控制</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** 官方仓库为 [Physical-Intelligence/openpi](https://github.com/Physical-Intelligence/openpi)。与论文的对应关系如下：
+
+| 论文概念                    | 官方代码位置                                      | 对照结果                                    |
+| --------------------------- | ------------------------------------------------- | ------------------------------------------- |
+| PaliGemma backbone + SigLIP | `src/openpi/models/pi0.py`                        | `gemma_2b` 与 `So400m/14` 图像编码器        |
+| 300M action expert          | `src/openpi/models/pi0.py`、`gemma.py`            | 默认 `gemma_300m`                           |
+| action horizon              | `src/openpi/models/pi0_config.py`                 | π₀.₅ 默认 50                                |
+| π₀.₅ state 表示             | `src/openpi/models/pi0_config.py`、`tokenizer.py` | `discrete_state_input=True`                 |
+| timestep 注入               | `src/openpi/models/pi0.py`                        | π₀.₅ 用 adaRMSNorm；π₀ 使用拼接 MLP         |
+| Flow loss / sampling        | `Pi0.compute_loss`、`Pi0.sample_actions`          | Beta 时间采样、10-step Euler 积分           |
+| 训练配置                    | `src/openpi/training/config.py`                   | 提供 `pi05_droid`、`pi05_libero` 等微调配置 |
+
+**【Code】** 当前公开仓库 README 明确写着：π₀.₅ 目前只支持 Flow Matching head 的训练与推理；论文中“FAST 离散目标 + Flow expert + knowledge insulation”的完整联合预训练配方没有以一个可直接复现实验的公开配置出现。因此，代码可以核实模型形状、state 与 flow 推理，但不能声称公开仓库完整复现论文全部训练数据和 stop-gradient 实验。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![论文中的实验任务：items in drawer、make bed、dish in sink、shirt folding、table bussing、DROID 与 LIBERO（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-knowledge-insulating-vla/tasks.8okfnrbdyp.webp)
+
+**【Paper】** 论文在真实机器人和公开 benchmark 上评估：静态单臂的 items in drawer / table bussing，静态双臂的 shirt folding，移动双臂的 make bed、dish in sink、mobile items in drawer、laundry in basket，以及 DROID 和 LIBERO。移动任务的测试场景完全未出现在训练中；每个真实任务每个策略评估 10 个 episode。
+
+比较对象包括 π₀、π₀-FAST、OpenVLA-OFT、Transfusion、HybridVLA、joint-training（无 stop-gradient）、去掉 VLM data 的 joint-training，以及 naive tokenization。
+
+### 5.2 Main Results
+
+![静态单臂 table bussing 上的性能、速度与语言跟随比较（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-knowledge-insulating-vla/ur5_all.99u3a25ul9.webp)
+
+**【Paper】** 主要结果可以归纳为：
+
+- items in drawer：Knowledge Insulation 在未见环境中同时取得最高任务性能和最高 language following；π₀ 与无隔离的 joint-training 容易忽略语言，π₀-FAST 较慢，HybridVLA 与冻结 backbone 都不可行。
+- table bussing：本文方法性能最高且推理时间低；π₀-FAST 能听懂语言但完成任务约需两倍墙钟时间；π₀ 语言跟随明显变差。
+- generalist 收敛：本文方法的训练步数曲线接近 π₀-FAST；π₀ 需要约 7.5 倍训练步数才能达到相近性能。
+- DROID：本文方法得分 $0.55\pm0.09$，π₀ 为 $0.49\pm0.09$，π₀-FAST 为 $0.45\pm0.09$。
+
+**【Paper】** LIBERO 成功率（%）如下：
+
+| 方法                    |  Spatial | Object | Goal | 10 / Long |       90 |
+| ----------------------- | -------: | -----: | ---: | --------: | -------: |
+| OpenVLA-OFT             |     97.6 |   98.4 | 97.9 |      94.5 |        — |
+| π₀                      |     96.8 |   98.8 | 95.8 |      85.2 |        — |
+| π₀-FAST                 |     96.4 |   96.8 | 88.6 |      60.2 |        — |
+| Ours（from scratch）    |     96.6 |   97.2 | 94.6 |      84.8 |     92.7 |
+| Ours（from generalist） | **98.0** |   97.8 | 95.6 |      85.8 | **96.0** |
+
+### 5.3 Ablation Study
+
+![generalist table bussing 的训练策略与训练曲线（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-knowledge-insulating-vla/training_curve.4xva2imj9f.webp)
+
+**【Paper】** 消融揭示了三个互补因素：
+
+1. 去掉 stop-gradient 后，joint-training 的任务完成和语言跟随下降，说明连续 expert 的随机初始化确实会把噪声梯度带进 backbone。
+2. 去掉 VLM data 后，generalist 的语言跟随和跨物体泛化变差，尤其在 mobile manipulation 上明显。
+3. 用 naive tokenization 替代 FAST 仍优于只训练连续动作，但效果不如 FAST；对 naive token 做 stride=5 的子采样反而更好，说明 representation learning 需要紧凑的时间抽象。
+
+**【Paper】** state 表示消融显示 text state 与 continuous state 都能工作，special-token state 较差；因此方法优势不能简单归因于某一种 state 编码。
+
+### 5.4 Generalization
+
+![四个未见环境 mobile manipulation 任务的平均性能（论文 Figure 9）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-knowledge-insulating-vla/mm_end2end.4clmg7s324.webp)
+
+**【Paper】** 在新物体、新场景和移动操作任务上，VLM data co-training 对语义泛化尤其重要。作者把它解释为：caption、VQA、定位等数据让 backbone 保持对物体和语言的开放词汇知识，再由离散 action loss 把这些表示接到机器人动作上。
+
+**【Analysis】** 这不是“VLM 数据越多越好”的直接证明；实验只比较了论文给定的数据混合物与去除 VLM data 的版本，数据质量、比例和任务难度仍可能共同影响结论。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** 可以从优化和表示两个层面理解：
+
+- FAST cross-entropy 的梯度密集、稳定，能快速把 backbone 调整到“观察 → 动作”的机器人表示空间。
+- Flow Matching expert 直接学习连续向量场，负责控制精度，但它的新参数在训练初期并不可靠。
+- stop-gradient 把二者的职责隔开：backbone 不被随机 expert 的早期误差牵着走，expert 又能读取已经适配机器人的 prefix。
+- VLM data co-training 提供与机器人动作无关的语言 / 视觉锚点，缓解 catastrophic interference。
+
+### 6.2 核心创新
+
+**【Paper】** 创新点不是单独的 FAST、Flow Matching 或 mixture-of-experts，而是将三者放进同一阶段的训练图，并在 attention 内部定义明确的梯度方向。
+
+**【Analysis】** “知识隔离”比简单冻结更细：冻结会阻止机器人数据塑造 backbone，知识隔离只阻断最危险的 expert → backbone 路径，保留离散动作和 VLM loss 对 backbone 的适配能力。
+
+### 6.3 与已有方法的本质区别
+
+| 方案      | Backbone 是否从动作 expert 收梯度 | 连续动作 | 离散动作训练信号 | 推理速度 |
+| --------- | --------------------------------- | -------- | ---------------- | -------- |
+| π₀        | 是                                | 是       | 否               | 快       |
+| π₀-FAST   | 不涉及 expert                     | 否       | 是               | 慢       |
+| HybridVLA | 有耦合                            | 是       | 是               | 依实现   |
+| 本文      | 否（stop-gradient）               | 是       | 是               | 快       |
+
+**【Analysis】** 本文的本质区别是“训练时双表示、推理时单表示”：离散动作是训练辅助目标，连续 expert 才是部署接口。
+
+### 6.4 关键假设
+
+**【Paper】** 方法依赖以下假设：VLM backbone 的隐藏状态可以同时支持 token prediction 和连续动作条件建模；FAST token 足以提供有用的机器人表征；action expert 只需读取 backbone 表示，而不必反过来塑造它。
+
+**【Analysis】** 如果任务需要连续 expert 发现 backbone 中没有的低层视觉特征，完全 stop-gradient 可能限制上限；论文在多种真实任务上验证了当前设置，但没有证明它对所有 embodiment、传感器或控制频率都最优。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】**
+
+- 同时训练离散与连续输出使训练计算量增加约 20%，只是被更快的收敛部分抵消。
+- 语言跟随仍不完美；训练数据中的视觉与动作相关性可能让模型继续忽略明确的语言指令。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+1. 论文的 stop-gradient 发生在 attention 的 key/value 路径，实际实现需要修改 transformer 内核；公开 openpi 当前版本主要展示 π₀.₅ 的 Flow Matching 路径，并不能直接复现实验中的完整联合训练和隔离消融。
+2. 两套动作表示会增加数据管线、loss mask、checkpoint 和调参复杂度；`α`、FAST 压缩率和动作 horizon 之间的耦合没有系统搜索。
+3. 论文报告了任务成功率和 language following，但没有给出完整的 wall-clock、显存和吞吐分解，因此“训练更快”主要是相对训练步数和收敛曲线的结论。
+4. 连续 expert 的 10-step 积分仍然是固定计算预算；当动作分布更复杂或控制频率更高时，所需步数可能增加。
+
+## 8. 启发与研究思考
+
+**【Analysis】** 这篇论文给 VLA 训练带来的启发可以概括为四点：
+
+1. **把预训练目标当作稳定器。** 离散 token 并不只是部署时的动作表示，也可以作为连续控制模型的 representation-learning scaffold。
+2. **不要把“共享表示”误解成“共享梯度”。** 多模态 expert 可以共享前向信息，但反向传播的方向应按模块初始化质量和任务职责设计。
+3. **知识迁移需要正则化接口。** VLM data co-training 与 stop-gradient 都是在保护语义知识；仅仅把 VLM 权重拷贝到 VLA 并不等于真正迁移。
+4. **评估 VLA 要同时看三条曲线：** 任务成功率、语言跟随率和达到目标性能所需的墙钟时间。只报最终成功率，无法看出 π₀、π₀-FAST 与本文方法的核心差异。
+
+后续值得验证的问题是：能否让 stop-gradient 的强度随训练阶段变化；能否用蒸馏或低秩适配器允许少量 expert → backbone 梯度；以及能否把 FAST 的离散监督换成更紧凑的 action codec，同时保留连续控制的精度。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。论文原图因图床 CDN 缓存尚未刷新，当前使用 GitHub Raw URL；待 CDN
+  刷新后可替换回 `pic.hana0721.top`。
+</Aside>
