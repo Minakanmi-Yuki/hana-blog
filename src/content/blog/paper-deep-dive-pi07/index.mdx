@@ -1,0 +1,311 @@
+---
+title: 'π₀.₇ 论文精读：用多模态提示把机器人基础模型变成可操控的通才'
+publishDate: 2026-08-25
+updatedDate: 2026-08-25
+description: '精读 Physical Intelligence 的 π₀.₇：多模态 context、混合质量数据、子目标图像与异步 flow policy 如何带来灵巧、跨形态和组合泛化。'
+heroImage:
+  { src: 'https://pic.hana0721.top/70937229_p0_master1200.6bhnz4ob71.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '70937229'
+tags:
+  - 'paper deep dive'
+  - 'π₀.₇'
+  - 'VLA'
+  - 'robot foundation model'
+  - 'prompt conditioning'
+  - 'cross-embodiment'
+paper:
+  arxivId: '2604.15483'
+  title: 'π₀.₇: a Steerable Generalist Robotic Foundation Model with Emergent Capabilities'
+  authors:
+    - 'Physical Intelligence'
+    - 'Bo Ai'
+    - 'Ali Amin'
+    - 'Kevin Black'
+    - 'Danny Driess'
+    - 'Chelsea Finn'
+    - 'Karol Hausman'
+    - 'Sergey Levine'
+    - 'Karl Pertsch'
+    - 'Allen Z. Ren'
+    - 'Lucy Xiaoyang Shi'
+    - 'Marcel Torne'
+    - 'Quan Vuong'
+    - 'XuDong Wang'
+    - 'Charles Xu'
+  venue: 'arXiv'
+  year: 2026
+  code: ''
+  project: 'https://www.pi.website/blog/pi07'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2604.15483'
+  tldr='π₀.₇ 不把所有轨迹平均成一个策略，而是用任务、子任务、子目标图像和 episode metadata 作为可组合的 context，让一个 5B VLA 同时吸收高质量示范、失败轨迹、自主数据和人类视频。'
+  rank={5}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《π₀.₇: a Steerable Generalist Robotic Foundation Model with Emergent Capabilities》
+
+**作者**：Physical Intelligence、Bo Ai、Ali Amin、Kevin Black、Danny Driess、Chelsea Finn、Karol Hausman、Sergey Levine、Karl Pertsch、Allen Z. Ren、Lucy Xiaoyang Shi、Marcel Torne、Quan Vuong、XuDong Wang、Charles Xu 等 88 位作者
+
+**机构**：Physical Intelligence
+
+**论文链接**：[arXiv 2604.15483](https://arxiv.org/abs/2604.15483)；[项目主页](https://www.pi.website/blog/pi07)
+
+### 一句话总结
+
+**【Paper】** π₀.₇ 是一个约 5B 参数的 Vision-Language-Action（VLA）模型。它在 Gemma 3 4B VLM 与 860M flow-matching action expert 之上，把“做什么”和“怎么做”都写入 prompt：除了任务语言，还加入下一子任务、未来子目标图像、速度/质量/错误等 episode metadata，以及 joint/EE control mode。这样模型可以从多机器人示范、失败数据、自主 rollout、开源数据和人类视频中学习，并在未见环境、未见 embodiment 和组合任务上被直接提示或语言 coaching。
+
+![π₀.₇ 的总体思想：用丰富 context 让同一策略组合不同技能（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-pi07/fig1.8l0tq2xq2f.webp)
+
+### 核心贡献
+
+**【Paper】**
+
+1. **把 prompt 从一句任务描述扩展成多模态 context。** 子任务文字表达语义阶段，subgoal images 表达“接下来世界应该长什么样”，metadata 表达轨迹质量、速度和错误模式。
+2. **提出一套能吸收混合质量数据的训练 recipe。** 通过 metadata 把高质量轨迹、失败轨迹和自主数据中的不同模式区分开，而不是简单平均它们的动作。
+3. **在一个通才模型中获得 specialist-level dexterity。** 论文报告 π₀.₇ 在 espresso、box building、laundry folding、切菜、削皮和换垃圾袋等任务上，可直接达到或接近任务专用 RL/SFT specialist 的性能。
+4. **展示多种 emergent capability。** 包括 zero-shot cross-embodiment laundry transfer、复杂语言跟随、短时程组合泛化，以及只用语言 coaching 学会全新的长时程任务。
+5. **把 coaching 数据提升为高层策略。** 低层动作无需重新 teleoperate；只需把人类逐步指令记录下来，训练 high-level policy 自动产生下一条 subtask instruction。
+
+## 2. 背景与相关工作
+
+**【Paper】** 机器人基础模型的困难不只是数据量不足，而是轨迹之间存在大量“模式差异”：不同机器人、相机和控制空间会改变动作；同一个任务也可能有快慢不同、质量不同、甚至失败的执行方式。若把这些轨迹只配一条粗粒度语言标签，行为克隆会倾向于把多种模式平均成一个不够好的动作。
+
+**【Paper】** π₀、π₀.５、π₀.６ 等前代模型已经证明预训练 VLM + flow/diffusion action expert 能够兼顾语义与连续动作。π₀.７ 延续这条架构路线，并吸收 π₀.６-MEM 的视频历史编码器、π₀.５ 的高层语义子任务，以及 goal-image conditioning 的研究。
+
+**【Analysis】** 这篇工作和“再加一个更大的 VLM”不同。它的中心问题是：当数据的质量、策略和 embodiment 都不一致时，模型能否通过额外 context 选择正确的行为模式。换句话说，模型学习的不是单一平均 policy，而是一个可被 prompt steer 的 policy family。
+
+## 3. 问题定义
+
+**【Paper】** 在时间步 $t$，观测由多视角图像和本体状态组成：
+
+$$
+\mathbf{o}_t = [\mathbf{I}_t^1, \ldots, \mathbf{I}_t^n, \mathbf{q}_t],
+$$
+
+其中 $\mathbf{I}_t^i$ 是相机图像，$\mathbf{q}_t$ 是关节或本体状态。策略接收最近 $T$ 个观测，并输出未来 $H$ 步动作 chunk：
+
+$$
+\mathbf{a}_{t:t+H} \sim \pi_\theta(\mathbf{a}_{t:t+H}\mid \mathbf{o}_{t-T:t}, \mathcal{C}_t).
+$$
+
+这里的关键变量是 context：
+
+- **Task instruction $\ell_t$**：完整任务，例如 `fold the shirt`。
+- **Subtask instruction $\hat{\ell}_t$**：当前阶段，例如 `grasp the left corner`。
+- **Subgoal images $\mathbf{g}_t$**：每个相机对应的近未来目标图像。
+- **Episode metadata $m$**：速度 bin、质量评分、当前 segment 是否有 mistake。
+- **Control mode $c$**：`joint` 或 `ee`。
+
+**【Analysis】** 与普通 VLA 的差别可写成：普通模型近似 $\pi(a\mid o,\ell)$，而 π₀.₇ 学习的是 $\pi(a\mid o,\ell,\hat{\ell},g,m,c)$，并在训练时随机丢弃其中部分条件，使同一个 checkpoint 能在不同信息预算下运行。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![π₀.₇ 的 5B 架构：Gemma3 VLM、MEM history encoder、action expert 与 world model（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-pi07/model_architecture.5j4xouwego.webp)
+
+**【Paper】** π₀.₇ 由约 4B 参数 VLM backbone、MEM-style history vision encoder 和 860M 参数 flow-matching action expert 组成，总规模约 5B。运行时，high-level policy 生成子任务文字，BAGEL 初始化的 lightweight world model 生成 subgoal images，低层 VLA 再根据最新观测和 context 输出 50-step action chunk。
+
+**【Analysis】** 信息流的核心是“语义、视觉目标、本体状态先进入 VLM；连续动作由 action expert 读取 VLM activation 后生成”。因此新增的 context 不需要改变 action space，而是改变 action expert 所看到的条件分布。
+
+### 4.2 核心模块
+
+#### 多视角历史视觉编码器
+
+**【Paper】** 模型最多接收 front、左右 wrist 和可选 rear 四路相机，每路最多六帧历史。历史帧以 1 秒 stride 采样，经 temporal/spatial compression 后被压缩成与单帧相近数量的 token；历史整体以 0.3 概率 dropout，rear view 也以 0.3 概率 dropout。图像和 subgoal 统一 resize 到 $448\times448$，proprioception 则用线性投影映射到 backbone 维度，每个历史状态是一个 token。
+
+#### Subtask instruction
+
+**【Paper】** 高层文字把长任务拆成当前语义阶段。它可以来自 high-level language policy，也可以来自 human coach，还可以被省略。由于模型训练时见过不断变化的子任务文字，它能够在未见任务中按步骤接受“先拿起甜薯，再打开空气炸锅”式指令。
+
+#### Subgoal image 与 world model
+
+**【Paper】** subgoal image 描绘当前动作成功后不久的场景状态。多视角目标同时约束环境/物体和机械臂/夹爪，弥补“open the fridge door”没有说明抓取位置的问题。目标由一个以 BAGEL 14B 初始化的 world model 生成；该模型使用机器人片段、egocentric human video、web image/video 数据训练，目标是把非机器人数据中的语义和物理先验转移给 π₀.₇。
+
+#### Episode metadata
+
+**【Paper】** metadata 包含三类主要信号：将 episode 长度按 500 steps 分箱的 overall speed；1–5 的 overall quality；以及当前 action segment 是否发生 mistake。训练中这些字段由速度计算或人工粗标。推理时通常把 quality 设为 5、mistake 设为 false、speed 设为该任务 episode length 的第 15 百分位，从而请求“快、质量高、无错误”的模式。
+
+#### Flow-matching action expert
+
+**【Paper】** action expert 是 860M 参数 transformer，使用 adaptive RMSNorm 注入 flow timestep，固定处理 50 个 action tokens，对应 50 步 action chunk。50 个 action token 彼此双向注意，并读取 VLM backbone activations；训练目标是 continuous action 的 flow matching，而不是把动作离散成文本 token。
+
+#### Prompt dropout 与控制模式
+
+![π₀.₇ prompt 的组成：子任务、子目标图像、速度/质量/错误 metadata 可以灵活组合（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-pi07/prompts_v4.54yhxzo3tc.webp)
+
+**【Paper】** 每个 prompt 组成在训练时独立 dropout：subgoal image 只出现在 25% batch 样本中；有 subgoal 时，subtask text 以 30% 概率丢弃；metadata 整体以 15% 概率丢弃，speed、quality、mistake 还各自以 5% 概率丢弃；control mode 不丢弃。这让测试时可以只用语言，也可以组合语言、目标图像和 metadata。
+
+### 4.3 关键公式
+
+#### VLA 目标
+
+$$
+\max_\theta\;\mathbb{E}_{\mathcal{D}}
+\left[\log \pi_\theta(\mathbf{a}_{t:t+H}
+\mid \mathbf{o}_{t-T:t},\mathcal{C}_t)\right].
+$$
+
+**【Paper】** $\mathcal{D}$ 是混合来源轨迹，$\mathcal{C}_t$ 是完整 context。严格地说，flow-matching action expert 优化的是 log-likelihood 的近似下界；公式表达的重点是动作必须依赖观测和可操控的 context，而不是只依赖粗任务名。
+
+#### World model 目标
+
+$$
+\max_\psi\;\mathbb{E}_{\mathcal{D}_g}
+\left[\mathcal{L}_{\mathrm{CFM}}\big(\mathbf{g}^{\star}_t,
+g_\psi(\mathbf{o}_t,\hat{\ell}_t,m)\big)\right].
+$$
+
+**【Paper】** $\mathbf{g}^{\star}_t$ 是 segment 末端的真实未来图像，$g_\psi$ 根据当前观测、子任务和 metadata 生成目标，$\mathcal{L}_{\mathrm{CFM}}$ 是 flow matching loss。world model 的作用不是直接输出动作，而是生成更容易被低层 policy 使用的视觉中间目标。
+
+#### Classifier-free guidance
+
+$$
+\nabla_a\log\pi_\theta(a\mid o,C_t)
+ +\beta\left(\nabla_a\log\pi_\theta(a\mid o,C_t)
+ -\nabla_a\log\pi_\theta(a\mid o,C_t^{\mathrm{uncond}})\right).
+$$
+
+**【Paper】** $C_t^{\mathrm{uncond}}$ 是去掉指定条件的 prompt，$\beta\in\{1.3,1.7,2.2\}$ 是 guidance weight。论文主要用 metadata CFG 来偏向高质量、高灵巧行为；这相当于在同一个 policy family 中选择更合适的 mode。
+
+### 4.4 Training
+
+**【Paper】** 训练数据包括多机器人 demonstration、policy evaluation 的 autonomous rollouts、人类 intervention、开源 robot dataset、egocentric human video，以及 web 上的定位、属性预测、VQA、文本和 video captioning 数据。作者明确排除 generalization evaluation 任务产生的 autonomous data，避免把测试任务泄漏回训练集。
+
+**【Paper】** 一个重要 recipe 是保留 failure 和 suboptimal trajectories。metadata 让模型知道这些轨迹“快不快、质量高不高、这段是否出错”，因此它可以在训练时吸收状态覆盖和策略多样性，在推理时请求高质量模式。训练同时模拟 0–12 timesteps 的延迟，对应 50 Hz 机器人最多约 240 ms inference latency，并采用 training-time Real-Time Chunking（RTC）。
+
+<Algorithm number={1} title='π₀.₇ 多条件训练' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>混合来源的轨迹、观测历史、动作 chunk、任务/子任务标签、subgoal images 与 episode metadata</div>
+  <div slot='output'>可接受任意条件子集并能输出连续 action chunk 的 π₀.₇</div>
+  <AlgorithmStep>为每个片段构造 $\mathcal{C}_t=(\ell_t,\hat{\ell}_t,\mathbf{g}_t,m,c)$，并按设定概率随机 dropout 条件。</AlgorithmStep>
+  <AlgorithmStep>用历史相机帧和 proprioception 编码观测；VLM 通过 FAST token 的离散交叉熵保持稳定语义表示。</AlgorithmStep>
+  <AlgorithmStep>让 action expert 读取 VLM activation，用 flow matching 拟合 50 步连续动作，并在训练中模拟 RTC 延迟。</AlgorithmStep>
+  <AlgorithmStep>混合真实未来图像与 world-model 生成图像，缓解训练/推理的 subgoal image domain gap。</AlgorithmStep>
+  <AlgorithmStep>联合优化多源数据，保存一个可由 metadata、语言和图像条件 steer 的通用 checkpoint。</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 推理时每个任务至少提供 control mode 和 metadata。subtask instruction 来自 high-level policy 或人工 coach；若启用 goal conditioning，world model 在子任务变化或每 4 秒刷新一次多视角 subgoal。world model 和 VLA 在独立线程异步运行，低层策略始终使用当前可用的最新目标。
+
+每次 VLA inference 生成 50-step action chunk，实际执行其中 $\hat H\in\{15,25\}$ 步；使用 5 个 denoising steps。最小 π₀.₇ 变体在单张 H100 上约 38 ms，启用 MEM 历史和 subgoal 后最坏约 127 ms；world model 用 4 张 H100、25 denoising steps 约 1.25 s，并异步生成。
+
+<Algorithm number={2} title='π₀.₇ 运行时提示与执行' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>初始观测 $o_0$、任务 $\ell$、metadata $m$、control mode $c$</div>
+  <div slot='output'>持续执行的 action stream</div>
+  <AlgorithmStep>由 high-level policy 或 human coach 初始化子任务 $\hat{\ell}$。</AlgorithmStep>
+  <AlgorithmStep>world model 根据 $(o_0,\hat{\ell},m)$ 生成多视角 subgoal $g^{\star}$，组成 $C=\{\ell,\hat{\ell},g^{\star},m,c\}$。</AlgorithmStep>
+  <AlgorithmStep>π₀.₇ 用最近历史观测和 $C$ 生成 50 步 action chunk，可选 metadata CFG。</AlgorithmStep>
+  <AlgorithmStep>执行 chunk 的前 $\hat H$ 步；当子任务变化或 4 秒计时到达时，异步刷新 $g^{\star}$。</AlgorithmStep>
+  <AlgorithmStep>重复生成与执行，RTC 使用上一 chunk 的尾部动作平滑推理延迟。</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** 截至本文写作，论文和 Physical Intelligence 项目页没有公开 π₀.₇ 的官方 GitHub 代码、训练配置或 checkpoint；公开的是项目介绍和实验视频。因此无法对 model definition、DataLoader、optimizer、checkpoint 或真实 inference implementation 做逐文件核对。
+
+**【Paper】** 可以核对的实现级细节仅来自论文：Gemma3 4B backbone、860M action expert、50 action tokens、5 denoising steps、0–12 timestep RTC delay、subgoal 每 4 秒刷新，以及 H100 上的延迟测量。不要把前代 `openpi` 代码当作 π₀.₇ 的实现；两者的 prompt、MEM、world model 和数据配方并不等价。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![π₀.₇ 评测中的机器人形态：移动双臂、静态双臂、双臂 UR5e 与单臂机器人（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-pi07/pi07robots_v5.8dxlunblru.webp)
+
+**【Paper】** 评测覆盖双臂移动机器人、轻量静态双臂 BiPi、双臂 UR5e 和单臂 6 DoF 机器人。大多数机器人以 50 Hz 运行，UR5e 以 20 Hz 运行；每台机器人有 front camera 和左右 wrist cameras，移动平台额外有 rear camera。输出通过简单 PD controller 执行，EE action 需要数值 inverse kinematics 转成 joint target。
+
+**【Paper】** 实验分为四类：out-of-the-box dexterity、novel-environment instruction following、zero-shot cross-embodiment transfer，以及 compositional task generalization；最后用 mixed-quality 和 task-diversity ablation 分析数据与 context 的交互。
+
+### 5.2 Main Results
+
+**【Paper】** 在 espresso、box building、T-shirt/shorts folding、peanut-butter sandwich、shirt inside-out、切 zucchini、削果蔬和换垃圾袋等任务上，同一个 π₀.₇ checkpoint 直接运行即可接近或超过任务专用 RL/SFT specialist。对于 diverse laundry 和 box building，论文还报告 π₀.₇ 的 throughput 高于 RL specialist。
+
+**【Paper】** 在 14 个 instruction-following 场景中，测试环境包括 4 个未见 kitchen 和 2 个未见 bedroom，每个场景需要完成 3–6 步开放式指令。π₀.₇ 相比 π₀.５ 与 π₀.６ 在复杂 referential instruction 和违反数据集偏置的 Reverse Bussing、Reverse Fridge-to-Microwave 上有明显提升；生成 subgoal images 对后者尤其关键。
+
+### 5.3 Ablation Study
+
+![多样 context 与数据规模的消融：metadata 使混合质量数据可扩展，task diversity 提升组合泛化（论文 Figure 18）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-pi07/generalization_and_conditioning.7zr63s3csf.webp)
+
+**【Paper】** 对照 `π₀.₇ (no metadata)` 和 `π₀.₇ (no eval data)` 的结果显示：metadata 和 autonomous evaluation data 都重要，尤其影响 throughput。没有 metadata 时，模型难以区分 specialist rollout、失败片段和一般示范，加入更多混合质量数据反而可能退化。
+
+**【Paper】** 在 laundry 数据上，作者按质量/速度保留 top 30%、50%、80% 或全部数据，并分别训练带/不带 metadata 的模型。带 metadata 的模型随着数据增多持续提升，即使平均质量下降；不带 metadata 的模型则可能下降。在 task-diversity ablation 中，移除最具任务多样性的 20% 数据比随机移除 20% 更差，说明多样性本身被转化成了未见任务的泛化能力。
+
+### 5.4 Generalization
+
+![π₀.₇ 在 UR5e 上折叠衣物的零样本跨形态迁移（论文 Figure 12/13）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-pi07/cross_embodiment.lwgv0ioib.webp)
+
+**【Paper】** 训练数据没有包含双臂 UR5e 的 laundry folding，但 π₀.₇ 能在 UR5e 上折叠 T-shirt 和 towel。10 位有平均 375 小时 teleoperation 经验的专家首次操作该 embodiment 时，human 的 task progress 为 90.9%、success rate 为 80.6%；π₀.₇ 为 85.6% 和 80%，接近专家水平。策略没有机械复制源机器人动作，而是学会针对 UR5e 的形态和工作空间改变抓取策略。
+
+**【Paper】** 对组合泛化，π₀.₇ 能直接完成按压 french press、把米舀入 rice cooker、用布擦耳机/尺子、旋转风扇和齿轮等短时程新任务。对于最多约 5 分钟的 air fryer、unloading air fryer 和 toasting bagel，它先由人类语言逐步 coaching，再用 coaching episode 训练 high-level policy；五个任务的 autonomous policy 表现大致匹配 live coaching，而不需要新增低层 teleoperation action data。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** 第一，metadata 把“同一任务的多种行为模式”变成可条件化的监督信号。模型不必把快而稳的动作和慢而错的动作平均，而是可以在推理时请求 quality=5、mistake=false 的模式。
+
+**【Analysis】** 第二，subgoal image 把语言难以表达的几何约束变成视觉条件。对“打开门”“折叠衣服”这类动作，目标图像同时约束物体状态和夹爪状态，使 action expert 更接近 inverse dynamics。
+
+**【Analysis】** 第三，多样数据的价值被 context 解锁。人类视频带来物理先验，自主失败带来状态覆盖，RL specialist rollout 带来高性能片段；prompt 负责告诉模型这些片段应如何解释。
+
+### 6.2 核心创新
+
+**【Paper】** 论文最重要的创新是 diverse context conditioning，而非新的 transformer block。它把 prompt expansion 的思想从图像生成迁移到机器人控制，并把文本、图像和质量 metadata 统一放进 policy context。
+
+**【Analysis】** 更准确地说，π₀.₇ 的贡献是训练接口和数据配方的创新：它让一个 VLA 学习“可组合的行为条件”，再通过 CFG、coaching 和 high-level policy 将这些条件暴露给用户。
+
+### 6.3 与已有方法的本质区别
+
+| 维度          | 传统 VLA                   | π₀.₇                                                |
+| ------------- | -------------------------- | --------------------------------------------------- |
+| Prompt        | 通常只有任务语言           | 任务、子任务、subgoal image、metadata、control mode |
+| 数据          | 偏好过滤后的高质量示范     | 示范、失败、自主 rollout、人类视频和 web 数据       |
+| 多模态目标    | 主要是当前观测             | 当前观测 + 未来近状态图像                           |
+| 新任务        | 常需动作数据或 fine-tuning | 短任务直接 prompt，长任务可 language coaching       |
+| 跨 embodiment | 依赖对齐或专门数据         | 通过多形态训练和目标图像产生 zero-shot transfer     |
+
+**【Analysis】** 因而它不是“更大的单一 policy”，而是一个可以通过 context 选择子策略的 policy family。
+
+### 6.4 关键假设
+
+**【Paper】** 方法隐含了几个关键假设：episode quality、speed 和 mistake 可以被可靠标注；未来图像足以表达当前动作的局部目标；不同 embodiment 的数据共享可迁移的视觉和操作概念；大规模数据中的技能能够被模型重新组合。
+
+**【Analysis】** 这些假设对数据工程要求很高。metadata 若粗糙或不一致，模型可能学到错误的 shortcut；world model 若产生不真实的目标，视觉条件反而会误导 action expert；控制 mode 也不能解决所有动力学和夹爪差异。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** π₀.₇ 在 zero-shot unseen task 或 unseen task-robot combination 上的成功率通常为 60–80%，低于 in-distribution 任务超过 90% 的成功率。作者建议未来利用它的 steerability，通过更详细 language coaching 或 autonomous RL 高效适应测试任务。
+
+**【Paper】** 由于训练集极其多样，严格判断一个评测任务是否 truly unseen 很困难。相关技能可能以不同标签、不同场景或另一个任务的子步骤出现在训练数据中，因此论文把结果称为 compositional generalization 的强迹象，而不是绝对的数据隔离证明。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】** 第一，world model 推理成本很高：4×H100、约 1.25 秒一次目标生成，意味着部署需要异步缓存和昂贵硬件。第二，5B VLA 加 14B world model 的系统复杂度远高于单模型 policy，复现门槛也被公开代码缺失进一步提高。
+
+**【Analysis】** 第三，quality=5、mistake=false 这类测试 prompt 是人工选择的目标模式，不等于模型真的理解了任务质量；不同任务的“最快可行速度”也未必由第 15 百分位 episode length 充分描述。第四，论文没有公开完整数据规模、采样权重和训练超参，因此很难判断性能增益来自 context 机制、数据量，还是两者的共同作用。
+
+## 8. 启发与研究思考
+
+**【Analysis】** π₀.₇ 给 VLA 研究的启发，是把“数据清洗”重新表述为“数据可条件化”。如果每条轨迹都携带策略、质量、阶段和目标状态的上下文，失败数据不再只是噪声，而可能成为覆盖状态空间和学习错误恢复的资源。
+
+**【Analysis】** 对实际系统而言，最值得借鉴的是三层接口：低层 action expert 负责连续控制，中层 subgoal image/world model 负责把语义变成可执行目标，高层 policy 或人类负责产生子任务。这样的分层允许用语言 coaching 替代昂贵的逐步 teleoperation。
+
+**【Analysis】** 下一步值得研究的问题包括：如何自动且一致地标注 episode quality；如何校准 world model 的不确定性；能否用小型 latent goal model 取代 14B 图像生成器；以及如何用可验证的 task split 证明是真正的组合泛化，而不是训练数据中的隐式重混。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。π₀.₇
+  当前没有公开可核对的官方代码，因此代码对照节只记录了论文给出的实现级细节。
+</Aside>

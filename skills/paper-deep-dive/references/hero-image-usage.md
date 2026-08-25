@@ -73,11 +73,11 @@ Preferred candidates for new posts.
 |         2 | `68232005`  | `https://pic.hana0721.top/68232005_p0_master1200.60uu51sjdo.webp`  | `paper-reading-llm1`, `paper-deep-dive-fast`                                    |
 |         2 | `69461006`  | `https://pic.hana0721.top/69461006_p0_master1200.1e974ctzq9.webp`  | `paper-reading-llm2`, `paper-deep-dive-actioncodec`, `paper-deep-dive-gr00t-n1` |
 |         2 | `69606244`  | `https://pic.hana0721.top/69606244_p0_master1200.64eg2rlm3q.webp`  | `paper-reading-marl1`, `paper-deep-dive-lapa`                                   |
-|         3 | `70434530`  | `https://pic.hana0721.top/70434530_p0_master1200.b9htgy5uw.webp`   | `paper-reading-mllm1`, `paper-deep-dive-villa-x`, `paper-deep-dive-pi07`       |
-|         1 | `70937229`  | `https://pic.hana0721.top/70937229_p0_master1200.6bhnz4ob71.webp`  | `matlab-ubuntu-24-04-install`                                                   |
+|         2 | `70434530`  | `https://pic.hana0721.top/70434530_p0_master1200.b9htgy5uw.webp`   | `paper-reading-mllm1`, `paper-deep-dive-villa-x`, `paper-deep-dive-vla-opd`      |
+|         2 | `70937229`  | `https://pic.hana0721.top/70937229_p0_master1200.6bhnz4ob71.webp`  | `matlab-ubuntu-24-04-install`, `paper-deep-dive-pi07`                           |
 |         2 | `70977889`  | `https://pic.hana0721.top/70977889_p0_master1200.9gx5x526gc.webp`  | `paper-reading-mllm2`, `paper-deep-dive-faster`                                 |
 |         1 | `71187447`  | `https://pic.hana0721.top/71187447_p0_master1200.13mdb6lism.webp`  | `galgame-1`                                                                     |
-|         1 | `71875434`  | `https://pic.hana0721.top/71875434_p0_master1200.7pvvr603z.webp`   | `paper-reading-umllm1`                                                          |
+|         2 | `71875434`  | `https://pic.hana0721.top/71875434_p0_master1200.7pvvr603z.webp`   | `paper-reading-umllm1`, `paper-deep-dive-warp-rm`                               |
 |         1 | `86800103`  | `https://pic.hana0721.top/86800103_p0_master1200.4qrwyrtj6a.webp`  | `rl-note-14`                                                                    |
 |         1 | `90399055`  | `https://pic.hana0721.top/90399055_p0_master1200.4g535npbv6.webp`  | `rl-note-21`                                                                    |
 |         1 | `91341540`  | `https://pic.hana0721.top/91341540_p0_master1200.7pw5duffp.webp`   | `rustdesk-cli-server-setup`                                                     |
