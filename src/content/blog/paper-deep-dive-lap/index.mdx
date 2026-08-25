@@ -1,0 +1,285 @@
+---
+title: 'LAP：Language-Action Pre-Training 论文精读'
+publishDate: 2026-08-25
+updatedDate: 2026-08-25
+description: '精读 LAP-3B：把连续末端动作写成自然语言，再用 flow-matching action expert 实现零样本跨 embodiment 迁移。'
+heroImage:
+  { src: 'https://pic.hana0721.top/64131498_p0_master1200.45i9cfg3rk.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '64131498'
+tags:
+  - 'paper deep dive'
+  - 'VLA'
+  - 'cross-embodiment transfer'
+  - 'language-action'
+paper:
+  arxivId: '2602.10556'
+  title: 'LAP: Language-Action Pre-training Enables Zero-Shot Cross-Embodiment Transfer'
+  authors:
+    - 'Lihan Zha'
+    - 'Asher J. Hancock'
+    - 'Mingtong Zhang'
+    - 'Tenny Yin'
+    - 'Yixuan Huang'
+    - 'Dhruv Shah'
+    - 'Allen Z. Ren'
+    - 'Anirudha Majumdar'
+  venue: 'arXiv'
+  year: 2026
+  code: 'https://github.com/lihzha/lap'
+  project: 'https://lap-vla.github.io'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2602.10556'
+  tldr='LAP 用自然语言描述低层末端动作来训练 VLM，再接一个 flow-matching action expert；LAP-3B 因此能在新机器人上零样本执行。'
+  rank={5}
+/>
+
+## 1. 论文概述
+
+**【Paper】** 这篇论文的核心问题是：一个已经在多种机器人数据上预训练的 Vision-Language-Action（VLA）模型，为什么仍然无法直接控制一台从未见过的机器人？作者的答案不是继续扩大 embodiment 覆盖，而是重新设计动作监督信号：把“向前移动 5 cm、逆时针旋转 20°”这类低层动作写成自然语言（language-action）。
+
+![LAP 的总体目标与 LAP-3B 概览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lap/overview-crop.1764h932r4.webp)
+
+### 一句话总结
+
+**【Paper】** LAP 将连续末端位姿增量按固定坐标系和模板转换为语言序列，用 Cross-Entropy 训练 VLM 保留可迁移的语义表示；同时用轻量 flow-matching action expert 预测连续动作，使 LAP-3B 能以 25 Hz 执行控制，并在未见过的机器人上取得超过 50% 的平均零样本成功率。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出不需要 learned tokenizer、人工动作标注或 embodiment-specific 结构的 Language-Action Pre-training（LAP）。
+2. 实现 LAP-3B：PaliGemma-3B VLM + 约 300M 参数的 action expert，保留语言监督的表示优势，同时避免自回归语言动作采样过慢。
+3. 在四种机器人、十个真实操作任务和 LIBERO 上评估；三个未见 embodiment 的平均零样本成功率超过 50%，约为最强基线的 2 倍。
+4. 展示更快的 fine-tuning、更平滑的 unseen-embodiment 训练误差、随模型规模增长的收益，以及与 motion-prediction VQA 共训练的额外增益。
+
+**【Analysis】** LAP 的真正变量不是“是否统一到末端动作空间”，而是“用什么分布来监督 VLM”。这使它成为一个 action representation 论文，而不只是另一个更大的 VLA。
+
+## 2. 背景与相关工作
+
+**【Paper】** 传统 VLA 通常让 VLM 直接输出连续关节/末端动作、离散化动作 token 或 FAST token。它们在训练 embodiment 内可以工作，但动作 token 往往是任意的、缺乏语义结构，容易把 VLM 的语言视觉表示拉向 embodiment-specific 的控制规律。即使把动作统一成末端位姿，已有模型仍很难在新夹爪、新相机位置或不同自由度的机器人上零样本运行。
+
+已有的 language-action 工作证明了语言监督有助于语义 grounding，但有些方法只输出粗粒度子任务，依赖额外的低层控制器；LAP 的区别是直接从连续末端轨迹解析出细粒度动作描述，并在大规模机器人数据上训练。它也不同于 FAST：FAST 需要一个 learned tokenizer，而 LAP 的字符串由确定性规则生成。
+
+## 3. 问题定义
+
+**【Paper】** 给定多视角 RGB 图像、本体状态和任务指令：
+
+- **Observation**：$o_t = \{I_t^1,\ldots,I_t^n,s_t\}$，其中状态是笛卡尔末端位置、连续 6D 旋转表示和二值夹爪状态。
+- **Task input**：自然语言任务指令 $l$，以及说明使用 base frame 或 end-effector frame 的 prompt。
+- **Raw action**：长度为 $H=16$ 的末端位姿增量序列 $a_{t:t+H}$，每步 7 维（平移、旋转、夹爪）。
+- **Language-action target**：把整个 action chunk 的净位移和净旋转汇总成一段字符串，例如 `move forward 5 cm; tilt left 10 degrees; open gripper`。
+- **Embodiment**：训练混合了 OXE 与 MolmoAct 数据；测试包含 seen DROID，以及未见的 Custom Franka、YAM 和 Kinova。
+
+**【Paper】** 训练时 VLM 自回归预测语言动作，action expert 同时预测连续 chunk；推理时只滚动 action expert，语言动作分支主要提供可迁移的 VLM 表示。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![LAP-3B 的语言动作监督、Mixture-of-Transformers 与 flow action expert（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lap/method-crop.szoqdur73.webp)
+
+**【Paper】** 图像、状态和指令进入 PaliGemma VLM；VLM 以语言 token 形式预测动作描述，轻量 action expert 通过 cross-attention 读取 VLM 表示并以 flow matching 生成连续动作。两条分支共享输入，但 action expert 的梯度被阻断，不让低层控制损坏 VLM 的语言视觉知识。
+
+### 4.2 核心模块
+
+#### Language-action curation
+
+**【Paper】** 作者采用固定坐标约定：$+x$ 向前、$+y$ 向左、$+z$ 向上，旋转遵循右手系 Euler 角。动作 chunk 内的连续增量先累积，再量化为整数厘米和整数角度；零值分量被省略。训练时 50% 使用 robot base frame，50% 使用 end-effector frame，并把 frame 名称写入 prompt。
+
+**【Code】** `src/lap/policies/transforms/action_text.py` 的 `summarize_numeric_actions` 将米转换为厘米、弧度转换为角度，并附加 `open gripper` / `close gripper`。`ActionProcessor` 会根据 `random_base_prob` 决定是否先转换到 end-effector frame；`lang_action_formats.py` 负责把推理出的字符串解析回 7 维数值动作。
+
+#### VLM backbone
+
+**【Paper】** LAP-3B 初始化自 PaliGemma-3B。图像被 resize 到 $224\times224$；状态经过全数据集 1%/99% quantile 归一化，并以 255 个离散 bin 作为 prompt token。
+
+**【Code】** `src/lap/models/lap_config.py` 默认使用 `gemma_2b` VLM、`gemma_300m` action expert、`action_horizon=16`，并支持 Gemma 3 的 4B/12B/27B scaling 配置。`CoTObservation` 额外保存语言动作 mask、prediction/VQA mask 和数据集 id。
+
+#### Action expert 与 knowledge insulation
+
+**【Paper】** action expert 是轻量的 flow-matching Transformer。它接收 VLM 的 prefix 表示和带噪 action chunk，输出速度场；VLM 与 action expert 只通过 cross-attention 通信，raw action 与 language-action 之间使用 causal mask 隔离。`stop_action_to_vlm_grad` 进一步阻断 action expert 到 VLM 的反向梯度。
+
+**【Code】** `src/lap/models/lap.py` 的 `prepare_suffix` 从高斯噪声和真实动作构造插值状态，`sample_actions` 用固定步长 ODE 反向积分；`serve_policy.py` 提供 `lap`（flow）和 `lap_ar`（自回归语言动作）两种服务模式，默认使用 flow 模式。
+
+#### VQA / motion prediction co-training
+
+**【Paper】** 给模型两张图，并询问“机器人从第一张图到第二张图做了什么运动”，答案仍是同一种 language-action 字符串。因此普通 VQA 和动作监督可以共享输出空间，不需要新增动作头。
+
+### 4.3 关键公式
+
+#### 语言动作的 Cross-Entropy
+
+$$
+\mathcal L_{\mathrm{CE}}
+=-\mathbb E_{(\hat a^{\mathrm{lang}}_{t:t+H},o_t,l)\sim\mathcal D}
+\sum_i\log p_\theta\!\left(\hat a^{\mathrm{lang}}_{t,i}\mid o_t,l,\hat a^{\mathrm{lang}}_{t,<i}\right).
+$$
+
+**【Paper】** $\hat a^{\mathrm{lang}}_{t,i}$ 是第 $i$ 个语言 token；$o_t$ 是图像和状态；$l$ 是任务指令。该式与普通 seq2seq language modeling 相同，关键在于监督目标已经被转换到 VLM 熟悉的自然语言分布。
+
+#### Flow matching
+
+给定真实 chunk $a$ 和噪声 $z\sim\mathcal N(0,I)$：
+
+$$
+x_\tau=(1-\tau)z+\tau a,\qquad u=a-z,\qquad \tau\sim\mathcal U(0,1),
+$$
+
+$$
+\mathcal L_{\mathrm{FM}}=\mathbb E\left[\left\|v_\phi(x_\tau,\tau;o_t,l)-u\right\|_2^2\right].
+$$
+
+这里 $v_\phi$ 是 action expert 的速度场；训练目标是让它学会把噪声分布运输到条件动作分布。总体目标为：
+
+$$
+\mathcal L=\mathcal L_{\mathrm{FM}}+\lambda\mathcal L_{\mathrm{CE}}.
+$$
+
+**【Paper】** 预训练使用 $\lambda=0.8$，fine-tuning 使用 $\lambda=0.4$；语言损失收敛较快，降低其权重可以避免它压过 flow 分支。
+
+### 4.4 Training
+
+**【Paper】** 训练数据来自 DROID（85.26%）、Fractal（5.86%）、Bridge（3.39%）、MolmoAct（1.73%）以及其他 OXE 数据集。数据先过滤无任务指令和连续静止片段，再按 16M shuffle buffer 混合。全局 batch size 为 2048，在 64 个 TPU v6e 上训练 15k steps；论文报告最终 hero run 约 50 小时，早期 checkpoint 在约 10 小时已经能工作。
+
+**【Code】** 数据转换在 `lap/datasets` 和 `lap/policies/transforms` 中完成；`scripts/train.py` 负责训练、EMA 和 checkpoint。图像训练增强包括 95% random crop、$[-5^\circ,5^\circ]$ 旋转及 brightness/contrast/saturation 0.2 的 color jitter；VQA 样本跳过增强。代码同时支持仅语言动作训练、flow action 训练，以及 prediction/VQA 的 sample-specific loss mask。
+
+<Algorithm number={1} title='LAP Training' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>多 embodiment 数据集 $\mathcal D$、动作 chunk $a_{t:t+H}$、图像 $I_t$、状态 $s_t$ 和指令 $l$</div>
+  <div slot='output'>训练后的 VLM 与 action expert</div>
+  <AlgorithmStep keyword='Given'>从连续轨迹解析 language-action 标签，并随机选择 base frame 或 end-effector frame</AlgorithmStep>
+  <AlgorithmStep>将图像、离散状态和 prompt 编码为 VLM prefix</AlgorithmStep>
+  <AlgorithmStep>以 Cross-Entropy 训练 VLM 自回归预测语言动作 token</AlgorithmStep>
+  <AlgorithmStep>采样噪声 $z$ 和时间 $\tau$，构造 $x_\tau$，用 flow-matching loss 训练 action expert</AlgorithmStep>
+  <AlgorithmStep>阻断 action expert 到 VLM 的梯度，按 $\mathcal L_{\mathrm{FM}}+\lambda\mathcal L_{\mathrm{CE}}$ 更新参数</AlgorithmStep>
+  <AlgorithmStep keyword='return'>保存 EMA checkpoint 与归一化统计量</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 推理时 VLM 处理当前图像、状态和任务 prompt，action expert 从噪声开始积分到 $\tau=0$，得到长度 16 的连续末端动作 chunk。服务端只返回 flow 分支的动作，不需要等待语言 token 完整采样；论文在 RTX 4090 上报告 25 Hz 控制频率。
+
+**【Code】** `scripts/serve_policy.py` 加载 checkpoint 并通过 WebSocket 提供策略；真实机器人脚本通常执行 action chunk 的前 8 步后再次查询（约 0.5 秒 open-loop），DROID 客户端的环境控制频率为 15 Hz。
+
+<Algorithm number={2} title='LAP-3B Inference' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前多视角图像、状态、任务指令和已训练 checkpoint</div>
+  <div slot='output'>下一段连续末端动作及夹爪动作</div>
+  <AlgorithmStep>预处理图像与状态，构造与训练一致的 base/EEF frame prompt</AlgorithmStep>
+  <AlgorithmStep>VLM 编码 prefix；初始化高斯噪声 action chunk</AlgorithmStep>
+  <AlgorithmStep keyword='for'>按固定步长从 $\tau=1$ 积分到 $\tau=0$</AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    用 action expert 预测速度 $v_\phi(x_\tau,\tau;o_t,l)$ 并更新 $x_\tau$
+  </AlgorithmStep>
+  <AlgorithmStep keyword='end for' />
+  <AlgorithmStep>执行预测 chunk 的前若干步，随后重新获取观测并滚动预测</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】**
+
+| 论文概念             | 官方代码位置                                      | 实际行为                                                             |
+| -------------------- | ------------------------------------------------- | -------------------------------------------------------------------- |
+| Language-action 生成 | `lap/policies/transforms/action_text.py`          | 将 7D 末端增量汇总成 cm/degree 文本，并可解析回数值动作              |
+| 双参考系             | `action_processor.py`、`frame_transforms.py`      | 训练中按概率转换到 EEF frame，推理时从 prompt 读取 frame             |
+| VLM + action expert  | `lap/models/lap.py`、`lap_config.py`              | prefix 使用 VLM，suffix 使用 flow expert；默认 horizon=16            |
+| Knowledge insulation | `stop_action_to_vlm_grad`                         | 训练配置可阻断 action expert 对 VLM 的梯度                           |
+| VQA / prediction     | `CoTObservation`、`compute_loss`                  | 通过 mask 和 loss weight 把普通语言、motion prediction、VQA 合并训练 |
+| 实时部署             | `scripts/serve_policy.py`、`scripts/real_robot/*` | flow checkpoint 通过 WebSocket 服务，客户端执行 action chunk         |
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![LAP-3B 的零样本跨 embodiment 评测设置（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lap/zeroshot-crop.8dxlul1lgm.webp)
+
+**【Paper】** 评测覆盖 DROID（seen）、Custom Franka、YAM、Kinova（三个 unseen），任务包括 pick-and-place、sort、tissue、put towel 和 pour。每个 embodiment 的两个任务各运行 20 次，成功必须完成整个任务；置信区间采用有限样本有效的 95% binomial interval。论文总计进行了 1300 多次真实机器人试验。
+
+### 5.2 Main Results
+
+**【Paper】** 在 seen DROID 上，LAP-3B 与专门用 DROID 微调的 $\pi_{0.5}$-DROID 性能相当，却没有使用 embodiment-specific fine-tuning。更关键的是，在三个未见 embodiment 上，LAP-3B 的平均成功率超过 50%，约为最强 baseline 的 2 倍；包括 $\pi_{0.5}$-DROID 在内的公开 VLA 基线几乎全部降为 0%。
+
+| 设置                         | LAP-3B 现象                                                             | 论文解读                                     |
+| ---------------------------- | ----------------------------------------------------------------------- | -------------------------------------------- |
+| Seen DROID                   | 与 $\pi_{0.5}$-DROID 相当                                               | 语言动作可从混合数据中恢复有效控制           |
+| Unseen Franka / YAM / Kinova | 平均成功率 >50%                                                         | 语义意图与低层 embodiment 解耦               |
+| 复制基线                     | $\pi_{0.5}$-replicated、$\pi_0$-replicated 明显落后；VLA-0 常输出小动作 | 任意 token 或纯 action expert 监督更易过拟合 |
+
+![LAP-3B 在 LIBERO 与真实任务上的 fine-tuning 效率（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lap/finetune-crop.67y78t9vg1.webp)
+
+**【Paper】** 在 LIBERO 上，LAP-3B 一个 epoch 已达 78% 成功率，六个 epoch 达 96.8%；真实 Hang Tape on Rack 任务达到约 50% progress 时只需 20 条示教，约比 baseline 少 2.5 倍数据。
+
+### 5.3 Ablation Study
+
+![LAP-3B 的表示、unseen action error 与 VQA co-training 分析（论文 Figure 5/8）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lap/analysis-crop.7q14308xf.webp)
+
+**【Paper】**
+
+- 去掉语言动作监督（$\pi_0$-replicated）后，unseen action prediction error 为 0.189；LAP-3B 为 0.151。
+- t-SNE 中 LAP-3B 的 seen 与 unseen embodiment 表示重叠更多，$\pi_{0.5}$-replicated 则形成分离簇。
+- motion-prediction VQA co-training 提升 Custom Franka/YAM 成功率，并在 LIBERO 将平均成绩从 96.8% 提升到 97.2%。
+- 在 Gemma3 4B、12B、27B scaling 实验中，LAP 的 token 与 action validation loss 随模型规模单调改善，而 $\pi_{0.5}$-replicated 更早饱和甚至退化。
+
+![Motion-prediction VQA co-training 的成功率对比（论文 Figure 8）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lap/cotrain-crop.6wrgstxefa.webp)
+
+### 5.4 Generalization
+
+**【Paper】** 论文真正测试的是 cross-embodiment generalization，而不是新任务语言泛化：任务语义保持相近，机器人结构、自由度、夹爪或相机配置变化。**【Analysis】** 因此“零样本泛化”应理解为控制接口和 embodiment 的迁移，不应扩展解读为对任意新任务或任意传感器布局都有效。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** LAP 同时解决了两个尺度的问题：VLM 负责用自然语言学习“应该向哪里、以多大幅度移动”的语义规律，action expert 负责把这个规律落到高频连续控制。语言描述把动作的净效果显式化，减少了不同机器人关节坐标和控制频率带来的表面差异；flow expert 则避免了直接自回归生成每个控制 token 的延迟。
+
+### 6.2 核心创新
+
+**【Paper】** 创新点可以压缩为“representation + insulation + execution”：
+
+1. 用确定性 language-action 替代任意离散 action token。
+2. 用 knowledge insulation 保住预训练 VLM 表示。
+3. 用独立 action expert 把语言监督转成实时 flow 控制。
+
+### 6.3 与已有方法的本质区别
+
+**【Analysis】** FAST、VLA-0 等方法仍把离散 token 当作数值容器；LAP 的 token 本身带有方向、单位和动作类别语义。另一方面，LAP 并没有声称 language-action 可以直接替代连续控制器：实际控制仍由 action expert 完成，语言分支更像一个跨 embodiment 的中间表示学习器。
+
+### 6.4 关键假设
+
+**【Paper】** 方法依赖固定坐标约定、可获得末端位姿增量和可信任务指令。**【Analysis】** 还隐含假设不同机器人之间存在足够相似的末端操作语义：如果任务依赖接触力、柔性形变或高速反应，单个 chunk 的净位移可能丢失关键中间过程。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 论文目前只研究单臂机械臂的跨 embodiment 迁移，没有系统评估双臂或更异构的机器人。作者认为双臂可以扩展为 `Left arm: ...; Right arm: ...`，但这仍需实验验证。论文也没有覆盖极高控制频率、极端精密或复杂可变形物体操作。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+- 语言动作采用整数厘米/角度，量化能抑制噪声，却可能限制小于厘米级的接触操作。
+- 训练与测试共享末端动作语义；没有末端位姿或 frame 变换质量差的机器人，收益可能下降。
+- 50 小时级别的 TPU 训练与 1300 次以上真实试验成本很高，公开结果未必容易由普通实验室复现。
+- 论文把 action expert 的连续输出与 VLM 的语言输出绑定在同一条数据上；当动作标签严重缺失或语言指令不可靠时，联合目标的优势尚未验证。
+
+## 8. 启发与研究思考
+
+**【Analysis】** LAP 给 VLA 研究的启发不是“所有动作都应该变成句子”，而是应让监督信号尽量贴近 backbone 已经学会的分布，同时保留一个适合实时控制的专用解码器。后续值得验证三个方向：
+
+1. **多尺度语言动作**：高层用“抓住毛巾”，低层用厘米/角度描述，分别覆盖长时程任务和精密接触。
+2. **不确定性与安全约束**：让 action expert 同时估计 language-action 的置信度，在未见 embodiment 上主动降低速度或请求示教。
+3. **更弱标签的数据**：把人类视频、UMI 或 pose tracking 转换为粗粒度 language-action，检验 LAP 是否能利用低精度但规模更大的数据。
+
+如果把 VLA 看作“视觉语义模型 + 机器人执行器”，LAP 的贡献就在于给两者之间提供了一个人和模型都能读懂的接口：它不是抽象的 action id，也不是裸的数值向量，而是带单位、方向和效果的动作语言。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。
+</Aside>
