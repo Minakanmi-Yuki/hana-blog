@@ -1,0 +1,392 @@
+---
+title: 'CoT-VLA 论文精读：让机器人先想象目标，再执行动作'
+publishDate: 2026-08-25
+updatedDate: 2026-08-25
+description: '精读 CoT-VLA：用未来子目标图像作为视觉 Chain-of-Thought，再通过混合注意力和 Action Chunking 生成闭环动作。'
+heroImage:
+  { src: 'https://pic.hana0721.top/42175762_p0_master1200.6m4jay5vlg.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '42175762'
+tags:
+  - 'paper deep dive'
+  - 'CoT-VLA'
+  - 'vision-language-action model'
+  - 'visual chain-of-thought'
+  - 'robot manipulation'
+paper:
+  arxivId: '2503.22020'
+  title: 'CoT-VLA: Visual Chain-of-Thought Reasoning for Vision-Language-Action Models'
+  authors:
+    - 'Qingqing Zhao'
+    - 'Yao Lu'
+    - 'Moo Jin Kim'
+    - 'Zipeng Fu'
+    - 'Zhuoyang Zhang'
+    - 'Yecheng Wu'
+    - 'Qianli Ma'
+    - 'Song Han'
+    - 'Chelsea Finn'
+    - 'Ankur Handa'
+    - 'Ming-Yu Liu'
+    - 'Donglai Xiang'
+    - 'Gordon Wetzstein'
+    - 'Tsung-Yi Lin'
+  venue: 'CVPR 2025'
+  year: 2025
+  code: 'https://github.com/NVlabs/VILA'
+  project: 'https://cot-vla.github.io/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+
+<ArxivRating
+  id='2503.22020'
+  publication='CVPR2025'
+  tldr='CoT-VLA 不直接从当前图像输出动作，而是先自回归生成未来子目标图像，再用当前观测和该目标图像并行生成一段动作，在闭环中反复执行。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《CoT-VLA: Visual Chain-of-Thought Reasoning for Vision-Language-Action Models》
+
+**作者**：Qingqing Zhao、Yao Lu、Moo Jin Kim、Zipeng Fu、Zhuoyang Zhang、Yecheng Wu、Qianli Ma、Song Han、Chelsea Finn、Ankur Handa、Ming-Yu Liu、Donglai Xiang、Gordon Wetzstein、Tsung-Yi Lin
+
+**会议**：CVPR 2025
+
+**论文 / 项目 / 基座代码**：[arXiv](https://arxiv.org/abs/2503.22020) · [Project Page](https://cot-vla.github.io/) · [VILA](https://github.com/NVlabs/VILA)
+
+![CoT-VLA 与 vanilla VLA 的对比：先生成 goal image，再生成 action chunk（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-cot-vla/teaser.6t7uuztgyt.webp)
+
+### 一句话总结
+
+**【Paper】** CoT-VLA 把语言模型里的 Chain-of-Thought（CoT）改成了机器人可以执行的视觉中间状态：给定当前观测和指令，模型先生成一个未来的 **subgoal image**，再根据当前图像、指令和这个视觉目标生成一小段动作。执行 action chunk 后重新观察，循环往复直到任务完成。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 用未来子目标图像作为视觉 Chain-of-Thought，避免把复杂任务压缩成当前观测到动作的单步映射。
+2. 在同一个 VILA-U 7B 模型中结合图像生成与动作预测：视觉 / 文本使用 causal attention，动作 token 使用 full attention 并行交互。
+3. 使用 action-less video 训练子目标图像生成，因此视觉推理分支不要求每条视频都有机器人 action label。
+4. 结合 Action Chunking 和 closed-loop execution，在 LIBERO、Bridge-V2 和 Franka-Tabletop 上验证视觉中间目标的作用。
+
+**【Analysis】** 本文的关键不是“让机器人生成一张更好看的图”，而是把未来图像当作动作 Policy 的显式条件。只要生成的图像能回答“下一步应该把场景变成什么样”，它就同时承担了计划、视觉 grounding 和动作目标三种角色。
+
+## 2. 背景与相关工作
+
+**【Paper】** 传统 VLA 通常学习 $mathbf{s}_t,l
+ightarrowmathbf{a}_t$ 的直接映射：输入当前视觉观测 $mathbf{s}_t$ 和语言指令 $l$，直接输出 action。预训练 VLM 带来了物体、场景和语言知识，但模型内部缺少显式的中间步骤，难以检查它对“未来状态”的理解是否正确。
+
+语言模型中的 Chain-of-Thought 通过生成中间文字步骤帮助解决多步问题。机器人领域也尝试过文字计划、keypoint、bounding box、轨迹点或目标 embedding，但这些表示要么抽象、要么需要额外标注和预处理。CoT-VLA 选择更接近实际轨迹的像素空间目标：示教视频本来就包含“动作之前”和“动作之后”的图像，不必额外请人写计划。
+
+**【Paper】** 与 SUSIE 这类“图像编辑器 + goal-conditioned policy”的两阶段系统相比，CoT-VLA 将图像生成和动作生成统一到一个可训练的 multimodal model 中；与 vanilla VLA 相比，它增加了视觉推理阶段；与每一步都生成 CoT 的方案相比，它在一个子目标上预测一段 action chunk，再重新观察。
+
+**【Analysis】** 这使得 CoT-VLA 的设计重点从“增加一个高层规划器”转向“选择一个既可解释又可消费的中间变量”。图像目标比文字更接近控制空间，但也把视觉生成质量直接变成了控制上限。
+
+## 3. 问题定义
+
+机器人示教数据可以写为：
+
+$$
+D_r = \{(l, \mathbf{a}_{1:T}, \mathbf{s}_{1:T})\},
+$$
+
+其中 $l$ 是语言指令，$mathbf{s}_{1:T}$ 是视觉观测序列，$mathbf{a}_{1:T}$ 是 action 序列。action-less video 只有语言描述和图像：
+
+$$
+D_v = \{(l, \mathbf{s}_{1:T})\}.
+$$
+
+普通 VLA 直接学习：
+
+$$
+\hat{\mathbf{a}}_t \sim P_\theta(\mathbf{a}_t \mid \mathbf{s}_t,l).
+$$
+
+CoT-VLA 将这一步拆成两个条件生成问题：
+
+$$
+\hat{\mathbf{s}}_{t+n} \sim P_\theta(\mathbf{s}_{t+n}\mid \mathbf{s}_t,l),
+$$
+
+$$
+\{\hat{\mathbf{a}}_t,\ldots,\hat{\mathbf{a}}_{t+m}\}
+\sim P_\theta(\mathbf{a}_{t:t+m}\mid \mathbf{s}_t,l,\mathbf{s}_{t+n}).
+$$
+
+这里的 $n$ 是视觉子目标相对当前帧的未来 horizon，$m+1$ 是一次预测和执行的 action chunk 长度。$hat{\mathbf{s}}_{t+n}$ 不是最终任务完成图像，而是模型认为下一段短动作应该达到的中间状态。
+
+**【Paper】** 视觉推理阶段同时使用 $D_r$ 和 $D_v$；动作阶段只能使用带 action annotation 的 $D_r$。因此，视频数据可以增强“看懂未来状态”的能力，却不能单独训练机器人动作解码器。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![CoT-VLA 总体架构：VILA-U 先生成视觉子目标，再并行生成动作并闭环执行（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-cot-vla/method.5q85k3xnaw.webp)
+
+**【Paper】** CoT-VLA 建立在 VILA-U 7B 上。模型接收当前 observation image 和 text instruction，先以 causal attention 自回归生成 subgoal image 的 visual tokens；随后把当前观测、指令和生成的 subgoal image 一起作为动作条件，以 full attention 预测一段 action tokens。机器人执行这段动作后重新捕获观测，形成 closed-loop control。
+
+数据流可以概括为：
+
+```text
+当前观测 + 指令
+        │
+        ▼
+未来 subgoal image（Visual CoT）
+        │
+当前观测 + 指令 + subgoal image
+        │
+        ▼
+action chunk ──执行──> 新观测 ──循环──┘
+```
+
+### 4.2 核心模块
+
+#### VILA-U multimodal backbone
+
+**【Paper】** VILA-U 是可以理解和生成图像、视频、文本 token 的统一多模态模型。其 vision tower 将图像编码为离散 visual tokens，使用 residual quantization 和 depth transformer 表示每个视觉位置的多层 residual token，再通过 projector 送入 LLM backbone。本文使用 $256\times256$ 输入，每张图像编码为 $16\times16\times4$ 个视觉 token，residual depth 为 4。
+
+**【Analysis】** 这个基座选择决定了 CoT-VLA 可以把“未来图像”放进与文字相同的自回归序列中；如果 backbone 只能理解图像而不能生成图像，就无法直接采用本文的 visual CoT 训练目标。
+
+#### Subgoal image generation
+
+输入是当前图像 $mathbf{s}_t$ 与语言 $l$，输出是未来时刻的图像 $hat{\mathbf{s}}_{t+n}$。训练时，未来 horizon $n$ 从每个数据集指定的区间内采样，目标图像来自真实视频或机器人示教中的未来帧。
+
+**【Paper】** 这一步不是用 diffusion 进行图像编辑，而是沿用 VILA-U 的 autoregressive visual token prediction。模型逐个生成视觉位置，再由 depth transformer 生成 residual tokens。
+
+#### Action tokenization
+
+**【Paper】** 每个机器人 action 有 7 个维度，每个维度独立离散化为 256 个 bins，bin 边界由训练数据 action 分布的第 1 和第 99 百分位确定。作者复用文本 tokenizer 中不常用的 256 个 token 作为 action bins，因此动作可以沿用语言模型的 token 预测接口。
+
+**【Analysis】** 这是一种工程上的统一，而不是连续控制表示的终点：离散化让动作头容易接入 VLM，却会牺牲细粒度精度。本文通过 action chunking 和 full attention 弥补时序建模能力，但没有消除 binning 本身的量化误差。
+
+#### Hybrid attention
+
+![CoT-VLA 的 hybrid attention：图像与文本用 causal attention，动作 token 用 full attention（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-cot-vla/attention.1e9cckec0n.webp)
+
+**【Paper】** 图像和文本生成仍保持 causal attention，因为它们需要自回归地预测下一个 token；动作序列则使用 full attention，让一个 action chunk 内的所有 action dimensions 和时间位置相互可见。图中 $[x]$、$[\theta]$、$[g]$ 分别表示平移、旋转和夹爪相关的 action token。
+
+**【Analysis】** 如果把 action chunk 也当作普通文本 token 自回归生成，后面的动作只能看到前面已经生成的 token，既慢又不利于一次性协调多维控制。full attention 将动作预测改成并行条件预测，而不是继续强行复用语言生成的顺序。
+
+#### Action Chunking
+
+**【Paper】** 本文预训练使用长度为 10 的 action chunk。单次预测未来一小段动作，再重新观察，能够减少每一步都重新运行完整视觉推理的次数；同时比一次性预测整条长轨迹保留更多闭环反馈。
+
+### 4.3 关键公式
+
+视觉子目标的生成损失是 visual token 的交叉熵：
+
+$$
+\mathcal{L}_{\mathrm{visual}}
+=-\sum_j\sum_{d=1}^{D}
+\log P_\delta(k_{jd}\mid k_{j,<d}).
+$$
+
+$j$ 表示视觉 token 的空间位置，$d$ 表示该位置的 residual depth，$k_{jd}$ 是第 $j$ 个位置的第 $d$ 层 residual token，$P_\delta$ 是 depth transformer 的预测分布。它监督模型恢复未来图像，而不是直接监督动作。
+
+动作损失为 action token 的交叉熵：
+
+$$
+\mathcal{L}_{\mathrm{action}}
+=-\sum_{i=1}^{m}
+\log P_\theta(\mathbf{a}_{t:t+m}\mid l,\mathbf{s}_t,\mathbf{s}_{t+n}).
+$$
+
+最终目标为：
+
+$$
+\mathcal{L}=\mathcal{L}_{\mathrm{action}}+\mathcal{L}_{\mathrm{visual}}.
+$$
+
+**【Paper】** 论文将两项损失直接相加，没有报告额外的 loss weight。需要注意，视觉损失是在机器人和 action-less video 上学习，动作损失只在机器人示教上学习。
+
+### 4.4 Training
+
+**【Paper】** 训练分为两阶段。第一阶段预训练 VILA-U：机器人数据取 Open X-Embodiment 的子集，要求 third-person camera 和 single-arm end-effector control；无动作视频使用 Something-Something V2 和 EPIC-KITCHENS-100。第二阶段在目标机器人上使用任务示教做 post-training，以适应新场景、动作分布和语言任务。
+
+训练时冻结 vision tower，更新 LLM backbone、projector 和 depth transformer。图像分辨率为 $256\times256$，action chunk size 为 10；补充材料给出的预训练 global batch size 为 2048、learning rate 为 $10^{-4}$、cosine decay、10 epochs。下游 fine-tuning 使用 constant learning rate $10^{-5}$、150 epochs。
+
+<Algorithm number={1} title='CoT-VLA 训练' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>机器人示教 $D_r$、action-less video $D_v$、语言指令、当前帧与采样得到的未来目标帧。</div>
+  <div slot='output'>能够生成视觉子目标和 action chunk 的 CoT-VLA 策略。</div>
+  <AlgorithmStep>从机器人示教或无动作视频中取当前帧 $mathbf{s}_t$、指令 $l$ 和未来帧 $mathbf{s}_{t+n}$。</AlgorithmStep>
+  <AlgorithmStep>用 causal attention 预测目标图像的 visual tokens，并计算 $mathcal{L}_{\mathrm{visual}}$。</AlgorithmStep>
+  <AlgorithmStep>对机器人示教追加真实 action chunk，将每个 action dimension 映射到 256 个离散 bins。</AlgorithmStep>
+  <AlgorithmStep>用 full attention 预测 action tokens，并计算 $mathcal{L}_{\mathrm{action}}$。</AlgorithmStep>
+  <AlgorithmStep>相加两项损失；预训练后在目标机器人示教上继续 fine-tune。</AlgorithmStep>
+</Algorithm>
+
+**【Paper】** 补充材料报告预训练使用 12 个 A100 节点、共约 11K A100 GPU hours；LIBERO 和 Franka-Tabletop 的 fine-tuning 使用单个 A100 节点，耗时约 10–24 小时，取决于数据规模。
+
+### 4.5 Inference
+
+<Algorithm number={2} title='CoT-VLA 闭环推理' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>CoT-VLA 模型、初始观测 $mathbf{s}_0^{\mathrm{obs}}$ 和语言指令 $l$。</div>
+  <div slot='output'>连续执行的 action chunks 与不断更新的机器人观测。</div>
+  <AlgorithmStep>读取当前观测和指令，以 causal attention 采样未来 subgoal image。</AlgorithmStep>
+  <AlgorithmStep>将当前观测、指令和 subgoal image 输入动作分支，以 full attention 生成 action chunk。</AlgorithmStep>
+  <AlgorithmStep>按时间顺序执行 chunk 内的动作，而不是等待整条任务轨迹生成完毕。</AlgorithmStep>
+  <AlgorithmStep>执行后捕获新观测，回到第一步，直到任务终止。</AlgorithmStep>
+</Algorithm>
+
+**【Paper】** 这种闭环形式使每个 subgoal 只负责接下来的一段短动作。它并不保证图像预测一定正确：如果目标图像把物体位置、接触关系或夹爪状态想错，动作分支会忠实地追逐一个错误目标，直到下一次重新规划。
+
+### 4.6 代码实现对照
+
+**【Code】** 截至本文撰写时，CoT-VLA 的论文和项目主页提供论文、视频与实验素材，但没有提供独立的 CoT-VLA 训练 / 推理代码仓库。因此，不能把 `NVlabs/VILA` 中的通用 VILA 代码写成 CoT-VLA 的完整实现；它只能作为论文明确使用的 VILA-U 基座代码入口。
+
+| 论文概念                       | 可核对的代码 / 资料                           | 结论                                                                                    |
+| ------------------------------ | --------------------------------------------- | --------------------------------------------------------------------------------------- |
+| VILA-U 基座                    | [NVlabs/VILA](https://github.com/NVlabs/VILA) | 官方 VILA 基座仓库公开；论文将 CoT-VLA 建立在其 7B 版本之上。                           |
+| 视觉 token 生成                | 论文 `main.tex` 的 VILA-U 描述与视觉损失      | 论文明确使用 residual visual tokens 和 depth transformer，但未公开 CoT-VLA 的改动文件。 |
+| Action token 与 full attention | 论文 Figure 3、Section 4                      | 论文给出了 tokenization、mask 语义和损失，没有可复现的 CoT-VLA 源码路径。               |
+| 数据混合与训练脚本             | 论文补充材料 Table 1、Table 2                 | 可复核数据权重和超参数；无法从公开仓库直接运行完整训练。                                |
+
+**【Analysis】** 这意味着当前最可靠的复现材料是论文 LaTeX 源文件、项目页视频和 VILA 基座，而不是一个开箱即用的 CoT-VLA repo。若要复现，仍需自行实现：VILA-U 的视觉目标序列构造、动作 token mask、full-attention action head、robot data loader 和闭环控制器。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+**【Paper】** 评测覆盖三类设置：
+
+| 设置            | 平台 / 数据                                        | 评测重点                                     |
+| --------------- | -------------------------------------------------- | -------------------------------------------- |
+| LIBERO          | 4 个 suite，每个 suite 10 个任务，每任务 50 条示教 | 仿真中的空间、物体、目标和长程泛化           |
+| Bridge-V2       | 6-DoF WidowX，约 45K 条语言标注轨迹                | visual、motion、semantic、language 四类泛化  |
+| Franka-Tabletop | 固定桌面 Franka Emika Panda，单任务 10–150 条示教  | 新机器人设置下的小样本适应与多指令 grounding |
+
+基线包括从零训练的 Diffusion Policy、OpenX 预训练的 OpenVLA、Octo，以及 Bridge-V2 上的 SUSIE。LIBERO 每个 suite 使用 3 个随机种子、500 个 episodes 报告均值和标准误；Bridge-V2 每类任务测试 10 次。
+
+![CoT-VLA 在 LIBERO、Bridge-V2 和 Franka-Tabletop 上的执行示例（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-cot-vla/rollout.9ddp7mtgmr.webp)
+
+### 5.2 Main Results
+
+**【Paper】** LIBERO 的平均成功率如下：
+
+| 方法               |    Average |   Spatial |    Object |      Goal |      Long |
+| ------------------ | ---------: | --------: | --------: | --------: | --------: |
+| Diffusion Policy   |      72.4% |     78.3% | **92.5%** |     68.3% |     50.5% |
+| Octo fine-tuned    |      75.1% |     78.9% |     85.7% |     84.6% |     51.1% |
+| OpenVLA fine-tuned |      76.5% |     84.7% |     88.4% |     79.2% |     53.7% |
+| CoT-VLA-7B         | **81.13%** | **87.5%** |     91.6% | **87.6%** | **69.0%** |
+
+CoT-VLA 的平均成功率相对 OpenVLA 高 4.63 个百分点，提升最大的是 LIBERO-Long：69.0% 对 53.7%，高出 15.3 个百分点。论文同时报告，CoT-VLA 在 Object suite 不是最高，Diffusion Policy 达到 92.5%；因此本文的优势并非所有任务都由 visual CoT 单独决定，而是更集中体现在语言条件、长时序和目标理解上。
+
+![Franka-Tabletop 六个操作任务的对比结果（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-cot-vla/franka.lwgutxs48.webp)
+
+**【Paper】** 在 Franka-Tabletop 上，作者报告 CoT-VLA 的六任务平均表现最高。Diffusion Policy 在单指令窄域任务上有竞争力，但在包含多种物体和复杂语言的 multi-instruction 任务上下降明显；预训练过 OpenX 的 Octo、OpenVLA 和 CoT-VLA 更能利用语言 grounding。
+
+**【Paper】** Bridge-V2 的四类部分得分为：
+
+| 泛化类别 | SUSIE | Octo | OpenVLA | CoT-VLA |
+| -------- | ----: | ---: | ------: | ------: |
+| Visual   |   30% |  35% | **75%** |     65% |
+| Motion   |   10% |  10% |     45% | **60%** |
+| Semantic |   20% |   0% |     40% | **50%** |
+| Language |   40% |  40% | **75%** |     70% |
+
+CoT-VLA 在 motion 和 semantic 泛化上最好，但在 visual 与 language 两项低于 OpenVLA。作者将主要原因归因于 action chunking 带来的 grasping failure，而不是视觉推理本身失败。这是一个重要的边界：更好的中间目标不一定能修复低层动作执行的接触误差。
+
+### 5.3 Ablation Study
+
+![Action Chunking、Hybrid Attention、Visual CoT 与预训练的消融结果（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-cot-vla/ablation.8s41lbz1mj.webp)
+
+**【Paper】** 作者在 LIBERO-Spatial 和 LIBERO-Goal 逐步加入三个组件：action chunking、hybrid attention、visual CoT。结果如下：
+
+| 变体               | LIBERO-Spatial | LIBERO-Goal |
+| ------------------ | -------------: | ----------: |
+| VLA                |          67.5% |       54.9% |
+| + action chunking  |          73.3% |       74.9% |
+| + hybrid attention |          81.8% |       79.7% |
+| + CoT              |      **87.5%** |   **87.6%** |
+
+这组结果把贡献拆成了三个层次：先用 chunk 预测缩短有效控制 horizon，再用 full attention 改善 chunk 内部的协调，最后用 visual CoT 增加未来目标信息。**【Analysis】** 不能把完整模型相对 VLA 的提升全部归因于视觉 CoT；从增量上看，action chunking 和 hybrid attention 已经贡献了很大一部分收益。
+
+**【Paper】** 预训练消融中，直接在 Franka-Tabletop 示教上 fine-tune VILA-U 得到 53.7%，加入 OpenX 与 action-less video 预训练后达到 78.8%，相对提升 46.7%。这支持了“视觉推理可从无动作视频获得额外知识”的方向，但实验没有单独拆开 OpenX 和两类 video 的边际贡献。
+
+### 5.4 Generalization
+
+**【Paper】** 作者进一步构造两个由未见子任务组成的长程 Franka 任务，并比较模型生成的 goal image 与真实示教中的 ground-truth goal image：
+
+| 条件                     | Sub-task 1 | Sub-task 2 |
+| ------------------------ | ---------: | ---------: |
+| Generated goal images    |        20% |         0% |
+| Ground-truth goal images |    **60%** |    **40%** |
+
+使用真实目标图像后，两个任务都获得 40 个百分点的绝对提升。这个对照并不是一个可部署的 baseline，因为真实系统不会提前知道 ground-truth goal image；它更像一个 oracle 实验，用来估计“如果 visual reasoning 更准确，动作性能还有多少上升空间”。
+
+**【Analysis】** 结果清楚地把泛化瓶颈定位到了 subgoal generation：action policy 可能已经能追逐正确目标，但模型在完全未见任务上想象不出合适的未来视觉状态。反过来，这也说明图像中间变量虽然可解释，却把生成模型的幻觉直接暴露给控制系统。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** CoT-VLA 可能有效的第一原因是它把长程任务拆成了“预测一个可视觉验证的短期目标”和“执行一小段动作”。直接 VLA 要在一次隐式 forward 中同时完成任务分解、视觉 grounding、未来状态预测和低层控制；CoT-VLA 至少把前两项结果显式化为一张图。
+
+第二个原因是 action chunking 降低了有效决策频率，但仍保留 chunk 之间的闭环反馈。模型不必为每一个低层控制周期重新生成完整的 visual CoT，也不用像 open-loop trajectory generator 那样一次性相信很远的未来。
+
+第三个原因是 full attention 改善了动作 chunk 的内部协调。平移、旋转、夹爪和不同时间步不再被语言式的单向 token 顺序隔离，模型可以在预测每个动作 token 时同时参考同一 chunk 的其他位置。
+
+### 6.2 核心创新
+
+**【Analysis】** 本文的实际创新可以拆成三个接口设计：
+
+1. **Reasoning representation**：用未来像素状态替代额外的文字计划或几何标注。
+2. **Model interface**：让同一个 multimodal backbone 既能生成 visual tokens，也能预测 action tokens。
+3. **Execution interface**：把 visual CoT 接到短 action chunk，再通过新观测重新启动推理。
+
+单独看 subgoal image、hybrid attention 或 action chunking 都不是全新概念；CoT-VLA 的贡献在于把它们组织成一个可以从 robot data 和 action-less video 共同训练的 VLA 流程。
+
+### 6.3 与已有方法的本质区别
+
+| 路线                     | 中间状态                   | 动作生成                  | 主要优点             | 主要代价                       |
+| ------------------------ | -------------------------- | ------------------------- | -------------------- | ------------------------------ |
+| Vanilla VLA              | 无显式中间状态             | 当前观测直接到动作        | 推理简单、延迟低     | 长程计划和错误诊断隐式化       |
+| Dual-system VLM + policy | 文字或结构化计划           | 独立 policy 执行          | 高层计划可读         | 系统接口、延迟和能力错配       |
+| SUSIE 类两阶段方法       | 编辑后的目标图像           | goal-conditioned policy   | 图像目标质量较高     | 组件分离、训练和部署链路更复杂 |
+| CoT-VLA                  | 自回归生成的 subgoal image | 同一模型生成 action chunk | 中间目标可视化且闭环 | 图像生成慢，错误会传给动作端   |
+
+### 6.4 关键假设
+
+**【Analysis】** 方法依赖以下假设：
+
+- 一张未来图像足以表达下一段动作需要的状态，触觉、力和不可见状态不会成为决定性信息。
+- 从示教或 action-less video 采样的未来帧与真实控制目标足够一致。
+- VILA-U 的离散视觉 token 能同时承载图像理解、图像生成和机器人控制所需的表征。
+- action chunk 长度 10 在多数任务中不会错过关键接触反馈。
+
+这些假设在桌面操作上有一定合理性，但在遮挡严重、接触力敏感、需要精细手指协调或状态不可从 RGB 恢复的任务中可能失效。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】**
+
+1. 生成 256 个 image tokens 后才开始动作生成，平均推理速度约比直接动作生成慢 **7 倍**（action chunk size 为 10）。
+2. 自回归图像生成质量低于专门的 diffusion image model，可能出现模糊或视觉幻觉。
+3. Action chunk 会在 chunk 边界产生不连续动作，并降低执行期间的高频反馈。
+4. 尽管加入 action-less video，计算资源仍限制了模型在完全新任务上的 visual reasoning generalization。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】** 第一，paper 的 oracle goal experiment 证明目标图像质量是瓶颈，却没有提供一个能在部署时可靠检测目标图像错误的 uncertainty mechanism。模型可能生成一张看起来合理、但物体几何关系错误的图，动作端仍会照做。
+
+**【Analysis】** 第二，action token 的 256-bin 离散表示和 7-DoF 单臂设定限制了控制接口。换到灵巧手、双臂或需要连续力控制的机器人时，动作维度、夹爪语义和 tokenizer 设计都需要重新处理。
+
+**【Analysis】** 第三，论文没有公开 CoT-VLA 独立代码和完整数据处理脚本，复现门槛高于 OpenVLA 这类开源 VLA。公开的 VILA 基座只能帮助理解 backbone，不能直接运行本文的 hybrid action mask 和闭环机器人控制。
+
+## 8. 启发与研究思考
+
+**【Analysis】** CoT-VLA 给 VLA 的一个重要启发是：中间 reasoning 不一定要是文字。对于机器人，最有用的“思考”可能是一个可检查、可被动作模块消费的未来 observation。未来可以沿着三个方向继续推进：
+
+1. **从图像目标到 latent goal**：使用压缩的视觉 latent、深度、点云或触觉状态，减少 256 个 image tokens 的生成成本，同时保留动作相关信息。
+2. **异步 Reason–Act**：在机器人执行当前 action chunk 时并行生成下一次 subgoal，避免每次图像生成都让机械臂停顿。
+3. **目标不确定性与安全执行**：同时预测 goal image 的置信度、可达性或 affordance，在目标明显不合理时触发重新观察、缩短 chunk 或交给安全控制器。
+4. **更强的 video pretraining**：把无动作视频学习到的视觉动力学与真实机器人动作对齐，而不是只把视频当作静态未来帧数据。
+
+**【Analysis】** 我认为 CoT-VLA 最值得保留的不是“生成一张图”这一具体实现，而是它提出的闭环契约：**每次高层推理都必须产出一个低层 Policy 能验证并执行的中间目标**。这比让 VLA 输出一段无法检查的隐式 hidden state 更容易诊断，也比让外部 LLM 写一份未必可执行的自然语言计划更接近机器人控制。
