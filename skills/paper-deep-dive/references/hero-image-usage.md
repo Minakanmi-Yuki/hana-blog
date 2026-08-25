@@ -54,6 +54,7 @@ Use only after the count-1 pool is exhausted.
 |         2 | `134041716` | `https://pic.hana0721.top/134041716_p0_master1200.5q80bz7b6v.webp` | `rl-note-27`, `paper-deep-dive-caip`                                          |
 |         2 | `126839080` | `https://pic.hana0721.top/126839080_p0_master1200.232gprncye.webp` | `upload-project-to-github`, `paper-deep-dive-knowledge-insulating-vla`        |
 |         2 | `126903857` | `https://pic.hana0721.top/126903857_p0_master1200.2dpaix2l3u.webp` | `tmux-ssh-session-management`, `paper-deep-dive-internvla-m1`                 |
+|         2 | `86800103`  | `https://pic.hana0721.top/86800103_p0_master1200.4qrwyrtj6a.webp`  | `rl-note-14`, `paper-deep-dive-qwen-vla`                                      |
 
 ## Count 1 Pool
 
@@ -78,7 +79,6 @@ Preferred candidates for new posts.
 |         2 | `70977889`  | `https://pic.hana0721.top/70977889_p0_master1200.9gx5x526gc.webp`  | `paper-reading-mllm2`, `paper-deep-dive-faster`                                 |
 |         1 | `71187447`  | `https://pic.hana0721.top/71187447_p0_master1200.13mdb6lism.webp`  | `galgame-1`                                                                     |
 |         2 | `71875434`  | `https://pic.hana0721.top/71875434_p0_master1200.7pvvr603z.webp`   | `paper-reading-umllm1`, `paper-deep-dive-warp-rm`                               |
-|         1 | `86800103`  | `https://pic.hana0721.top/86800103_p0_master1200.4qrwyrtj6a.webp`  | `rl-note-14`                                                                    |
 |         1 | `90399055`  | `https://pic.hana0721.top/90399055_p0_master1200.4g535npbv6.webp`  | `rl-note-21`                                                                    |
 |         1 | `91341540`  | `https://pic.hana0721.top/91341540_p0_master1200.7pw5duffp.webp`   | `rustdesk-cli-server-setup`                                                     |
 |         1 | `92079701`  | `https://pic.hana0721.top/92079701_p0_master1200.64eg2t4l77.webp`  | `rl-note-15`                                                                    |
