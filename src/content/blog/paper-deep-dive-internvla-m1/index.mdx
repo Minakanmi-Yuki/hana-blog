@@ -60,13 +60,13 @@ import { Aside } from '@/components/user'
 
 **【Paper】** 直接把 VLM 当作 Policy 通常有两个瓶颈。第一，文本 token 并不是连续控制的自然表示，离散化动作会损失精度；第二，机器人数据规模远小于互联网图文数据，模型容易学到局部 motor pattern，却没有学会绝对位置、相对关系、affordance 和轨迹等可迁移先验。
 
-已有层级系统会用检测器、分割器或手工 planner 显式处理空间信息，但 rule-based 分解难以覆盖开放世界指令。另一类 VLA（如 OpenVLA、\(\pi_0\)、GR00T）直接从视觉和语言预测动作，端到端更简洁，却没有把空间推理作为独立训练目标。InternVLA-M1 的折中是：保持端到端联合优化，但在模型内部保留一个明确的 spatial prior 训练通道。
+已有层级系统会用检测器、分割器或手工 planner 显式处理空间信息，但 rule-based 分解难以覆盖开放世界指令。另一类 VLA（如 OpenVLA、$\pi_0$、GR00T）直接从视觉和语言预测动作，端到端更简洁，却没有把空间推理作为独立训练目标。InternVLA-M1 的折中是：保持端到端联合优化，但在模型内部保留一个明确的 spatial prior 训练通道。
 
 **【Analysis】** 因此它与普通“VLM + action head”的差别不在于多了一个 projector，而在于改变了监督信号的组织方式：grounding 数据不再只是预训练背景，而是和 action loss 一起约束共享的 Planner。
 
 ## 3. 问题定义
 
-**【Paper】** 给定多视角 RGB 观测 \(o_t\) 与自然语言指令 \(l\)，模型输出长度为 \(H=16\) 的连续动作块：
+**【Paper】** 给定多视角 RGB 观测 $o_t$ 与自然语言指令 $l$，模型输出长度为 $H=16$ 的连续动作块：
 
 $$
 \pi(o_t,l) = (a_t,a_{t+1},\ldots,a_{t+H-1}),\qquad a_i\in\mathbb{R}^{7}.
@@ -126,7 +126,7 @@ $$
 #### DiT Action Expert：连续动作生成器
 
 - **输入**：带噪的 16×7 action sequence、diffusion timestep、Q-Former condition。
-- **输出**：噪声预测 \(\hat\epsilon\)，经反向扩散得到 normalized action chunk。
+- **输出**：噪声预测 $\hat\epsilon$，经反向扩散得到 normalized action chunk。
 - **作用**：用 temporal self-attention 建模动作相关性，用 diffusion 表达同一场景下多个可行轨迹。
 
 公开代码提供三种规模：
@@ -143,21 +143,21 @@ $$
 
 #### 扩散动作目标
 
-前向过程把真实动作 \(a_0\) 加噪为：
+前向过程把真实动作 $a_0$ 加噪为：
 
 $$
 a_t = \sqrt{\bar\alpha_t}a_0 + \sqrt{1-\bar\alpha_t}\epsilon,
 \qquad \epsilon\sim\mathcal{N}(0,I).
 $$
 
-DiT 接收 \((a_t,t,z)\)，其中 \(z\) 是 Q-Former 输出的空间条件，并预测噪声：
+DiT 接收 $(a_t,t,z)$，其中 $z$ 是 Q-Former 输出的空间条件，并预测噪声：
 
 $$
 \mathcal{L}_{\text{act}} = \mathbb{E}_{a_0,t,\epsilon}
 \left[\|\epsilon-\epsilon_\theta(a_t,t,z)\|_2^2\right].
 $$
 
-**【Code】** `ActionModel.forward` 随机采样 timestep 和 Gaussian noise，调用 `q_sample` 生成 \(a_t\)，再由 `DiT` 预测噪声；`loss()` 就是逐元素 MSE，没有额外的 VLB 项。
+**【Code】** `ActionModel.forward` 随机采样 timestep 和 Gaussian noise，调用 `q_sample` 生成 $a_t$，再由 `DiT` 预测噪声；`loss()` 就是逐元素 MSE，没有额外的 VLB 项。
 
 #### 双监督目标
 
@@ -165,7 +165,7 @@ $$
 \mathcal{L}=\mathcal{L}_{\text{act}}+\lambda_{\text{vlm}}\mathcal{L}_{\text{vlm}},
 $$
 
-其中 \(\mathcal{L}_{\text{vlm}}\) 是 grounding/QA 的 next-token prediction，\(\lambda_{\text{vlm}}\) 控制空间监督的相对权重。论文强调两个梯度在同一更新中聚合，以避免 Planner 和 Action Expert 完全割裂。
+其中 $\mathcal{L}_{\text{vlm}}$ 是 grounding/QA 的 next-token prediction，$\lambda_{\text{vlm}}$ 控制空间监督的相对权重。论文强调两个梯度在同一更新中聚合，以避免 Planner 和 Action Expert 完全割裂。
 
 **【Code】** `train_internvla_cotrain.py` 先对 VLA batch 调用 `model.forward`，再对 VLM batch 调用 `qwen_vl_interface`，分别 backward；OXE 配置中 `vlm` loss scale 为 0.1，并统一执行 gradient clipping 和 AdamW 更新。
 
@@ -184,7 +184,7 @@ $$
   <AlgorithmStep>从 grounding dataloader 取图像-问题-答案样本，从 VLA dataloader 取多视角图像、指令和 16 步动作。</AlgorithmStep>
   <AlgorithmStep>给 VLA 指令附加 spatial prompt；用 Qwen2.5-VL 与 DINOv2 提取多层/多视角特征。</AlgorithmStep>
   <AlgorithmStep>Layerwise Q-Former 将可变长度特征压缩成固定长度 condition，DiT 对动作加噪并预测噪声。</AlgorithmStep>
-  <AlgorithmStep>计算 \(\mathcal{L}_{\text{act}}\)，同时对 grounding batch 计算 \(\mathcal{L}_{\text{vlm}}\)，聚合梯度并更新 AdamW。</AlgorithmStep>
+  <AlgorithmStep>计算 $\mathcal{L}_{\text{act}}$，同时对 grounding batch 计算 $\mathcal{L}_{\text{vlm}}$，聚合梯度并更新 AdamW。</AlgorithmStep>
 </Algorithm>
 
 ### 4.5 Inference
@@ -233,7 +233,7 @@ $$
 | WidowX Visual Matching | 54.7 | 71.7 | +17.0 |
 | LIBERO 平均 | 91.6 | 95.9 | +4.3 |
 
-论文还报告 InternVLA-M1 超过 GR00T N1.5 和 \(\pi_0\) 的公开结果；在 LIBERO-Spatial、Object、Goal、Long 上分别为 98.0%、99.0%、93.8% 和 92.6%。这些数字支持的不是“所有任务都更强”，而是空间变化和长时程任务的优势更明显。
+论文还报告 InternVLA-M1 超过 GR00T N1.5 和 $\pi_0$ 的公开结果；在 LIBERO-Spatial、Object、Goal、Long 上分别为 98.0%、99.0%、93.8% 和 92.6%。这些数字支持的不是“所有任务都更强”，而是空间变化和长时程任务的优势更明显。
 
 ### 5.3 Ablation Study
 
@@ -247,7 +247,7 @@ $$
 
 ![InternVLA-M1 simulated and real-world generalization results](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-internvla-m1/instruction-following-pick-and-place-result-crop.7lkqcvhax7.webp)
 
-**【Paper】** 在 200-task 仿真中，加入 244K InternData-M1 mid-training 后平均提升 6.2%，并在 unseen objects、new backgrounds 和 paraphrased instructions 上稳定优于 \(\pi_0\) 与 GR00T N1.5。真实 clustered pick-and-place 中，sim-to-real co-training 对未见物体与新位置尤其有效，论文摘要报告未见物体/新配置最高提升 20.6%。
+**【Paper】** 在 200-task 仿真中，加入 244K InternData-M1 mid-training 后平均提升 6.2%，并在 unseen objects、new backgrounds 和 paraphrased instructions 上稳定优于 $\pi_0$ 与 GR00T N1.5。真实 clustered pick-and-place 中，sim-to-real co-training 对未见物体与新位置尤其有效，论文摘要报告未见物体/新配置最高提升 20.6%。
 
 ![InternVLA-M1 real-world long-horizon results](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-internvla-m1/long_horizon_result-crop.6t7uv50pbl.webp)
 
