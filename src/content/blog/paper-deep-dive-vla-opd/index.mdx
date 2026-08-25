@@ -1,0 +1,294 @@
+---
+title: 'VLA-OPD 论文精读：用 On-Policy Distillation 连接 VLA 的 SFT 与 RL'
+publishDate: 2026-08-25
+updatedDate: 2026-08-25
+description: '精读 VLA-OPD：让学生 VLA 在自己走出的状态上接受教师的 token-level dense supervision，并用 Reverse-KL 同时获得 SFT 的效率与 RL 的闭环鲁棒性。'
+heroImage:
+  { src: 'https://pic.hana0721.top/70434530_p0_master1200.b9htgy5uw.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '70434530'
+tags:
+  - 'paper deep dive'
+  - 'VLA'
+  - 'on-policy distillation'
+  - 'robot post-training'
+paper:
+  arxivId: '2603.26666'
+  title: 'VLA-OPD: Bridging Offline SFT and Online RL for Vision-Language-Action Models via On-Policy Distillation'
+  authors:
+    - 'Zhide Zhong'
+    - 'Haodong Yan'
+    - 'Junfeng Li'
+    - 'Junjie He'
+    - 'Tianran Zhang'
+    - 'Haoang Li'
+  venue: 'arXiv'
+  year: 2026
+  code: 'https://github.com/IRPN-LAB/VLA-OPD'
+  project: 'https://irpn-lab.github.io/VLA-OPD/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2603.26666'
+  tldr='VLA-OPD 让学生 VLA 采样自己的轨迹，再让冻结教师在这些状态上提供 token-level logits，并以 Reverse-KL 做 dense on-policy 更新，兼顾 SFT 的收敛速度与 RL 的闭环纠错。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《VLA-OPD: Bridging Offline SFT and Online RL for Vision-Language-Action Models via On-Policy Distillation》
+
+**作者**：Zhide Zhong、Haodong Yan、Junfeng Li、Junjie He、Tianran Zhang、Haoang Li
+
+**机构**：The Hong Kong University of Science and Technology (Guangzhou)
+
+**会议 / 期刊**：arXiv 预印本（2026）
+
+**论文链接**：[arXiv](https://arxiv.org/abs/2603.26666)
+
+**代码 / 项目仓库**：[IRPN-LAB/VLA-OPD](https://github.com/IRPN-LAB/VLA-OPD)
+
+**项目主页**：[VLA-OPD](https://irpn-lab.github.io/VLA-OPD/)
+
+![VLA-OPD 的三阶段总览：学生采样、教师标注与 Reverse-KL 优化（论文 Figure 1）](https://raw.githubusercontent.com/IRPN-LAB/VLA-OPD/main/figures/opd/figure1-1.png)
+
+### 一句话总结
+
+**【Paper】** VLA-OPD 把学生 VLA 的 on-policy rollout 当作“主动暴露错误状态”的机制，再用冻结教师在每个访问状态输出动作 logits，以 token-level Reverse-KL reward 进行更新；它因此绕开 sparse-reward RL 的低样本效率，同时修复 offline SFT 的 exposure bias 与 catastrophic forgetting。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出统一的 On-Policy VLA Distillation（VLA-OPD）：学生自己与环境交互，教师只在学生访问到的状态上提供监督。
+2. 把教师分布蒸馏写成 Reverse-KL，而不是 Forward-KL 或 Hard-CE，目标是 mode-seeking，同时保留必要的 action diversity。
+3. 通过在学生行为流形上做温和更新，缓解 offline SFT 因固定数据分布造成的 catastrophic forgetting。
+4. 在 LIBERO 与 RoboTwin2.0 上验证：1-traj 初始化的 LIBERO 平均成功率从 48.9% 提升到 87.4%（Distill），再结合 GRPO 达到 93.4%。
+
+## 2. 背景与相关工作
+
+**【Paper】** 预训练 VLA 已具备跨任务泛化能力，但下游部署仍需要 post-training。传统 offline SFT（通常是 Behavior Cloning）在专家状态上学习，监督密集、收敛快，却没有覆盖学生自己造成的偏离状态；一旦执行误差累积，策略就进入未见过的区域。Online RL 能在学生诱导的状态分布上学习，但机器人任务常只有最终成功 / 失败的稀疏奖励，导致 credit assignment 困难、方差大、交互成本高。
+
+论文将三种范式的取舍概括为：
+
+| 范式 | 采样分布 | 训练信号 | 主要优点 | 主要问题 |
+| --- | --- | --- | --- | --- |
+| Offline SFT | Off-policy 专家轨迹 | 每个 token dense label | 稳定、快 | distribution shift、遗忘 |
+| Online RL / GRPO | On-policy 学生轨迹 | 稀疏 outcome reward | 闭环纠错、少示教 | 样本效率低、方差大 |
+| VLA-OPD | On-policy 学生轨迹 | 教师 token logits | dense + closed-loop | 需要可用教师 |
+
+**【Analysis】** VLA-OPD 的关键不是把 SFT 与 RL 简单串联，而是把“状态分布由学生决定”和“动作监督由教师提供”解耦：前者负责找到失败状态，后者负责给出比 0/1 成功信号更细的纠错方向。
+
+## 3. 问题定义
+
+**【Paper】** 将机器人操控写成 MDP $(\mathcal S, \mathcal A, \mathcal T, r, \gamma)$。状态 $s_t$ 包含视觉观测与语言指令，策略 $\pi_\theta(a_t\mid s_t)$ 输出动作，目标是最大化任务成功率。
+
+- **Input / Observation**：当前视觉观测与语言 instruction；论文没有把具体相机数量或统一的 proprioception 格式作为方法前提。
+- **Output / Action**：VLA 生成的离散或连续动作 token；方法在 token level 计算 teacher / student log-probability。
+- **Student**：通常由 OpenVLA-OFT 等基础模型经 1-traj（LIBERO）或 1,000-traj（RoboTwin2.0）SFT 初始化。
+- **Teacher**：冻结的高性能策略，实验中使用 SimpleVLA-RL 作为 performance oracle。
+- **Environment / Dataset**：LIBERO 的 Spatial、Object、Goal、Long 四个 suite，以及 RoboTwin2.0 的双臂任务。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+如 Figure 1 所示，训练循环只有一条主线：学生在环境中产生 $O\rightarrow A\rightarrow O$ 轨迹，教师读取这些学生访问到的状态并给出 action logits，学生再用 Reverse-KL 目标更新。教师不执行动作，环境 rollout 只由学生完成。
+
+### 4.2 核心模块
+
+#### On-Policy Trajectory Sampling
+
+- **输入**：当前学生策略 $\pi_{\theta_k}$、prompt batch 与环境。
+- **输出**：学生诱导的轨迹集合 $\mathcal D_k=\{\tau_i\}$。
+- **作用**：把 compounding error 造成的 failure states 显式加入训练数据，直接解决 SFT 只看专家状态的问题。
+
+**【Paper】** 每一步按 $a_t\sim\pi_{\theta_k}(\cdot\mid s_t)$ 执行，下一状态按环境转移 $s_{t+1}\sim\mathcal P(\cdot\mid s_t,a_t)$ 产生。因此训练分布是 $d^{\pi_{\theta_k}}$，而不是固定的 expert distribution。
+
+#### Dense Teacher Supervision
+
+- **输入**：学生访问的状态 $s_t$。
+- **输出**：教师动作分布 $q_t(a)=\pi_{tea}(a\mid s_t)$。
+- **作用**：在每个 token 上提供即时纠错信号，并把教师的 recovery prior 传给学生；不需要等 episode 结束才知道成功与否。
+
+#### Reverse-KL Reward
+
+**【Paper】** 论文使用 token-level intrinsic reward：
+
+$$
+r_t^{\mathrm{OPD}}(s_t,a_t)=-\left(\log\pi_\theta(a_t\mid s_t)-\log\pi_{tea}(a_t\mid s_t)\right)
+$$
+
+学生选择的动作越接近教师高概率区域，惩罚越小。实现 policy-gradient 时，对 reward 内的 student log-probability 使用 `stop_gradient`，避免把 reward 计算本身的梯度重复传回策略。
+
+### 4.3 关键公式
+
+#### 学生 on-policy 轨迹
+
+$$
+\mathcal D_k=\{\tau=(s_0,a_0,s_1,\ldots,s_T)\mid a_t\sim\pi_{\theta_k}(\cdot\mid s_t),\;s_{t+1}\sim\mathcal P(\cdot\mid s_t,a_t)\}
+$$
+
+$\mathcal D_k$ 是第 $k$ 次迭代采集的数据；$\pi_{\theta_k}$ 是当时的学生；$\mathcal P$ 是环境转移。它的意义是让训练覆盖学生真实会走到的状态，包括错误状态。
+
+#### Reverse-KL 目标
+
+$$
+\max_\theta\;\mathcal J(\theta)=\mathbb E_{s\sim\pi_\theta}\left[-D_{KL}\left(\pi_\theta(\cdot\mid s)\,\|\,\pi_{tea}(\cdot\mid s)\right)\right]
+$$
+
+这里的 KL 方向是 student $\|$ teacher。与 Forward-KL 的 mode-covering 不同，Reverse-KL 倾向于选取教师的主要 mode；教师在 OOD 状态上的低置信度尾部不会被强迫完整复制。
+
+#### Group-based gradient
+
+$$
+\nabla_\theta\mathcal J(\theta)\approx\frac1G\sum_{i=1}^{G}\sum_{t=0}^{T}\nabla_\theta\log\pi_\theta(a_{t,i}\mid s_{t,i})\,r_t^{\mathrm{OPD}}(s_{t,i},a_{t,i})
+$$
+
+$G$ 是同一 instruction 下采样的轨迹数。增大 $G$ 能降低环境随机性带来的 Monte Carlo 方差，但也线性增加 rollout 与 teacher inference 成本。
+
+#### 三种目标的差异
+
+| 目标 | 分布行为 | 论文观察 |
+| --- | --- | --- |
+| Forward-KL $D_{KL}(\pi_{tea}\|\pi_\theta)$ | Mode-covering | 模仿教师不确定性，出现 entropy explosion |
+| Hard-CE | 只跟随 argmax | 过早 entropy collapse，损失探索多样性 |
+| Reverse-KL $D_{KL}(\pi_\theta\|\pi_{tea})$ | Bounded mode-seeking | 聚焦有效 mode，同时保留适度随机性 |
+
+### 4.4 Training
+
+**【Paper】** 学生先从 SFT checkpoint 初始化。每轮从 prompt 数据集采样 batch，并对每个 prompt 采样 $G$ 条学生轨迹；随后逐状态查询冻结教师，计算 token-level Reverse-KL reward，再用 group-averaged policy gradient 更新学生。主实验 batch size 为 64、$G=8$；消融实验固定 batch size 为 32。
+
+<Algorithm number={1} title='VLA-OPD Training' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>学生策略 $\pi_\theta$、冻结教师 $\pi_{tea}$、prompt 数据集、group size $G$</div>
+  <div slot='output'>对教师鲁棒行为完成 on-policy 对齐的学生策略</div>
+  <AlgorithmStep keyword='Given'>加载由少量 SFT 初始化的学生与冻结教师</AlgorithmStep>
+  <AlgorithmStep>从 prompt 数据集中采样一批 instruction</AlgorithmStep>
+  <AlgorithmStep keyword='for'>对每个 instruction 采样 $G$ 条学生轨迹</AlgorithmStep>
+  <AlgorithmStep indent={1}>在环境中执行学生动作，记录每个 $s_t,a_t$</AlgorithmStep>
+  <AlgorithmStep indent={1}>查询学生与教师 logits，计算 $r_t^{OPD}=-\log\frac{\pi_\theta(a_t|s_t)}{\pi_{tea}(a_t|s_t)}$</AlgorithmStep>
+  <AlgorithmStep keyword='end for' />
+  <AlgorithmStep>按 group 平均 policy gradient 更新 $\theta$，并进入下一轮 rollout</AlgorithmStep>
+  <AlgorithmStep keyword='return'>收敛后的学生策略</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 推理时只运行学生策略。它接收当前视觉观测与指令，逐步生成动作并交给机器人执行；教师不参与部署环路，因而 teacher 的作用是 post-training 时的 privileged supervision，而不是 runtime dependency。
+
+<Algorithm number={2} title='VLA-OPD Inference' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>训练后的学生 VLA、环境观测 $s_t$、语言 instruction</div>
+  <div slot='output'>执行到环境中的动作序列</div>
+  <AlgorithmStep keyword='for'>$t=0,1,\ldots,T$</AlgorithmStep>
+  <AlgorithmStep indent={1}>读取当前视觉观测与 instruction，构造 $s_t$</AlgorithmStep>
+  <AlgorithmStep indent={1}>由学生 $\pi_\theta(\cdot|s_t)$ 生成动作或 action chunk</AlgorithmStep>
+  <AlgorithmStep indent={1}>执行动作，获得下一状态 $s_{t+1}$</AlgorithmStep>
+  <AlgorithmStep keyword='end for' />
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** 截至本文撰写时，论文配套 GitHub 仓库 `IRPN-LAB/VLA-OPD` 公开内容主要是项目主页与论文图表（例如 `figures/opd/figure1-1.png`、训练曲线和遗忘曲线），没有可供复现实验的训练、数据加载、模型或推理脚本；项目主页上的 Code 按钮也标注为 “Coming Soon”。因此以下内容只能对照公开仓库的资产，不能把论文中的伪代码误写成已验证的代码行为。
+
+| 论文对象 | 公开仓库现状 | 结论 |
+| --- | --- | --- |
+| Student / Teacher model | 未公开模型定义 | 论文描述，尚无代码核验 |
+| Rollout 与 DataLoader | 未公开 | 论文描述，尚无代码核验 |
+| Reverse-KL loss 与 `stop_gradient` | 未公开 | 论文描述，尚无代码核验 |
+| LIBERO / RoboTwin 配置 | 未公开 | 论文表格可读，实验脚本不可复现 |
+| Figure 1、训练曲线、消融图 | 已公开 PNG | 可用于核对论文图形与数值叙述 |
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+**【Paper】** LIBERO 使用 Spatial、Object、Goal、Long 四个 suite；学生由每任务 1 条示教的 SFT 初始化。RoboTwin2.0 选取四个双臂协调任务，学生由每任务 1,000 条轨迹初始化。教师为 SimpleVLA-RL；比较对象包括 Student Init、稀疏奖励 GRPO 与 full-dataset offline SFT。
+
+### 5.2 Main Results
+
+![LIBERO-Object 上的训练效率：Distill 早期快速上升，Distill + GRPO 继续突破上限（论文 Figure 2）](https://raw.githubusercontent.com/IRPN-LAB/VLA-OPD/main/figures/opd/training_efficiency_object_testing_1.png)
+
+![LIBERO-Long 上的训练效率：约 50 步达到接近 80%，GRPO 基线需要约 150 步（论文 Figure 2）](https://raw.githubusercontent.com/IRPN-LAB/VLA-OPD/main/figures/opd/training_efficiency_libero10_testing_1.png)
+
+**【Paper】** LIBERO 平均成功率如下：
+
+| 方法 | Spatial | Object | Goal | Long | Avg. |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| SimpleVLA-RL Teacher | 94.2 | 96.1 | 94.6 | 90.7 | 93.9 |
+| OpenVLA-OFT Student Init.（1-traj） | 63.6 | 54.9 | 59.6 | 17.3 | 48.9 |
+| VLA-OPD Distill | 84.3 | 93.8 | 92.5 | 78.9 | 87.4 |
+| VLA-OPD Distill + GRPO | 93.4 | 95.3 | 94.5 | 90.2 | 93.4 |
+
+**【Analysis】** 这里最有信息量的对照是 48.9% → 87.4%：Distill 并没有增加静态示教数据，而是把学生的失败状态转成了训练输入。再接 GRPO 的 93.4% 接近教师 93.9%，说明 OPD 更像一个高效 warm start，而不是声称完全取代 RL。
+
+在 RoboTwin2.0 的四个双臂任务上，Student Init 平均 45.2%，VLA-OPD Distill 平均 71.1%，教师为 74.0%。这说明方法的收益不只来自单臂 LIBERO，也覆盖更长 horizon 与双臂协调。
+
+### 5.3 Ablation Study
+
+![Reverse-KL、Forward-KL 与 Hard-CE 的成功率消融（论文 Figure 4a）](https://raw.githubusercontent.com/IRPN-LAB/VLA-OPD/main/figures/opd/kl_direction_ablation_train_reward_verifier_vs_step.png)
+
+![同一消融中的 actor entropy：Forward-KL 爆炸，Hard-CE 过早坍缩，Reverse-KL 保持有界（论文 Figure 4b）](https://raw.githubusercontent.com/IRPN-LAB/VLA-OPD/main/figures/opd/kl_direction_ablation_entropy_vs_step.png)
+
+**【Paper】** 在 RoboTwin2.0 的 Beat Block Hammer 任务上，Reverse-KL 的成功率稳步升高；Forward-KL 早期出现超过 50 个百分点的 performance valley，Hard-CE 最终停在最低平台。对应的 entropy 曲线支持论文的机制解释：Forward-KL 复制教师尾部不确定性，Hard-CE 丢掉 soft probabilities，而 Reverse-KL 在有效 mode 内保留适度随机性。
+
+**【Paper】** group size 消融使用 $G\in\{2,4,8\}$。$G=8$ 最平滑、最终约 89%；$G=2$ 仍超过 80%，说明减小 rollout group 可以用更低计算成本换取可接受的梯度方差。
+
+### 5.4 Generalization
+
+![Object unseen task 上 seen–unseen trade-off：offline SFT 的 unseen 能力快速坍缩，on-policy 方法保持较高保留率（论文 Figure 3）](https://raw.githubusercontent.com/IRPN-LAB/VLA-OPD/main/figures/opd/final_object_unseen_task_1.png)
+
+**【Paper】** 遗忘实验在 target seen tasks 上微调，同时在四个 held-out Object / Spatial tasks 上评估。offline SFT 随 seen 成功率提升而把 unseen 成功率压到接近 0；RL 与 VLA-OPD 的 on-policy 更新显著缓解此崩塌。**【Analysis】** 这支持“更新锚定学生当前行为流形”的解释，但尚不足以证明对所有 backbone 或任务都能免于遗忘。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** VLA-OPD 同时修复了两个互补的错位：状态分布由学生 rollout 决定，因此训练数据包含真正会失败的状态；动作标签由教师 logits 决定，因此每个 token 都有 dense signal。Reverse-KL 则控制教师在 OOD 状态上的不确定性不被整段复制，避免“既不果断又不稳定”的策略。
+
+### 6.2 核心创新
+
+1. **State on-policy，label teacher-forced**：学生负责提出问题，教师负责给出恢复方向。
+2. **Reverse-KL mode-seeking**：不追逐教师分布的所有低概率尾部。
+3. **Post-training 组合方式**：Distill 负责快速获得鲁棒起点，GRPO 可在其上继续优化最终上限。
+
+### 6.3 与已有方法的本质区别
+
+offline SFT 在固定专家轨迹上做 Forward-KL / CE；DAgger 类方法通常让专家给 on-policy 状态打 hard label；GRPO 依赖 episode-level outcome reward。VLA-OPD 的独特点是“on-policy states + token-level teacher distribution + Reverse-KL”，三者缺一都会改变它的优化性质。
+
+### 6.4 关键假设
+
+- 存在一个比学生更鲁棒、可以查询 logits 的冻结教师。
+- 教师在学生访问的 OOD 状态上仍能给出有用的相对偏好。
+- 训练环境允许足够多的学生 rollout；虽然比 sparse-reward RL 高效，但并非零交互成本。
+- action token 的概率分布可以稳定比较，且 teacher / student 的动作空间与 tokenizer 对齐。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 结论部分明确指出，后续工作将减少对特定 teacher model 的依赖。也就是说，当前方法的可扩展性仍受 teacher availability 与 teacher quality 约束。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+1. 教师需要在每个学生状态上运行并返回 token logits；当 VLA 很大时，teacher inference 可能成为主要成本。
+2. Reverse-KL 只会在教师概率质量足够可靠时发挥作用；如果教师在关键 OOD 状态上完全错误，dense supervision 也可能把学生带向错误 mode。
+3. 论文公开表格很完整，但截至本文撰写时 GitHub 没有训练代码、配置、checkpoint 或数据处理脚本，独立复现实验仍受限。
+4. 论文主要报告 LIBERO 与 RoboTwin2.0；对真实机器人硬件差异、长时间部署稳定性和 teacher mismatch 的系统评估仍不充分。
+
+## 8. 启发与研究思考
+
+**【Analysis】** VLA post-training 可以被拆成三个可替换接口：谁产生状态、谁提供动作偏好、用什么 divergence 更新。这样一来，未来不一定要把“更强 teacher”直接蒸馏给学生，也可以研究不确定性门控、多个 teacher 的 ensemble、只在高价值 failure state 上查询 teacher，或把 Reverse-KL reward 与 replay / offline regularization 混合。
+
+对实践者而言，VLA-OPD 给出一个清晰的工程顺序：先用极少示教得到可运行但脆弱的学生，再用 on-policy distillation 快速修复闭环错误，最后视需要接 GRPO 提升上限。对研究者而言，真正值得继续追问的是：teacher 不可靠时如何估计 epistemic uncertainty，以及能否在没有 teacher logits 的开放模型上近似同样的 bounded mode-seeking 更新。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方 GitHub 仓库当前公开内容，`【Analysis】`
+  表示基于论文和公开资产的分析推断。当前仓库未公开训练实现，因此代码对照部分不会把论文伪代码当作已验证实现。
+</Aside>
