@@ -1,0 +1,398 @@
+---
+title: 'CLAP 论文精读：从人类视频学习可执行的 Vision-Language-Action 模型'
+publishDate: 2026-08-25
+updatedDate: 2026-08-25
+description: '精读 CLAP：用 Act-VAE 建立物理动作词表，再以 VD-VAE 对齐人类视频，训练 CLAP-NTP，并用 CLAP-RF 与 Knowledge Matching 实现快速控制。'
+heroImage:
+  { src: 'https://pic.hana0721.top/133376054_p0_master1200.1ziuqmv790.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '133376054'
+tags:
+  - 'paper deep dive'
+  - 'VLA'
+  - 'latent action'
+  - 'contrastive learning'
+  - 'robot learning'
+paper:
+  arxivId: '2601.04061'
+  title: 'CLAP: Contrastive Latent Action Pretraining for Learning Vision-Language-Action Models from Human Videos'
+  authors:
+    - 'Chubin Zhang'
+    - 'Jianan Wang'
+    - 'Zifeng Gao'
+    - 'Yue Su'
+    - 'Tianru Dai'
+    - 'Cai Zhou'
+    - 'Jiwen Lu'
+    - 'Yansong Tang'
+  venue: 'arXiv'
+  year: 2026
+  code: 'https://github.com/LinShan-Bin/OpenCLAP'
+  project: 'https://lin-shan.com/CLAP/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2601.04061'
+  tldr='CLAP 先把机器人轨迹量化为可执行的动作 token，再用对比学习把人类视频动态对齐到同一物理空间，最终以 NTP 或 Rectified Flow policy 控制机器人。'
+  rank={5}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《CLAP: Contrastive Latent Action Pretraining for Learning Vision-Language-Action Models from Human Videos》
+
+**作者**：Chubin Zhang、Jianan Wang、Zifeng Gao、Yue Su、Tianru Dai、Cai Zhou、Jiwen Lu、Yansong Tang
+
+**论文 / 代码 / 项目**：[arXiv:2601.04061](https://arxiv.org/abs/2601.04061) · [OpenCLAP](https://github.com/LinShan-Bin/OpenCLAP) · [项目主页](https://lin-shan.com/CLAP/)
+
+![CLAP 从机器人和人类视频学习对齐 latent action 的概览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-clap/teaser.1apqf0vteo.webp)
+
+### 一句话总结
+
+**【Paper】** CLAP（Contrastive Latent Action Pretraining）把“人类视频有语义但没有机器人动作标签”和“机器人数据可执行但规模有限”拆成三个学习阶段：先用 Act-VAE 学出机器人动作词表，再用 VD-VAE 和 SigLIP 对比学习把视频状态变化映射到该词表，最后训练 CLAP-NTP；部署时再接 CLAP-RF 和 Knowledge Matching（KM），将 token policy 转成低延迟的连续动作 chunk。
+
+### 核心贡献
+
+**【Paper】**
+
+1. Act-VAE 将双臂机器人 14-DoF 的连续轨迹压缩成紧凑、可解码的 action token vocabulary。
+2. VD-VAE 把视觉动态分成 action-relevant 和 action-irrelevant 两个 latent stream，并用冻结的 Act-VAE codebook 约束前者，减轻背景和外观变化带来的 visual entanglement。
+3. CLAP-NTP 用 next-token prediction 同时学习机器人真值 token 与人类视频 pseudo-token，使 VLM 的语言推理可以直接服务于动作规划。
+4. CLAP-RF 在 NTP 的 KV cache 上接 Rectified Flow action head；KM 用 reference NTP 的 reverse KL 约束适配，降低 catastrophic forgetting。
+
+**【Analysis】** 论文真正改变的是 latent action 的“锚点”：latent 不再只解释画面如何变化，而要能由机器人 action decoder 还原成物理轨迹。这样人类视频提供的主要是语义和任务结构，精确的 embodiment-specific 控制仍由机器人数据负责。
+
+## 2. 背景与相关工作
+
+**【Paper】** VLA 的瓶颈并不只有模型规模，也包括训练数据的 embodiment gap。机器人 teleoperation 数据昂贵、动作精确却覆盖有限；互联网人类视频便宜、数量巨大，却没有末端位姿、关节状态或 gripper command。
+
+已有 Latent Action Model（LAM）通常从相邻视频帧的 inverse dynamics 学 latent action，再用重建约束让 latent 解释视觉变化。论文认为，这会把背景变化、物体形变、相机运动等 nuisance factor 一起编码进 latent，导致得到的是“视觉变化 token”，而不是可执行动作。
+
+**【Paper】** CLAP 与已有方法的分工不同：Act-VAE 解决动作表示和跨 embodiment 的压缩，VD-VAE 解决人类视频到机器人动作词表的对齐，NTP / RF policy 则负责语言条件下的规划与连续控制。
+
+**【Analysis】** 因此 CLAP 不是简单增加 human-video pretraining data，而是先规定一个物理可解释的坐标系，再把无标签视频投影进去。这一先建立 codebook、后做跨模态对齐的顺序，是方法能否直接迁移的关键假设。
+
+## 3. 问题定义
+
+**【Paper】** 机器人数据写作
+
+$$
+\mathcal{D}_{\text{rob}}=\{(\tau_i,\mathcal{I}_i)\}_{i=1}^{N_{\text{rob}}},
+$$
+
+其中轨迹包含观测 $\mathbf{o}_t$ 和动作 $\mathbf{a}_t$；人类视频数据写作
+
+$$
+\mathcal{D}_{\text{hum}}=\{(\mathcal{V}_j,\mathcal{I}_j)\}_{j=1}^{N_{\text{hum}}},
+$$
+
+只包含视觉序列和任务文本。目标是学习 $\pi(\mathbf{a}_t\mid\mathbf{o}_t,\mathcal{I})$，使视觉状态转移和机器人控制共享一个 latent manifold。
+
+论文的双臂动作空间为：
+
+$$
+\mathbf{a}_t=[\mathbf{p}_t^L,\boldsymbol{\theta}_t^L,g_t^L,
+\mathbf{p}_t^R,\boldsymbol{\theta}_t^R,g_t^R]^\top\in\mathbb{R}^{14},
+$$
+
+每只手臂包含 3-D position、3-D Euler orientation 和 1-D gripper aperture。动作 chunk 长度记为 $H$；OpenCLAP 的 Astribot 配置使用 $H=32$，每只手臂产生 8 个 code，因此双臂输出为 16 个 `<ACT_*>` token。
+
+| 数据源             | 有什么                        | 缺什么                  | CLAP 的用途                          |
+| ------------------ | ----------------------------- | ----------------------- | ------------------------------------ |
+| Robot trajectories | 视觉、语言、14-D action chunk | 规模和物体多样性        | 学 Act-VAE codebook 与真值 token     |
+| Human videos       | 视觉状态变化、任务语义        | action / proprioception | 通过 VD-VAE 产生 pseudo action token |
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![CLAP 的四阶段 pipeline：Act-VAE、VD-VAE、CLAP-NTP 和 CLAP-RF（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-clap/pipeline.102wlvgldh.webp)
+
+**【Paper】** 整体数据流是：机器人 action chunk → Act-VAE codebook；机器人与人类的视觉 transition → VD-VAE；两种 action token 与图像、语言 → CLAP-NTP；目标域机器人数据 → CLAP-RF + KM。训练时先固定前一阶段的 tokenizer，避免对齐过程重新漂移物理坐标系。
+
+### 4.2 核心模块
+
+#### Act-VAE：建立 physical action language
+
+**输入**是 $H\times14$ 的连续双臂轨迹，**输出**是 $N_q$ 个 codebook index 以及由 decoder 重建的动作 chunk。Transformer encoder 将动作嵌入与 $N_q$ 个 learnable register tokens 拼接，得到连续 latent $\mathbf{z}_e$；nearest-neighbor quantization 将其映射到 $K$ 个 action code。
+
+**【Paper】** 论文的 rate-distortion 实验选择 $N_q=16,K=256$：PSNR 为 40.00 dB、rate 为 0.086，在精度和 token 序列长度之间取 elbow point。**【Code】** OpenCLAP 的 Stage 1 配置为 `chunk_size: 32`、`clap_num_t_codes: 8`、`clap_num_latents: 512`；实际代码按每只手臂编码并在 VLA 侧拼成双臂 token 序列，配置中的 codebook 容量与论文表格的消融设置是不同实验版本，不能混为同一组数字。
+
+#### VD-VAE：把视觉动态对齐到物理 codebook
+
+**输入**是两帧的 DINOv3 patch features $\mathbf{f}_t,\mathbf{f}_{t+H}$，**输出**是 action-relevant latent $\mathbf{z}_{v,a}$、action-irrelevant latent $\mathbf{z}_{v,i}$ 以及离散 pseudo action token。
+
+- action branch 用冻结的 Act-VAE codebook $\mathcal{C}_{\text{act}}$，迫使视觉变化落在机器人可执行空间。
+- environment branch 使用独立的 $\mathcal{C}_{\text{env}}$，吸收背景、光照等 nuisance factor。
+- forward decoder 从当前 feature 和两类 quantized latent 重建未来 feature。
+- robot 样本用 `sg(E_act(a_gt))` 作 positive；human 样本没有 action label，使用 clean transition 上的 EMA teacher 产生 stop-gradient pseudo-positive，online branch 则使用增强后的图像。
+
+**【Code】** `clap/modules/clap.py` 的 `ContrastiveDINOLatentActionModel` 实现两套线性投影、双 codebook、EMA teacher 和 SigLIP loss；`clap/configs/clap-s2-l32.yaml` 明确混合 `astribot_pretrain`、`agibot_data_extracted_selected`、`ego4d_lerobot` 与 `droid_lerobot`。这比论文中的“human video”更具体：官方 release 的预训练配方包含 Ego4D，同时保留机器人 transition 作为物理锚点。
+
+#### CLAP-NTP：在 token space 中保留 VLM 推理
+
+**输入**为当前图像、任务指令和数据源对应的 action token；**输出**为 `[subtask, action tokens]` 的 autoregressive 序列。机器人样本使用 Act-VAE 真值 token，人类样本使用 VD-VAE pseudo-token。
+
+**【Paper】** 这种 next-token formulation 让 subtask decomposition、instruction following 和 action generation 共用一个语言序列，不需要为 human video 伪造连续机器人动作。**【Code】** `starvla_astribot_qwenar.yaml` 的 backbone 是 Qwen3-VL-4B，`max_new_tokens: 512`，并加载冻结的 Stage-2 CLAP checkpoint。
+
+#### CLAP-RF 与 Knowledge Matching
+
+**输入**为 NTP backbone 的 hidden states / KV cache 和目标域机器人 action chunk，**输出**为连续 $H\times D_a$ action。CLAP-RF 是 DiT 风格的 Rectified Flow head，通过 cross-attention 读取 NTP 的上下文；KM 维护一个冻结的 reference NTP，在 token positions 上对 trainable policy 加 reverse KL。
+
+![Knowledge Matching：用 token-level KL 约束 RF action head 的适配（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-clap/km.3uvkrnvs9c.webp)
+
+**【Code】** `starVLA/model/framework/VLM4A/QwenPIKM.py` 会加载冻结 CLAP action VQ-VAE，把 GT continuous action 重新编码成 `<ACT_*>` 字符串，只在这些 token positions 计算 KL；Astribot 配置的 `kl_loss_weight` 为 `0.005`，`kl_type` 为 `reverse_kl`。因此 KM 不是对 RF 输出直接做 feature matching，而是约束“产生动作条件的 token policy”不要偏离可信的 NTP reference。
+
+### 4.3 关键公式
+
+#### Act-VAE 量化目标
+
+$$
+\mathcal{L}_{\text{Act}}=
+\|\mathbf{a}-D_\psi(\mathbf{z}_q)\|_2^2+
+\|\operatorname{sg}(E_\phi(\mathbf{a}))-\mathbf{z}_q\|_2^2+
+\beta\|E_\phi(\mathbf{a})-\operatorname{sg}(\mathbf{z}_q)\|_2^2.
+$$
+
+这里第一项保证动作可重建，第二项更新 codebook，第三项是 commitment loss；$\operatorname{sg}$ 表示 stop-gradient。$K$ 越大或 $N_q$ 越长，重建精度通常越高，但 VLM 需要建模的 token 容量也会上升。
+
+#### VD-VAE 对比与解耦目标
+
+对正样本相似度 $s_p$ 和负样本相似度 $s_{n,j}$，SigLIP 风格损失为：
+
+$$
+\mathcal{L}_{\text{con}}=-\log\sigma\left(\frac{s_p-b}{\tau_c}\right)
+-\sum_j\log\left[1-\sigma\left(\frac{s_{n,j}-b}{\tau_c}\right)\right].
+$$
+
+总损失为：
+
+$$
+\mathcal{L}_{\text{VD}}=\mathcal{L}_{\text{rec}}+\lambda_{\text{vq}}\mathcal{L}_{\text{VQ}}
++\lambda_{\text{con}}\mathcal{L}_{\text{con}}+\lambda_{\text{reg}}\|\mathbf{z}_{v,i}\|_1.
+$$
+
+其中 $\mathcal{L}_{\text{rec}}$ 重建未来视觉 feature，$\mathcal{L}_{\text{VQ}}$ 约束两套 codebook，L1 项让 action-irrelevant stream 尽量稀疏，避免它“偷走”动作信息。
+
+#### NTP、Rectified Flow 与 KM
+
+$$
+\mathcal{L}_{\text{NTP}}=-\sum_{\ell=1}^{L_y}\log P_\theta(y_\ell\mid y_{<\ell},\mathbf{o}_t,\mathcal{I}).
+$$
+
+对噪声动作 $\mathbf{a}^\rho=\rho\mathbf{a}+(1-\rho)\boldsymbol\epsilon$，RF head 学习向量场：
+
+$$
+\mathcal{L}_{\text{RF}}=\mathbb{E}\left[\| (\mathbf{a}-\boldsymbol\epsilon)-f^a(\mathbf{a}^\rho,\rho,\mathbf{h}_t)\|_2^2\right].
+$$
+
+KM 的 token-level 约束为：
+
+$$
+\mathcal{L}_{\text{post}}=\mathcal{L}_{\text{RF}}+\alpha\sum_{\ell}D_{\text{KL}}\left(
+p_{\phi_{\text{policy}}}(y_\ell\mid c_\ell)\,\|\,
+p_{\phi_{\text{ref}}}(y_\ell\mid c_\ell)\right).
+$$
+
+**【Analysis】** 这组目标把三个时间尺度分开：Act-VAE 学空间、VD-VAE 学跨模态对应、RF 学连续控制速度；KM 则是适配时的“语义保险丝”。
+
+### 4.4 Training
+
+<Algorithm number={1} title='CLAP 四阶段训练与目标域后训练' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>
+    机器人轨迹 $D_{rob}$、人类视频 $D_{hum}$、任务指令、预训练 VLM
+  </div>
+  <div slot='output'>CLAP-NTP token policy、CLAP-RF continuous policy 与冻结 reference</div>
+  <AlgorithmStep keyword='Stage 1'>
+    用机器人 action chunk 训练 Act-VAE，更新 encoder、decoder 和 $C_{act}$，直到重建误差与 codebook
+    收敛
+  </AlgorithmStep>
+  <AlgorithmStep keyword='Stage 2'>
+    冻结 $E_{act}$ 与 $C_{act}$，在机器人和人类视觉 transition 上训练 VD-VAE；机器人用 GT action
+    positive，人类用 EMA teacher pseudo-positive
+  </AlgorithmStep>
+  <AlgorithmStep keyword='Stage 3'>
+    将机器人真值 token 与人类 pseudo-token 写入 `[subtask, action]` 序列，对 VLM 做 next-token
+    prediction，得到 $phi_{pre}$
+  </AlgorithmStep>
+  <AlgorithmStep keyword='Adapt'>
+    在目标域的机器人与人类 token 数据上可选地适配 NTP，并将适配后的模型冻结为 $phi_{ref}$
+  </AlgorithmStep>
+  <AlgorithmStep keyword='RF'>
+    初始化 DiT flow head 和 trainable policy branch，只用目标域机器人连续 chunk 优化 $\mathcal{L}_
+    {RF}$
+  </AlgorithmStep>
+  <AlgorithmStep keyword='KM'>
+    在相同 batch 上计算 reference 与 trainable NTP 的 reverse KL，最小化 $\mathcal{L}_{RF}
+    +\alpha\mathcal{L}_{KL}$
+  </AlgorithmStep>
+</Algorithm>
+
+**【Code】** 官方配置给出的 Stage 1 / Stage 2 都是 50k steps；Stage 3 Astribot 配置为 800k steps，LIBERO 的 KM 训练为 30k steps、batch size 128。这里的 step 数属于 release recipe，不应泛化成论文对所有数据集的统一超参数。
+
+### 4.5 Inference
+
+<Algorithm number={2} title='CLAP-RF 推理' inputLabel='输入' outputLabel='执行的连续动作 chunk'>
+  <div slot='input'>当前多视角图像、机器人状态、语言指令、训练好的 NTP + RF head</div>
+  <div slot='output'>反归一化后的 $H\times D_a$ action chunk</div>
+  <AlgorithmStep>读取观测和指令，经 Qwen3-VL 得到语言—视觉上下文及 KV cache</AlgorithmStep>
+  <AlgorithmStep>
+    将当前 noisy action 和 flow time $\rho$ 输入 RF DiT，并通过 cross-attention 查询 NTP 表征
+  </AlgorithmStep>
+  <AlgorithmStep>
+    执行 rectified-flow integration，得到连续 action chunk；NTP token 仅在 KM 训练阶段作为语义约束
+  </AlgorithmStep>
+  <AlgorithmStep>按保存的 dataset statistics 反归一化，并执行当前 chunk 的动作</AlgorithmStep>
+  <AlgorithmStep keyword='loop'>
+    等待下一次观测后重新规划；实时场景使用 CLAP-RF，需解释和规划时可使用较慢的 CLAP-NTP
+  </AlgorithmStep>
+</Algorithm>
+
+**【Paper】** 单张 $224\times224$ 输入、单张 H100 测得 CLAP-NTP 延迟 382.0 ms，CLAP-RF 降到 70.1 ms。**【Analysis】** RF 的速度优势来自一次连续 chunk 预测，而非简单减少模型参数；它仍通过 NTP 的中间表征继承 human-video 预训练获得的语义。
+
+### 4.6 代码实现对照
+
+| 论文概念           | OpenCLAP 实现                                                    | 代码事实                                                                                                    |
+| ------------------ | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Act-VAE / VD-VAE   | `clap/model_clap.py`、`clap/modules/clap.py`                     | PyTorch Lightning 两阶段训练；Stage 2 从 Stage 1 checkpoint 加载并冻结动作侧表示                            |
+| Visual backbone    | `clap/modules/clap.py`                                           | DINOv3 ViT-B/16 patch features；配置默认本地 DINOv3 权重                                                    |
+| Human pseudo label | `clap/modules/clap.py`                                           | clean branch 的 EMA teacher 生成 stop-gradient positive，augmented online branch 计算 SigLIP                |
+| CLAP-NTP           | `starVLA/model/framework/VLM4A/QwenAR.py`、Astribot YAML         | Qwen3-VL-4B，输出 subtask + `<ACT_*>` token，加载 Stage-2 `clap.ckpt`                                       |
+| CLAP-RF            | `starVLA/model/modules/action_model/LayerwiseFM_ActionHeader.py` | Layerwise flow-matching DiT action head，读取 VLM 多层 hidden states                                        |
+| Knowledge Matching | `starVLA/model/framework/VLM4A/QwenPIKM.py`                      | 冻结 reference VLM；将 GT action 通过 CLAP VQ encoder 转成 token，在 action-token positions 计算 reverse KL |
+| Deployment         | `deployment/model_server/`、`examples/Astribot/eval_files/`      | 提供 LIBERO policy server 与 Astribot S1 synchronous policy server                                          |
+
+**【Code】** 代码还暴露一个重要实现边界：CLAP 的 VQ encoder 按 per-arm 7-D action 训练，双臂输入需要先按 arm layout 拆分，再拼接左右臂的 token。LIBERO 的 RF action horizon 可以是 8，但 KM 的 CLAP tokenizer 仍保持 32-step chunk，这是 tokenizer 窗口与控制头窗口刻意解耦的结果。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![Astribot S1 双臂机器人、相机与 VR teleoperation 数据采集设置（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-clap/data_setup.5xbdfpudew.webp)
+
+![CLAP 在真实世界任务中的部署流程（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-clap/real_task.26m7uh5ifh.webp)
+
+**【Paper】** 真实实验使用 Astribot S1 双 7-DoF 手臂，评估 Pick and Place、PnP (OOD)、Pack the Doll、Fold T-shirt 和 Make Bouquets；另在 LIBERO Spatial / Object / Goal / Long 四个 suite 上以单一 generalist policy 评估。LIBERO 每个 suite 含 10 个任务、每任务 50 条示教，CLAP-RF 训练 30k steps 并用 KM 适配。
+
+### 5.2 Main Results
+
+#### 真实机器人
+
+| 方法        | Task mean | PnP OOD Pick / Place | Make Bouquets C-1 / C-2 |
+| ----------- | --------: | -------------------: | ----------------------: |
+| $\pi_{0.5}$ |      60.0 |              80 / 75 |                 30 / 40 |
+| UniVLA      |      35.0 |              65 / 50 |                 30 / 20 |
+| CLAP-NTP    |      58.7 |          **85 / 85** |                 30 / 40 |
+| CLAP-RF     |  **62.7** |          **85 / 70** |             **40 / 50** |
+
+**【Paper】** CLAP-RF 在原始设置的五个任务上平均成功率为 62.7%，高于 $\pi_{0.5}$ 的 60.0%；在环境扰动（背景、光照、新物体）下平均 70.0%，而 $\pi_{0.5}$ 为 56.7%、UniVLA 为 16.7%。PnP OOD 从不加入人类视频的 70% 提升到 85%，Make Bouquets OOD 从 10% 提升到 45%。
+
+#### LIBERO 与推理延迟
+
+| 方法                      |  Spatial |   Object |     Goal | Long |  Average |
+| ------------------------- | -------: | -------: | -------: | ---: | -------: |
+| SmolVLA（generalist）     |     93.0 |     94.0 |     91.0 | 77.0 |     88.8 |
+| $\pi_{0.5}$（generalist） |     98.8 |     98.2 |     98.0 | 92.4 |     96.9 |
+| X-VLA（generalist）       |     98.2 |     98.6 |     97.8 | 97.6 | **98.1** |
+| CLAP-RF（generalist）     | **98.6** | **99.2** | **98.0** | 93.0 | **97.2** |
+
+| 方法     | 参数量 |     Latency | GPU memory |
+| -------- | -----: | ----------: | ---------: |
+| $\pi_0$  |   3.5B |     45.8 ms |       7.6G |
+| OpenVLA  |   7.5B |    219.8 ms |      14.8G |
+| CLAP-NTP |   4.5B |    382.0 ms |       9.2G |
+| CLAP-RF  |   6.0B | **70.1 ms** |      12.1G |
+
+**【Analysis】** CLAP-RF 没有成为最快的模型（$\pi_0$ 仍为 45.8 ms），但相对于 CLAP-NTP 的 382 ms，它把“能利用人类视频语义”和“可实时执行”放进了同一套模型中。LIBERO 的 97.2% 也说明 KM 没有简单牺牲通用能力来换取目标域拟合。
+
+### 5.3 Ablation Study
+
+![VD-VAE action features 的 t-SNE：加入 contrastive loss 后同语义动作聚类更紧（论文 Figure 9）](https://pic.hana0721.top/blog/paper-deep-dive-clap/tsne_vis.6t7uv641z0.webp)
+
+上图 URL 在 CDN 刷新后可能返回 404，备用地址为 [GitHub Raw](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-clap/tsne_vis.6t7uv641z0.webp)。
+
+**【Paper】** 消融结果把收益拆成三层：
+
+- 去掉 pseudo-positive label，平均成功率从 60.0% 降至 58.8%；
+- 去掉 contrastive objective，降至 53.8%，Make Bouquets OOD 从 35% 降至 20%；
+- 去掉 human video，降至 47.5%，Make Bouquets OOD 仅 5%。
+
+**【Paper】** Act-VAE 的 rate-distortion 选择 $N_q=16,K=256$：比 $N_q=8$ 的 29.89 dB PSNR 更精确，同时比 $N_q=36$ 的 rate 0.175 紧凑得多。KM 消融中，直接 fine-tune VLM 的 LIBERO 平均为 96.2%、PnP OOD 为 60%，加入 low+mid-level features + KM 后分别为 97.2% 和 70%。
+
+**【Analysis】** 这组结果说明 human data 的主要作用首先是 semantic grounding，而不是直接提供可靠的 dexterous trajectory。论文还用 WiLoR 估计人手 pose 做对照：噪声手部几何会增加 grasp / place 失败，反而支持“从视觉动态学习 latent，而不是从单目手部 pose 直接 retarget”的选择。
+
+### 5.4 Generalization
+
+**【Paper】** 论文报告的人类视频增益主要出现在已知任务的新物体组合：PnP OOD 和 Make Bouquets OOD 的 attempt failure 显著下降。对 20 次 OOD trial 的失败分类中，加入 human data 后 PnP 的错误目标尝试从 4 次降到 1 次，Make Bouquets 从 8 次降到 0 次；pick / place failure 的改善则较小。
+
+**【Analysis】** 这揭示了 CLAP 的泛化边界：视频提供了“该选择哪个对象、任务分成哪些 subtask”的语义先验，但不能凭空补齐人手与 parallel-jaw gripper 之间的低层动力学差异。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** CLAP 有效的原因可以归纳为一个“先锚定、再对齐、最后解码”的因果链：
+
+1. Act-VAE 的 decoder 让每个 action code 必须能重建真实机器人轨迹，先排除了纯视觉变化。
+2. VD-VAE 把无法解释动作的因素放入稀疏 environment branch，并以对比损失把同一物理 primitive 的视觉变化拉近。
+3. NTP 在 token space 吸收 human video 的语义，RF head 只在有机器人连续标签的目标域学习精确控制。
+4. KM 将语义 policy 的更新限制在 reference 的可信区域，避免 RF fine-tuning 把预训练的 object grounding 一起覆盖掉。
+
+### 6.2 核心创新
+
+**【Paper】** 最核心的创新不是“使用 contrastive learning”本身，而是 contrast 的 positive target 来自一个已具备执行语义的 action codebook。与 reconstruction-only LAM 相比，CLAP 的 latent 具有明确的物理接口；与直接 human-to-robot imitation 相比，它不要求每段人类视频有相机标定或手部动作标签。
+
+### 6.3 与已有方法的本质区别
+
+| 范式                     | latent 的来源                             | 人类视频能否直接产生动作 token | 对视觉 nuisance 的处理                  |
+| ------------------------ | ----------------------------------------- | ------------------------------ | --------------------------------------- |
+| Reconstruction-based LAM | 视频帧重建 / inverse dynamics             | 可以，但物理含义不稳定         | 通常隐式处理                            |
+| Direct pose retargeting  | 人手或人体 pose                           | 需要 pose estimator 和映射器   | 对估计噪声敏感                          |
+| CLAP                     | 机器人 Act-VAE codebook + 视频 transition | 可以，VD-VAE 生成 pseudo-token | 独立 environment codebook + L1 稀疏约束 |
+
+**【Analysis】** CLAP 的关键区别是把“跨 embodiment 的共享空间”放在 primitive token 层，而不是直接把不同机器人的原始关节向量拼成一个大 action vector。
+
+### 6.4 关键假设
+
+**【Paper】** 方法隐含或明确依赖以下假设：
+
+- 人类视频中的视觉状态变化能够被某些机器人 action primitive 近似解释；
+- Act-VAE codebook 的容量足以覆盖任务需要，又不会让 VLM token 序列过长；
+- action-relevant 与 environment latent 可以通过 forward reconstruction、contrastive alignment 和 L1 regularization 解耦；
+- 在目标域保留一小部分机器人连续动作标签，才能训练 RF head 并校准 embodiment-specific dynamics。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 第一，完全依靠人类视频泛化到全新 task 仍然困难，当前对齐主要帮助已知任务中的新物体和组合。第二，人手与机器人夹爪的 morphology gap 会让复杂 dexterous motion 没有唯一的 parallel-jaw 对应。第三，Act-VAE、VD-VAE、NTP 和 RF 的多阶段训练带来工程复杂度，尚未统一为 end-to-end 目标。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+- 视觉 transition 到 action token 的对应本身可能是多峰的：同一个画面变化可以由不同轨迹实现，单一 nearest code 可能丢失不确定性。
+- environment codebook 仍依赖 forward feature reconstruction；若背景变化与动作相关（例如遮挡、接触阴影），简单的 action-irrelevant 稀疏约束未必能正确分离。
+- 论文中的 human-video 结果包含特定任务和有意模仿夹爪的手势，不能直接推断普通互联网视频对任意机器人都同样有效。
+- CLAP-RF 的低延迟以更大的 action head 和目标域机器人数据为代价；在没有目标域连续 action 的纯 zero-shot 场景中，RF 控制器仍缺少校准信号。
+
+## 8. 启发与研究思考
+
+**【Analysis】** 这篇论文给后续 VLA 研究留下了三个值得延伸的方向：
+
+1. **从固定 codebook 到可组合 primitive。** 目前 256-entry codebook 仍是静态词表，可以研究带层级结构的 token，让“抓取—移动—放置”既能组合，也能在新 embodiment 上重用。
+2. **把不确定性显式带入 pseudo label。** human video 的 transition 往往对应多个可行动作，未来可以让 VD-VAE 输出 token distribution 或 top-k candidates，而不是单一 pseudo-token。
+3. **端到端而非串联训练。** Act-VAE、VD-VAE、NTP 和 RF 的接口目前由 checkpoint 固定；若能用成功率、可执行性或 offline preference 反向调整 codebook，可能减少阶段间的 representation mismatch。
+
+**【Analysis】** 更宽泛地说，CLAP 证明了“用人类视频扩大语义覆盖”不必等价于“把人类手部动作直接 retarget 到机器人”。先学习一个可执行的 latent action vocabulary，再把视觉变化对齐到它，可能是连接互联网视频与机器人控制的更稳健中间层。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示 OpenCLAP 官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。论文表格中的 $N_q=16,K=256$ 是 rate-distortion 消融设置；官方
+  OpenCLAP Stage 3 配置使用 8 codes per arm、512-entry codebook，二者属于不同配置，请勿混读。
+</Aside>

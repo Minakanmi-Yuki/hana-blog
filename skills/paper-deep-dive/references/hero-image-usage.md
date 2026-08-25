@@ -17,6 +17,7 @@ Use only after the count-1 pool is exhausted.
 
 | Use Count | Pixiv ID    | URL                                                                | Current Posts                                                                 |
 | --------: | ----------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------- |
+|         2 | `129563571` | `https://pic.hana0721.top/129563571_p0_master1200.1ziuqmv78w.webp` | `vibe-coding-1`, `paper-deep-dive-recap`                                      |
 |         2 | `116834498` | `https://pic.hana0721.top/116834498_p0_master1200.1e974fnzok.webp` | `rl-note-26`, `paper-deep-dive-onetwovla`                                     |
 |         2 | `125160058` | `https://pic.hana0721.top/125160058_p0_master1200.6ikvtm0o6l.webp` | `sts-silent-cards-rating`, `paper-deep-dive-molmoact`, `paper-deep-dive-fast` |
 |         2 | `133535742` | `https://pic.hana0721.top/133535742_p0_master1200.icpovr2id.webp`  | `paper-deep-dive-openvla`, `paper-reading-eba1`                               |
@@ -63,8 +64,7 @@ Preferred candidates for new posts.
 |         1 | `65089776`  | `https://pic.hana0721.top//65089776_p0_master1200.5c1kl2nzfo.webp` | `rl-note-1`                                                                     |
 |         2 | `42175762`  | `https://pic.hana0721.top/42175762_p0_master1200.6m4jay5vlg.webp`  | `paper-reading-eba5`, `paper-deep-dive-cot-vla`, `paper-deep-dive-pi05`         |
 |         2 | `112236596` | `https://pic.hana0721.top/112236596_p0_master1200.232gogbiox.webp` | `rl-note-25`, `paper-deep-dive-qwen-robotmanip`                                 |
-|         1 | `129563571` | `https://pic.hana0721.top/129563571_p0_master1200.1ziuqmv78w.webp` | `vibe-coding-1`                                                                 |
-|         1 | `133376054` | `https://pic.hana0721.top/133376054_p0_master1200.1ziuqmv790.webp` | `vscode-ssh-setup`                                                              |
+|         2 | `133376054` | `https://pic.hana0721.top/133376054_p0_master1200.1ziuqmv790.webp` | `vscode-ssh-setup`, `paper-deep-dive-clap`                                      |
 |         1 | ``          | `https://pic.hana0721.top/145491169_p0_master1200.2dpccm5v9t.webp` | `openssh-server-setup`                                                          |
 |         2 | `56422576`  | `https://pic.hana0721.top/56422576_p0_master1200.7i0z6ufn65.webp`  | `paper-reading-vlm1`, `paper-deep-dive-chatvla-2`                               |
 |         2 | `62258773`  | `https://pic.hana0721.top/62258773_p0_master1200.7zr0vfh0rf.webp`  | `paper-reading-cv1`, `paper-deep-dive-ace-ego-0`                                |
@@ -73,7 +73,7 @@ Preferred candidates for new posts.
 |         2 | `68232005`  | `https://pic.hana0721.top/68232005_p0_master1200.60uu51sjdo.webp`  | `paper-reading-llm1`, `paper-deep-dive-fast`                                    |
 |         2 | `69461006`  | `https://pic.hana0721.top/69461006_p0_master1200.1e974ctzq9.webp`  | `paper-reading-llm2`, `paper-deep-dive-actioncodec`, `paper-deep-dive-gr00t-n1` |
 |         2 | `69606244`  | `https://pic.hana0721.top/69606244_p0_master1200.64eg2rlm3q.webp`  | `paper-reading-marl1`, `paper-deep-dive-lapa`                                   |
-|         1 | `70434530`  | `https://pic.hana0721.top/70434530_p0_master1200.b9htgy5uw.webp`   | `paper-reading-mllm1`                                                           |
+|         3 | `70434530`  | `https://pic.hana0721.top/70434530_p0_master1200.b9htgy5uw.webp`   | `paper-reading-mllm1`, `paper-deep-dive-villa-x`, `paper-deep-dive-pi07`       |
 |         1 | `70937229`  | `https://pic.hana0721.top/70937229_p0_master1200.6bhnz4ob71.webp`  | `matlab-ubuntu-24-04-install`                                                   |
 |         2 | `70977889`  | `https://pic.hana0721.top/70977889_p0_master1200.9gx5x526gc.webp`  | `paper-reading-mllm2`, `paper-deep-dive-faster`                                 |
 |         1 | `71187447`  | `https://pic.hana0721.top/71187447_p0_master1200.13mdb6lism.webp`  | `galgame-1`                                                                     |
