@@ -1,0 +1,366 @@
+---
+title: 'π*₀.₆ 与 RECAP 论文精读：让 VLA 从真实经验中变强'
+publishDate: 2026-08-25
+updatedDate: 2026-08-25
+description: '精读 Physical Intelligence 的 RECAP：用分布式 value function 估计 advantage，再以 advantage conditioning 从示教、自治轨迹和人工干预中迭代改进 VLA。'
+heroImage:
+  { src: 'https://pic.hana0721.top/129563571_p0_master1200.1ziuqmv78w.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '129563571'
+tags:
+  - 'paper deep dive'
+  - 'RECAP'
+  - 'VLA'
+  - 'robot reinforcement learning'
+  - 'π*₀.₆'
+paper:
+  arxivId: '2511.14759'
+  title: 'π*₀.₆: a VLA That Learns From Experience'
+  authors:
+    - 'Physical Intelligence'
+    - 'Ali Amin'
+    - 'Raichelle Aniceto'
+    - 'Ashwin Balakrishna'
+    - 'Kevin Black'
+    - 'Danny Driess'
+    - 'Chelsea Finn'
+    - 'Karol Hausman'
+    - 'Brian Ichter'
+    - 'Sergey Levine'
+    - 'Karl Pertsch'
+    - 'Allen Z. Ren'
+    - 'Lucy Xiaoyang Shi'
+    - 'Laura Smith'
+    - 'Jost Tobias Springenberg'
+    - 'Marcel Torne'
+    - 'Quan Vuong'
+    - 'Lili Yu'
+    - 'Ury Zhilinsky'
+    - 'Zhiyuan Zhou'
+  venue: 'arXiv'
+  year: 2025
+  code: 'https://github.com/Physical-Intelligence/openpi'
+  project: ''
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2511.14759'
+  tldr='RECAP 把示教、自治试验和在线人工纠错放进同一个离线 RL 循环，用 value function 估计 advantage，再让 π*₀.₆ 通过条件化策略学习“哪些动作值得复现”。'
+  rank={5}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《π\*₀.₆: a VLA That Learns From Experience》
+
+**作者**：Physical Intelligence、Ali Amin、Raichelle Aniceto、Ashwin Balakrishna、Kevin Black、Danny Driess、Chelsea Finn、Karol Hausman、Brian Ichter、Sergey Levine、Karl Pertsch、Allen Z. Ren、Lucy Xiaoyang Shi、Laura Smith、Jost Tobias Springenberg、Marcel Torne、Quan Vuong、Lili Yu、Ury Zhilinsky、Zhiyuan Zhou 等
+
+**论文链接**：[arXiv:2511.14759](https://arxiv.org/abs/2511.14759)
+
+**代码链接**：[Physical-Intelligence/openpi](https://github.com/Physical-Intelligence/openpi)
+
+![RECAP 通过奖励反馈与人工干预训练 VLA（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-recap/teaser.54yhxzhf3t.webp)
+
+### 一句话总结
+
+**【Paper】** RECAP（RL with Experience and Corrections via Advantage-conditioned Policies）解决的问题是：一个已经会做很多事的 VLA，如何在真实部署中通过反复尝试变得更快、更稳，而不是只能模仿示教数据。方法先用离线 RL 预训练带 advantage 条件的 π\*₀.₆，再对目标任务收集自治轨迹和在线人工纠错，用 value function 判断每一步是否比参考行为更好，最后把这个判断作为语言条件重新训练 VLA。
+
+**【Analysis】** 论文真正的贡献不是把 PPO 直接套到大模型上，而是把“数据收集、价值评估、策略提取”拆成可以反复运行的离线批处理循环。这样 flow-matching VLA 不需要每几个 gradient step 就在机器人上采样，也能利用旧策略、示教和纠错的混合数据。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出 RECAP：把 demonstrations、on-policy rollouts 和 teleoperator interventions 聚合到同一套 advantage-conditioned policy extraction 中。
+2. 训练一个多任务 distributional value function，将每条轨迹的剩余步数 / 成功结果映射到 201 个 value bins，再由其得到 advantage。
+3. 将 advantage 二值化为 `Advantage: positive/negative` 文本条件，使整个 flow-matching VLA 可以用普通监督式 likelihood / flow loss 训练。
+4. 基于该方法预训练 π\*₀.₆，并在真实洗衣折叠、咖啡制作和纸箱装配任务上验证：困难任务的 throughput 可超过 2 倍，失败率约降低一半。
+5. 展示多小时连续部署：咖啡机 13 小时、陌生家庭洗衣 2 小时以上，以及工厂包装箱装配。
+
+## 2. 背景与相关工作
+
+**【Paper】** 纯 imitation learning 的上限受示教质量限制，且部署时出现的 compounding error 往往不会出现在示教集中。DAgger 风格的人类干预能纠正灾难性错误，但单靠干预很难让动作变快，也无法覆盖每一次自治失败。另一方面，经典 PPO / REINFORCE 需要可靠的 policy likelihood 和 on-policy 数据；对带 flow-matching action expert 的大 VLA 而言，连续动作的精确 likelihood 并不容易计算，真实机器人也承担不起高频采样。
+
+已有工作大致分成三条路线：
+
+- 用人工干预修正策略分布；
+- 用 residual、action head 或 preference learning 在 VLA 之上做 RL；
+- 直接对离散动作或简单高斯动作执行 PPO / REINFORCE。
+
+**【Paper】** RECAP 与它们的区别是：策略本身仍是完整的高容量 VLA，动作由 flow matching 表示；训练时不丢弃低 advantage 数据，而是让策略显式知道样本的 optimality indicator；自治经验和人工纠错都能进入同一个离线数据集。
+
+**【Analysis】** 这让 RECAP 更像“可扩展的 policy extraction”而不是传统 online RL：value function 负责排序数据，条件化 VLA 负责把排序结果蒸馏回一个可执行策略。
+
+## 3. 问题定义
+
+**【Paper】** 给定观测 $mathbf{o}_t$、语言任务 $ell$ 和动作 $mathbf{a}_t$，策略为：
+
+$$
+\pi(\mathbf{a}_t\mid \mathbf{o}_t,\ell)
+$$
+
+一条轨迹记为 $\tau=(\mathbf{o}_0,\mathbf{a}_0,\ldots,\mathbf{o}_T)$。论文使用无 discount 的 return：
+
+$$
+R(\tau)=\sum_{t=0}^{T}r_t
+$$
+
+并用 $V^\pi(\mathbf{o}_t)$ 表示从当前观测到任务结束的期望回报。对一个 $N$-step 片段，advantage 估计为：
+
+$$
+A^\pi(\mathbf{o}_t,\mathbf{a}_t)=\sum_{t'=t}^{t+N-1}r_{t'}+V^\pi(\mathbf{o}_{t+N})-V^\pi(\mathbf{o}_t)
+$$
+
+**【Paper】** RECAP 不把动作空间离散化成单个 token。π\*₀.₆ 接收多相机图像、关节 / 夹爪状态和语言 prompt，输出文本 sub-task、FAST 离散动作表示以及由 860M action expert 生成的连续 action chunk。实验平台是双臂静态系统：两只 6-DoF 手臂、平行夹爪、50 Hz joint-position 控制和三路相机。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![π*₀.₆ VLA 与 value function 的交互（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-recap/architecture.2ksnlchfy4.webp)
+
+**【Paper】** RECAP 的数据流可以浓缩成一句话：VLA 在任务上试验并收集轨迹，value function 把每个状态映射到成功进度，再将 advantage 的正负作为策略输入，重新训练出更偏向成功行为的 VLA。
+
+### 4.2 核心模块
+
+#### π\*₀.₆ VLA
+
+- **输入**：三路 RGB 图像、机器人 configuration、语言任务和元数据。
+- **输出**：文本化的下一步 sub-task、FAST action tokens，以及由 flow-matching action expert 产生的连续 action chunk。
+- **作用**：Gemma 3 4B VLM 负责共享语义表示；860M action expert 负责细粒度动作。
+- **【Paper】** π\*₀.₆ 是 π₀.₆ 的 RL 版本，加入了对二值 advantage indicator 的条件化能力。
+- **【Code】** 当前公开 `openpi` 的 `src/openpi/models/pi0.py` 将图像编码为 SigLIP tokens，使用 Gemma 2B 与 Gemma 300M action expert；`Pi0Config(pi05=True)` 设置 50 步 action horizon、32 维 action，并用 adaRMSNorm 注入 flow timestep。论文内部 π\*₀.₆ 的 4B / 860M 规模和 RECAP 训练脚本并未在该仓库中完整公开。
+
+#### Distributional Value Function
+
+- **输入**：观测 $mathbf{o}_t$ 与语言任务 $ell$。
+- **输出**：201 个离散 value bins 的概率分布 $p_\phi(V\mid\mathbf{o}_t,\ell)$。
+- **作用**：判断当前动作离任务成功还有多少步；成功轨迹的值逐渐接近 0，失败轨迹被压到较大的负值。
+- **为什么需要分布式形式**：多任务的 episode 长度不同，直接回归一个标量容易丢失不确定性；分布式 value 可以再通过 bin 的期望恢复连续值。
+- **【Paper】** value function 与 VLA 采用相似架构，但使用较小的 670M VLM backbone，并与少量 web 多模态数据 co-train 以降低过拟合。
+
+#### Experience Aggregator
+
+每个目标任务的数据集 $\mathcal{D}_\ell$ 包含：
+
+1. 初始 demonstration；
+2. 策略完全自治执行的 rollout；
+3. 执行中由专家接管产生的 correction 片段。
+
+**【Paper】** correction 强制标记为 positive advantage，但整条轨迹（包括未被接管的部分）仍可加入数据集。这样人工干预负责修复大错误，自治数据负责学习速度、动作细节和部署分布。
+
+#### Advantage-Conditioned Policy
+
+训练序列在 sub-task 之后插入 `Advantage: positive` 或 `Advantage: negative`。同一条动作样本不被过滤，而是以条件变量区分“值得复现”与“需要避免”的行为。
+
+### 4.3 关键公式
+
+#### Value Function 目标
+
+**【Paper】** 将轨迹的 empirical return 离散为 $B=201$ 个 bins，优化：
+
+$$
+\min_\phi\;\mathbb{E}_{\tau\in\mathcal{D}}
+\left[\sum_{\mathbf{o}_t\in\tau}
+H\left(R_t^B(\tau),p_\phi(V\mid\mathbf{o}_t,\ell)\right)\right]
+$$
+
+其中 $H$ 是 cross-entropy，$R_t^B$ 是离散后的 return。连续 value 从分布的期望得到：
+
+$$
+V^{\pi_{\mathrm{ref}}}(\mathbf{o}_t,\ell)
+=\sum_{b=1}^{B}p_\phi(V=b\mid\mathbf{o}_t,\ell)v(b)
+$$
+
+#### 二值 improvement indicator
+
+$$
+I_t=\mathbb{1}\left(A^{\pi_{\mathrm{ref}}}(\mathbf{o}_t,\mathbf{a}_t,\ell)>\epsilon_\ell\right)
+$$
+
+其中 $\epsilon_\ell$ 是任务相关阈值。预训练时约 30% 的样本被判为 positive；下游微调通常约 40%，T-shirt / shorts 任务为了偏向高质量高速动作则约 10%。
+
+#### 条件策略目标
+
+$$
+\min_\theta\;\mathbb{E}_{\mathcal{D}_{\pi_{\mathrm{ref}}}}
+\left[-\log\pi_\theta(\mathbf{a}_t\mid\mathbf{o}_t,\ell)
+-\alpha\log\pi_\theta(\mathbf{a}_t\mid I_t,\mathbf{o}_t,\ell)\right]
+$$
+
+第一项保留 unconditional policy，第二项让模型学会在 positive 条件下提高动作概率。连续动作部分用 flow-matching loss 近似 likelihood；离散文本和 FAST action 部分仍使用 autoregressive cross-entropy。
+
+**【Analysis】** 该目标的关键是“使用所有数据，但改变条件”：AWR 会把负 advantage 样本权重压到接近 0，RECAP 则让负样本继续训练 unconditional policy，并把 positive / negative 的差异交给一个低成本文本条件表达。
+
+### 4.4 Training
+
+**【Paper】** 预训练阶段在数万小时、多任务、多机器人示教上训练 value function 和 advantage-conditioned VLA。下游阶段先以 demonstration 做 SFT（将 $I_t$ 固定为 True），得到 $\pi^0_\ell$；随后反复执行“收集数据 → 更新 value → 更新 policy”。每一轮都从预训练 checkpoint 微调，而不是从上一轮策略继续微调，以减少迭代漂移。
+
+<Algorithm number={1} title='RECAP 离线迭代训练' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>多任务 demonstration $\mathcal{D}_{\mathrm{demo}}$、目标任务 $\ell$、可选 teleoperator</div>
+  <div slot='output'>针对任务 $\ell$ 的改进策略 $\pi^K_\ell$</div>
+  <AlgorithmStep>在 $\mathcal{D}_{\mathrm{demo}}$ 上训练 $V_{\mathrm{pre}}$，并用它计算 advantage indicator</AlgorithmStep>
+  <AlgorithmStep>用 advantage-conditioned objective 训练预训练 VLA $\pi_{\mathrm{pre}}$</AlgorithmStep>
+  <AlgorithmStep>以目标任务 demonstration 初始化 $\mathcal{D}_\ell$，从预训练 checkpoint 得到 $V^0_\ell$ 与 $\pi^0_\ell$</AlgorithmStep>
+  <AlgorithmStep keyword='for'>对 $k=1,\ldots,K$ 重复</AlgorithmStep>
+  <AlgorithmStep indent={1}>运行 $\pi^{k-1}_\ell$，收集自治轨迹和可选人工纠错，并追加到 $\mathcal{D}_\ell$</AlgorithmStep>
+  <AlgorithmStep indent={1}>用所有历史数据训练 $V^k_\ell$，重新估计每个动作的 advantage</AlgorithmStep>
+  <AlgorithmStep indent={1}>从预训练策略微调 $\pi^k_\ell$，输入 positive / negative indicator</AlgorithmStep>
+  <AlgorithmStep keyword='end for'>输出最终策略</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 推理时不需要运行 value function。模型接收图像、状态、语言任务和 advantage 条件；通常直接使用 positive 条件采样。训练时随机丢弃 30% 的 indicator，因此还可以在测试时使用 classifier-free guidance（CFG）以 $\beta>1$ 锐化动作分布。论文实际主要使用 $\beta=1$，因为过高 CFG 会把动作推向支持集边界，导致过于激进的运动。
+
+<Algorithm number={2} title='RECAP 策略执行' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>相机图像、机器人状态、语言任务和训练好的 $\pi_\ell$</div>
+  <div slot='output'>当前控制周期的连续动作 chunk</div>
+  <AlgorithmStep>
+    编码观测与语言 prompt，并将 `Advantage: positive` 插入 action 条件位置
+  </AlgorithmStep>
+  <AlgorithmStep>生成 sub-task / 文本 token，作为 action expert 的高层上下文</AlgorithmStep>
+  <AlgorithmStep>从高斯噪声初始化 action chunk</AlgorithmStep>
+  <AlgorithmStep keyword='for'>执行 flow-matching integration steps</AlgorithmStep>
+  <AlgorithmStep indent={1}>用 action expert 预测 vector field 并更新 noisy action</AlgorithmStep>
+  <AlgorithmStep keyword='end for'>
+    输出 joint position 与 gripper action，交给 50 Hz 控制器
+  </AlgorithmStep>
+  <AlgorithmStep>执行一段 chunk 后重新观测；任务结束或失败时停止</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+| 论文概念                   | `openpi` 位置                                      | 代码事实与边界                                                                            |
+| -------------------------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| π 系列 VLA                 | `src/openpi/models/pi0.py`                         | `Pi0` 同时处理图像 prefix、语言 token、state 和 flow-matching action suffix。             |
+| π₀.₅ 配置                  | `src/openpi/models/pi0_config.py`                  | `pi05=True` 时使用 50 步 horizon、32 维 action、离散 state input 和 adaRMSNorm timestep。 |
+| 图像编码器                 | `pi0.py`                                           | 调用 SigLIP `So400m/14`，再送入 Gemma backbone。                                          |
+| Flow loss                  | `Pi0.compute_loss`                                 | 从 Beta(1.5, 1) 采样 timestep，构造 noisy action 并最小化 vector-field MSE。              |
+| Flow inference             | `Pi0.sample_actions`                               | 先缓存 prefix，再循环计算 action suffix；公开配置默认 10 个采样步。                       |
+| 数据 / checkpoint          | `training/config.py`, `training/weight_loaders.py` | 提供 DROID、LIBERO、ALOHA 等微调配置和 `gs://openpi-assets` checkpoint。                  |
+| RECAP value / rollout loop | 未发现对应公开实现                                 | 论文中的 201-bin value function、advantage 标注和真实机器人迭代收集并未在当前仓库中公开。 |
+
+**【Analysis】** 因此不能把 `openpi` 说成 RECAP 的完整复现代码。它提供了 π 系列 VLA 的模型、推理和下游微调骨架；RECAP 的核心 RL 数据闭环仍属于论文描述的内部训练系统。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![论文实验任务：洗衣、纸箱装配与咖啡制作（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-recap/tasks.4920ij7ql4.webp)
+
+![实验中的双臂机器人与三路相机（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-recap/robot.1sfs3m0um5.webp)
+
+**【Paper】** 评估包含五类设置：
+
+- **T-shirt / shorts laundry**：在 200 秒内取出、铺平、折叠并堆放衣物。
+- **Diverse laundry**：11 类衣物，主 quantitative 指标选择最难的 button-up shirt，时限 500 秒。
+- **Targeted failure removal**：固定橙色 T-shirt 和严格领口朝向标准，用于测试是否能消除单一失败模式。
+- **Cafe**：在专业 espresso machine 上完成研磨、压粉、锁 portafilter、萃取和上杯，时限 200 秒。
+- **Box assembly**：在真实工厂环境折叠纸板、贴标签并放入 crate，时限 600 秒。
+
+吞吐量定义为每小时成功完成的任务数，同时反映速度与成功率；success rate 由人工对 episode 质量进行标注。
+
+### 5.2 Main Results
+
+![Diverse laundry 的吞吐量结果（论文 Figure 6 中的子图）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-recap/diverse-throughput.5q85kabv87.webp)
+
+**【Paper】** 最终 RECAP policy 相比 offline RL + SFT 基线，在 diverse laundry 和 espresso 上的 throughput 超过 2 倍，失败率约下降 2 倍。简单 T-shirt / shorts 任务在 SFT 后成功率已经接近上限，RECAP 的主要收益转化为更快执行。Box assembly 的四个子阶段（取板、成盒、贴标、入 crate）均获得更一致的成功率，最终在 600 秒限制内折叠和贴标都达到约 90% 成功率。
+
+**【Paper】** 这些提升不是只在短离线 benchmark 上出现：模型连续制作咖啡 13 小时，在新家庭折叠陌生衣物超过 2 小时，并能在工厂包装场景中持续装箱。
+
+### 5.3 Ablation Study
+
+**【Paper】** 论文比较了三种 policy extraction：RECAP 的 advantage conditioning、AWR 和 PPO。使用同一批机器人数据时，AWR 可以获得合理 success rate，但策略明显更慢；PPO 需要很小的 trust-region constraint（$\eta=0.01$）才能稳定，在 throughput 上仍难以超过 offline RL + SFT。RECAP 同时保持成功率和速度。
+
+![严格领口朝向任务的失败模式移除结果（论文 Figure 12）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-recap/failure-success.362b7nbwmj.webp)
+
+**【Paper】** 在 targeted failure removal 中，每轮收集 600 条轨迹，迭代两轮后成功率达到 97%，即使不使用额外 demonstration 或 intervention，也能消除基线常把领口朝下的错误。
+
+### 5.4 Generalization
+
+**【Paper】** RECAP 的泛化重点不是零样本理解新任务，而是让已有 VLA primitive 在新部署条件中更稳、更快。Diverse laundry 测试衣物形态变化，espresso 测试液体与多阶段接触，box assembly 测试纸板形变和工厂节拍；三者都要求 policy 学会纠正自身真实失败。
+
+**【Analysis】** 结果也显示“成功率”和“吞吐量”并不等价：高质量 demonstration 可以让机器人慢而稳，自治经验则能把动作节奏推进到接近或超过示教者。因此只看 success rate 会低估 RECAP 的实际部署收益。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】**
+
+1. **Value function 提供统一的进度尺度**：不同任务的成功标签被转成“离成功还有多少步”，自治失败因此能参与训练，而不是只能被丢弃。
+2. **条件化替代了复杂 importance weighting**：positive / negative indicator 让 flow-matching VLA 继续使用普通监督学习，不需要为每个连续动作求精确 log-likelihood。
+3. **自治与纠错分工互补**：intervention 负责把策略从灾难性状态拉回来；自治 rollout 负责优化速度、流畅度和部署分布。
+4. **从预训练 checkpoint 重启降低漂移**：每轮都回到稳定的通用 π\*₀.₆，再用聚合数据专门化，避免错误在迭代中放大。
+
+### 6.2 核心创新
+
+**【Paper】** 单独看 value regression、advantage conditioning 或 DAgger 都不是新组件；创新在于将它们组合成面向大规模 flow-matching VLA 的真实机器人 recipe：
+
+- offline RL 预训练让通用模型一开始就能读取 advantage 条件；
+- 201-bin distributional value function 跨任务复用；
+- 混合数据集同时利用 old policy、current policy 和 human corrections；
+- 低成本离线批更新取代难以扩展的高频 on-policy PPO。
+
+### 6.3 与已有方法的本质区别
+
+| 方法   | 如何使用低质量 / 负样本                          | 是否适配 flow VLA           | 数据来源           | 主要问题                     |
+| ------ | ------------------------------------------------ | --------------------------- | ------------------ | ---------------------------- |
+| AWR    | 对 advantage 做权重，低 advantage 样本几乎被过滤 | 可用但会丢数据              | 离线轨迹           | 策略容易变慢                 |
+| PPO    | 需要 likelihood 与 trust region                  | 连续 action likelihood 难算 | 近似 on-policy     | 真实机器人采样昂贵、稳定性差 |
+| DAgger | 依赖专家纠正分布偏移                             | 与 action head 无关         | 人工 intervention  | 不会自动优化速度             |
+| RECAP  | 保留所有样本，用 indicator 区分 optimality       | 通过 flow loss 训练         | 示教 + 自治 + 纠错 | 仍需人工奖励与批量更新       |
+
+**【Analysis】** RECAP 把“数据筛选”改成“条件建模”：负样本不是监督信号，而是 unconditional policy 的覆盖；positive 条件则近似一个改进后的行为分布。这个接口正好绕开了 flow policy 的显式 density 计算。
+
+### 6.4 关键假设
+
+**【Paper】** / **【Analysis】**
+
+- episode-level success label 足以构造有用的稀疏 reward；
+- 观测近似满足 Markov 假设，value function 能从图像与语言判断进度；
+- human correction 通常是更好的动作，因此可以强制标为 positive；
+- 初始 imitation policy 已经足够安全，随机性和纠错可以提供有限探索；
+- 任务可以通过批量收集轨迹、离线训练、再次部署的节奏迭代。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】**
+
+1. 系统不是 fully autonomous：奖励标注、intervention 和 episode reset 仍依赖人。
+2. 探索基本是 greedy 的，主要依靠策略随机性与人工干预，没有系统性的 exploration strategy。
+3. 训练是“收集一批数据再重训”的 iterated offline update，不是数据采集与参数更新并行的 online RL。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+- 201-bin value distribution 的质量依赖 episode 长度归一化和人工成功定义；一旦 reward rubric 偏移，advantage 也会随之偏移。
+- positive / negative 是粗粒度二值条件，无法表达“快但略不稳”和“慢但安全”等多目标 trade-off。
+- 从预训练 checkpoint 重启虽然抑制 drift，却也可能抹掉上一轮策略学到的细粒度长期状态表示。
+- 公开 `openpi` 没有 RECAP value、rollout 和 intervention 代码，社区难以仅凭仓库复现实验中的 13 小时部署或吞吐量曲线。
+- 论文主要展示 Physical Intelligence 的双臂平台与任务，其他 embodiment 的 value transfer 和 reward 标注成本仍未被充分验证。
+
+## 8. 启发与研究思考
+
+**【Analysis】**
+
+1. **VLA 的后训练接口可以非常简单。** 让模型读取 `Advantage: positive` 看似粗糙，但它把复杂的 RL 优化转化成了现有 VLA 擅长的 conditional supervised learning。
+2. **吞吐量应该成为真实机器人 RL 的一等指标。** 成功率已经很高时，真正决定部署成本的是动作节奏、恢复时间和每小时完成数。
+3. **人工干预不必承担全部监督。** 人只修最危险的错误，速度和细节交给自治经验学习，可能比要求 teleoperator 全程提供完美轨迹更可扩展。
+4. **下一步是自动化 reward 与 reset。** 如果视觉语言 critic、任务级 reset policy 和安全探索器能够替代人工环节，RECAP 才能从“可重复的实验室 recipe”走向持续运行的机器人数据飞轮。
+5. **代码开放程度决定研究价值的可迁移性。** `openpi` 已经让 π 系列模型可被微调和部署，但 RECAP 的关键闭环仍未公开；未来若能开放 value head、advantage labeling 和 rollout schema，社区才可以检验该方法是否适用于更广泛的 embodiment。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方 `openpi`
+  代码可核对的实现，`【Analysis】` 表示基于论文和代码的分析推断。论文内部的 π*₀.₆ / RECAP
+  训练代码未公开，不能用公开仓库的 π₀.₅ 配置替代它。
+</Aside>
