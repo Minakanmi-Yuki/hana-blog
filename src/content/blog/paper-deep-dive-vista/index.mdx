@@ -1,0 +1,287 @@
+---
+title: 'VISTA：Scaling World Model 论文精读'
+publishDate: 2026-08-25
+updatedDate: 2026-08-25
+description: '精读 VISTA：用可生成的视觉子目标把 Embodied World Model 变成高层规划器，再由 GoalVLA 执行低层动作，提升少样本机器人操作的 OOD 泛化。'
+heroImage:
+  { src: 'https://pic.hana0721.top/120188807_p0_master1200.1lcf3tjzx5.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '120188807'
+tags:
+  - 'paper deep dive'
+  - 'VLA'
+  - 'world model'
+  - 'robot manipulation'
+paper:
+  arxivId: '2602.10983'
+  title: 'Scaling World Model for Hierarchical Manipulation Policies'
+  authors:
+    - 'Qian Long'
+    - 'Yueze Wang'
+    - 'Jiaxi Song'
+    - 'Junbo Zhang'
+    - 'Peiyan Li'
+    - 'Wenxuan Wang'
+    - 'Yuqi Wang'
+    - 'Haoyang Li'
+    - 'Shaoxuan Xie'
+    - 'Guocai Yao'
+    - 'Hanbo Zhang'
+    - 'Xinlong Wang'
+    - 'Zhongyuan Wang'
+    - 'Xuguang Lan'
+    - 'Huaping Liu'
+    - 'Xinghang Li'
+  venue: 'arXiv'
+  year: 2026
+  code: 'https://github.com/vista-wm/Vista-WM'
+  project: 'https://vista-wm.github.io/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2602.10983'
+  tldr='VISTA 用 Embodied World Model 生成“文字子任务 + 视觉目标图像”的里程碑序列，再交给 GoalVLA 预测动作块；只用 2 小时、5 个物体的真实数据，未见目标场景成功率从 14% 提升到 69%。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**【Paper】** VISTA（Visual Subgoal Task decomposition）针对 VLA 在 out-of-distribution（OOD）物体和场景上的脆弱性，把长时程操作拆成两层：一个大规模预训练的 Embodied World Model 负责规划，GoalVLA 负责执行。规划器不只输出语言，而是交错生成每个子任务的文本说明和对应 goal image；执行器同时看实时观测、子任务文本和目标图像，生成连续动作块。
+
+![VISTA hierarchical system overview from paper Figure 1](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-vista/teaser.362b7gynzn.webp)
+
+### 一句话总结
+
+**【Analysis】** VISTA 的关键不是让低层 VLA“更聪明地猜”未见物体，而是让高层世界模型先把“要做什么”翻译成可检查的视觉里程碑，让低层控制只需跟随具体的空间和姿态约束。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 将超过 1M 条跨机器人轨迹自动转成“子任务文本—目标图像”交错序列，形成 15.2B token 的 Embodied World Model 训练数据。
+2. 在 EMU3.5 checkpoint 上继续训练一个 34.1B 参数的多模态自回归世界模型，生成多视角、物理一致的视觉子目标。
+3. 提出 VISTA 层级框架和 GoalVLA：World Model 是高层 planner，goal-image-conditioned VLA 是低层 executor。
+4. 用 2 小时、5 个物体的真实机器人数据，在 21 个未见目标和新场景上将同结构 π0 的成功率从 14% 提升到 69%。
+
+## 2. 背景与相关工作
+
+**【Paper】** 传统 language-conditioned VLA 把全局 instruction 直接映射为长序列动作。这个映射同时承担语义理解、空间定位、接触姿态和阶段切换，随着 horizon 变长，状态转移组合数快速增长。论文将困难归因于预训练 VLM 与 VLA 的数据结构错配：VLM 学 image-text，VLA 学长轨迹中的 image-action 对，并且通常回归连续动作。
+
+已有层级方法（例如 Helix、G0）把规划和控制拆开，但多使用文字子目标。**【Analysis】** 语言很适合表达“拿起苹果”，却很难精确表达夹爪应落在苹果哪一侧、物体相对相机应处于什么姿态。另一条路线是直接预测未来视频，它提供更密集的信息，却容易产生时间漂移和物理不一致。VISTA 选择更稀疏的 key-frame goal image：只保留阶段终点的视觉约束，避免长视频 rollout 的误差累积。
+
+## 3. 问题定义
+
+**【Paper】** 给定全局语言指令 $L$、初始多视角观测 $I_0$，以及已完成阶段的历史
+
+$$
+h=(l_0,g_0,\ldots,l_{i-1},g_{i-1}),
+$$
+
+系统在第 $i$ 个阶段生成文本子任务 $l_i$ 和视觉目标 $g_i$，再由策略根据当前观测 $I_t$ 预测长度为 $k$ 的动作块 $a_{t:t+k}$：
+
+$$
+(l_i,g_i)=W(L,h),\qquad a_{t:t+k}=\pi_\theta(I_t,l_i,g_i).
+$$
+
+机器人执行当前动作块，直到观测与 $g_i$ 对齐，再把 $(l_i,g_i)$ 加入历史并请求下一阶段。这里的 goal image 既是“如何做”的空间条件，也承担“何时完成”的视觉终止信号。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![VISTA method architecture from paper Figure 2](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-vista/method.4joubi9rb6.webp)
+
+**【Paper】** 整体数据流是：初始图像与全局 instruction 进入 Embodied World Model，模型自回归地产生 `Step 1: text → goal image → Step 2: text → goal image`；GoalVLA 将实时观测、当前文本和目标图像融合为动作块，subtask switcher 在当前里程碑满足后切换阶段。
+
+### 4.2 核心模块
+
+#### Embodied World Model
+
+- **输入**：初始多视角图像、机器人 embodiment type、全局 instruction，以及此前生成的阶段历史。
+- **输出**：交错的文本子任务与目标图像序列，最多覆盖提示词要求的阶段数。
+- **表示**：图像由 IBQ-Tokenizer 离散化，512×512 图像得到 1024 个视觉 token；文本使用 Qwen3 tokenizer。两者共享一个 282,926 大小的词表。
+- **功能**：用一个自回归 Transformer 建模 `P(text, image | history)`，而不是单独训练一个符号 planner 和一个图像生成器。
+- **必要性**：视觉目标补上语言没有明确编码的相对位置、末端执行器姿态和交互区域，同时比逐帧视频预测更容易保持阶段不变性。
+
+**【Paper】** 论文中的 World Model 共 34.1B 参数，其中 Transformer 31.2B、embedding 2.9B，最大序列长度 16,384。训练时从随机 goal image 附近 1 秒内采样时间戳，允许从任意阶段开始生成，形成 sliding-window 的闭环数据增强。
+
+#### GoalVLA
+
+- **输入**：3 张当前观测图像、3 张对应 goal image、当前子任务文本和末端执行器 6D pose。
+- **输出**：长度 30 的连续动作 chunk；实际部署只执行其中 10 步，再重新闭环预测。
+- **骨干**：类似 π0 的 MoE-like 结构，以 PaliGemma-3B 为 VLM backbone，配备 0.3B action expert；图像由 SigLIP 编码。
+- **动作生成**：采用 flow matching。对噪声 $z$ 和真实动作块 $a$ 做线性插值，action expert 预测速度场，10 步解码得到动作。
+- **阶段切换**：subtask-aware action padding 将跨阶段动作块的后半段置零，显式教会策略在目标满足后停止；random goal image offset 则模拟目标帧提前或延后的误差。
+
+### 4.3 关键公式
+
+#### 世界模型的自回归目标
+
+把图像和文字统一成 token 序列 $S=(u_1,\ldots,u_K)$ 后，训练目标是：
+
+$$
+\mathcal{L}_{\mathrm{AR}}=-\sum_{k=1}^{K}\log P(u_k\mid u_{<k};\theta_W).
+$$
+
+$u_k$ 是第 $k$ 个文本或视觉 token，$u_{<k}$ 是因果注意力下的历史，$\theta_W$ 是世界模型参数。该目标让模型同时学习 instruction following、阶段顺序和未来视觉状态。
+
+#### Beam search 的序列选择
+
+推理时维护 beam 宽度为 $B$ 的候选序列，候选 $S$ 的概率为：
+
+$$
+P(S)=\prod_jP(u_j\mid u_{<j}).
+$$
+
+**【Paper】** 论文描述的是逐 token 扩展、直到所有候选生成终止 token，再选择联合概率最高的序列并用逆 tokenizer 恢复像素级目标图像。**【Code】** 官方 `inference/infer.py` 将这一步交给 `vllm_generation_utils.generate`，配置文件默认 `num_beams=1` 且启用采样；因此公开 demo 默认是单 beam 采样，而非论文文字所述的多 beam 设置。
+
+#### GoalVLA 的 flow matching
+
+$$
+x_\tau=(1-\tau)z+\tau a,\qquad
+\mathcal{L}_{\mathrm{FM}}=\mathbb{E}_{\tau,z}\left[\left\|\pi_\theta(x_\tau,l_i,I_t,g_i,\tau)-(a-z)\right\|_2^2\right].
+$$
+
+$z\sim\mathcal N(0,I)$ 是噪声，$a$ 是真实动作块，$\tau\in[0,1]$ 是 flow time；网络学习从噪声流向动作的速度场。这个目标保留了 π0 的连续动作生成形式，但增加了视觉目标条件。
+
+### 4.4 Training
+
+**【Paper】** World Model 的训练数据来自 Open-X-Embodiment、AgiBot World Beta 和 Mobile Aloha。作者先用 Qwen3 聚类得到 50 个 atomic skills，再用 RDP 从运动轨迹和 gripper 状态变化中找候选边界，最后用 Qwen2.5-VL 72B 合并相邻片段并生成自然语言子任务。处理后约有 1.2M 条轨迹、14 种 embodiment、多视角支持和 15.2B token；同时与 15.0B token 的 Any-to-Image 数据联合训练。
+
+**【Paper】** World Model 在 128 张 H100 上对 EMU3.5 做 2,000 步 continued training，global batch size 为 512，学习率为 $10^{-5}$，使用 cosine scheduler 和 linear warmup。GoalVLA 先用 AgiBot-Beta 的 200,000 条轨迹训练 100,000 steps（batch 512，学习率 $5\times10^{-5}$），再用 737 条自采轨迹训练 10 epochs（batch 128，学习率 $2\times10^{-5}$）。
+
+<Algorithm number={1} title='VISTA 两阶段训练' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>跨 embodiment 轨迹、全局 instruction、图像序列与动作序列</div>
+  <div slot='output'>World Model $W$ 与 GoalVLA $\pi_\theta$</div>
+  <AlgorithmStep>用 skill 聚类、RDP 状态变化和视觉语言模型，把轨迹切成 $(l_i,g_i)$ 序列。</AlgorithmStep>
+  <AlgorithmStep>对交错文本—图像 token 做 causal teacher forcing，优化 $\mathcal{L}_{\mathrm{AR}}$。</AlgorithmStep>
+  <AlgorithmStep>将子任务与目标图像加入 VLA 条件，按 flow matching 训练动作 expert。</AlgorithmStep>
+  <AlgorithmStep>对阶段边界做 action padding 和 random goal-image offset 增强。</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 高层规划器从 $(I_0,L)$ 开始自回归生成阶段序列；低层控制器在当前阶段内反复读取观测并预测动作块。目标图像完成后，历史更新，World Model 再生成下一个阶段。
+
+**【Code】** 官方仓库公开的是 World Model 的 Gradio 推理 demo。`encode()` 将输入图像 resize 到 512×512、归一化到 $[-1,1]$，用 IBQ tokenizer 变成视觉 token；`run_single_sample()` 调用 vLLM 生成交错结果，再解码文本与图像并保存到 `gradio_output/`。README 规定多视角顺序为 head、left-wrist、right-wrist，并支持手工输入 `Step 1: ... Step 2: ...` 覆盖自动规划。
+
+<Algorithm number={2} title='层级闭环执行' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>初始观测 $I_0$、全局指令 $L$、机器人 embodiment</div>
+  <div slot='output'>完成任务的动作序列</div>
+  <AlgorithmStep>World Model 根据 $L$ 和历史 $h$ 生成当前 $(l_i,g_i)$。</AlgorithmStep>
+  <AlgorithmStep>
+    GoalVLA 融合实时图像、目标图像、文本和 proprioception，生成 30 步动作块。
+  </AlgorithmStep>
+  <AlgorithmStep>部署时执行前 10 步，用绝对末端位姿闭环控制并重新观测。</AlgorithmStep>
+  <AlgorithmStep>
+    若当前状态与 $g_i$ 对齐，则更新历史并进入下一阶段；否则继续当前阶段。
+  </AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+| 论文组件          | 官方代码位置                         | 可核对行为                                                                                                                              |
+| ----------------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| World Model 推理  | `inference/infer.py`                 | `encode()` 处理图像、构造 prompt，`run_single_sample()` 调用 vLLM 并解码交错文本/图像。                                                 |
+| 视觉离散化        | `inference/infer.py`、`IBQTokenizer` | 图像按 512×512 处理，IBQ 输出视觉 token，再由逆 tokenizer 恢复 goal image。                                                             |
+| 采样配置          | `inference/config.py`                | `max_new_tokens=16384`、`text_top_k=200`、`image_top_k=5120`，默认 `num_beam_groups=1`。                                                |
+| Prompt 与多视角   | `README.md`、`inference/app.py`      | 支持 6 类 robot arm type；多视角固定为 head、left wrist、right wrist；可手工指定子任务。                                                |
+| GoalVLA 训练/部署 | 论文 Appendix A，公开仓库未提供      | **【Code】** Vista-WM 当前仓库只包含世界模型 inference，未包含论文中 GoalVLA 的训练脚本、动作 expert、subtask switcher 或机器人执行器。 |
+
+**【Analysis】** 因此“论文完整系统”和“官方公开代码”不是同一范围：读者可以直接复现子任务与目标图像生成 demo，但不能仅靠这个仓库复现真实机器人动作闭环。论文中的 GoalVLA 细节应以正文和 Appendix A 为准，不应把 `inference/` 误读成完整控制栈。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![VISTA real-world setup and evaluation scenarios from paper Figure 4](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-vista/real_illustrate_single_col.2vfhebjhr2.webp)
+
+**【Paper】** 真实训练只收集 pick-and-place 的 2 小时数据，目标物体为 egg、cola can、apple、milk bin 和 croissant。评测包含 15 个 in-domain 场景和 63 个 OOD 场景：OOD 使用 21 个未见目标，每个目标配 3 种桌布/布局设置；每个场景运行 3 次，共 234 次 rollout。指标分为 approach success（接近成功）和 execution success（完成操作成功）。
+
+### 5.2 Main Results
+
+![VISTA quantitative comparison on novel object categories from paper Figure 10](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-vista/vista-ood-results.5trrhtu9oc.webp)
+
+**【Paper】** 在训练分布内，π0、π0-subtask 和 VISTA 的平均 execution success 分别为 0.96、0.91 和 0.93，说明视觉目标并不会牺牲已见场景性能。在 unseen distractor 设置下，三者分别为 0.73、0.78 和 0.82；在 unseen target 设置下，分别为 0.04、0.31 和 0.67。VISTA 在未见目标上的 approach success 为 1.00，而 π0 和 π0-subtask 分别只有 0.40 和 0.73。
+
+**【Paper】** 论文摘要进一步报告：在 novel scenarios 中，加入 World Model 生成的视觉指导后，同结构 VLA 的成功率从 14% 提升到 69%。定性结果显示，面对 soda water bottle、red milk carton 等训练集中没有的物体，语言-only baseline 往往抓取形状相似但语义错误的物体，GoalVLA 则利用 goal image 中的交互区域和末端姿态完成抓取。
+
+### 5.3 Ablation Study
+
+![VISTA failure and baseline comparison from project Figure 9](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-vista/case_compare.2h91ngb8ex.webp)
+
+**【Analysis】** 论文的主要对照可以看作一个表示层 ablation：
+
+| 条件            | 高层输入                | 低层条件   | 观察到的现象                                      |
+| --------------- | ----------------------- | ---------- | ------------------------------------------------- |
+| $\pi_0$         | 全局 instruction        | 语言       | 未见目标时接近和抓取都明显退化。                  |
+| $\pi_0$-subtask | 子任务文本              | 语言       | 更容易定位目标，但仍缺少精确抓取姿态。            |
+| VISTA           | 子任务文本 + goal image | 文字与视觉 | 在 unseen target 和复杂背景下同时改善定位与执行。 |
+
+**【Paper】** 论文还通过 subtask-aware padding 和 random goal image offset 说明阶段边界需要显式建模：动作块可能跨越两个阶段，目标图像也可能相对真实终点提前或延后。作者没有给出单独拆除这两个训练技巧的完整数值表，因此不能把它们的独立增益量化。
+
+### 5.4 Generalization
+
+**【Paper】** World Model 在合成的新布局、背景、视角和物体上生成保持多视角与物理一致的序列，还展示了 compositional、spatial、semantic 三类理解：例如同时放置多个物体、把左侧香蕉放到盘子、根据图片中的人物语义选择目标。模型还可以根据 prompt 中的 robot arm type，将 Aloha 观测迁移到 AgiBot G1、WidowX 等 embodiment。
+
+**【Analysis】** 这说明泛化被拆成了两个相对独立的因素：World Model 负责把互联网/跨 embodiment 先验变成视觉计划，GoalVLA 负责把计划映射成动作。前者可以扩展语义和空间覆盖，但后者仍受真实动作数据中的交互模式限制。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** VISTA 同时减少了两个困难。第一，World Model 把长 horizon 的组合推理压缩为少量阶段边界，低层策略不必从一句 instruction 直接猜完整轨迹。第二，goal image 是可视化的终止条件，提供了语言难以表达的相对位置、夹爪朝向和接触区域。由于每次只执行动作块的一小部分，系统还能用新的观测纠正模型误差。
+
+### 6.2 核心创新
+
+1. **视觉里程碑作为中间表示**：比纯文本更有空间约束，比 dense video 更不容易漂移。
+2. **可扩展的数据再标注**：用 skill 聚类、轨迹几何和 VLM，把只有 instruction + action 的旧数据转成可训练的阶段序列。
+3. **World Model 与 VLA 的接口清晰**：高层输出 $(l_i,g_i)$，低层输出 action chunk，便于分别扩展模型和数据。
+4. **训练时模拟接口噪声**：padding 和 goal offset 让低层策略适应阶段边界不精确。
+
+### 6.3 与已有方法的本质区别
+
+**【Analysis】** 与语言层级 planner 相比，VISTA 的接口是“what + how/where”；与未来视频预测相比，它只生成稀疏、可验证的关键帧；与直接扩大 VLA 相比，它将 OOD 语义理解交给更大规模的 world model，而不是要求低层 action head 从少量机器人数据中同时学会视觉概念和控制。
+
+### 6.4 关键假设
+
+- 任务可以切成有限个 atomic skill 和可观察的阶段终点。
+- 目标图像中的姿态和交互区域足以指导低层动作，而不需要完整未来视频。
+- World Model 生成的图像与真实 embodiment 的相机几何大致兼容。
+- 真实 fine-tuning 数据包含目标操作所需的基本交互模式；视觉迁移不能凭空创造训练中不存在的技能。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 真实世界实验目前主要是 pick-and-place，尚未系统验证更丰富、更长时程的操作。生成的 goal image 偶尔会有时间或空间偏差，较大的偏差会导致 GoalVLA 失败。视觉目标可以迁移交互先验，但成功执行仍依赖真实训练数据中存在相应的交互模式，因此需要更多技能和任务多样性。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+1. **规划误差是级联的**：如果 World Model 在第一阶段生成了错误物体或错误终点，后续 GoalVLA 再强也可能只是在执行错误计划。
+2. **像素目标不等于可达目标**：生成图像看起来物理合理，并不保证在当前机器人关节限制、碰撞约束和桌面几何下可达。
+3. **公开代码不完整**：官方仓库只覆盖世界模型 inference，训练数据构造脚本、GoalVLA 和 subtask switcher 未公开，复现实验需要额外实现。
+4. **评测任务仍偏窄**：234 次 rollout 很有说服力，但主要围绕单步 pick-and-place；液体、柔性物体和接触丰富的任务可能暴露新的 failure mode。
+
+## 8. 启发与研究思考
+
+**【Analysis】** VISTA 给出的研究方向不是“所有机器人都应先生成图像”，而是提醒我们重新设计 VLA 的中间接口。一个好的接口需要同时满足三点：能表达空间约束、能被低层策略直接消费、还能用观测验证是否完成。视觉 goal image 恰好处于语言和动作之间。
+
+对后续工作，我认为有三个值得继续追问的问题：
+
+1. 能否让 World Model 输出带不确定性的多个 goal image，并由低层控制器选择可达候选，而不是只取最高概率序列？
+2. 能否把真实执行反馈回写到规划器，学习“哪类视觉目标对当前 embodiment 不可达”？
+3. 能否把稀疏 goal image 与几何约束、触觉或 3D scene graph 结合，降低像素生成偏差对控制的影响？
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。论文图像由项目主页的原始图表下载并上传到图床；图床
+  自定义域名尚未刷新时使用 GitHub Raw fallback。
+</Aside>
