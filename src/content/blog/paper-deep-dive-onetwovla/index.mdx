@@ -49,7 +49,7 @@ import { Aside } from '@/components/user'
 
 **论文 / 代码 / 项目**：[arXiv](https://arxiv.org/abs/2505.11917) · [GitHub](https://github.com/Fanqi-Lin/OneTwoVLA) · [Project Page](https://one-two-vla.github.io/)
 
-![OneTwoVLA 同一模型在关键节点 Reason、其余节点 Act 的总览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-onetwovla/overview.77ealttgsd.webp)
+![OneTwoVLA 同一模型在关键节点 Reason、其余节点 Act 的总览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-onetwovla/overview.5q85k4e9qu.webp)
 
 ### 一句话总结
 
@@ -89,7 +89,7 @@ $\hat R$ 是更新后的自然语言状态，$A_t$ 是连续 action chunk。$I_{
 
 ### 4.1 Overall Architecture
 
-![Reasoning Mode 与 Acting Mode 的统一推理流程（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-onetwovla/inference.1764h3jv53.webp)
+![Reasoning Mode 与 Acting Mode 的统一推理流程（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-onetwovla/inference.45ieknh380.webp)
 
 **【Paper】** OneTwoVLA 以 $\pi_0$ 为基座：视觉语言模型自回归地产生 decision / reasoning token，Action Expert 用 flow matching 建模连续动作。两条路径共享视觉、指令、reference 与 reasoning 上下文。
 
@@ -186,7 +186,7 @@ $$
 
 ### 5.1 Experimental Setup
 
-![长程规划、纠错、人机交互和泛化规划的任务示例（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-onetwovla/tasks.2ksnl4ux6i.webp)
+![长程规划、纠错、人机交互和泛化规划的任务示例（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-onetwovla/tasks.5mojmel8f3.webp)
 
 **【Paper】** 长程任务包括 Tomato-Egg、Hotpot、Cocktail：它们涉及倒油、抓取滤网、翻炒/盛盘或从近十种外观相似材料中倒入 3–4 种。物体初始位置在 $10\times10\,\mathrm{cm}^2$ 内随机化。
 
@@ -194,7 +194,7 @@ $$
 
 ### 5.2 Main Results
 
-![长程规划与泛化规划的主结果（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-onetwovla/results.icux2wc6c.webp)
+![长程规划与泛化规划的主结果（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-onetwovla/results.pg2sk7ha4.webp)
 
 **【Paper】** 长程任务中，$\pi_0$ / Dual-System / OneTwoVLA 的平均成功率为 **50% / 63% / 87%**。OneTwoVLA 在 Tomato-Egg、Hotpot、Cocktail 分别为 85%、80%、95%，比 $\pi_0$ 高 30 个百分点、比 dual-system 高 24 个百分点。
 
@@ -216,7 +216,7 @@ $$
 
 ### 5.4 Generalization
 
-![Single-Env 与 Open-World 视觉 grounding 示例（论文 Figure 7）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-onetwovla/grounding.4ubo4mfnpi.webp)
+![Single-Env 与 Open-World 视觉 grounding 示例（论文 Figure 7）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-onetwovla/grounding.1lck80h5ub.webp)
 
 **【Paper】** Single-Env grounding 中，$\pi_0$ / OneTwoVLA / OneTwoVLA-VL 分别为 **5% / 78% / 88%**；Open-World 中为 **3% / 8% / 73%**。指令可通过空间关系、属性或语义特征引用物体，而非只报物名。候选物体涵盖 robot data 见过、只在 VL data 见过、两个训练集均未见三类。
 
