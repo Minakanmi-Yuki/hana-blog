@@ -1,0 +1,286 @@
+---
+title: 'FASTer 论文精读：用神经动作 Tokenization 加速自回归 VLA'
+publishDate: 2026-08-25
+updatedDate: 2026-08-25
+description: '精读 FASTer：从 FASTerVQ 的二维动作压缩、RVQ 与 DCT 重建，到 FASTerVLA 的 Block-wise Autoregression 和 Action Expert。'
+heroImage:
+  { src: 'https://pic.hana0721.top/70977889_p0_master1200.9gx5x526gc.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '70977889'
+tags:
+  - 'paper deep dive'
+  - 'VLA'
+  - 'action tokenization'
+  - 'autoregressive policy'
+paper:
+  arxivId: '2512.04952'
+  title: 'FASTer: Toward Efficient Autoregressive Vision Language Action Modeling via Neural Action Tokenization'
+  authors:
+    - 'Yicheng Liu'
+    - 'Shiduo Zhang'
+    - 'Zibin Dong'
+    - 'Baijun Ye'
+    - 'Tianyuan Yuan'
+    - 'Xiaopeng Yu'
+    - 'Linqi Yin'
+    - 'Chenhao Lu'
+    - 'Junhao Shi'
+    - 'Luca Jiang-Tao Yu'
+    - 'Liangtao Zheng'
+    - 'Tao Jiang'
+    - 'Jingjing Gong'
+    - 'Xipeng Qiu'
+    - 'Hang Zhao'
+  venue: 'arXiv / ICLR 2026 submission'
+  year: 2025
+  code: ''
+  project: ''
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2512.04952'
+  tldr='FASTer 用 FASTerVQ 把连续动作块压成短而规整的 RVQ token，再用 Action Expert 与 Block-wise Autoregression 生成动作，在保持重建质量的同时降低自回归 VLA 延迟。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《FASTer: Toward Efficient Autoregressive Vision Language Action Modeling via Neural Action Tokenization》  
+**作者**：Yicheng Liu 等 15 位作者  
+**论文链接**：[arXiv 2512.04952](https://arxiv.org/abs/2512.04952)
+
+### 一句话总结
+
+**【Paper】** FASTer 把问题拆成两个相互配合的部分：FASTerVQ 负责将一段连续机器人动作编码成短、固定结构的离散 codes；FASTerVLA 再利用这些 codes 进行带语言条件的自回归生成。前者解决“token 太长且质量不稳”，后者解决“逐 token 解码太慢”。
+
+![FASTer 总览：动作 tokenizer 与自回归 VLA 的组合（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-faster/teaser2-crop.8adzww41qq.webp)
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出 FASTerVQ：先按时间和物理语义对动作做二维 patchification，再用 Transformer Action AutoEncoder（TAAE）与 Residual Vector Quantization（RVQ）编码。
+2. 在重建目标中同时约束时域动作与 DCT 频域趋势，兼顾局部控制误差和整体运动形状。
+3. 提出 FASTerVLA：使用 lightweight Action Expert，并以 Block-wise Autoregression（BAR）一次预测一个 token block。
+4. 在 Libero、Simpler-Bridge、VLABench、Bridge、Droid 以及多种真实机器人上验证压缩、速度、跨 embodiment 泛化和任务成功率。
+
+## 2. 背景与相关工作
+
+**【Paper】** VLA 通常把图像、语言和本体状态映射为动作 chunk。Diffusion Policy / `π₀` 的连续生成精度较高，但自回归 VLA 与 VLM 的接口更自然，通常在语言跟随、场景泛化和常识迁移上更有潜力。
+
+瓶颈在 action tokenization：FAST 一类 tokenizer 可能需要 150–200 个 token 表示 2 秒动作；每个 token 都触发一次大模型前向，延迟甚至超过动作执行时间。直接缩短序列又会损失控制细节，而且不同自由度的统计分布并不均匀：夹爪近似离散，位姿和关节则连续且相关性不同。
+
+**【Analysis】** FASTer 的关键判断是：动作序列不是普通的一维文本。时间维度有平滑冗余，动作维度有 embodiment-specific 的物理语义；tokenizer 必须显式利用这两个结构，才能同时提高 compression ratio 和 reconstruction fidelity。
+
+## 3. 问题定义
+
+给定当前 RGB 图像 $I_t$、本体状态 $s_t$ 和语言指令 $l$，策略预测长度为 $H$ 的连续动作块：
+
+$$
+A_{t:t+H}=(a_t,\ldots,a_{t+H-1}),\qquad a_t\in\mathbb R^D
+$$
+
+FASTer 不直接预测 $A$，而是先由 tokenizer 得到离散 code tensor $C\in\{1,\ldots,K\}^{N_c\times C_h\times C_a}$，再学习：
+
+$$
+p_\theta(C\mid I_t,s_t,l)
+$$
+
+其中 $N_c$ 是 residual codebook 层数，$C_h$ 是 latent horizon，$C_a$ 是 action 维度方向的 code 数。VQ decoder 最后把 $C$ 还原成连续动作。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![FASTerVQ 的动作 patchifier、TAAE 与 RVQ 结构（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-faster/vq-crop.77eam09i8u.webp)
+
+![FASTerVLA 的 Action Expert、BAR 与 block-wise mask（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-faster/vla-crop.5mojmjcalw.webp)
+
+**【Paper】** 数据流是：`RGB + proprioception + language → VLM backbone → Action Expert → discrete action blocks → FASTerVQ decoder → continuous action chunk`。训练时 tokenizer 先独立学习动作表示，VLA 再把 codes 当作新的动作词表进行 teacher forcing；推理时按 codebook 和 horizon 的层级顺序解码。
+
+### 4.2 核心模块
+
+#### FASTerVQ：二维动作 patchifier
+
+- **输入**：$H\times D$ 的动作块。
+- **处理**：时间维度切成长度 $h$ 的组；动作维度按末端位置、旋转、夹爪等物理语义分组，并 padding 到组内最大维度 $d$。
+- **输出**：$(m\cdot n)$ 个 patch，每个 patch 长度为 $h\cdot d$。
+- **作用**：把时间上的平滑冗余和动作维度的不均匀分布编码进 token 布局。
+
+#### TAAE 与 RVQ
+
+TAAE 是带卷积下采样的 Transformer encoder–decoder。encoder 得到 latent $z\in\mathbb R^{C_h\times C_a}$，RVQ 逐层量化残差：
+
+$$
+r_1=z,\quad k_i=\arg\min_j\|r_i-e_j\|^2,\quad r_{i+1}=r_i-e_{k_i}
+$$
+
+早期 codebook 捕获低频、粗粒度运动，后续 codebook 补充高频残差。论文默认 $K=4096$、$N_c=3$；codebook 用 EMA 更新并重置 dead codes。
+
+#### DCT-aware reconstruction
+
+**【Paper】** tokenizer 同时最小化时域和频域误差：
+
+$$
+\mathcal L_{VQ}=\|A-\hat A\|_1+\|\operatorname{DCT}(A)-\operatorname{DCT}(\hat A)\|_1+\lambda\|z-\operatorname{sg}(z_q)\|_2^2
+$$
+
+第一项保护每个控制步，第二项约束整段轨迹的趋势，第三项是 commitment loss。**【Analysis】** 这解释了为什么 FASTer 不把“像素级最小误差”当作唯一目标：机器人真正关心的是轨迹是否仍处于可执行的误差范围。
+
+#### FASTerVLA 与 Action Expert
+
+VLM 的 vision tower、projection 和 language backbone 保持标准接口；proprioception 被离散化后走文本 token 路径。Action Expert 是更小的、专门生成 action code 的分支，复用多模态上下文但减少对预训练语言权重的干扰。论文实验显示 Action Expert 从预训练 checkpoint 初始化时更稳定。
+
+#### Block-wise Autoregression（BAR）
+
+标准 AR 每次预测一个 code。BAR 把序列切成大小为 $B$ 的 block，block 内 token 可以互相 attend，只对前面的 block 保持 causal mask。于是前向次数从 $N$ 降到约 $N/B$。解码顺序先遍历一个 codebook 的 horizon，再进入下一层 residual codebook，符合 RVQ 的 coarse-to-fine 结构。
+
+### 4.3 关键公式
+
+#### 自回归目标
+
+$$
+\mathcal L_{AR}=-\sum_{i=1}^{N}\log p_\theta(c_i\mid c_{<i},I_t,s_t,l)
+$$
+
+BAR 将其改写为：
+
+$$
+\mathcal L_{BAR}=-\sum_{j=1}^{J}\sum_{i=1}^{B}\log p_\theta(c_{j,i}\mid C_{<j},I_t,s_t,l)
+$$
+
+$J=N/B$，所以 block size 越大，理论 forward 次数越少，但 block 内并行假设也越强。
+
+#### Valid Reconstruction Rate（VRR）
+
+$$
+\operatorname{VRR}=\frac1{N_{total}}\sum_i\mathbf 1\big(\|a_i^{recon}-a_i^{gt}\|_1<\sigma\big)
+$$
+
+**【Paper】** VRR 用物理误差阈值衡量“是否足够可执行”，比单纯平均 L1 更接近机器人任务质量。
+
+### 4.4 Training
+
+**【Paper】** FASTerVQ 在大规模混合机器人数据上独立训练，AdamW 学习率为 $10^{-4}$、weight decay 为 $0.1$，使用 cosine decay、1000 步 warmup、bfloat16 和梯度裁剪。单臂 tokenizer 约 8M 参数，全身控制版本约 13M；训练最多 300k steps。
+
+FASTerVLA 使用学习率 $2.5\times10^{-5}$ 的 AdamW，BAR block size 在单臂任务为 7、whole-body / 双臂任务为 8；推理使用 top-k=50、temperature=0.8。
+
+<Algorithm number={1} title='FASTer 训练流程' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>动作块数据集、图像、本体状态、语言指令</div>
+  <div slot='output'>FASTerVQ tokenizer 与 FASTerVLA policy</div>
+  <AlgorithmStep>按 embodiment 语义对连续动作做二维 patchification。</AlgorithmStep>
+  <AlgorithmStep>用 TAAE 编码，经过 RVQ 得到多层离散 codes。</AlgorithmStep>
+  <AlgorithmStep>以时域 L1、DCT L1 和 commitment loss 更新 FASTerVQ。</AlgorithmStep>
+  <AlgorithmStep>
+    冻结或部分保留预训练 VLM，使用 teacher forcing 训练 Action Expert 与 BAR。
+  </AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 推理时不需要 encoder，只需用当前观测得到 VLM memory，按 codebook→horizon 顺序生成 block，随后由 VQ decoder 还原连续动作并执行动作 chunk。
+
+<Algorithm number={2} title='FASTerVLA 推理流程' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前图像 $I_t$、状态 $s_t$、指令 $l$</div>
+  <div slot='output'>连续动作块 $\hat A_{t:t+H}$</div>
+  <AlgorithmStep>编码视觉、语言和 proprioception，得到共享上下文。</AlgorithmStep>
+  <AlgorithmStep>Action Expert 按 residual codebook 顺序生成 BAR blocks。</AlgorithmStep>
+  <AlgorithmStep>将离散 codes 输入 FASTerVQ decoder，得到连续动作。</AlgorithmStep>
+  <AlgorithmStep>执行动作块，并在下一观测到来后重复闭环。</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+论文 arXiv 源文件只包含 LaTeX、图表与算法，没有给出 GitHub、Hugging Face 或可安装代码链接。**【Code】** 因此本节没有可核对的 model definition、DataLoader、checkpoint 或 inference script；上文的“代码行为”不应被理解为已经公开的官方实现。**【Analysis】** 若要复现，至少需要实现 patchifier 的 embodiment 分组、TAAE/RVQ 的 EMA codebook、block-wise causal mask 和 Action Expert 的两阶段训练。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![FASTer 的真实机器人与仿真评测结果（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-faster/realexperiment-crop.3rbytwzuxj.webp)
+
+**【Paper】** 评测覆盖 Libero、Simpler-Bridge、VLABench、GalaxeaManipSim、XArm、R1Lite、Bridge 和 Droid，涉及 Franka、WidowX、XArm、R1/R1Lite 等 embodiment，包含单臂、双臂和 whole-body control。主要 baseline 是 `π₀`、`π₀-FAST`、OpenVLA-OFT、UniVLA、Diffusion Policy 等。
+
+### 5.2 Main Results
+
+| Benchmark              |     FASTer | 最强对比 / 说明                          |
+| ---------------------- | ---------: | ---------------------------------------- |
+| Libero average         |  **97.9%** | 高于 `π₀` 的 94.2% 与 `π₀-FAST` 的 94.2% |
+| Simpler-Bridge average |  **87.9%** | 高于 `π₀-FAST` 的 76.5%                  |
+| Libero inference       | **112 ms** | `π₀` 176 ms，FAST 197–556 ms             |
+| R1Lite-WBC inference   | **237 ms** | `π₀` 225 ms，FAST 1100–3000 ms           |
+
+**【Paper】** Libero 的 Spatial/Object/Goal/Long 成功率分别为 98.0/99.4/98.6/95.4%；Simpler 的 Spoon/Carrot/Block/Eggplant 为 91.7/93.3/67.5/99.2%。
+
+![FASTerVQ 在不同误差阈值下的 VRR（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-faster/fastervq_vrr-crop.86udz6c93j.webp)
+
+FASTerVQ 在 VRR 和 compression–reconstruction 曲线上都优于 FAST 等 tokenizer，且随着训练数据从 S 扩展到 L/XL，跨任务与跨 embodiment 的重建继续改善。论文报告 FASTerVQ-XL 在 $\sigma=10^{-3}$ 时接近无损重建。
+
+### 5.3 Ablation Study
+
+![FASTer 的 BAR block size 消融（论文 Appendix Figure）](https://pic.hana0721.top/blog/paper-deep-dive-faster/blockablate-crop.1764h9zw6c.webp)
+
+**【Paper】** tokenizer 消融中，TAAE 的 Libero success rate 为 97.9%、L1 loss 为 0.0021，优于 CNN 的 96.2%/0.0027 和纯 Transformer 的 95.3%/0.0036。codebook size 从 512 增至 4096 时成功率升至 97.9%，增至 8192 后降至 96.3%，提示 codebook collapse 风险；3 层 residual 的成功率为 97.9%，8 层反而降至 96.6%。
+
+BAR 在不使用 Action Expert 时把 latency 从 323 ms 降至 140 ms，success rate 从 95.5% 升至 96.7%；二者结合后达到 97.7% 和 140 ms。Simpler-Widow 上，未预训练的 Action Expert 只有 23.6%，预训练后升至 87.9%，说明 action branch 的初始化非常关键。
+
+### 5.4 Generalization
+
+![FASTer 在 Bridge 与 Droid 上的 zero-shot 对比（论文 Figure 8）](https://pic.hana0721.top/blog/paper-deep-dive-faster/zeroshot-crop.83as1gj71w.webp)
+
+**【Paper】** FASTerVQ 只用单臂 delta-EEF 数据训练，也能迁移到 Widow、XArm、joint velocity、absolute joint position 等未见 embodiment 或 action representation。VLABench 上 FASTerVLA 的 OOD 相对下降约 29%；Simpler-Bridge 达到 87.9%，比第二名高 12.9 个百分点。Bridge 数据上，FASTerVQ 使用 4096 code 且接近 100% 激活，token 分布熵更高，作者将其与 zero-shot 性能联系起来。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** FASTer 的收益来自三个层次的对齐：patchifier 对齐动作的物理结构，DCT loss 对齐轨迹的长程趋势，BAR 对齐 RVQ code 的层级结构。这样自回归模型面对的是短、定长、分布更均衡的序列，而不是长且变化剧烈的 FAST token 串。
+
+### 6.2 核心创新
+
+1. 用“二维、语义分组”的 action patch 替代朴素 flatten。
+2. 用 DCT + L1 把可执行的轨迹形状纳入 tokenizer 目标。
+3. 用 codebook-wise、block-wise 的层级解码减少 forward 次数。
+4. 用轻量 Action Expert 隔离语言建模和动作建模的梯度冲突。
+
+### 6.3 与已有方法的本质区别
+
+**【Analysis】** `π₀-FAST` 主要依靠一个通用 tokenizer 把动作离散化；FASTer 进一步把 tokenizer 的布局设计、频域监督和 decoder 调度一起视为 VLA 的系统设计。它不是单纯“换一个 VQ”，而是让 token 的结构直接决定自回归 mask 和解码顺序。
+
+### 6.4 关键假设
+
+- 同一归一化动作空间中的不同 embodiment 共享可迁移的局部运动结构。
+- 同一 block 内的 code 在动作维度上具有足够的部分独立性。
+- 更均衡的 codebook activation 能让语言模型更容易学习动作词表。
+- 预训练 VLM 的语义表示可以通过 Action Expert 稳定地连接到连续控制。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+论文没有单独列出完整的 limitation 小节。**【Paper】** 文中仍暴露出几个工程边界：tokenizer 和 VLA 使用多套大规模机器人数据、8 张 H100/H20 甚至 64 张 H20/H200 训练；不同 benchmark 需要重新选择 action chunk、$C_h$ 与 block size；whole-body 场景的总延迟仍约 237 ms。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+1. BAR 的 block 内并行是假设，不适用于强耦合的接触动作；block size 过大可能把错误成批传播。
+2. 语义分组和 padding 依赖 embodiment 先验，换机器人时并非完全 out-of-the-box。
+3. VRR 的阈值 $\sigma$ 与具体控制器、坐标归一化有关，跨数据集比较需谨慎。
+4. 当前公开材料没有官方代码，复现 EMA dead-code reset、mask 细节和 Action Expert 训练 schedule 仍有较高门槛。
+
+## 8. 启发与研究思考
+
+**【Analysis】** FASTer 把一个常被当成“预处理”的 tokenizer 提升为 VLA 的核心建模对象。后续工作可以沿三个方向推进：一是让 patchifier 从数据中学习，而不是手写 action grouping；二是根据接触事件动态选择 block size；三是把 VRR 或任务成功率直接作为 tokenizer 的 differentiable 或 offline selection 目标。
+
+对实践者而言，最值得复用的原则不是固定的 `K=4096` 或 `B=7`，而是先问清楚三件事：动作的时间冗余在哪里，动作维度的物理耦合在哪里，以及推理延迟主要消耗在 observation encoder 还是 token decoder。只有这三者共同决定 token 结构，AR VLA 才可能同时做到可学、可泛化和可部署。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。本论文源文件未提供官方代码链接，因此代码对照部分仅说明复现边界。
+</Aside>
