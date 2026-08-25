@@ -18,6 +18,7 @@ Use only after the count-1 pool is exhausted.
 | Use Count | Pixiv ID    | URL                                                                | Current Posts                                              |
 | --------: | ----------- | ------------------------------------------------------------------ | ---------------------------------------------------------- |
 |         2 | `116834498` | `https://pic.hana0721.top/116834498_p0_master1200.1e974fnzok.webp` | `rl-note-26`, `paper-deep-dive-onetwovla`                  |
+|         2 | `125160058` | `https://pic.hana0721.top/125160058_p0_master1200.6ikvtm0o6l.webp` | `sts-silent-cards-rating`, `paper-deep-dive-molmoact`, `paper-deep-dive-fast` |
 |         2 | `133535742` | `https://pic.hana0721.top/133535742_p0_master1200.icpovr2id.webp`  | `paper-deep-dive-openvla`, `paper-reading-eba1`            |
 |         2 | `57793944`  | `https://pic.hana0721.top/57793944_p0_master1200.4xv4u7fok2.webp`  | `paper-deep-dive-rt2`, `paper-reading-vlm2`                |
 |         2 | `104724685` | `https://pic.hana0721.top/104724685_p0_master1200.7p472bcti3.webp` | `rl-note-23`, `paper-deep-dive-bagel`                      |
@@ -57,7 +58,6 @@ Preferred candidates for new posts.
 |         1 | `65089776`  | `https://pic.hana0721.top//65089776_p0_master1200.5c1kl2nzfo.webp` | `rl-note-1`                                                             |
 |         2 | `42175762`  | `https://pic.hana0721.top/42175762_p0_master1200.6m4jay5vlg.webp`  | `paper-reading-eba5`, `paper-deep-dive-cot-vla`, `paper-deep-dive-pi05` |
 |         2 | `112236596` | `https://pic.hana0721.top/112236596_p0_master1200.232gogbiox.webp` | `rl-note-25`, `paper-deep-dive-qwen-robotmanip`                         |
-|         1 | `125160058` | `https://pic.hana0721.top/125160058_p0_master1200.6ikvtm0o6l.webp` | `sts-silent-cards-rating`                                               |
 |         1 | `126839080` | `https://pic.hana0721.top/126839080_p0_master1200.232gprncye.webp` | `upload-project-to-github`                                              |
 |         1 | `126903857` | `https://pic.hana0721.top/126903857_p0_master1200.2dpaix2l3u.webp` | `tmux-ssh-session-management`                                           |
 |         1 | `129563571` | `https://pic.hana0721.top/129563571_p0_master1200.1ziuqmv78w.webp` | `vibe-coding-1`                                                         |
@@ -67,8 +67,8 @@ Preferred candidates for new posts.
 |         1 | ``          | `https://pic.hana0721.top/145491169_p0_master1200.2dpccm5v9t.webp` | `openssh-server-setup`                                                  |
 |         2 | `56422576`  | `https://pic.hana0721.top/56422576_p0_master1200.7i0z6ufn65.webp`  | `paper-reading-vlm1`, `paper-deep-dive-chatvla-2`                       |
 |         2 | `62258773`  | `https://pic.hana0721.top/62258773_p0_master1200.7zr0vfh0rf.webp`  | `paper-reading-cv1`, `paper-deep-dive-ace-ego-0`                        |
-|         1 | `62423081`  | `https://pic.hana0721.top/62423081_p0_master1200.3ns7nvxp9b.webp`  | `paper-reading-bm1`                                                     |
-|         1 | `64131498`  | `https://pic.hana0721.top/64131498_p0_master1200.45i9cfg3rk.webp`  | `paper-reading-eba2`                                                    |
+|         2 | `64131498`  | `https://pic.hana0721.top/64131498_p0_master1200.45i9cfg3rk.webp`  | `paper-reading-eba2`, `paper-deep-dive-lap`                              |
+|         2 | `62423081`  | `https://pic.hana0721.top/62423081_p0_master1200.3ns7nvxp9b.webp`  | `paper-reading-bm1`, `paper-deep-dive-rdt2`                              |
 |         1 | `66497987`  | `https://pic.hana0721.top/66497987_p0_master1200.58hynbbxn8.webp`  | `paper-reading-eba3`                                                    |
 |         1 | `68232005`  | `https://pic.hana0721.top/68232005_p0_master1200.60uu51sjdo.webp`  | `paper-reading-llm1`                                                    |
 |         1 | `69461006`  | `https://pic.hana0721.top/69461006_p0_master1200.1e974ctzq9.webp`  | `paper-reading-llm2`                                                    |

@@ -1,0 +1,266 @@
+---
+title: 'MolmoAct 论文精读：空间推理 Action Reasoning Model'
+publishDate: 2026-08-25
+updatedDate: 2026-08-25
+description: '精读 MolmoAct：用深度感知 token、视觉轨迹 trace 与离散动作 token，把 VLA 的感知、规划和控制组织成可解释、可 steer 的三阶段推理。'
+heroImage:
+  { src: 'https://pic.hana0721.top/125160058_p0_master1200.6ikvtm0o6l.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '125160058'
+tags:
+  - 'paper deep dive'
+  - 'VLA'
+  - 'spatial reasoning'
+  - 'robot manipulation'
+paper:
+  arxivId: '2508.07917'
+  title: 'MolmoAct: Action Reasoning Models that can Reason in Space'
+  authors:
+    - 'Jason Lee'
+    - 'Jiafei Duan'
+    - 'Haoquan Fang'
+    - 'Yuquan Deng'
+    - 'Shuo Liu'
+    - 'Boyang Li'
+    - 'Bohan Fang'
+    - 'Jieyu Zhang'
+    - 'Yi Ru Wang'
+    - 'Sangho Lee'
+    - 'Winson Han'
+    - 'Wilbert Pumacay'
+    - 'Angelica Wu'
+    - 'Rose Hendrix'
+    - 'Karen Farley'
+    - 'Eli VanderBilt'
+    - 'Ali Farhadi'
+    - 'Dieter Fox'
+    - 'Ranjay Krishna'
+  venue: 'arXiv'
+  year: 2025
+  code: 'https://github.com/allenai/MolmoAct'
+  project: 'https://allenai.org/blog/molmoact'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2508.07917'
+  tldr='MolmoAct 让机器人先预测深度 token，再生成可编辑的二维末端轨迹，最后输出离散动作 token，把空间推理显式地接入 VLA 控制。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《MolmoAct: Action Reasoning Models that can Reason in Space》
+
+**作者**：Jason Lee 等（Allen Institute for AI、University of Washington）
+
+**论文链接**：[arXiv](https://arxiv.org/abs/2508.07917) · **代码**：[allenai/MolmoAct](https://github.com/allenai/MolmoAct) · **项目介绍**：[Ai2 Blog](https://allenai.org/blog/molmoact)
+
+![MolmoAct 的三阶段空间推理总览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-molmoact/fig1_overview.3rbytvxjmt.webp)
+
+### 一句话总结
+
+**【Paper】** MolmoAct 把 VLA 的隐式“看图就出动作”改成显式的三段式推理：从 RGB 估计离散深度、画出末端执行器的 Visual Reasoning Trace，再生成低层 Action Tokens；因此策略不仅能控制机器人，也能被人检查和用轨迹草图 steer。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出 Action Reasoning Model（ARM）范式，把 perception、spatial planning 和 control 串成可监督的 token 序列。
+2. 用 Depth Perception Tokens 蒸馏 Depth Anything V2 的深度估计，用 2D trace 保存比语言更精确的空间计划。
+3. 设计保持序关系的 256-bin action token 初始化，降低动作词表学习成本；预训练约 9,216 GPU hours。
+4. 发布超过 10,000 条高质量轨迹的 MolmoAct Dataset，以及模型权重、训练代码和数据配方。
+
+## 2. 背景与相关工作
+
+**【Paper】** 传统 VLA 通常直接学习 $p(a\mid I,T)$。这种端到端映射缺少显式深度和中间计划：同一条动作失败时，很难判断是目标理解错、空间定位错，还是控制错；语言 CoT 又会丢失尺度、坐标和时间信息。MolmoAct 的出发点是让中间变量本身就位于机器人真正需要的空间表示中。
+
+**【Analysis】** 这不是把语言 CoT 换成另一种“解释文本”，而是把解释绑定到可渲染的深度 token 和可编辑轨迹上。这样中间结果同时承担监督信号、控制条件和人机交互接口三种角色。
+
+## 3. 问题定义
+
+**【Paper】** 给定多视角 RGB 观测 $I$ 和语言指令 $T$，模型要生成深度字符串 $\mathbf d$、二维末端轨迹 $\boldsymbol\tau$ 以及 $D$ 维离散动作 $\mathbf a$：
+
+$$
+(I,T)\longrightarrow(\mathbf d,\boldsymbol\tau,\mathbf a).
+$$
+
+- **Observation**：side/front/wrist 等多视角 RGB；部分任务还会把用户画的轨迹叠加到图像。
+- **Action**：每个自由度先按数据集分位数归一化，再量化为 256 个 bin；post-training 时通常以 $K=8$ 的 action chunk 执行。
+- **Embodiment**：Google Robot、WidowX、Franka 单臂与双臂，以及 LIBERO 仿真中的 Franka Panda。
+- **数据**：OXE 子集（RT-1、BridgeData V2、BC-Z）、多模态 web data、辅助 depth/trace data 与 MolmoAct Dataset。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![MolmoAct 训练、推理与数据流架构（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-molmoact/fig2_model_and_training.8okfnqbbtx.webp)
+
+**【Paper】** backbone 沿用 Molmo 的 ViT + 两层 MLP connector + decoder-only LLM；在语言模型输出空间中依次生成 depth tokens、visual trace tokens 和 action tokens。训练阶段还混合 dense caption、pointing、trajectory drawing 等任务，推理阶段只需一次自回归生成即可得到三种结果。
+
+### 4.2 核心模块
+
+#### Depth Perception Tokens
+
+**【Paper】** 深度图先由 Depth Anything V2 specialist 估计，再由 VQVAE 压缩成 $M=100$ 个 code，每个 code 映射到 128 个 `<DEPTH_k>` token。VLA 只看原始 RGB，却被监督去重建 specialist 的深度字符串，属于 specialist-to-generalist distillation。
+
+**【Code】** `preprocess/processors.py` 中先调用 `DepthAnythingV2.infer_image`，把深度归一化为 8-bit 灰度，再通过 `DepthTokens.inference_depth_tokens` 输出 `<DEPTH_START>...<DEPTH_END>`。
+
+#### Visual Reasoning Trace
+
+**【Paper】** 轨迹是最多 5 个点的折线 $\boldsymbol\tau=(p_1,\ldots,p_L)$，坐标归一化到 $[0,255]$。$p_1$ 是当前夹爪位置，其余点从未来 episode 均匀采样。它提供比自然语言更精确的末端定位和时间方向。
+
+**【Code】** `preprocess/line_utils.py` 与 `processors.py` 将未来末端点均匀 subsample 成 line；推理 parser 在 `olmo/hf_model/molmoact/modeling_molmoact.py` 中解析 `<TRAJ_START>` 之间的坐标。
+
+#### Action Tokenizer 与 Policy
+
+**【Paper】** 每个动作维度按 1% 到 99% 分位数裁剪后量化为 256 bins，并映射到 Qwen tokenizer 末端的 byte-level BPE symbols。相邻 bin 使用相邻 symbol，给 action embedding 一个保留序关系的初始化，论文报告这使预训练成本比 GR00T 的 50,000 GPU hours 少五倍以上。
+
+**【Code】** `preprocess/processors.py` 的 `ActionProcessor` 完成 quantile normalization、tokenization 与 chunking；`launch_scripts/train_multitask_model.py` 的 `--action-chunk-size` 默认值为 8。
+
+### 4.3 关键公式
+
+三阶段联合概率分解为：
+
+$$
+p(\mathbf d,\boldsymbol\tau,\mathbf a\mid I,T)=
+\prod_i p(d_i\mid I,T,\mathbf d_{<i})
+\prod_j p(\tau_j\mid I,T,\mathbf d,\boldsymbol\tau_{<j})
+\prod_k p(a_k\mid I,T,\mathbf d,\boldsymbol\tau,\mathbf a_{<k}).
+$$
+
+其中 $d_i$ 是深度 code，$\tau_j$ 是轨迹坐标 token，$a_k$ 是动作维度或 chunk 中的动作 token。**【Analysis】** 这个因子化把误差传播方向固定为“感知 → 计划 → 控制”：深度和轨迹不是生成后的解释，而是后续动作的条件。
+
+深度字符串写作：
+
+$$
+\mathbf d=(\langle\mathrm{DEPTH\_START}\rangle,\langle\mathrm{DEPTH}_{z_1}\rangle,\ldots,\langle\mathrm{DEPTH}_{z_{100}}\rangle,\langle\mathrm{DEPTH\_END}\rangle),
+$$
+
+其中 $z_i\in\{1,\ldots,128\}$。轨迹点 $p_i=(u_i,v_i)$，且 $u_i,v_i\in[0,255]$。
+
+### 4.4 Training
+
+**【Paper】** 预训练混合 26.3M 样本：action reasoning 和 trajectory-conditioned 数据各占约 38.7%，multimodal web 约 21.5%，其余为 depth/line 辅助数据。随后用约 1M action reasoning + 1M trajectory-conditioned 的 MolmoAct Dataset 做 mid-training（50k steps、batch size 128、128 张 H100），最后对新任务用 30–50 条示教做 LoRA post-training。
+
+![预训练数据混合比例（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-molmoact/fig3_datamix.pg2snw7xp.webp)
+
+**【Code】** `scripts/train.py` 实现训练入口和 LoRA；`olmo/data/robot_datasets.py` 注册 MolmoAct 数据集；README 给出的 post-training 配置通常是 LoRA rank 32、alpha 16，LIBERO batch size 128、真实机器人 batch size 64。
+
+<Algorithm number={1} title='MolmoAct Training' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>OXE/网页/ MolmoAct 数据、RGB 图像、语言指令与动作标签</div>
+  <div slot='output'>可生成 depth、trace、action 的 ARM checkpoint</div>
+  <AlgorithmStep>将机器人轨迹转换为 depth string、future trace 和离散 action tokens</AlgorithmStep>
+  <AlgorithmStep>按预训练、mid-training、post-training 三阶段混合采样数据</AlgorithmStep>
+  <AlgorithmStep>用 next-token objective 计算所有结构化 token 的监督损失（动作 token 是控制目标）</AlgorithmStep>
+  <AlgorithmStep>在下游任务上以 LoRA 适配新 embodiment 与 action chunk size</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 推理时给定当前图像和指令，模型先生成深度，再生成轨迹，最后生成动作；执行 $K=8$ 个动作后重新进行 action reasoning。用户也可以把轨迹直接画在图像上，形成 $I^+=I\oplus\boldsymbol\tau$，绕过语言歧义实现交互式 steer。
+
+**【Code】** `experiments/libero/run_libero_eval.py` 和 vLLM 版本都先调用 `parse_depth`、`parse_trace`，再 `parse_action`；`olmo/hf_model/molmoact/modeling_molmoact.py` 与 `experiments/libero/molmoact.py` 提供同一套 parser。
+
+<Algorithm number={2} title='Spatial Reasoning Inference' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>多视角观测 $I$、指令 $T$，可选用户 trace</div>
+  <div slot='output'>执行的 action chunk 与可视化 depth/trace</div>
+  <AlgorithmStep>编码图像和指令，生成 `<DEPTH_START>...<DEPTH_END>`</AlgorithmStep>
+  <AlgorithmStep>基于深度 token 生成最多 5 个二维末端轨迹点</AlgorithmStep>
+  <AlgorithmStep>条件化生成离散 action tokens，反量化为机器人动作</AlgorithmStep>
+  <AlgorithmStep>执行一个 chunk；若仍在任务中，更新观测后闭环重算</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+| 论文概念 | 官方代码位置 | 实际行为 |
+| --- | --- | --- |
+| ARM / VLA | `olmo/hf_model/molmoact/modeling_molmoact.py` | Hugging Face `MolmoActForActionReasoning` 负责生成与解析三类 token |
+| 深度蒸馏 | `preprocess/processors.py`、`scripts/vqvae.py` | Depth Anything V2 → 灰度图 → VQVAE code → depth string |
+| Trace 标注 | `preprocess/line_utils.py` | 从未来末端轨迹均匀采样最多 5 个点 |
+| Action chunk | `preprocess/processors.py`、`experiments/libero` | 256-bin action tokenizer，默认 chunk size 8 |
+| LoRA post-training | `scripts/train.py`、`launch_scripts/train_multitask_model.py` | 对下游任务启用 adapters，README 提供合并与推理脚本 |
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![MolmoAct Dataset 的任务示例与动词分布（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-molmoact/fig4_molmoact_dataset.mt8n8p27.webp)
+
+**【Paper】** 评测覆盖 SimplerEnv zero-shot、LIBERO 四个 suite、Franka 单臂/双臂真实任务、OOD 变化、开放指令跟随和 trace steering。真实评测每项任务通常 25 次试验；MolmoAct Dataset 包含 tabletop、home 等多场景和超过 100 个任务。
+
+### 5.2 Main Results
+
+![真实世界单臂与双臂任务结果（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-molmoact/fig5_real_eval_indist.8vnnj5xhnr.webp)
+
+**【Paper】** 关键数字如下：
+
+| 设置 | MolmoAct 结果 | 论文报告的比较 |
+| --- | ---: | --- |
+| SimplerEnv Visual Matching zero-shot | 70.5% | 超过 Pi-0、GR00T N1.5 等闭源/大规模基线 |
+| LIBERO 平均成功率 | 86.6% | Long suite 比 ThinkAct 高 6.3 个百分点 |
+| 真实单臂 task progression | — | 平均比 Pi-0-FAST 高 10% |
+| 真实双臂 task progression | — | 平均比 Pi-0-FAST 高 22.7% |
+| OOD 真实泛化 | — | 平均比 Pi-0-FAST 高 23.3% |
+
+### 5.3 Ablation Study
+
+![OOD 泛化与 MolmoAct Dataset 中训练的消融（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-molmoact/fig6_1_real_eval_outdist.83as1fgw6p.webp)
+
+![MolmoAct Dataset 对真实任务的增益（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-molmoact/fig6_2_real_eval_molmoact_dataset.9rk4ym76lx.webp)
+
+**【Paper】** 去掉 MolmoAct Dataset 的 mid-training 后，三项真实任务平均下降 5.5%；这说明数据质量和域对齐不是可有可无的附加项。视觉 trace 也不是装饰：在歧义的 “pick up the bowl” 任务中，trace steering 成功率达到 0.75，比开放式语言 steering 高 33 个百分点。
+
+### 5.4 Generalization
+
+**【Paper】** 真实 OOD 测试分别改变语言、目标空间位置、干扰物和未见物体；模拟 variant aggregation 则改变光照、纹理和相机视角。MolmoAct 在这些变化上保持更稳定的 task progression。开放指令人评中，它相对 SpatialVLA 的 Elo 高 109 分，相对 OpenVLA 的 pairwise 胜率为 81%。
+
+![语言与视觉轨迹泛化的人评结果（论文 Figure 8）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-molmoact/fig8_lang_generalize.1764h8xmpo.webp)
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** 第一，深度 token 给 RGB-only backbone 注入了可压缩的 3D 先验；第二，trace 把长时域规划变成少量几何约束，减少语言描述到控制的语义损失；第三，三段 token 都能用现成的 next-token infrastructure 训练，不需要为每个 embodiment 设计新的 diffusion head。数据消融还表明，结构化中间监督和高质量 household trajectories 具有叠加收益。
+
+### 6.2 核心创新
+
+**【Analysis】** 真正的创新不是“增加一个深度估计器”，而是把深度、轨迹和动作放进一个可自回归组合的 token interface：同一接口既连接 perception 与 policy，也连接 robot 与 human operator。
+
+### 6.3 与已有方法的本质区别
+
+**【Paper】** CoT-VLA 等方法主要在语言空间中分解任务；TraceVLA 主要使用轨迹作为辅助输出；MolmoAct 则把 depth、trace、action 组织成有固定顺序的因子化链，并在预训练阶段同时学习三者。**【Analysis】** 因此它更像“可观测的 latent program”，而不是在动作旁边附加一段解释。
+
+### 6.4 关键假设
+
+- **【Paper】** 由 RGB 蒸馏出的离散深度足以支持常见桌面操作，且 100 个 VQVAE code 能保留有用的空间结构。
+- **【Analysis】** 2D trace 与低层动作之间存在稳定映射；当遮挡严重、相机外参变化很大或需要接触力反馈时，这个假设可能失效。
+- **【Analysis】** action token 的序关系初始化能跨 embodiment 迁移，但不同机器人动作维度和范围仍需 post-training 校准。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 作者指出，生成更多 reasoning tokens 会带来推理速度与数据采集控制频率不匹配的问题；服务器到机器人通信延迟也会放大这一差距，未来需要更快的 VLM 优化或更小的 edge model。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】** 深度 specialist、VQVAE 和 trace 标注把训练管线变复杂；深度 token 是固定长度的压缩，可能丢失细小接触几何；trace 仍是相机平面表示，不能单独表达遮挡后的 3D 路径或力控策略。另一个现实问题是，论文展示的成功率主要来自已校准相机和少量示教，换传感器、控制频率或动作空间时仍需重新验证。
+
+![视觉轨迹 steering 的交互示例（论文 Figure 9）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-molmoact/fig9_steerability.7w7k5zuriy.webp)
+
+## 8. 启发与研究思考
+
+**【Analysis】** MolmoAct 给 VLA 研究的启发是：中间表示不必是自然语言，关键是它是否同时满足“可监督、可解释、可控制”。后续可以沿三个方向推进：
+
+1. 用不确定性或多候选 trace 表示动作多模态，而不是只生成一条折线。
+2. 将 2D trace 与相机标定、点云或触觉 token 融合，弥补纯 RGB 的遮挡和接触盲区。
+3. 把 depth/trace 的早停、缓存和 speculative decoding 纳入控制器设计，降低 reasoning token 对闭环频率的影响。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】` 表示基于论文和代码的分析推断。
+</Aside>
