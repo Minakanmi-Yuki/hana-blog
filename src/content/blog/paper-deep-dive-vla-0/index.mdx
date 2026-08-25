@@ -1,0 +1,315 @@
+---
+title: 'VLA-0 论文精读：不改 VLM，直接把动作写成文本'
+publishDate: 2026-08-25
+updatedDate: 2026-08-25
+description: '精读 VLA-0：以 Qwen2.5-VL 为底座，不新增动作 token 或动作头，仅用数字文本、动作集成和 masked action augmentation 构建高性能 VLA。'
+heroImage:
+  { src: 'https://pic.hana0721.top/66497987_p0_master1200.58hynbbxn8.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '66497987'
+tags:
+  - 'paper deep dive'
+  - 'VLA'
+  - 'vision-language-action'
+  - 'robot learning'
+paper:
+  arxivId: '2510.13054'
+  title: 'VLA-0: Building State-of-the-Art VLAs with Zero Modification'
+  authors:
+    - 'Ankit Goyal'
+    - 'Hugo Hadfield'
+    - 'Xuning Yang'
+    - 'Valts Blukis'
+    - 'Fabio Ramos'
+  venue: 'arXiv'
+  year: 2025
+  code: 'https://github.com/NVlabs/vla0'
+  project: 'https://vla0.github.io/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2510.13054'
+  tldr='VLA-0 不修改底层 VLM 的词表和网络结构，只把归一化后的连续动作写成空格分隔的整数文本，再用动作集成与 masked action augmentation 获得强 VLA 性能。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+### 一句话总结
+
+**【Paper】** VLA-0 重新审视了一个被主流路线忽略的方案：不新增 action token、不接专用 action head，也不改 tokenizer，而是提示一个普通 Vision-Language Model（VLM）把未来动作直接生成成数字字符串。论文以 Qwen2.5-VL-3B 为底座，配合 action decoding、ensemble prediction 和 Masked Action Augmentation，在 LIBERO 和 SO-100 上取得了出人意料的高性能。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出 **VLA-0**：保持底层 VLM 的 vocabulary、tokenization 和网络结构不变，用文本形式表示机器人动作。
+2. 给出一套决定性能的训练/推理 recipe：把连续动作归一化到整数区间、限制推理时的合法 token、对重叠动作预测做 ensemble，并随机遮挡动作字符串中的字符。
+3. 在没有大规模机器人动作预训练的情况下，LIBERO 四个 suite 平均成功率达到 **94.7%**，超过同类未预训练 VLA 以及若干做过大规模动作预训练的方法。
+4. 在 SO-100 四个真实任务上超过使用大规模 SO-100 预训练的 SmolVLA，平均高出 **12.5 个百分点**。
+
+![VLA-0 converts a VLM into a VLA by generating actions as text, paper Figure 1](https://pic.hana0721.top/blog/paper-deep-dive-vla-0/Figure1-static.6il11ylkik.webp)
+
+## 2. 背景与相关工作
+
+**【Paper】** 现有 VLA 大致可分为三类：
+
+- **Discrete Token VLA**：把动作离散到若干 bin，再占用 VLM 词表中的 token；代表方法包括 RT-2 和 OpenVLA。
+- **Generative Action Head VLA**：在 VLM 外增加连续动作生成模块，例如 diffusion/flow action head。
+- **Custom Architecture VLA**：引入专用 action tokenizer 或改造 decoder，例如 DCT 风格的 action tokenization 或 ACT head。
+
+![Families of VLA methods from paper Figure 2](https://pic.hana0721.top/blog/paper-deep-dive-vla-0/comp_fig_horizontal.8adzwv4xsi.webp)
+
+**【Paper】** 第一类方法的困难是动作分辨率受 token 数量约束，而且复用文本 token 可能损害原本的语言语义；后两类虽然表达力更强，却引入额外参数、训练阶段和工程复杂度。VLA-0 的问题意识很直接：如果 VLM 本来就会生成数字，为什么不能让它直接生成动作数字？
+
+**【Analysis】** 这不是声称架构修改没有价值，而是把研究变量换成了训练 recipe。论文真正想验证的是：当输入格式、数字约束、动作集成和遮挡增强都设计得足够仔细时，所谓“最简单”的文本动作接口是否已经足够强。
+
+## 3. 问题定义
+
+**【Paper】** VLA-0 接收一个 system prompt、一个或多个 RGB 图像和自然语言任务指令，输出未来 $H$ 个时间步、每步 $D$ 维的动作。system prompt 要求模型输出单行、空格分隔的 $H\times D$ 个整数，每个整数位于 $[0,B]$。
+
+$$
+o_t=\{I_t^{(1)},\ldots,I_t^{(C)},\ell_t\},
+\qquad
+A_t=[a_t, a_{t+1},\ldots,a_{t+H-1}].
+$$
+
+其中 $I_t^{(c)}$ 是第 $c$ 个相机图像，$\ell_t$ 是任务指令，$a_t\in\mathbb R^D$ 是原始连续动作。策略学习的是文本条件分布 $p_\theta(s(A_t)\mid o_t)$，$s(\cdot)$ 表示把动作序列编码为数字字符串。
+
+**【Paper】** LIBERO 实验使用第三人称和 wrist camera；真实 SO-100 实验使用左右相机。每个 LIBERO suite（Spatial、Object、Goal、Long）包含 10 个任务，每个任务评估 50 个 episode。
+
+**【Code】** 官方默认配置使用 Qwen2.5-VL-3B-Instruct、7 维 original action、8 步 horizon、1 帧 history、2 个 camera、1000 个 action bins 和 224×224 图像。仓库中的 `img_libero_aug.yaml` 同样设置 `history=1`、`horizon=8`，并使用 `physical-intelligence/libero` LeRobot 数据集。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![VLA-0 architecture from paper Figure 3](https://pic.hana0721.top/blog/paper-deep-dive-vla-0/arch_fig.6il11ylks2.webp)
+
+**【Paper】** 数据流可以概括为：多视角图像与语言指令进入原生 VLM；VLM 按聊天模板生成空格分隔的整数；整数经过反归一化后还原为连续机器人动作。VLA-0 没有额外的视觉融合层、action head 或 action tokenizer。
+
+### 4.2 核心模块
+
+#### 输入与 VLM 底座
+
+- **输入**：system prompt、相机 RGB 图像、任务 instruction。
+- **视觉编码**：由 Qwen2.5-VL 自带视觉模块完成，VLA-0 不替换它。
+- **语言模型**：论文使用约 3B 参数的 Qwen2.5-VL-3B；代码通过 `Qwen2_5_VLForConditionalGeneration` 加载完整模型。
+- **多图组织**：可以把多帧/多相机图像作为独立 image 输入，也可以横向 tile 成一张 composite image。
+
+**【Code】** `QwenActor.get_imgs` 从输入 batch 生成 PIL 图像列表；若 `tiled_rgb_imgs=True`，`tile_images` 会把图像沿宽度拼接。`add_vision_id=True` 是多图或多 history 的必要条件，用于让 Qwen 区分视觉输入。
+
+#### Action Decoding
+
+**【Paper】** 给定原始动作范围 $[m_i,M_i]$，每个动作维度被映射到 $[0,B]$ 的整数：
+
+$$
+z_i=\operatorname{round}\left(
+\frac{a_i-m_i}{M_i-m_i}B
+\right).
+$$
+
+模型只需输出 `z_1 z_2 ... z_{H\times D}`，不需要知道动作 token 的特殊语义。分辨率 $B$ 可以按任务调节，不受 VLM 词表大小限制。
+
+**【Code】** `get_text_action` 使用数据集统计量的 min/max 归一化并四舍五入为整数；`get_action_from_text_action` 将文本解析为 `(batch, horizon, act_dim)`，缺少数字时用最后一个动作补齐，超出 horizon 时截断，再按 min/max 还原连续值。
+
+#### NumberSpaceOnlyProcessor
+
+**【Code】** 推理时 `NumberSpaceOnlyProcessor` 把 logits 限制到数字 `0–9`、空格和 EOS。这样模型虽仍通过原生 text generation 生成动作，但不会输出解释性自然语言或非法字符。**【Analysis】** 这个约束是“文本动作”能稳定落地的重要工程边界：动作语义不需要新 token，但语法仍需要硬约束。
+
+#### Ensemble Prediction
+
+**【Paper】** 每次推理生成一段未来动作，连续时刻的预测会重叠。时刻 $t$ 的最终动作取最近 $n$ 次预测在对应时间位置上的平均：
+
+$$
+\hat a_t=\frac{1}{n}\sum_{j=0}^{n-1}\hat a_{t-j}^{(j)}.
+$$
+
+这对应 ACT 的 Temporal Ensembling 思路，使数字文本解码造成的局部抖动不直接传到机器人。
+
+**【Code】** LIBERO 命令示例使用 `--action_horizon 1 --ensemble_prediction 8`，即每个环境步执行一项动作并融合 8 个预测；实时 SO-100 评测为保持部署简单，论文明确没有启用 ensemble。
+
+#### Masked Action Augmentation
+
+**【Paper】** 训练时随机把目标动作字符串中的一部分字符替换为 mask 字符。被遮挡位置不参与 loss，同时输入中的对应 token 被替换为 `?`，迫使模型根据图像和指令推理动作，而不是只做数字序列的 auto-completion。
+
+**【Code】** `QwenActor.forward` 中约 10% 样本不做增强，其余样本从 `[0, action_mask_aug_per]` 均匀采样遮挡比例；默认配置是 `action_mask_aug_per=0.4`，被遮挡 label 设为 `-100`，输入 token 设为 id `30`。
+
+### 4.3 关键公式
+
+#### 文本动作的交叉熵
+
+设动作字符串 token 序列为 $y_{1:L}$，VLM 在视觉和语言条件 $o_t$ 下输出 logits $p_\theta(y_k\mid y_{<k},o_t)$，训练目标是标准 causal language modeling loss：
+
+$$
+\mathcal L_{\mathrm{CE}}(\theta)=
+-\sum_{k=1}^{L}\mathbf 1[k\in\mathcal A]
+\log p_\theta(y_k\mid y_{<k},o_t),
+$$
+
+其中 $\mathcal A$ 是未被遮挡的动作字符位置。system prompt、用户消息、图像 token 和 padding 都不计入 loss。
+
+**【Code】** 官方实现复制 Qwen 的 shifted-token loss：`shift_logits` 预测下一个 token，`shift_labels` 右移一位；`CrossEntropyLoss(ignore_index=-100)` 完成屏蔽。
+
+#### 反归一化
+
+模型生成整数 $z_i$ 后，连续动作为
+
+$$
+\hat a_i=\frac{z_i}{B}(M_i-m_i)+m_i.
+$$
+
+该公式的作用不是学习新的 action decoder，而是把文本模型输出的离散数值还原到机器人的原始 action space。$m_i,M_i$ 必须来自与训练数据一致的数据集统计量。
+
+### 4.4 Training
+
+<Algorithm number={1} title='VLA-0 training' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>图像序列、语言指令、连续动作序列、动作范围统计量</div>
+  <div slot='output'>微调后的 Qwen2.5-VL VLA-0</div>
+  <AlgorithmStep>读取一条样本，取 $H$ 个未来动作并按每维 min/max 归一化到 $0\ldots B$。</AlgorithmStep>
+  <AlgorithmStep>把整数动作展平成空格分隔字符串，拼入 system/user/assistant chat template。</AlgorithmStep>
+  <AlgorithmStep>按采样比例随机把动作字符串字符替换为 `?`，并把对应 labels 设为 ignore index。</AlgorithmStep>
+  <AlgorithmStep>用原生 Qwen2.5-VL 前向计算 causal language modeling cross-entropy。</AlgorithmStep>
+  <AlgorithmStep>用 Adam/AdamW 更新 VLM 参数并保存 checkpoint 与 dataset statistics。</AlgorithmStep>
+</Algorithm>
+
+**【Paper】** 论文实验采用 full fine-tuning，batch size 192、学习率 $5\times10^{-6}$、64 epochs，在 8 张 A100 上约训练 32 小时。
+
+**【Code】** 当前官方仓库默认 `configs/vla0.yaml` 使用 AdamW、学习率 $5\times10^{-6}$、weight decay $10^{-10}$、24 epochs、batch size 8、AMP 开启；`use_lora=False`、`use_qlora=False`，也就是配置默认是全参数微调。论文配置和公开仓库默认值并不完全一致，应以具体 checkpoint 的 `config.yaml` 为准。
+
+### 4.5 Inference
+
+<Algorithm number={2} title='VLA-0 action inference' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前相机图像、语言指令、动作统计量</div>
+  <div slot='output'>一个或多个反归一化后的连续动作</div>
+  <AlgorithmStep>用相同的 Qwen chat template 构造 system prompt、图像和 instruction，不放入 assistant 的真实动作。</AlgorithmStep>
+  <AlgorithmStep>用 `NumberSpaceOnlyProcessor` 限制生成词表，只允许数字、空格和 EOS。</AlgorithmStep>
+  <AlgorithmStep>自回归生成最多 `num_tokens=1024` 个 token，或只生成一阶动作所需的 token。</AlgorithmStep>
+  <AlgorithmStep>解析整数序列，按 horizon/act_dim 整形、补齐或截断，再按 min/max 反归一化。</AlgorithmStep>
+  <AlgorithmStep>执行当前动作；在 LIBERO 中可收集多次重叠预测并 ensemble。</AlgorithmStep>
+</Algorithm>
+
+**【Code】** `get_one_step_action=True` 时，模型会把上一次的 action text 接回输入，只生成当前一步需要的数字，并通过 `service.py` 以 streaming API 逐步返回。公开 README 报告标准 PyTorch 在 RTX 5090 上约 4 Hz；8 路 ensemble 需要同时运行 8 个模型实例，因此真实部署默认关闭 ensemble。
+
+### 4.6 代码实现对照
+
+| 论文概念 | 官方代码位置 | 实际实现 |
+| --- | --- | --- |
+| VLM backbone | `rv_train/models/qwen/model.py` | 加载 `Qwen2_5_VLForConditionalGeneration` |
+| 文本动作格式 | `format_data` 与 `system_message` | 输出 $H\times D$ 个空格分隔整数 |
+| 动作量化 | `get_text_action` | 按 dataset min/max 映射到 `num_bins_actions` |
+| 动作解析 | `get_action_from_text_action` | 解析、补齐/截断、反归一化 |
+| 合法 token 约束 | `NumberSpaceOnlyProcessor` | 数字、空格、EOS 以外 logits 置为 $-\infty$ |
+| 遮挡增强 | `QwenActor.forward` | 随机屏蔽 action 字符并忽略对应 loss |
+| 训练入口 | `rv_train/train.py` | DataLoader、optimizer、checkpoint、dataset stats |
+| 评测与部署 | `eval/eval_libero.py`, `rv_train/deploy/` | LIBERO ensemble、SO-100 API/streaming |
+
+**【Code】** `transform_from_so100` 的函数签名包含 robot state，但它构造给 QwenActor 的样本只保留 RGB 和 instruction；当前 VLA-0 模型实际是视觉-语言条件策略，不把 proprioception 作为额外 token 输入。**【Analysis】** 这也是“zero modification”的一部分：动作接口是文本，观测接口仍沿用 VLM 的图像+文本范式。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+**【Paper】**
+
+- **LIBERO**：Spatial、Object、Goal、Long 四个 suite，每个 suite 10 个任务，每个任务 50 episodes。
+- **真实机器人**：SO-100 与 LeRobot，四个任务是 reorienting a block、pushing an apple、pick-and-place a banana、pick-and-place a cupcake；每个任务 100 条训练示教，在不同初始物体位置上测试。
+- **基座与对比**：Diffusion Policy、OpenVLA、SmolVLA、$\pi_0$、GR00T-N1、$\pi$-FAST、OpenVLA-OFT、$\pi_{0.5}$-KI 等，论文同时区分是否有 large-scale action pretraining。
+
+### 5.2 Main Results
+
+**【Paper】** VLA-0 在没有大规模机器人动作预训练的模型中取得四个 suite 全部最高：Spatial 97.0、Object 97.8、Goal 96.2、Long 87.6，平均成功率 **94.7%**、平均排名 1.0，比未预训练组第二名高 1.4 个百分点。
+
+即使和有大规模动作预训练的模型相比，VLA-0 仍超过 $\pi_0$（94.2）、GR00T-N1（93.9）、MolmoAct（86.8）、$\pi$-FAST（86.0）等；只有 OpenVLA-OFT（97.1）和少数模型在部分 suite 上更高。**【Analysis】** 这不是“零样本”或“零训练”，而是“不做大规模机器人动作预训练”；VLA-0 仍在 LIBERO 数据上进行任务微调。
+
+![Real-world SO-100 comparison from paper Figure 4](https://pic.hana0721.top/blog/paper-deep-dive-vla-0/model_comparison_final.51ew07hga3.webp)
+
+**【Paper】** 真实实验中，VLA-0 平均成功率比 SmolVLA 高 12.5 个百分点。SmolVLA 使用了大规模 SO-100 预训练，而 VLA-0 从 Qwen2.5-VL 开始训练，说明文本动作接口的效果不只停留在 LIBERO 仿真。
+
+### 5.3 Ablation Study
+
+**【Paper】** LIBERO 四套件平均成功率的消融如下：
+
+| 配置 | 平均成功率 | 相对完整模型 |
+| --- | ---: | ---: |
+| 完整 VLA-0（ensemble + mask + tile，resolution 1000） | 94.7 | 0.0 |
+| 去掉 action ensemble | 92.0 | -2.0 |
+| 去掉 Masked Action Augmentation | 93.5 | -1.2 |
+| resolution 4000 | 94.2 | -0.5 |
+| resolution 250 | 93.2 | -1.5 |
+| 不 tile 多图 | 94.5 | -0.2 |
+
+**【Paper】** action ensembling 是影响最大的组件；resolution 1000 已足够，增加到 4000 没有收益，降到 250 则损失 1.5 个百分点；图片是否 tile 影响很小。**【Analysis】** 这组结果把“简单架构”与“简单 recipe”区分开：文本动作本身只是必要条件，稳定输出依赖时间融合和抗 teacher-forcing 偏差的增强。
+
+### 5.4 Generalization
+
+**【Paper】** LIBERO 的四个 suite 分别考察空间位置、物体变化、目标变化和更长时序；VLA-0 在四类上都超过未预训练竞争方法。真实实验还在不同初始物体位置下评估，而不是只复现示教轨迹。
+
+**【Code】** `eval/eval_libero.py` 支持通过 `task_suite_name`、`task_name`、`action_horizon`、`ensemble_prediction` 和并行 episode 参数复现实验；README 提供的推荐设置是每步执行一个 action、融合 8 个预测。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】**
+
+1. **保留 VLM 先验**：不把原词表 token 改成动作 token，语言模型原本的指令理解能力不会被动作语义覆盖。
+2. **分辨率与词表解耦**：动作数字由多个字符组成，$B$ 可以调整到 250、1000 或 4000，而不需要为每个 bin 新增 token。
+3. **文本生成天然支持变长序列**：未来多个时间步只需串接数字，不需要为固定 horizon 设计额外输出头。
+4. **遮挡增强迫使视觉 grounding**：随机破坏已生成的数字前缀，降低模型通过局部数字模式投机完成任务的机会。
+5. **Temporal Ensembling 把 token 噪声变成低通滤波**：多个重叠 action chunk 的平均能减轻离散解码和单步预测抖动。
+
+### 6.2 核心创新
+
+**【Paper】** 核心创新不是新的 Transformer block，而是证明“保留底层 VLM 完整性”本身可以成为设计原则：动作可以是文本，动作约束可以由 logits processor 提供，连续控制精度可以由数值编码提供。
+
+### 6.3 与已有方法的本质区别
+
+**【Analysis】** Discrete Token VLA 把动作离散值绑定到模型词表中的单 token；VLA-0 把动作绑定到“数字字符串”。Generative Action Head VLA 在语言模型旁边学习另一个连续生成器；VLA-0 让同一个 causal LM 负责语言和动作。Custom VLA 修改架构来改善动作建模；VLA-0 把主要复杂度放在 prompt、mask、解析和 ensemble 上。
+
+### 6.4 关键假设
+
+**【Analysis】** 方法成立依赖以下假设：
+
+- Qwen 等 VLM 能在有限微调数据中学习数字序列与视觉状态的对应关系。
+- 动作空间可以用每维独立的 min/max 区间表达；跨维耦合由模型而不是 tokenizer 处理。
+- 单个 action token 的生成延迟仍足以满足机器人控制频率，或可以用短 horizon/streaming 缓解。
+- 训练时被遮挡的字符能模拟推理时的前缀不确定性，而不会破坏动作字符串的整体监督信号。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 真实部署标准 PyTorch 速度约 4 Hz；作者指出 TensorRT-LLM、蒸馏和量化可能提升速度。实时实验没有启用 ensemble，因为 8 路同时运行会增加部署成本。论文也没有把 action-free 视频用于预训练，而是聚焦有动作标注的任务示教。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+- 文本动作是自回归生成，输出 $H\times D$ 个数字的延迟会随 horizon、动作维度和数字位数增长；长时序或高 DoF 任务可能不适合一次生成完整 chunk。
+- 每个动作维度使用独立 min/max，异常值和跨任务统计差异会直接影响量化分辨率；代码解析失败时会退回 min/max 中点，属于安全兜底而非可靠控制。
+- NumberSpaceOnlyProcessor 只约束字符集合，不保证数字数量、范围或动作语义正确；后处理还需要补齐、截断和裁剪。
+- ensemble 在仿真中收益明显，但真实部署关闭 ensemble，说明论文最强结果与低延迟部署之间仍有取舍。
+- 主要结果集中在 LIBERO 和 SO-100，尚不能据此推断文本动作接口对双臂、高频触觉和复杂接触动力学同样有效。
+- 公开仓库默认配置与论文训练细节不同，复现实验必须使用 checkpoint 附带的 config、dataset statistics 和对应 LeRobot 版本。
+
+## 8. 启发与研究思考
+
+**【Analysis】** VLA-0 最值得借鉴的是“先问接口是否真的需要专用模块”。几个可继续研究的方向是：
+
+1. **结构化文本动作**：在保持原生 tokenizer 的前提下，用分隔符、字段名或短 JSON 约束表达双臂、力控和终止标志，再研究它们对生成稳定性的影响。
+2. **自适应数值编码**：让分辨率 $B$ 根据动作维度、任务阶段或不确定性动态变化，避免所有维度固定使用 1000 bins。
+3. **更高效的解码**： speculative decoding、KV cache、量化和蒸馏可以降低“数字 token 自回归”相对 action head 的延迟。
+4. **学习何时 ensemble**：把预测置信度、动作阶段和接触状态纳入融合权重，在真实部署中用少于 8 路模型获得接近 ensemble 的平滑效果。
+
+对实践者而言，VLA-0 提供了一条低改造成本基线：先用现成 VLM、原生 chat template 和标准 cross-entropy 建立可运行系统，再通过合法 token 约束、动作统计量和 rollout 平滑逐步改善。它提醒我们，VLA 的瓶颈不总是缺少专门的 action head，也可能是输入协议、监督 mask 和推理后处理没有被认真设计。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。
+</Aside>
