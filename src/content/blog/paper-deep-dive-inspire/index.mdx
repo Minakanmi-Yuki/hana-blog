@@ -1,0 +1,361 @@
+---
+title: 'InSpire：用内在空间推理提升 VLA 泛化能力'
+publishDate: 2026-08-25
+updatedDate: 2026-08-25
+description: '精读 InSpire：在动作生成前插入目标物体相对机器人方向的 VQA 桥接，用粗粒度空间推理抑制 VLA 的 shortcut learning 与 spurious correlation。'
+heroImage:
+  { src: 'https://pic.hana0721.top/102841826_p0_master1200.4clh7xw95k.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '102841826'
+tags:
+  - 'paper deep dive'
+  - 'vision-language-action model'
+  - 'spatial reasoning'
+  - 'robot generalization'
+paper:
+  arxivId: '2505.13888'
+  title: 'InSpire: Vision-Language-Action Models with Intrinsic Spatial Reasoning'
+  authors:
+    - 'Ji Zhang'
+    - 'Shihan Wu'
+    - 'Xu Luo'
+    - 'Hao Wu'
+    - 'Lianli Gao'
+    - 'Heng Tao Shen'
+    - 'Jingkuan Song'
+  venue: 'arXiv'
+  year: 2025
+  code: 'https://github.com/InspireVLA/Inspire'
+  project: 'https://koorye.github.io/proj/Inspire'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2505.13888'
+  tldr='InSpire 在自回归 VLA 的动作 token 前插入“目标物体相对机器人方向”的空间 VQA，并用动作与空间答案联合监督，让模型先显式定位任务相关物体，再生成动作。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**【Paper】**《InSpire: Vision-Language-Action Models with Intrinsic Spatial Reasoning》关注一个很具体、但经常被 VLA 忽略的问题：模型可能记住背景、物体颜色或场景布局与动作之间的偶然共现，而没有真正理解“语言指令中的哪个物体在机器人的哪个方向”。一旦测试分布改变，这种 shortcut learning 就会失效。
+
+![InSpire 论文 Figure 1：直接观测到动作映射与空间推理桥接的对比](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-inspire/mtv-icra.13mijdy38b.webp)
+
+### 一句话总结
+
+**【Paper】** InSpire 把同一个 VLA 先当作 `extraction policy`，回答“[object] 相对机器人是 right / left / up / down / front / back / grasped 中的哪一种”，再把这个文本问答对作为桥接信息，让 VLA 生成低层动作；它不需要额外的大模型或额外交互数据，因而可以作为现有自回归 VLA 的 plugin。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 用空间关系 VQA 显式抽取任务相关因素，缓解观测到动作直接映射带来的 spurious correlation。
+2. 用第三人称视角下的机器人末端与目标物体位置，自动产生粗粒度方向标签，不需要人工逐帧标注。
+3. 将空间答案 token 与动作 token 放在同一自回归训练目标中，使 VLA 同时学习 spatial reasoning 与 action prediction。
+4. 在 LIBERO、CALVIN 以及真实 AGILEX PiPER 6DOF 机械臂上验证，并将方法应用到 miniVLA-VQ 与 π₀-FAST 两个基线。
+
+**【Analysis】** 这不是把 VLA 变成一个通用的长链式思考器，而是只引入一个与当前动作高度相关、答案空间很小的中间变量。论文真正的设计取舍是：牺牲少量 token 和推理时间，换取对“目标在哪里、机器人是否已经抓住它”的显式约束。
+
+## 2. 背景与相关工作
+
+**【Paper】** RT-1、RT-2、OpenVLA 等 VLA 通常把图像和语言直接映射到离散化的 action token。这样的端到端接口简洁，但也给模型留下了走捷径的空间：训练集中的目标物体、背景和动作往往共同出现，模型可以依赖与动作没有因果关系的视觉特征。
+
+论文将相关方向分成三类：
+
+- **VLA**：把 pretrained VLM 扩展成机器人策略，但大多直接做 observation-to-action mapping。
+- **CoT / intermediate reasoning**：在动作前增加目标预测、子任务规划或迭代推理，通常依赖额外模型、额外数据或较长推理链。
+- **Spatial reasoning**：SpatialVLM、SpatialVLA 等方法使用 2D/3D 空间信息；InSpire 选择把空间信息编码成自然语言答案，而不是把坐标或深度直接塞进输入。
+
+**【Analysis】** InSpire 的“空间”不是完整的 3D 场景重建。它只保留对当前动作足够有用的方向类别，因此更像一个 action-relevant bottleneck，而不是一个通用 world model。
+
+## 3. 问题定义
+
+**【Paper】** 给定视觉观测 $o$、语言指令 $l$ 和专家动作 $a$，普通自回归 VLA 学习
+
+$$
+\pi_\theta(a\mid o,l) \approx p(a\mid o,l).
+$$
+
+论文把观测中的潜在因素拆成任务相关因素 $u$ 与任务无关因素 $v$。真实因果过程满足 $p(a\mid o,l)=p(a\mid u)$，但训练分布中可能出现 $p_{train}(u,v)\neq p_{train}(u)p_{train}(v)$，于是模型错误地学到 $a$ 与 $v$ 的统计相关性。
+
+InSpire 引入一个由空间问答得到的中间表示 $u'$：
+
+$$
+u'=\pi_{u'}(o,l), \qquad a=\pi_\theta(o,l,u').
+$$
+
+这里的 $u'$ 是文本问答对 $[q,g]$，其中 $q$ 是方向问题，$g$ 是方向答案。它不是额外网络，而是同一个 VLA 在不同 prompt 下生成的结果。
+
+### Embodied AI Checklist
+
+| 项目                  | InSpire 的实现                                                                                             |
+| --------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Vision Encoder        | 继承基线 VLA 的视觉编码器；论文实验使用 miniVLA-VQ 与 π₀-FAST                                              |
+| Language Model        | 自回归 VLA 的语言 backbone                                                                                 |
+| Multimodal Fusion     | 图像 token、空间问题 token、语言指令 token 在同一 prompt 中融合                                            |
+| Observation           | 当前视觉观测；官方实现支持 primary image，亦保留 wrist/history 接口                                        |
+| Action Representation | 基线原有的 action token；CALVIN 中为 delta XYZ、delta Euler angles 与 binary gripper                       |
+| Action Tokenization   | 不新增连续坐标编码；空间答案是受限文本 token，动作仍使用基线 action tokenizer                              |
+| Policy                | 先生成空间答案，再生成动作                                                                                 |
+| Dataset               | LIBERO-90、LIBERO-Spatial、LIBERO-Object、LIBERO-Goal、LIBERO-Long 与 CALVIN；真实实验使用 10 个 seen task |
+| Action Horizon        | 由基线 action tokenizer 决定，InSpire 不改变动作块接口                                                     |
+| Real-world Deployment | π₀-FAST + InSpire，AGILEX PiPER 6DOF                                                                       |
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![InSpire 论文 Figure 2：在 VLA 中插入空间 VQA 的整体架构](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-inspire/method.5c1pt7oby4.webp)
+
+**【Paper】** 图像与语言指令进入 VLA 后，模型先回答目标物体相对机器人的方向，再将问题和答案作为文本上下文，输出最终 action token；同一次观测可以对指令中识别出的多个目标物体重复这个过程。
+
+### 4.2 核心模块
+
+#### 1. 目标物体抽取与空间问题
+
+**【Paper】** 论文用 NLTK 从语言指令中识别对象名称，再构造固定模板：`In which direction is the [object] relative to the robot?`。答案集合是 `right / left / up / down / front / back / grasped`，可选地包含 `close`。
+
+**【Code】** 官方 `datasets_with_vqa.py` 并没有运行一个开放词汇检测器，而是维护 `_OBJECT_NAME_MAP`，把诸如 `the black bowl`、`the plate`、`the basket` 映射到 LIBERO 对象别名。`find_target_objects()` 按字符串匹配提取目标；`post_process_object()` 再修正 stove、shelf 等 prompt 的表述。因此，代码实现依赖任务词表，论文中的“从指令识别对象”在实际复现时需要同步扩充映射表。
+
+#### 2. 规则空间标签
+
+![InSpire 论文 Figure 3：由末端与目标位置生成方向标签](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-inspire/labels2.70b2qeem3x.webp)
+
+**【Paper】** 对每个 waypoint，记录机器人 gripper 与目标物体的 3D 位置。若末端位置为 $[x_i,y_i,z_i]$、物体位置为 $[x_0,y_0,z_0]$，则
+
+$$
+\mathbf d=[x_i-x_0,\ y_i-y_0,\ z_i-z_0].
+$$
+
+取 $|d_x|,|d_y|,|d_z|$ 最大的轴，并根据符号映射到一个粗粒度方向；若夹爪闭合且物体被抓住，则标签为 `grasped`。这相当于把精确几何压缩成与动作更直接相关的离散语义。
+
+**【Code】** `get_relation_to_robot()` 默认使用 `coarse_direction`：先用 `np.argmax(np.abs(gripper_to_obj))` 选择主轴，再按阈值判断 `front/back`、`left/right` 或 `up/down`；`check_catch` 会优先输出 `catch`，`check_close` 控制近距离是否输出 `close`。代码还提供 `coarse_direction_3d`、`fine_direction_3d`、`coarse_distance` 和 `fine_distance` 等替代模式。
+
+#### 3. 空间 VQA 与动作生成
+
+**【Paper】** 同一个 VLA 共享视觉和语言 backbone，但承担两个角色：$π_{u'}$ 生成空间答案，$π_\theta$ 根据 `[question, answer] + instruction` 生成动作。这样中间文本会把注意力引向目标物体与机器人之间的关系。
+
+**【Code】** `RLDSBatchTransformWithVQA` 将每个目标扩展成一对 human/gpt 对话，再追加 `What action should the robot take to ...?` 与 tokenized action。`mask_labels()` 屏蔽 system 和 human prompt，仅保留 assistant 的空间答案及动作 token 参与交叉熵；因此代码实现的是一次前向中的联合自回归监督，而不是两个独立模型。
+
+### 4.3 关键公式
+
+#### 空间中间表示
+
+$$
+u'=[q,g], \qquad g\in\{\text{right,left,up,down,front,back,grasped}\}.
+$$
+
+$q$ 指定要查询的对象，$g$ 是 VLA 根据当前图像生成的方向答案。答案集合越小，监督越稳定，也越容易迫使模型关注目标位置。
+
+#### 位置到方向的离散化
+
+$$
+k=\arg\max_{j\in\{x,y,z\}}|d_j|,
+$$
+
+再依据 $d_k$ 的正负选择方向。**【Analysis】** 这个规则不是为了恢复精确位姿，而是构造一个低成本、低熵的 action-relevant label；它也解释了为什么论文的 1D Direction 在消融中比精确距离更有效。
+
+#### 联合自回归目标
+
+令 $y$ 包含空间答案 token 与 action token，则训练可写作
+
+$$
+\mathcal L_{\mathrm{AR}}=-\sum_{t\in\mathcal T_{\mathrm{answer}}\cup\mathcal T_{\mathrm{action}}}
+\log p_\theta(y_t\mid y_{<t},o,l,q).
+$$
+
+其中 $Τ_answer$ 与 $Τ_action$ 是未被 mask 的 assistant token 位置。论文强调空间答案和动作同时监督；**【Code】** 官方 collator 通过 `mask_labels()` 实现这一点，未见额外的 VQA loss 权重。
+
+### 4.4 Training
+
+**【Paper】** 训练样本从 $(o_i,l_i,a_i)$ 扩展为 $(o_i,l_i,a_i,u'_i)$。仿真中目标位置直接来自环境；真实环境中使用夹爪打开或闭合时记录的末端位置作为目标位置代理。VLA 使用 teacher-forcing 学习方向答案和动作 token。
+
+**【Code】** `train_vqa.py` 将 `vqa_mode='coarse_direction'`、`check_catch=True`、`check_close=False` 作为默认配置，训练步数默认 50,000；其余学习率、batch size、冻结策略和 action tokenizer 从 VLA 配置继承。官方脚本通过 RLDS 数据集、`RLDSBatchTransformWithVQA` 与原有 VLA training strategy 训练，不需要额外的 VQA 数据集。
+
+<Algorithm number={1} title='InSpire 联合训练' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>RLDS 轨迹 $(o,l,a)$、对象位置 JSON、预训练 VLA。</div>
+  <div slot='output'>能够生成空间答案和动作 token 的 VLA checkpoint。</div>
+  <AlgorithmStep>从语言指令中匹配一个或多个目标对象。</AlgorithmStep>
+  <AlgorithmStep>读取 waypoint 的 gripper/object 位置，按主轴规则生成方向答案。</AlgorithmStep>
+  <AlgorithmStep>构造“空间问题 → 空间答案 → 动作问题 → 动作”的对话。</AlgorithmStep>
+  <AlgorithmStep>
+    tokenize 对话和动作，屏蔽 system/human token，仅对 assistant 答案计算自回归 loss。
+  </AlgorithmStep>
+  <AlgorithmStep>按基线 VLA 的优化器、学习率和冻结策略更新模型。</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 推理时对当前观测执行同样的空间问答，再把答案拼接到动作 prompt 中。由于空间推理在每个观测上重新执行，模型可以根据执行状态修正后续动作。
+
+**【Code】** `OpenVLAWithVQA.predict_action()` 先调用 `find_target_objects(instruction)`，逐个执行 `_predict_vqa()`；VQA 生成使用受限 token mask，只允许预定义方向 token，并可将 `catch` 归一化。随后 `_predict_action()` 重新建立 action prompt，生成由基线 action tokenizer 解码的动作并反归一化。这里的 `catch` 是代码接口名称，论文正文使用 `grasped`，复现时需要注意这一命名差异。
+
+<Algorithm number={2} title='InSpire 推理' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前图像 $o_t$ 与语言指令 $l$。</div>
+  <div slot='output'>反归一化后的机器人动作或动作块。</div>
+  <AlgorithmStep>从 $l$ 中抽取目标对象，逐个生成方向问题。</AlgorithmStep>
+  <AlgorithmStep>用 VLA 生成受限集合中的空间答案 $g$，并把 `[q,g]` 写入对话上下文。</AlgorithmStep>
+  <AlgorithmStep>追加动作问题，生成 action token 序列。</AlgorithmStep>
+  <AlgorithmStep>用 action tokenizer 解码并按数据集统计量反归一化。</AlgorithmStep>
+  <AlgorithmStep>执行当前动作，获得下一帧观测后重复上述过程。</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+| 论文描述             | 官方代码位置                           | 实际行为                                                           |
+| -------------------- | -------------------------------------- | ------------------------------------------------------------------ |
+| 自动识别指令中的对象 | `vla_scripts/datasets_with_vqa.py`     | `_OBJECT_NAME_MAP` 字符串匹配，覆盖 LIBERO 对象和少量别名          |
+| 规则生成方向标签     | `get_relation_to_robot()`              | 主轴最大绝对位移；支持 grasp/catch、close 和多种 VQA mode          |
+| 联合监督             | `RLDSBatchTransformWithVQA.__call__()` | VQA 对话和动作对话串联，mask 后共同计算 AR loss                    |
+| 受限 VQA 解码        | `vla_scripts/openvla_with_vqa.py`      | 对 logits 乘方向 token mask，再 argmax 生成答案                    |
+| 动作推理             | `_predict_action()`                    | 复用基线 action tokenizer，输出连续动作并反归一化                  |
+| 训练入口             | `vla_scripts/train_vqa.py`             | 与原 VLA training strategy、RLDS dataloader 和 checkpoint 流程兼容 |
+
+**【Analysis】** 论文把 InSpire 描述为可插拔模块，代码层面的可插拔性主要体现在“给现有 prompt 和 collator 增加若干对话轮次”。它对依赖开放词汇、非自回归或 diffusion action head 的 VLA 并不是无条件兼容；论文也明确把 diffusion-policy VLA 的适配留作未来工作。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![InSpire 论文 Figure 4：真实任务、成功率与额外推理时间](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-inspire/realresults.1zizyu7rqv.webp)
+
+**【Paper】** 仿真部分使用 LIBERO 与 CALVIN。LIBERO 在 LIBERO-90 上训练，并在 Spatial、Object、Goal、Long 等 seen/unseen 任务上评估；CALVIN 采用 ABC→D 协议，在环境 D 上测试五个连续子任务。真实实验使用 AGILEX PiPER 6DOF：10 个 seen task，每个任务 10 条训练轨迹，另设计 5 个 unseen task，每个任务测试 10 次。
+
+**【Code】** 官方仓库提供 `train_baseline_libero90.sh`、`train_inspire_libero90.sh` 以及对应 eval 脚本；README 同时公开 miniVLA-LIBERO90、InspireVLA-LIBERO90 和 union4 checkpoint 下载地址。
+
+### 5.2 Main Results
+
+#### LIBERO
+
+| 模型                 | LIBERO-90 seen |    unseen 平均 |
+| -------------------- | -------------: | -------------: |
+| miniVLA-VQ           |     83.3 ± 1.2 |      3.6 ± 0.4 |
+| miniVLA-VQ + InSpire | **89.5 ± 1.5** | **13.6 ± 3.9** |
+| π₀-FAST              |     83.1 ± 1.0 |      5.7 ± 0.8 |
+| π₀-FAST + InSpire    | **84.1 ± 1.0** |  **8.5 ± 1.3** |
+
+**【Paper】** InSpire 让 miniVLA-VQ 在 seen 任务提升 6.2 个百分点，在 unseen 平均提升 10.0 个百分点；对 π₀-FAST 的提升分别为 1.0 和 2.8 个百分点。收益在 LIBERO-Spatial 与 LIBERO-Object 上尤其明显，而 LIBERO-Long 的提升有限，说明空间桥接不等于高层任务规划。
+
+论文还在四个 LIBERO 数据集的联合 fine-tuning 设置下比较了 reasoning-based VLA：
+
+| 模型              |  Spatial |   Object |     Goal |     Long |  Average |
+| ----------------- | -------: | -------: | -------: | -------: | -------: |
+| SpatialVLA-4B     |     88.2 |     89.9 |     78.6 |     55.5 |     78.1 |
+| CoT-VLA-7B        |     87.5 |     91.6 |     87.6 |     69.0 |     83.9 |
+| **InspireVLA-1B** | **90.7** | **94.3** | **88.3** | **73.3** | **86.7** |
+
+**【Paper】** InspireVLA-1B 以约 1B 参数超过表中两个更大的 reasoning-based 模型；相对 SpatialVLA-4B 和 CoT-VLA-7B，论文报告平均成功率分别提高 8.6 和 2.8 个百分点。这里的结果来自作者在四个 LIBERO 数据集上做 LoRA fine-tuning 的独立设置，不应与前面的 LIBERO-90 单数据集结果混为一谈。
+
+#### CALVIN
+
+![InSpire 论文 Figure 5：CALVIN ABC→D 长时域连续任务结果](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-inspire/calvin.1hsya96dxp.webp)
+
+**【Paper】** 在 500 条、每条包含 5 个子任务的序列上，加入 InSpire 后，miniVLA 与 miniVLA-VQ 在连续完成 1、2、3、4、5 个任务的统计上都优于对应基线，平均连续完成长度也更高。这个结果支持“每一步重新回答空间关系有助于纠错”的解释。
+
+#### 真实机器人
+
+**【Paper】** 10 个 seen task 的平均成功率绝对提升约 25 个百分点，5 个 unseen task 提升约 26 个百分点；4/5 个 unseen task 的相对成功率翻倍。图中平均每步时间由 0.84 秒增至 1.01 秒，即约增加 0.17 秒；正文将这一开销概括为约 0.18 秒，差异来自四舍五入。额外开销主要来自新增 VQA token，但相对于成功率收益仍是可接受的 trade-off。
+
+### 5.3 Ablation Study
+
+![InSpire 论文 Figure 6：空间 VQA token 插入位置的消融](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-inspire/vqaposi.5mojmd5s2o.webp)
+
+论文还比较了不同空间 VQA 的形式（miniVLA-VQ，seen / unseen）：
+
+| VQA 形式     |           Seen |         Unseen |
+| ------------ | -------------: | -------------: |
+| Baseline     |     83.3 ± 1.2 |      3.6 ± 0.4 |
+| 1D Direction | **89.5 ± 1.5** |     13.6 ± 3.9 |
+| 3D Direction |     87.9 ± 2.1 | **15.0 ± 1.9** |
+| Proximity    |     88.7 ± 1.1 |     10.3 ± 1.0 |
+| 3D Location  |     88.1 ± 0.8 |     10.1 ± 2.6 |
+| Distance     |     85.1 ± 2.2 |      6.6 ± 0.6 |
+
+**【Paper】** 方向类答案总体优于距离与精确坐标；1D Direction 在 seen 上最好，3D Direction 在 unseen 上略高。插入位置实验显示，无论 VQA token 放在 instruction 前还是后，加入空间问答都能提升基线，但 seen 与 unseen 的最优位置并不完全一致。
+
+### 5.4 Generalization
+
+![InSpire 论文 Figure 7：基线与 InSpire 的动作序列和注意力图](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-inspire/vis.8dxlufpoea.webp)
+
+**【Paper】** 定性结果展示三类变化：基线因看到训练中常见的 drawer 而直接走向错误目标；在有多个 distractor 的场景中找错对象；发生错误后继续沿错误轨迹执行。加入 InSpire 后，注意力更集中于目标物体和机器人，且每一帧重新做空间问答可以帮助策略修正执行状态。
+
+**【Analysis】** 这里的泛化并非“对所有新任务都泛化”。LIBERO-Long 的结果提醒我们，InSpire 对空间定位和对象交互有效，但不能替代长时域分解、子目标规划或记忆机制。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** 可以从三个角度理解：
+
+1. **降低学习难度**：与直接从整幅图像预测连续动作相比，先预测一个 7 类左右的空间答案更容易学到。
+2. **提供 action-relevant bottleneck**：方向问题明确点名目标物体，把语言中的对象与图像中的区域绑定起来。
+3. **引入可纠错的中间状态**：每个观测都重新生成方向答案，空间答案变化会反映抓取、移动和放置是否已经发生。
+
+### 6.2 核心创新
+
+**【Paper】** 创新不在更大的 backbone，而在把一个极小的空间 VQA 任务放进现有自回归 VLA 的 token 流中，并用已有轨迹位置自动生成监督。它同时满足三个条件：无需额外模型、无需额外交互数据、可复用现有 action head。
+
+### 6.3 与已有方法的本质区别
+
+| 方法           | 中间信息               | 额外依赖            | 主要代价                      |
+| -------------- | ---------------------- | ------------------- | ----------------------------- |
+| 直接 VLA       | 无                     | 无                  | 容易学到 shortcut             |
+| SpatialVLA     | 3D 信息 / 离散空间动作 | 空间编码与专门设计  | 需要改输入或动作空间          |
+| CoT-VLA / ECoT | 较长推理或目标序列     | 额外推理过程 / 模型 | token 与时延更高              |
+| InSpire        | 粗粒度方向文本         | 同一个 VLA          | 少量 VQA token 与一次额外生成 |
+
+**【Analysis】** InSpire 的关键差异是把空间信息放在“视觉与动作之间的语言接口”，而不是把它当作新的传感器模态或新的动作表示。
+
+### 6.4 关键假设
+
+**【Paper】** 方法隐含或明确依赖以下假设：
+
+- 指令中能识别出与动作相关的目标对象。
+- 目标与机器人之间的粗粒度方向足以帮助当前动作。
+- 训练时可以获得目标位置，或用 gripper 位置作为合理代理。
+- 基线是支持自回归文本生成的 VLA。
+
+**【Analysis】** 当任务依赖精确几何、遮挡关系、接触力或多个同类物体的细粒度区分时，单个主轴方向可能丢失关键变量；此时需要更丰富的空间表示，不能简单把方向类别继续堆叠。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 作者指出：
+
+1. 对 diffusion-policy VLA（例如 Octo、π₀ 的非自回归动作头）的适配仍未充分研究。
+2. 不同预训练范式和数据集会产生不同的 spurious correlation，但这些差异尚未被系统分析。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+- **词表依赖**：官方代码的 `_OBJECT_NAME_MAP` 是任务和对象相关的硬编码，换到新 embodiment 时需要重新维护别名与对象 JSON。
+- **坐标系依赖**：方向标签的正负号依赖环境坐标约定；真实机器人若相机、基座和 gripper 坐标没有对齐，标签会系统性偏移。
+- **VQA 误差会传播**：错误的方向答案会进入动作 prompt，可能比没有中间答案更强地误导策略。
+- **额外时延**：每个目标对象都要做一次受限 VQA 生成；多目标指令会增加 token 长度和推理时间。
+- **中间变量过粗**：`up/down/front/back` 无法表达距离、姿态、接触状态的连续变化；论文的 ablation 也显示更精确的表示不一定更好，但这不意味着粗粒度表示在所有任务上都充分。
+
+## 8. 启发与研究思考
+
+**【Analysis】** InSpire 给 VLA 研究的启发不是“所有模型都应该输出 CoT”，而是中间监督应当尽量贴近动作的因果因素。一个只有几个类别的方向答案，可能比冗长的自然语言 reasoning 更适合实时控制。
+
+值得继续追问的方向包括：
+
+1. 能否让模型学习对象级空间 token，而不是依赖人工维护的 `_OBJECT_NAME_MAP`？
+2. 能否根据 VQA 置信度动态决定是否执行第二次动作生成，避免错误答案传播？
+3. 能否把方向、接触、距离和 gripper state 组织成结构化 scene-action graph，再由 diffusion policy 使用？
+4. 对 π₀、Octo 等非自回归 action head，是否可以把空间答案作为 conditioning feature，而不是文本 prompt？
+5. 能否用跨任务的 intervention 评估来直接检验模型是否真正摆脱了背景与目标颜色的 shortcut？
+
+InSpire 的实质是一种很轻量的 causal hint：它没有解决 VLA 的全部泛化问题，却展示了一个值得复用的原则——在 observation 与 action 之间加入一个足够小、足够相关、可自动标注的中间任务，往往比盲目扩大模型更有效。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。
+</Aside>
