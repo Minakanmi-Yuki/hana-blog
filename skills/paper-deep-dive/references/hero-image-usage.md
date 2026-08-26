@@ -35,11 +35,11 @@ Use only after the count-1 pool is exhausted.
 |         3 | `72300463`  | `https://pic.hana0721.top/72300463_p0_master1200.83amt5a3ia.webp`  | `rl-note-7`, `robotic-grasp-detection-6`, `paper-deep-dive-wsa1`                                        |
 |         3 | `74378589`  | `https://pic.hana0721.top/74378589_p0_master1200.5j4sgia4w5.webp`  | `rl-note-8`, `robotic-grasp-detection-7`, `paper-deep-dive-adaptive-action-chunking`                    |
 |         3 | `74502138`  | `https://pic.hana0721.top/74502138_p0_master1200.7i0z6ufn7r.webp`  | `rl-note-9`, `robotic-grasp-detection-8`, `paper-deep-dive-a2a`                                         |
-|         2 | `75863098`  | `https://pic.hana0721.top/75863098_p0_master1200.8aduokw8y2.webp`  | `rl-note-10`, `robotic-grasp-detection-9`                                                               |
+|         3 | `75863098`  | `https://pic.hana0721.top/75863098_p0_master1200.8aduokw8y2.webp`  | `rl-note-10`, `robotic-grasp-detection-9`, `paper-deep-dive-dreamcontrol-v2`                            |
 |         2 | `76117294`  | `https://pic.hana0721.top/76117294_p0_master1200.2rvq8fo0ul.webp`  | `rl-note-11`, `robotic-grasp-detection-10`                                                              |
 |         2 | `78075718`  | `https://pic.hana0721.top/78075718_p0_master1200.51eqrx8rbi.webp`  | `rl-note-12`, `robotic-grasp-detection-11`                                                              |
 |         2 | `78391247`  | `https://pic.hana0721.top/78391247_p0_master1200.5j4sgia4wg.webp`  | `rl-note-13`, `robotic-grasp-detection-12`                                                              |
-|         2 | `139369087` | `https://pic.hana0721.top/139369087_p0_master1200.9gx5x7w6ei.webp` | `rl-note-28`, `paper-deep-dive-cogact`                                                                  |
+|         3 | `139369087` | `https://pic.hana0721.top/139369087_p0_master1200.9gx5x7w6ei.webp` | `rl-note-28`, `paper-deep-dive-cogact`, `paper-deep-dive-dp3`                                            |
 |         3 | `142350190` | `https://pic.hana0721.top/142350190_p0_master1200.2yyy3wl757.webp` | `rl-note-29`, `paper-deep-dive-tinyvla`, `paper-deep-dive-vp-vla`                                       |
 |         2 | `143484250` | `https://pic.hana0721.top/143484250_p0_master1200.9ddjzdu0z1.webp` | `linux-dl-env-setup`, `paper-deep-dive-pi0`                                                             |
 |         2 | `131135880` | `https://pic.hana0721.top/131135880_p0_master1200.9rjzqc0dp5.webp` | `rl-note-20`, `paper-deep-dive-robodual`                                                                |

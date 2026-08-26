@@ -1,0 +1,228 @@
+---
+title: 'DreamControl-v2 论文精读：让人形机器人在自身空间里“做梦”'
+publishDate: 2026-08-27
+updatedDate: 2026-08-27
+description: '精读 DreamControl-v2：把异构人体动作预先重定向到 Unitree-G1 空间，用可控扩散先生成参考轨迹，再以物理 RL 学习可自主执行的全身技能。'
+heroImage:
+  { src: 'https://pic.hana0721.top/75863098_p0_master1200.8aduokw8y2.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '75863098'
+tags:
+  - 'paper deep dive'
+  - 'humanoid robot'
+  - 'diffusion policy'
+  - 'reinforcement learning'
+paper:
+  arxivId: '2604.00202'
+  title: 'DreamControl-v2: Simpler and Scalable Autonomous Humanoid Skills via Trainable Guided Diffusion Priors'
+  authors:
+    - 'Sudarshan Harithas'
+    - 'Sangkyung Kwak'
+    - 'Pushkal Katara'
+    - 'Srujan Deolasee'
+    - 'Dvij Kalaria'
+    - 'Srinath Sridhar'
+    - 'Sai Vemprala'
+    - 'Ashish Kapoor'
+    - 'Jonathan Chung-Kuan Huang'
+  venue: 'arXiv'
+  year: 2026
+  code: ''
+  project: 'https://genrobo.github.io/DreamControl-v2/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2604.00202'
+  tldr='DreamControl-v2 先把大规模人体与机器人动作统一到 Unitree-G1 空间，再训练可接受文字和时空约束的扩散先验，用多条参考轨迹驱动物理 RL 学习自主的人形全身技能。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**【Paper】** DreamControl-v2 研究的是一个很具体却很棘手的问题：如何让人形机器人自主完成“下蹲捡取、打开抽屉、倒水、擦拭、出拳”等需要全身协调和环境接触的长时任务。作者延续 DreamControl 的两阶段思想：先用生成模型“梦”出参考动作，再让物理仿真中的 RL 策略学会跟踪这些动作，同时完成任务目标。
+
+![DreamControl-v2 四阶段系统总览（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dreamcontrol-v2/method.dreamcontrolv2.webp)
+
+### 一句话总结
+
+**【Analysis】** 这篇论文最重要的设计转移是：不再生成“人的动作再适配机器人”，而是先把人体动作离线重定向到目标机器人，再在机器人自己的运动空间训练可控扩散模型。这样，空间约束、数据分布和后续 RL 使用的轨迹处在同一个坐标系里。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 汇集 AMASS/HumanML3D、GRAB、Nymeria，以及经过物理优化的 OmniRetarget 轨迹，构建统一的 G1 robot-space 数据集。
+2. 在 G1 轨迹上训练带 text 与 spatio-temporal control 的 OmniControl 风格 guided diffusion prior。
+3. 将自动可行性过滤放入参考轨迹生成流程，减少原 DreamControl 中的任务专用 IK、人工筛选和试错式 prompt calibration。
+4. 通过扩散轨迹数量、数据混合和 MDM 初始化的消融，展示先验规模对下游 RL 的影响，并在仿真及真实 Unitree-G1 上验证 8 项技能。
+
+## 2. 背景与相关工作
+
+**【Paper】** 直接在 RL 中学习复杂人形操作会遇到长时域探索、接触动力学和稀疏任务奖励。DreamControl 的做法是使用 OmniControl 这类人体动作扩散模型生成“像人一样”的轨迹，再把轨迹误差写入 RL 奖励，因此推理时策略不需要看到参考轨迹，仍可自主适应环境。
+
+原流程的瓶颈在于 **generate-then-retarget**：先在人体空间满足手部约束，重定向到 G1 后末端位置可能偏离目标；工程上只能不断调整人体空间的 prompt，并人工删除失衡、脚滑或无法执行的样本。论文的核心假设是，若训练数据一开始就在 G1 空间，扩散模型便能直接回答“G1 的右腕在第 40 帧到达这个位置”。
+
+## 3. 问题定义
+
+**【Paper】** 给定文字指令 $p$、长度为 $N$ 的时空控制信号 $c\in\mathbb{R}^{N\times J\times3}$，模型生成 G1 轨迹 $T\in\mathbb{R}^{N\times D}$：
+
+$$
+T \sim P_\theta(T\mid p,c).
+$$
+
+控制信号可以只约束一个关节的一两个关键帧，也可以同时约束双手和膝盖。轨迹随后经后处理变成 G1 的关节角 $q_t\in\mathbb{R}^{27}$、全局位姿 $T_t\in SE(3)$ 以及双手的开合命令。RL policy 的观测包含真实机器人本体感知和机器人根坐标系下的物体位姿；参考轨迹只出现在训练奖励中，部署时不作为观测输入。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+四个阶段分别是：人体/机器人数据重定向到 G1、训练可控扩散先验、采样并过滤多条参考轨迹、在 IsaacLab 中用 PPO 训练全身控制策略。数据流是“文字 + G1 空间时空约束 → 扩散轨迹 → 可执行轨迹集合 → 物理 RL policy”。
+
+### 4.2 核心模块
+
+#### Robot-space 数据构建
+
+**【Paper】** 对人体数据选择髋、膝、踝、肩、肘、腕等 12 个对应关键点，求解：
+
+$$
+(q_{robot},T_{robot})=\mathcal{F}_{retarget}(\mathcal{P}_{human}).
+$$
+
+Pyroki/JAX 求解器最小化相对关节角、相对关键点、脚滑和尺度差异。Xsens 格式的 Nymeria 先通过带置信度权重的 SMPL 拟合转换；随后所有轨迹重采样到 20 FPS、裁剪/补齐到 10 秒，并把根朝向 canonicalize 到 Z+。PHC 风格过滤会去掉跑步机跑步等缺少环境语境的动作；Nymeria 还用关键词和时间戳截取 drawer、cabinet 等交互片段。
+
+#### G1 轨迹表示与扩散模型
+
+每帧使用 263 维表示：根角速度 1 维、平面速度 2 维、根高度 1 维、22 个关节的位置/速度/6D 旋转，以及 4 维足部接触特征。该表示沿用 HumanML3D/MDM 的 canonicalized SMPL 结构，因此可以从 MDM 权重初始化 OmniControl 风格 Transformer。
+
+![扩散模型在多种时空约束下生成的 G1 轨迹（论文附录 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dreamcontrol-v2/diffusion-qualitative.dreamcontrolv2.webp)
+
+**【Paper】** realism-guidance block 是一个零初始化的 Transformer 副本，输入文字与约束并调制主干特征；采样时再结合 classifier-free guidance 和关键点空间梯度，把轨迹推向指定位置。与 ControlNet 的直觉相同，零初始化使训练初期不会破坏原有运动先验。
+
+#### 后处理、过滤与 RL
+
+采样的 263 维轨迹经 $\mathcal{F}_{post}$ 恢复到 27 个 G1 关节角和全局位姿。自动过滤检查手-物体距离、根高度、脚部稳定性、障碍物碰撞和抓取时腕部朝向。保留下来的多条轨迹组成 $\{\hat\tau_i\}_{i=1}^\kappa$，RL 以轨迹跟踪奖励与任务完成奖励联合训练。动作空间是 27 个目标关节角加左右 Inspire 手的二值开合命令；腰部 roll/pitch 锁定，仅允许 yaw。
+
+### 4.3 关键公式
+
+#### Retargeting
+
+$$
+q_{robot},T_{robot}=\mathcal{F}_{retarget}(\mathcal{P}_{human})
+$$
+
+$\mathcal{P}_{human}$ 是人体关键点序列，输出是 G1 关节角与根部 SE(3) 位姿。**【Analysis】** 这一步把“人体数据很丰富”和“控制器只认 G1”之间的接口固定下来。
+
+#### Xsens 到 SMPL
+
+$$
+\mathcal{P}_{human}=\arg\min_{\theta,T_{pose}}\left\|\mathbf{w}\odot\big(\mathbf{x}_{xsens}-\mathcal{F}_{smpl}(\theta,T_{pose})\big)\right\|_2^2.
+$$
+
+其中 $\mathbf{w}$ 提高腕、膝、踝等可靠关节的权重，$\mathcal{F}_{smpl}$ 是可微前向运动学。
+
+#### 空间引导
+
+$$
+\mu_t\leftarrow\mu_t-\tau\nabla_{\mu}\mathcal{G}(\mu_t,\mathbf{c}),
+$$
+
+$\mu_t$ 是当前去噪轨迹，$\mathcal{G}$ 是前向运动学得到的关键点与控制信号之间的 MSE，$\tau$ 控制引导步长。它使“右腕在第 $t_g$ 帧到达把手”成为采样过程中的可微约束。
+
+### 4.4 Training
+
+**【Paper】** 扩散模型使用 AdamW，学习率 $1\times10^{-5}$，从 MDM 预训练权重初始化；RL 在 IsaacLab/IsaacSim 中使用 PPO，约 8,912 个并行环境、2,000–5,000 次迭代。每个任务采样约 500 条参考轨迹，训练 8 个技能库策略。
+
+<Algorithm number={1} title='DreamControl-v2 训练流程' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>人体/机器人动作数据、文字指令、目标机器人模型</div>
+  <div slot='output'>可自主执行的 G1 RL policy</div>
+  <AlgorithmStep>将 AMASS、Nymeria、GRAB、OmniRetarget 轨迹重定向到 G1，并统一采样率、时长与朝向。</AlgorithmStep>
+  <AlgorithmStep>用 text 与稀疏/连续时空约束训练 guided diffusion prior，并从 MDM 权重初始化。</AlgorithmStep>
+  <AlgorithmStep>为每个任务采样多条轨迹，经后处理和任务特定自动过滤。</AlgorithmStep>
+  <AlgorithmStep>在物理仿真中以轨迹跟踪奖励和任务奖励运行 PPO，得到不依赖参考轨迹输入的 policy。</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 推理时输入开放词汇文字和 G1 空间中的控制点，扩散模型直接生成候选轨迹；过滤器选出可行样本后，训练好的 policy 根据本体感知与物体相对位姿闭环输出动作。由于参考轨迹已经被蒸馏进奖励训练，部署阶段不必再运行扩散模型或调 prompt。
+
+<Algorithm number={2} title='自主执行流程' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>任务文字、物体位姿与机器人本体状态</div>
+  <div slot='output'>G1 关节目标和双手开合命令</div>
+  <AlgorithmStep>在 G1 坐标系指定腕部/膝部等关键点的时空约束，采样参考轨迹并自动过滤。</AlgorithmStep>
+  <AlgorithmStep>将当前本体感知和物体相对位姿输入 RL policy。</AlgorithmStep>
+  <AlgorithmStep>输出 27-DoF 目标关节角与左右手二值命令，由底层控制器执行。</AlgorithmStep>
+  <AlgorithmStep>持续根据环境状态闭环滚动，直到任务成功或 episode 结束。</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** 截至论文与项目主页公开信息，作者没有提供可访问的官方 GitHub 代码仓库或训练配置；项目页仅提供论文、视频和演示。因此本文不对具体 Python 文件、DataLoader 或 checkpoint 做代码级断言。可以复现的实现线索来自论文：Pyroki/JAX 负责重定向，OmniControl/MDM 负责扩散先验，IsaacLab + PPO 负责 RL。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+三种扩散训练数据配置为 AMASS（21.8K）、AMASS + Nymeria（26.4K）和 Full-Mix（29.6K）；后者再加入 GRAB 与 OmniRetarget。扩散模型指标包括 FID、R-Precision、Diversity、Control L2 与 Skating Ratio；RL 指标为 100 个随机仿真环境上的 Success Ratio 和 Control Error。
+
+### 5.2 Main Results
+
+**【Paper】** Full-Mix 的 FID 为 0.265、Control L2 为 0.066、Skating Ratio 为 0.096；在 8 个技能上，Success Ratio 分别为 Pick 0.99、Punch 0.99、Deep Squat & Pick 0.94、Drawer Open 0.96、Pour 0.92、Vertical Wipe 1.00、Deep Squat 0.99、Step & Punch 0.91。真实实验在 Unitree-G1 上展示了 Drawer Open、Deep Squat & Pick 和 Punch 等技能。
+
+### 5.3 Ablation Study
+
+![扩散轨迹数量对下游 RL 成功率的影响（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dreamcontrol-v2/traj-scale.dreamcontrolv2.webp)
+
+**【Paper】** 数据规模扩大带来稳定收益：Full-Mix 在 Non-AMASS 测试集上的 FID 从 AMASS-only 的 2.720 降至 0.316，R-Precision Top-3 从 0.117 升至 0.264。增加采样轨迹数量时，3 个任务的 RL 成功率持续上升并趋于饱和，说明参考轨迹覆盖度直接影响策略对物体位置变化的泛化。
+
+### 5.4 Generalization
+
+在 AMASS 测试集上，Full-Mix 与 AMASS-only 表现接近（FID 0.320 vs. 0.328），没有明显损害旧域能力；在 Non-AMASS 测试集上则显著更好。**【Analysis】** 这支持“统一归一化 + 异构数据混合”可以扩展技能覆盖，而不是简单地用新数据覆盖旧分布。
+
+![直接在机器人空间 prompt 与人体空间试错校准的对比（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dreamcontrol-v2/spatial-prompt.dreamcontrolv2.webp)
+
+Prompt calibration 的 FID/Control L2/有效轨迹率为 AMASS 2.010/0.180/8.0%、Full-Mix 3.260/0.260/4.0%；预重定向为 0.265/0.066/68.0%。从 MDM 初始化也优于随机初始化：FID 0.265 对 0.741，R@3 0.388 对 0.254。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** 预重定向同时解决了两个错位：几何错位（人体手到达的位置不等于 G1 手的位置）和分布错位（AMASS 动作不覆盖抽屉、倒水等机器人交互）。扩散先验负责提供多样、语义一致的候选，RL 则把这些候选转化为能处理动力学和扰动的闭环控制器。
+
+### 6.2 核心创新
+
+真正的创新不是重新发明 diffusion 或 PPO，而是把“数据统一、空间约束、自动过滤、RL 蒸馏”串成可扩展接口：任何新的人体/机器人数据先进入 G1 空间，任何任务通过文字和少量关键点约束取样，再由同一 RL 配方学习。
+
+### 6.3 与已有方法的本质区别
+
+DreamControl 需要先在人类空间生成，再 retarget，并通过试错调整 prompt；DreamControl-v2 在机器人空间训练和采样，约束在变换前后保持一致。与只做轨迹跟踪或 teleoperation 的方法相比，RL policy 在部署时不依赖外部参考轨迹。
+
+### 6.4 关键假设
+
+1. 人体与 G1 存在足够稳定的 22 关节语义对应关系。
+2. 统一的 263 维表示能容纳 locomotion、抓取和接触动作。
+3. 任务特定的过滤器可以用几何阈值近似安全性与可行性。
+4. 扩散轨迹覆盖度足够高时，PPO 能从 tracking reward 中学到自主闭环行为。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 论文主要强调原 DreamControl 的可扩展性瓶颈，并未给出系统性的失败案例或安全性证明；真实部署展示在 Unitree-G1 和固定腰部自由度配置上，技能库规模为 8 项。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】** 预重定向把复杂度从推理期移到了数据工程期：Pyroki 求解、Xsens/SMPL 对齐、任务关键词切片和每任务过滤器仍需维护。263 维动作表示还依赖精确的 G1 标定，换机器人可能需要重新训练或至少重新适配。最后，成功率是在随机仿真环境中统计的，不能直接等价为开放世界中的安全可靠性。
+
+## 8. 启发与研究思考
+
+**【Analysis】** 这项工作给通用 humanoid policy 一个很实用的模块化方向：把“生成先验”当作数据引擎，而不是部署时必须运行的策略。后续值得追问三件事：第一，能否让过滤器由可学习的世界模型替代，减少手写 task heuristic；第二，能否在统一 robot-space 中加入视觉观测，让空间 prompt 从人工关键点走向场景理解；第三，轨迹数量的收益何时饱和，是否可以用主动采样把预算集中到高不确定性物体位姿。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和公开项目资料的分析推断。
+</Aside>
