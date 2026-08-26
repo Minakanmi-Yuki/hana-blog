@@ -1,0 +1,281 @@
+---
+title: 'PLD 论文精读：用残差强化学习让 VLA 自己生成训练数据'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 Probe, Learn, Distill：冻结 VLA 通才策略，用残差 RL 探测失败状态，再把分布对齐的恢复轨迹蒸馏回通才模型。'
+heroImage:
+  { src: 'https://pic.hana0721.top/65089776_p0_master1200.5c1kl2nzfo.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '65089776'
+tags:
+  - 'paper deep dive'
+  - 'VLA'
+  - 'residual reinforcement learning'
+  - 'robot data generation'
+paper:
+  arxivId: '2511.00091'
+  title: 'Self-Improving Vision-Language-Action Models with Data Generation via Residual RL'
+  authors:
+    - 'Wenli Xiao'
+    - 'Haotian Lin'
+    - 'Andy Peng'
+    - 'Haoru Xue'
+    - 'Tairan He'
+    - 'Yuqi Xie'
+    - 'Fengyuan Hu'
+    - 'Jimmy Wu'
+    - 'Zhengyi Luo'
+    - 'Linxi “Jim” Fan'
+    - 'Guanya Shi'
+    - 'Yuke Zhu'
+  venue: 'ICLR 2026'
+  year: 2026
+  code: ''
+  project: 'https://wenlixiao.com/self-improve-VLA-PLD'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2511.00091'
+  publication='ICLR2026'
+  tldr='PLD 冻结 VLA 通才策略并训练轻量残差 RL 专家，在通才策略常到达的失败状态接管并收集恢复轨迹，最后用 SFT 将这些能力蒸馏回通才模型。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**【Paper】**《Self-Improving Vision-Language-Action Models with Data Generation via Residual RL》提出 Probe, Learn, Distill（PLD），目标是减少 VLA post-training 对昂贵 teleoperation demonstrations 的依赖。它把一个已有但不完美的 VLA 当作 policy prior，先学习 task-specific residual policy，再生成与通才部署分布一致、同时包含失败恢复行为的数据，最后用标准 SFT 更新通才模型。
+
+### 一句话总结
+
+**【Analysis】** PLD 的关键不是让 RL 专家替代 VLA，而是让专家在 VLA 会走到的“坑里”接管，把如何脱困记录下来，再把这些恢复经验写回 VLA。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出三阶段的 Probe–Learn–Distill 自动 post-training recipe，不需要额外 oracle demonstrations。
+2. 冻结 VLA backbone，只训练轻量 Gaussian residual actor，并用 off-policy RL 高效探索稀疏奖励任务。
+3. 用 base-policy probing 初始化状态分布：先执行若干步通才策略，再由 residual specialist 接管，得到 deployment-aligned recovery trajectories。
+4. 证明 PLD 数据同时适用于 flow-matching 的 $\pi_0$ 和 autoregressive action-token 的 OpenVLA，并改善 seen / unseen tasks。
+
+**【Paper】** 项目页将论文标注为 ICLR 2026 接收稿；论文 arXiv 版本为 v1（2025-10-30）。
+
+![PLD 三阶段框架：残差 RL、混合轨迹收集与 SFT 蒸馏（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-pld/pld-framework.8okfp46at7.webp)
+
+## 2. 背景与相关工作
+
+**【Paper】** VLA 通常靠 SFT 从人工示教中学习。问题在于 teleoperation 成本高，且人类示教往往没有覆盖“模型实际会访问的失败状态”。只保留成功 rollout 的 self-bootstrap data 又会复制 base policy 的错误；独立训练的 RL expert 则容易产生过于单一、远离通才策略分布的轨迹。
+
+论文比较了 WSRL、RLPD、JSRL、Cal-QL 等利用 policy prior 或 offline data prior 的方法。PLD 的区别是将二者组合：offline successful rollouts 用于 critic warm-start，base policy 又参与 residual exploration 和状态初始化。
+
+**【Analysis】** 这对应一个数据分布问题：SFT 需要的不只是“最优动作”，还需要在 deployment distribution 附近看到足够多的恢复动作。PLD 把 RL 的长处（发现纠错行为）和行为克隆的稳定性（蒸馏回大模型）拆开使用。
+
+## 3. 问题定义
+
+**【Paper】** 在部分可观测、稀疏二值奖励的语言条件操作任务中，观测 $o_t$ 包含 RGB 图像和 proprioception，语言目标为 $g$。VLA policy 写成：
+
+$$
+a_t = D_\phi\big(h_\theta(o_t,g)\big),
+$$
+
+其中 $h_\theta$ 是 vision-language backbone，$D_\phi$ 是 action head。动作是 7-DoF：6-DoF end-effector delta pose 加 1-DoF continuous gripper command。每个 episode 成功时得到 $r\in\{0,1\}$，目标是最大化 success rate。
+
+PLD 冻结 base policy $\pi_b$，学习条件 residual policy $\pi_\delta(a_\delta\mid s,a_b)$，其中 $a_b\sim\pi_b(\cdot\mid s)$，最终动作是：
+
+$$
+\bar a = a_b + a_\delta.
+$$
+
+**【Analysis】** residual policy 的输入显式包含 base action，因此它学习的是“如何修正当前 VLA 决定”，而不是从零重建一个通用控制器。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+**【Paper】** PLD 由四个可串联的环节组成：每个任务训练 residual specialist；使用 hybrid rollout 采集成功轨迹；将多任务轨迹通过 SFT 蒸馏回通才 VLA；部署更新后的通才策略并继续覆盖新任务。
+
+数据流可以概括为：
+
+```text
+冻结 VLA π_b ──成功 rollout──> offline buffer / Cal-QL critic
+      │
+      └─ base probing 状态 + residual π_δ ──> 恢复轨迹 D^PLD
+                                              │
+                                              ▼
+                                  VLA SFT / BC 蒸馏 ──> 新通才策略
+```
+
+### 4.2 核心模块
+
+#### Residual Gaussian actor
+
+**【Paper】** residual actor 是轻量 Gaussian policy，输出被缩放并限制在 $[-\xi,\xi]$ 的 delta action。$\xi$ 由 scheduler 调节，默认 LIBERO 使用 $0.5$，SimplerEnv 使用 $0.1$。这样可以在早期保持接近 base policy 的探索，同时逐步扩大修正范围。
+
+#### Offline / online hybrid replay
+
+**【Paper】** 先收集 base policy 的成功轨迹作为 $\mathcal B_{offline}$，在线 residual 交互产生 $\mathcal B_{online}$。训练时等量采样两个 buffer，使 critic 持续看到高价值动作，又能吸收 residual 探索到的新状态。
+
+#### Conservative critic warm-start
+
+**【Paper】** critic 在 offline successful rollouts 上用 Cal-QL 初始化；论文发现 Cal-QL 比 CQL 和简化 IQL 更稳定。训练使用 clipped double Q、LayerNorm，视觉输入由预训练 ResNetV1-10 编码。
+
+#### Base-policy probing 与 hybrid trajectory
+
+**【Paper】** 收集蒸馏数据时，先随机执行 $T_{base}$ 步 base policy，再让 residual policy 接管。轨迹前缀保留 $a_b$，接管后记录 $a_b+a_\delta$。probing 只用于把初始状态推向通才常访问的区域，不写入 RL replay buffer。
+
+### 4.3 关键公式
+
+联合策略动作与 Q-learning 目标为：
+
+$$
+\bar a_t=a_{b,t}+a_{\delta,t},\qquad
+Q^{\bar\pi}(s_t,\bar a_t)\leftarrow r(s_t,\bar a_t)+\gamma\,\mathbb E_{s_{t+1}}\left[Q_{target}^{\bar\pi}(s_{t+1},\bar a_{t+1})\right].
+$$
+
+这里 $Q^{\bar\pi}$ 评估 base 与 residual 组合策略的长期回报，$\gamma$ 是折扣因子。**【Analysis】** 关键点是 critic 评价“修正后的完整动作”，而不是把 residual 当作独立任务来评分。
+
+SFT 阶段使用 base VLA 原有 action head 的行为克隆目标：autoregressive head 使用 action-token NLL，flow / diffusion head 使用各自的连续动作目标。**【Paper】** PLD 不绑定某一种 VLA action head，因此数据生成与模型蒸馏可以解耦。
+
+### 4.4 Training
+
+**【Paper】** RL 训练阶段先用 base policy 成功轨迹填充 offline buffer，并用 Cal-QL 预训练 critic；随后冻结 $\pi_b$，交替进行 online rollout、online/offline 等量 replay、TD critic update 和 SAC-style residual actor update。默认 batch size 为 256、$\gamma=0.99$、AdamW learning rate $3\times10^{-4}$、warmup 100 episodes、critic:actor 更新比为 2，target update rate 为 0.005。
+
+<Algorithm number={1} title='PLD 残差专家训练与蒸馏' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>冻结的 base VLA $\pi_b$、每任务成功轨迹、环境与稀疏奖励。</div>
+  <div slot='output'>可接管并恢复任务的 residual specialist，以及更新后的通才 VLA。</div>
+  <AlgorithmStep>
+    收集 $n$ 条 $\pi_b$ 成功轨迹，写入 offline buffer，并用 Cal-QL 初始化 $Q$。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    冻结 $\pi_b$，采样 $a_b$ 与 residual $a_\delta$，执行 $\bar a=a_b+a_\delta$，将在线转移写入
+    online buffer。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    从两个 buffer 等量采样，更新 clipped double Q 与 SAC residual actor，并用 Polyak averaging 更新
+    target critic。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    随机 rollout $T_{base}$ 步 base policy，再由 residual 接管，收集成功 hybrid trajectories。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    把多任务 hybrid trajectories 作为 SFT 数据，按原 VLA action head 的 BC 目标更新通才模型。
+  </AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 部署时只需要更新后的通才 VLA：输入图像、proprioception 和语言目标，按原 action head 输出动作并执行。residual specialist 不需要在最终推理中常驻；它的作用是离线生成可蒸馏的数据。
+
+<Algorithm number={2} title='蒸馏后 VLA 推理' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前 RGB / proprioception 观测 $o_t$ 与语言目标 $g$。</div>
+  <div slot='output'>7-DoF action，直到成功或达到 episode 时间限制。</div>
+  <AlgorithmStep>用更新后的 VLA 计算 $a_t=D_\phi(h_\theta(o_t,g))$。</AlgorithmStep>
+  <AlgorithmStep>
+    执行动作并获取下一观测；按模型原有 action chunk 或连续控制接口循环。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    在新任务上收集失败分布，必要时再次训练 specialist 并进入下一轮 PLD。
+  </AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** 截至本文撰写时，论文和项目页没有提供可核验的公开 GitHub 代码仓库；因此无法对 model definition、DataLoader、训练脚本或 checkpoint 路径逐文件映射。本文涉及的网络结构、超参数和真实机器人设置均来自论文附录，不能表述为已在公开代码中复现。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+**【Paper】** 仿真使用 LIBERO-90 与 SimplerEnv；VLA 基座包括 flow-matching 的 $\pi_0$ 和 autoregressive action-token 的 OpenVLA。每个任务测试 50 episodes。真实实验使用 7-DoF Franka Panda（20 Hz、腕部与侧视相机、proprioception）以及双 6-DoF YAM arms 的 GPU insertion 长时任务。
+
+![PLD 残差 RL 在 8 个 LIBERO 任务上的训练曲线（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-pld/method-compare-1.3rbyv9sivv.webp)
+
+### 5.2 Main Results
+
+**【Paper】** LIBERO 上，$\pi_0$ 的平均 success rate 从 93.4% 提升到 97.2%，OpenVLA 从 91.8% 提升到 99.2%；其中 OpenVLA Goal suite 提升 15.7 个百分点。SimplerEnv 的平均成功率从 71.8% 提升到 96.6%，平均增益 24.9 个百分点，单任务最高增益为 WidowX Pick Carrot 的 50.6 个百分点。
+
+| 基座    | 数据     |  Spatial |   Object |     Goal |      Avg |
+| ------- | -------- | -------: | -------: | -------: | -------: |
+| $\pi_0$ | baseline |     95.2 |     97.6 |     87.4 |     93.4 |
+| $\pi_0$ | + PLD    | **97.7** | **98.5** | **95.3** | **97.2** |
+| OpenVLA | baseline |     92.9 |     99.1 |    83.25 |     91.8 |
+| OpenVLA | + PLD    | **99.5** | **99.1** | **98.9** | **99.2** |
+
+**【Paper】** 真实 Franka 实验中，peg insertion 为 30/30；cube pickup 中 PLD 数据蒸馏后为 30/30，而 RLPD 数据为 16/30、人类数据为 10/30。YAM 双臂系统将 GPU 任务拆成四阶段，在每个子任务最多 8 小时训练后，可连续执行插入、移动、再插入、拔出并放回桌面至少 1 小时，无人工 reset。
+
+### 5.3 Ablation Study
+
+![Base-policy probing 比例消融：探测到约 0.6 后性能饱和（论文 Figure 12）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-pld/probing-ratio-1.3k8qzu6dpd.webp)
+
+**【Paper】** 消融显示：
+
+- 去掉 residual probing 或只用 base-policy rollout，会降低样本效率并明显损害 unseen-task 泛化。
+- 只用 RL expert rollout 虽然轨迹更“最优”，但分布过窄；hybrid PLD 数据的 SFT 表现更稳健。
+- probing horizon $T_{base}\sim[0,\alpha T]$ 在 $\alpha=0.6$ 左右达到平台，继续增大反而下降。
+- action scale 过大导致早期偏离 base policy、训练不稳定；过小则探索不足。
+- Cal-QL critic warm-start 比 CQL / 简化 IQL 更稳定；on-the-fly 多动作采样主要改善样本效率，最终性能差异较小。
+
+![探测状态与恢复动作带来的真实世界失败模式覆盖（论文 Figure 10）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-pld/real-world-low-1.67y7a6zf6o.webp)
+
+### 5.4 Generalization
+
+**【Paper】** 在 LIBERO-90 的任务覆盖实验中，PLD 在只训练 10% 任务时，seen / unseen success rate 为 94.1% / 24.4%；coverage 提高到 80% 时为 86.4% / 26.8%。相同预算下，base-policy rollout 数据的 unseen success rate 仅为 1.5%–6.2%（随覆盖比例变化），说明成功筛选本身不能提供足够的跨任务信息。
+
+真实世界从 clean blue-cube 与 peg-insertion 训练迁移到 cluttered 环境时，PLD 在 blue cube、red cube、peg insertion 上分别达到 93.3%、66.7%、100%，对应 human data 的 40.0%、33.3%、100%。
+
+**【Analysis】** 长时 LIBERO-100 组合任务中，PLD 超过 self-bootstrap rollout，但仍低于每个目标任务都给一条人类示教，表明“恢复覆盖”并不等价于完整的长程任务规划。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** PLD 同时解决了两个互相牵制的问题：residual RL 把探索限制在 base action 邻域，降低从零探索稀疏奖励的难度；probing 又把 specialist 放回 base policy 的访问分布，使 SFT 看到的是“模型会遇到什么、如何修复”，而不是与部署无关的理想轨迹。蒸馏阶段不改动数据生成目标，因此可复用不同 VLA action head。
+
+### 6.2 核心创新
+
+1. **Policy-aligned data generation**：数据分布由通才策略决定，而非只由 RL 最优性决定。
+2. **Residual takeover**：把任务专家变成可插拔的纠错器，避免直接更新大规模 VLA。
+3. **RL-to-SFT bridge**：用 RL 发现技能、用 SFT 扩散技能，实现轻量专家到多任务通才的迁移。
+
+### 6.3 与已有方法的本质区别
+
+**【Paper】** RLPD 主要依赖 offline/online replay，WSRL 依赖 warm-start，JSRL 通过 guide policy 改变初始状态分布；PLD 在此之上保留 frozen base policy、训练 residual actor，并把 base probing 轨迹显式作为蒸馏数据。它不是直接 RL fine-tune foundation policy，也不是简单复制 base policy 的成功片段。
+
+### 6.4 关键假设
+
+**【Analysis】** 方法依赖以下假设：
+
+- base VLA 至少能产生合理尝试，否则 residual 的局部修正空间可能不够。
+- 成功 / 失败 reward classifier 或环境奖励足够可靠；错误的 binary reward 会把错误恢复蒸馏回模型。
+- base policy 的访问分布是值得对齐的；如果部署分布变化很大，probing 可能覆盖不到新失败模式。
+- 任务可以由 7-DoF delta pose 与 gripper action 表达，且 residual addition 在动力学上可执行。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 论文指出长时组合任务仍落后于目标任务人类示教；真实 peg-insertion 为增加多样性，仍需要人工随机移动孔位。YAM 任务虽然可连续运行一小时，但每个阶段的一次成功率并非 100%。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】** 首先，PLD 并没有消除人类成本：真实任务的初始 SFT、reward classifier 标注和机械环境随机化仍需要人工。其次，逐任务训练 residual specialist 的计算量随任务数线性增加；论文没有给出跨 embodiment 共享 residual 的成本分析。再次，action scale、probing horizon、critic 预训练方式都需要调参，换机器人或相机布局后未必可直接迁移。最后，SFT 把 recovery behavior 写回通才模型时可能产生负迁移，论文尚未提供安全约束、灾难性遗忘监控或在线回滚机制。
+
+## 8. 启发与研究思考
+
+**【Analysis】** PLD 提供了一个很实用的“数据飞轮”模板：通才策略暴露失败分布，轻量 RL 专家负责修复，修复轨迹再反哺通才。后续值得研究：
+
+1. 用不确定性或 value disagreement 自动决定何时 residual takeover，而不是随机固定 probing horizon。
+2. 将 recovery trajectories 与失败片段配对，训练显式 failure detector / intervention policy。
+3. 在多 embodiment 场景共享 residual latent，并把 action-space adapter 与 VLA backbone 解耦。
+4. 为真实机器人加入 safety shield、碰撞约束和可回滚 checkpoint，避免错误 reward classifier 形成闭环放大。
+5. 把 PLD 与 continual learning 结合，研究数据覆盖、KL 漂移和长期遗忘之间的定量关系。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和项目页的分析推断。论文目前没有公开可核验的代码仓库，因此代码对照部分仅说明这一事实。
+</Aside>
