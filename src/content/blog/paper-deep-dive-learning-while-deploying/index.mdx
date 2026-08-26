@@ -1,0 +1,371 @@
+---
+title: 'Learning while Deploying 论文精读：让机器人群在部署中持续学习'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 LWD：用 DIVL 分布式价值学习与 QAM 流策略提取，把 16 台双臂机器人部署产生的离线与在线经验闭环用于通用 VLA 持续改进。'
+heroImage:
+  { src: 'https://pic.hana0721.top/69461006_p0_master1200.1e974ctzq9.webp', color: '#D2C6AD' }
+category: 'research'
+pixivLink: '69461006'
+tags:
+  - 'paper deep dive'
+  - 'VLA'
+  - 'offline-to-online RL'
+  - 'robot fleet'
+paper:
+  arxivId: '2605.00416'
+  title: 'Learning while Deploying: Fleet-Scale Reinforcement Learning for Generalist Robot Policies'
+  authors:
+    - 'Yi Wang'
+    - 'Xinchen Li'
+    - 'Pengwei Xie'
+    - 'Pu Yang'
+    - 'Buqing Nie'
+    - 'Yunuo Cai'
+    - 'Qinglin Zhang'
+    - 'Chendi Qu'
+    - 'Jeffrey Wu'
+    - 'Jianheng Song'
+    - 'Xinlin Ren'
+    - 'Jingshun Huang'
+    - 'Mingjie Pan'
+    - 'Siyuan Feng'
+    - 'Zhi Chen'
+    - 'Jianlan Luo'
+  venue: 'arXiv'
+  year: 2026
+  code: ''
+  project: 'https://learning-while-deploying.github.io/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2605.00416'
+  tldr='LWD 把部署视为训练环节：16 台双臂机器人将成功、失败、恢复和人工干预汇入共享 replay，由 DIVL 评估异质经验，再用 QAM 更新 flow-based VLA，最终把八项真实任务的平均分提升到 0.95。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**【Paper】**《Learning while Deploying: Fleet-Scale Reinforcement Learning for Generalist Robot Policies》提出 Learning While Deploying（LWD）。它研究的不是“如何把一个 specialist 任务做得更好”，而是：一个已经预训练好的 generalist VLA 在真实世界部署后，如何利用整个机器人 fleet 产生的异质经验继续变强，同时保留跨任务能力。
+
+论文的核心闭环是：
+
+```text
+离线数据初始化 → 16 台机器人部署 → 自动 rollout / 人工干预
+       ↑                                      ↓
+       └──── 混合 replay、DIVL + QAM 更新、周期性下发 ────┘
+```
+
+![LWD 的 fleet-scale deployment data flywheel（论文 teaser）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-learning-while-deploying/teaser.45iem6dhyx.webp)
+
+### 一句话总结
+
+**【Analysis】** LWD 最重要的转变是把 deployment 从评测终点改成持续产生训练信号的 data flywheel：离线 replay 负责稳定起步，在线 fleet replay 负责暴露分布偏移，而 DIVL 与 QAM 负责把稀疏结果转成对 flow-based VLA 可用的策略改进。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出面向 generalist VLA 的 fleet-scale offline-to-online RL 系统，在一套共享策略上同时训练八项真实操作任务。
+2. 提出 Distributional Implicit Value Learning（DIVL）：学习 replay action-value 的分布，用 quantile 做 in-distribution TD bootstrap，并用分布熵自适应调节乐观程度。
+3. 将 Q-learning with Adjoint Matching（QAM）用于 flow-based VLA 的 policy extraction，用 critic 的 action gradient 生成局部 flow 回归目标，避免穿过完整采样链路反传。
+4. 在 16 台 Agibot G1 双臂机器人、8 项任务上验证；LWD Online 的整体平均分为 **0.95**，长时程任务平均 step-wise score 为 **0.91**。
+
+## 2. 背景与相关工作
+
+**【Paper】** 大规模 offline pretraining 让 VLA 获得了广泛先验，但部署环境不是固定测试集：物体实例、货架布局、用户指令、光照、接触状态和失败恢复都会发生变化。单次收集的 demonstration 很难覆盖这些 long-tail 情况。
+
+已有路线各自只解决了一部分问题：
+
+| 路线 | 能利用的数据 | 主要缺口 |
+| --- | --- | --- |
+| SFT / Behavior Cloning | 成功示教 | 失败、部分进度和稀有恢复通常被丢掉；长时程误差累积严重 |
+| Interactive imitation / HG-DAgger | 人工纠正片段 | deployment 被当作动作标签来源，不能系统利用 autonomous failure 的结果 |
+| Offline RL / RECAP | 固定 replay 与结果信号 | 更新后仍要重新收集一轮数据，难以快速适应 deployment distribution |
+| Specialist online RL | 在线交互 | 多数针对单任务策略，无法证明共享 generalist VLA 的持续改进 |
+
+**【Analysis】** LWD 的定位因此不是“更大的 DAgger”，而是把 autonomous rollout 当作 RL transition：一次失败也可以告诉 critic 哪些早期 action chunk 没有把任务推进下去；人工 intervention 则和普通在线 transition 一样进入 replay，而不是唯一的正例来源。
+
+## 3. 问题定义
+
+**【Paper】** 机器人控制被写成带语言条件的 MDP：
+
+$$
+\mathcal M=(\mathcal S,\mathcal A,\mathcal T,r,\gamma),\qquad s_t=(o_t,\ell_k)
+$$
+
+其中 $o_t$ 是视觉与本体观测，$\ell_k$ 是任务指令。策略不是输出单步动作，而是输出长度为 $H$ 的 action chunk：
+
+$$
+\mathbf a_t=\mathbf a_{t:t+H-1}\sim\pi_\theta(\cdot\mid s_t),\qquad
+\mathbf r_t=\sum_{i=0}^{H-1}\gamma^i r_{t+i}.
+$$
+
+论文使用稀疏二值终止奖励：只有 episode 成功结束时 $r=1$，否则为 $0$。训练样本统一表示为 $(s_t,\mathbf a_t,\mathbf r_t,s_{t+H})$。
+
+**【Paper】** 实验平台是 Agibot G1：两条 7-DoF 机械臂、平行夹爪、一个 head-view 与两个 wrist-view RGB 相机，joint-position control 频率为 30 Hz。任务分为四个 grocery restocking 任务和四个 3–5 分钟的 long-horizon 任务（功夫茶、果汁、鸡尾酒、鞋盒装箱）。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![LWD pipeline 与 DIVL/QAM architecture（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-learning-while-deploying/method.96ahdqj5yg.webp)
+
+**【Paper】** 上半部分是两阶段 pipeline：Stage 1 在静态 offline buffer 上初始化 policy、critic 和 distributional value；Stage 2 将 offline buffer 与不断增长的 online buffer 混合训练，并周期性地把共享 generalist policy 下发给 fleet。下半部分把 learner 拆成 DIVL value learning 和 QAM policy extraction 两条支路。
+
+**【Analysis】** 这种拆分把“判断 action 好不好”和“让 flow policy 更偏向好 action”解耦。value/critic 保留在中心 learner，只有 policy checkpoint 需要同步到边缘机器人，降低了 fleet 端部署复杂度。
+
+### 4.2 核心模块
+
+#### Distributional Value Model $V_\psi$
+
+- **输入**：带视觉与语言的状态 $s_t$，由 Gemma3–SigLIP VLM 编码。
+- **输出**：固定 categorical support 上的 action-value 分布 $p_\psi(v\mid s_t)$，不是一个标量。
+- **作用**：保留同一状态下 replay actions 的多峰、重尾结果，供后续 quantile bootstrap 和 uncertainty estimation 使用。
+- **实现细节**：VLM 的 readout token 进入 value head；EMA critic 的标量输出被裁剪到 support，并按 C51 方式投影到相邻 atoms。
+
+#### Critic $Q_\phi$
+
+- **输入**：状态表示 $z_t$ 与 action chunk $\mathbf a_t$。
+- **中间模块**：action chunk 先经 learned temporal attention pooling，再与 $z_t$ 拼接。
+- **输出**：两个 scalar critic head，采用 clipped double-Q 的最小值构造 DIVL target，以缓解过估计。
+- **为什么需要**：$Q_\phi(s,\mathbf a)$ 的 action gradient 是 QAM 改进 flow vector field 的直接信号。
+
+#### Flow-based VLA Policy
+
+- **输入**：图像、语言指令、本体信息与高斯噪声。
+- **骨干**：论文实例化为 $\pi_{0.5}$ 风格的 PaliGemma VLM（Gemma-2B + SigLIP）和 Gemma-300M action expert。
+- **输出**：action chunk 的生成分布，由 flow-matching action head 逐步生成。
+- **训练状态**：offline 阶段 policy 与 value/critic 全量 fine-tune；online QAM 阶段冻结 policy VLM backbone，只更新 action expert，value/critic 继续全量更新。
+
+#### Fleet Replay 与奖励
+
+**【Paper】** offline buffer 包含 demonstration、历史 policy rollout（成功和失败）以及围绕失败模式的人类 play data。online buffer 收集当前 policy transition，并在需要时加入 human intervention segment；两者在 online learner 中约以 1:1 比例混合。
+
+### 4.3 关键公式
+
+#### DIVL：从 value distribution 取 quantile
+
+$$
+p_\psi(v\mid s_t)=P\left(v=Q_\phi(s_t,\mathbf a_t)\mid
+\mathbf a_t\sim\mathcal D(\cdot\mid s_t)\right)
+$$
+
+**【Paper】** $\mathcal D(\cdot\mid s_t)$ 是 replay 中与状态相符的 action 分布。模型先用 EMA critic 的标量值拟合这个分布：
+
+$$
+\mathcal L_V=-\mathbb E_{(s_t,\mathbf a_t)\sim\mathcal D}
+  \log p_\psi\big(Q_{\bar\phi}(s_t,\mathbf a_t)\mid s_t\big).
+$$
+
+从累积分布 $F_\psi$ 中取 $\tau$-quantile：
+
+$$
+\operatorname{Quant}_\tau(V_\psi(s))=\inf\{v:F_\psi(v\mid s)\ge\tau\},
+$$
+
+并形成 chunk-level TD target：
+
+$$
+y_Q=\mathbf r_t+\gamma^H\operatorname{Quant}_\tau(V_\psi(s_{t+H})),
+\qquad
+\mathcal L_Q=\mathbb E[(Q_\phi(s_t,\mathbf a_t)-y_Q)^2].
+$$
+
+较大的 $\tau$ 更乐观，较小的 $\tau$ 更保守；与直接在整个 action space 上取 $\max_a Q$ 不同，它仍然局限于 replay 的 in-support action。
+
+#### 自适应 $\tau$
+
+**【Paper】** 令 categorical value distribution 的归一化熵为：
+
+$$
+\mathcal H(s)=-\frac{1}{\log C}\sum_{c=1}^{C}p_{\psi,c}(s)\log p_{\psi,c}(s).
+$$
+
+然后按不确定性调节 bootstrap 乐观度：
+
+$$
+\tau(s)=\operatorname{clip}(\tau_{base}-\alpha\mathcal H(s),\tau_{min},\tau_{max}).
+$$
+
+分布越分散，熵越高，$\tau$ 越低，从而减少不确定状态上的过估计；分布集中时保留更乐观的 target。论文的 constant-$\tau$ 对照使用经验平均值 $\tau=0.52$。
+
+![DIVL 的 dynamic-$\tau$ 诊断图（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-learning-while-deploying/dynamic_tau_plot.5trrjd50bn.webp)
+
+#### QAM：用 critic gradient 改进 flow
+
+**【Paper】** flow matching 从 $\mathbf a^0\sim\mathcal N(0,I)$ 和 replay action $\mathbf a^1$ 构造：
+
+$$
+\mathbf a^w=(1-w)\mathbf a^0+w\mathbf a^1,\quad
+f_\theta(s,\mathbf a^w,w)\approx\mathbf a^1-\mathbf a^0.
+$$
+
+QAM 保留一个固定 reference flow $f_\beta$，并把 critic gradient 放在终点 adjoint condition：
+
+$$
+\tilde g_1=-\nabla_{\mathbf a}[Q_\phi(s,\mathbf a^1)/\lambda].
+$$
+
+再沿 reference flow 解 adjoint dynamics，训练当前 flow 与 reference flow 的局部差异：
+
+$$
+\mathcal L_{QAM}=\mathbb E\left[\int_0^1\left\|
+\frac{2(f_\theta-f_\beta)}{\sigma_w}+\sigma_w\tilde g_w\right\|_2^2dw\right],
+\quad \sigma_w=\sqrt{2(1-w)w}.
+$$
+
+**【Analysis】** QAM 的关键不是再设计一个 action decoder，而是把“终点 action 应该沿 $\nabla_aQ$ 移动多少”变成 flow 时间轴上的局部监督，避开对完整 multi-step generation 做高成本、易不稳定的反向传播。
+
+### 4.4 Training
+
+**【Paper】** 离线阶段先以 demonstration 对预训练 $\pi_{0.5}$ 做 flow-matching SFT，得到 reference policy；随后在 offline buffer 上联合训练 policy、$Q_\phi$ 和 $V_\psi$。短任务使用 1-step chunk TD，长任务使用 10-step chunk TD，以更快传播稀疏终止奖励。online 阶段使用 1-step TD，因为 human intervention 与 autonomous transition 混合后，长 backup 可能跨越不同执行来源。
+
+在线 learner 每步从 $\mathcal B_{off}\cup\mathcal B_{on}$ 采样，更新 DIVL 和 QAM；每 50 个 training steps 向所有 actor 广播新 policy。每个 online experiment 的 wall-clock budget 为 4 小时，跨 16 台机器人约收集 60 robot-hours。
+
+<Algorithm number={1} title='LWD Offline-to-Online Training' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>offline buffer $\mathcal B_{off}$、online buffer $\mathcal B_{on}$、机器人 fleet $\mathcal F$、预训练 VLA</div>
+  <div slot='output'>持续更新的 generalist policy $\pi_\theta$、critic $Q_\phi$ 与 distributional value $V_\psi$</div>
+  <AlgorithmStep keyword='offline'>用 demonstration 初始化 flow policy，并在 $\mathcal B_{off}$ 上更新 DIVL 与 QAM</AlgorithmStep>
+  <AlgorithmStep keyword='deploy'>把当前 policy 异步下发到 fleet，执行多任务 autonomous rollout</AlgorithmStep>
+  <AlgorithmStep>在需要时记录 human intervention，按成功/失败终止标签生成 sparse reward</AlgorithmStep>
+  <AlgorithmStep>把完整 episode 写入 $\mathcal B_{on}$，与 $\mathcal B_{off}$ 混合采样</AlgorithmStep>
+  <AlgorithmStep>用 DIVL 更新 value/critic，用 QAM 更新 flow action expert</AlgorithmStep>
+  <AlgorithmStep keyword='sync'>周期性发布 checkpoint，actor 在下一 episode 边界加载新 policy</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 推理端只需要 generalist policy：输入当前多视角观测和语言指令，由 flow action expert 生成 action chunk，在 G1 上以 joint-position control 执行；value、critic 和 replay coordinator 留在中心 learner。由于论文的 policy 是 chunk-level，执行过程中会按 action horizon 重规划，而不是每个底层控制周期重新运行完整 RL 更新。
+
+<Algorithm number={2} title='Fleet Actor Inference' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前 policy $\pi_\theta$、RGB/本体观测 $o_t$、语言指令 $\ell_k$</div>
+  <div slot='output'>执行中的 action chunk 与 episode transition</div>
+  <AlgorithmStep>读取当前 episode 边界可用的最新 policy checkpoint</AlgorithmStep>
+  <AlgorithmStep>将 $o_t$ 与 $\ell_k$ 输入 VLA，采样 action chunk $\mathbf a_t$</AlgorithmStep>
+  <AlgorithmStep>以 30 Hz joint-position control 执行 chunk，并在下一决策点重新规划</AlgorithmStep>
+  <AlgorithmStep>若操作员介入，记录实际 corrective action；否则记录 policy action</AlgorithmStep>
+  <AlgorithmStep>在成功、失败或超时终止时写入 reward 与 $s_{t+H}$，上传完整 episode</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** 论文 arXiv 源码和官方项目页（[learning-while-deploying.github.io](https://learning-while-deploying.github.io/)）公开了方法、实验图和系统说明，但截至本文写作没有可供复现的官方 GitHub 代码仓库。因此以下是“论文算法 ↔ 公开材料”的对照，而不是逐文件代码审计：
+
+| 论文组件 | 公开材料中可确认的行为 | 代码状态 |
+| --- | --- | --- |
+| Fleet actor / learner | 16 台 G1，actor 上传 episode，中心 learner 混合 replay，策略每 50 steps 广播 | 论文与项目页有系统描述；未公开实现 |
+| DIVL | categorical value distribution、quantile TD target、entropy-adaptive $\tau$ | 公式与消融公开；未公开实现 |
+| QAM | 用 $\nabla_aQ$ 初始化 adjoint，再沿 reference flow 做局部回归 | 公式与算法公开；未公开实现 |
+| Policy | $\pi_{0.5}$ 风格 PaliGemma + Gemma-300M action expert | 架构在论文中公开；未公开 checkpoint / training script |
+
+因此，不能把论文中的 Gemma、JAX、replay snapshot 或同步频率扩写成未经官方代码验证的 API 行为；需要复现时应以作者后续发布为准。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![八项真实任务与长时程操作场景（论文 task frames）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-learning-while-deploying/task-frames.1apqgdzi50.webp)
+
+**【Paper】** 四项 grocery 任务是 Restocking、Correction、Freezer Restocking 和 Open-Cooler Restocking，测试语言指令理解、物体选择、货架/容器变化与摆放修正。四项 long-horizon 任务是 Brew Gongfu Tea、Make Fruit Juice、Make Cocktail 和 Pack Shoes；每个 episode 通常持续 3–5 分钟，包含 5–8 个标注子步骤。
+
+grocery 以 episode binary success rate 评分；long-horizon 以子步骤平均分评分，完全成功为 1、轻微瑕疵或单次 retrial 为 0.5、多次失败为 0，并额外报告 cycle time。对比方法包括 SFT reference、RECAP、HG-DAgger、LWD Offline 与 LWD Online。
+
+### 5.2 Main Results
+
+![LWD 与基线的 success score、cycle time 对比（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-learning-while-deploying/success_rate_plot.362b909kq3.webp)
+
+**【Paper】** 主结果如下，数值为论文 Table 1 的任务分数：
+
+| 方法 | Grocery 平均 | Long-horizon 平均 | 八任务平均 |
+| --- | ---: | ---: | ---: |
+| SFT | 0.84 | 0.68 | 0.76 |
+| RECAP | 0.95 | 0.77 | 0.85 |
+| HG-DAgger | 0.96 | 0.73 | 0.85 |
+| LWD Offline | 0.97 | 0.79 | 0.88 |
+| **LWD Online** | **0.99** | **0.91** | **0.95** |
+
+逐任务看，LWD Online 在四项 long-horizon 任务上分别达到：功夫茶 **0.89**、果汁 **0.90**、鸡尾酒 **0.93**、鞋盒 **0.92**；grocery 四项为 1.00、1.00、0.97、0.98。论文还报告 long-horizon 平均 cycle time 相比 SFT 减少 **23.75 秒**。
+
+**【Analysis】** 提升并不是单纯来自成功示教变多：long-horizon 的优势远大于 grocery，说明 TD backup 对“早期动作影响数分钟后结果”的 credit assignment 更有帮助；同时较短 cycle time 暗示 critic 学到的不只是终点成功，还偏好更少犹豫和 retrial 的 action chunk。
+
+### 5.3 Ablation Study
+
+#### DIVL 对比 scalar expectile
+
+**【Paper】** 将 DIVL 替换为 scalar expectile value regression，其余组件保持不变。long-horizon 平均分在 offline 阶段由 0.72 提升到 0.79（+9.7%），online 阶段由 0.78 提升到 0.91（+16.7%）；short-horizon 也由 0.96/0.97 提升到 0.97/0.99。
+
+![功夫茶成功与失败轨迹中的 value progression（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-learning-while-deploying/tea_demo_v4.2oc9kfakh2.webp)
+
+成功轨迹的 value 通常随关键子步骤完成而上升，失败轨迹在碰撞后停留在较低水平。**【Analysis】** 这支持“分布化 value 可以提供进度信号”的解释，但图是代表性 qualitative diagnostic，不等同于形式化的因果证明。
+
+#### Adaptive $\tau$ 对比 constant $\tau$
+
+**【Paper】** offline 平均分从 constant $\tau=0.52$ 的 0.84 提升到 adaptive $\tau$ 的 0.88；改进在 Restocking、Correction 和 Cocktail 更明显。该结果隔离了 uncertainty-aware optimism calibration 的作用。
+
+### 5.4 Generalization
+
+**【Paper】** 所有任务共享一套 generalist policy，而不是每个任务一个 specialist。grocery 任务接近饱和时，LWD Online 仍保持最佳或接近最佳；long-horizon 任务则从 fleet experience 中获得最大收益。论文没有报告跨机器人硬件、未见过的任务类别或更长时间部署的独立泛化曲线，不能据此宣称开放世界泛化已经解决。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** 可以把效果拆成三个互补因素：
+
+1. **数据覆盖**：fleet 同时看到多任务、多场景、失败和人工恢复，online replay 更接近真正 deployment distribution。
+2. **信用分配**：chunk-level Q 与 long-horizon multi-step TD 把终止结果向更早的决策传播，缓解单步 BC 的 compounding error。
+3. **更新匹配生成策略**：DIVL 不强迫异质回报变成一个均值，QAM 又避免直接穿过 flow sampler 做不稳定 policy gradient。
+
+### 6.2 核心创新
+
+**【Paper】** 论文的实际创新是系统与算法的组合：DIVL 解决“fleet replay 中 value 怎么稳”，QAM 解决“flow VLA 怎么按 value 改”，offline 与 online 使用同一套目标解决阶段切换，fleet 基础设施则把这些更新变成持续 data flywheel。
+
+### 6.3 与已有方法的本质区别
+
+**【Analysis】** 与 SFT/HG-DAgger 的区别是“使用结果”而不只是“模仿动作”；与 RECAP 的区别是持续混合 online replay，而不是 collect–train–deploy 的离散轮次；与 specialist RL 的区别是始终优化一套跨任务共享 policy。LWD 因而把规模化部署本身纳入算法闭环。
+
+### 6.4 关键假设
+
+**【Paper】** 方法依赖以下假设：任务可由稀疏终止成功标签评价；action chunk 的状态转移足以构造稳定 TD target；replay 中的 heterogeneous trajectories 可以由统一的 language-conditioned VLA 表示；human intervention 虽非 policy action，但仍可作为 reward-labeled transition 学习。
+
+**【Analysis】** 这些假设在当前八项任务上成立，并不保证在安全约束强、奖励不可观测、需要高层 task decomposition 或 intervention 频率极高的环境中成立。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 作者明确指出：
+
+- online 更新使用相对直接的实时 schedule，未必适合更大规模或长期 continual learning；
+- long-horizon 实验多使用单条短语言指令，复杂任务仍需要更强的 task decomposition、细粒度 prompt 和闭环恢复；
+- 当前 policy learning 没有显式建模 execution safety，安全感知学习与控制仍是必要方向。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+1. **成本与吞吐**：4 小时、16 台机器人约 60 robot-hours，说明 fleet RL 的数据效率仍依赖昂贵的真实硬件；论文没有给出与单机相同 wall-clock 或相同 interaction budget 的完整 scaling law。
+2. **分布滞后**：异步 actor 可能执行旧 checkpoint，online buffer 混有不同 policy 版本；DIVL 能缓解 value 不确定性，但不能消除 off-policy lag。
+3. **稀疏奖励的可诊断性**：value 曲线是代表性可视化，不能单独证明每个子步骤都得到正确 credit；失败原因、碰撞和安全代价仍未进入显式 reward model。
+4. **复现门槛**：官方尚未公开训练代码、checkpoint 与完整 fleet backend，外部研究者只能复现论文级算法描述，难以核对工程细节。
+
+## 8. 启发与研究思考
+
+**【Analysis】** LWD 给出的研究路线不是“把机器人部署得更多”这么简单，而是把部署系统设计成可学习的闭环：
+
+- 对 VLA post-training，应该优先设计能吸收失败与部分进度的 replay schema，而不是只筛选成功视频；
+- distributional value 的不确定性可以同时用于 bootstrap、数据重采样和人工接管触发；
+- QAM 说明 flow/diffusion policy 的 RL 适配不必依赖显式 action likelihood，局部生成动力学也可以成为监督对象；
+- fleet scale 的关键指标除了 success rate，还应包括数据到 learner 的延迟、checkpoint 到 actor 的延迟、版本一致性和安全事件率。
+
+更值得继续追问的是：当 fleet 扩展到更多任务和更长时间后，如何自动发现 reward hacking、避免旧经验压制新分布，以及怎样让高层语言规划与低层 QAM 更新形成分层闭环。LWD 把这些问题从“未来设想”推进到了可以在真实机器人系统上测量的工程问题。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文或官方项目页明确内容，`【Code】` 表示代码实现；由于作者截至写作时未公开官方代码，代码对照节只列出公开材料能确认的边界，`【Analysis】` 表示基于论文的分析推断。
+</Aside>
