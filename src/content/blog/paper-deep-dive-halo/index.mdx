@@ -1,0 +1,246 @@
+---
+title: 'HALO 论文精读：让 VLA 先思考、再想象、后行动'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 HALO：用 Mixture-of-Transformers 将文本推理、视觉子目标预测与动作生成统一为 Embodied Multimodal Chain-of-Thought，并分析其训练配方、实验和代码现状。'
+heroImage:
+  { src: 'https://pic.hana0721.top/64131498_p0_master1200.45i9cfg3rk.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '64131498'
+tags:
+  - 'paper deep dive'
+  - 'VLA'
+  - 'multimodal reasoning'
+  - 'robot manipulation'
+paper:
+  arxivId: '2602.21157'
+  title: 'HALO: A Unified Vision-Language-Action Model for Embodied Multimodal Chain-of-Thought Reasoning'
+  authors:
+    - 'Quanxin Shou'
+    - 'Fangqi Zhu'
+    - 'Shawn Chen'
+    - 'Puxin Yan'
+    - 'Zhengyang Yan'
+    - 'Yikun Miao'
+    - 'Xiaoyi Pang'
+    - 'Zicong Hong'
+    - 'Ruikai Shi'
+    - 'Hao Huang'
+    - 'Jie Zhang'
+    - 'Song Guo'
+  venue: 'arXiv'
+  year: 2026
+  code: 'https://github.com/MikaStars39/PeRL'
+  project: ''
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2602.21157'
+  tldr='HALO 用 MoT 把文本任务推理、视觉子目标和动作 chunk 串成 EM-CoT，在 RoboTwin 2.0 的 Easy/Hard 平均成功率达到 80.5%/26.4%。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**【Paper】** HALO（Embodied Multimodal Chain-of-Thought）针对长时程、分布外的机器人操作任务，提出“思考（文本计划）—想象（视觉子目标）—行动（动作 chunk）”的统一 VLA。模型由三个 MoT 专家组成：Multimodal Understanding、Visual Generation 和 Action Prediction；专家参数彼此独立，却通过共享 self-attention 协作。
+
+![HALO MoT architecture and EM-CoT data flow (paper Figure 1)](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-halo/architecture.5j4xqcmvsi.webp)
+
+### 一句话总结
+
+**【Analysis】** HALO 的关键不是让语言模型“多说几句”，而是把可解释的文本计划和可检验的未来画面变成动作策略的条件变量，从而把反应式 policy 改造成带中间状态的 deliberative policy。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 以 MoT 将语义推理、视觉生成和动作预测解耦，同时保留跨模态共享注意力。
+2. 提出 EM-CoT 数据合成流水线：从原始轨迹提取动作 primitive，再用 VLM 生成任务叙事、subtask 和逐帧 reasoning，最后以 subtask 终止帧作为 visual subgoal。
+3. 采用 VQA、视觉生成和动作模仿的 versatile pre-training，再进行 EM-CoT fine-tuning。
+4. 在 RoboTwin 2.0 和 Cobot Mobile ALOHA 上验证了 OOD 与真实环境泛化。
+
+## 2. 背景与相关工作
+
+**【Paper】** 传统 VLA 往往直接学习 $\pi_\theta(\mathbf a_{t:t+m}\mid\mathbf l,\mathbf o_{t-k:t})$。当任务包含多个依赖步骤或场景发生变化时，单纯从当前图像反应容易累积误差，也难以显式预测“执行后世界会变成什么”。Textual CoT 能提供高层计划，visual subgoal 能提供空间锚点，但两者通常没有与动作在同一 policy 内联合建模。
+
+**【Analysis】** HALO 与 OpenVLA/FAST 的离散动作 token、$\pi_0$ 的 action expert、ManualVLA 的共享规划器相比，真正改变的是中间监督的组合方式：文本回答“下一步为什么做”，子目标图像回答“下一步应看到什么”，动作 chunk 才回答“具体怎么做”。
+
+## 3. 问题定义
+
+**【Paper】** 给定语言指令 $\mathbf l$ 与最近 $k$ 帧观测 $\mathbf o_{t-k:t}$，HALO 学习三条条件分布：
+
+$$
+\mathbf r\sim P_\theta(\cdot\mid\mathbf l,\mathbf o_{t-k:t}),\qquad
+\hat{\mathbf o}_{t+h}\sim P_\theta(\cdot\mid\mathbf l,\mathbf o_{t-k:t},\mathbf r),
+$$
+$$
+\mathbf a_{t:t+m}\sim\pi_\theta(\cdot\mid\mathbf l,\mathbf o_{t-k:t},\mathbf r,\hat{\mathbf o}_{t+h}).
+$$
+
+其中 $\mathbf r$ 是 textual chain-of-thought，$\hat{\mathbf o}_{t+h}$ 是未来子目标图像，$\mathbf a_{t:t+m}$ 是要执行的连续动作 chunk。实验推理时使用 $c=3$ 帧观测，仿真动作 chunk $K=16$，真实实验 $K=50$。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+**【Paper】** 输入端将指令、当前图像和机器人状态分别编码；special token（如 `<think_start>`、`<vision_start>`、`<action_start>`）控制 hidden state 路由到三个专家。共享 self-attention 让专家读取彼此的上下文，最终依次产生文本 reasoning、visual subgoal 和 action chunk。
+
+![Attention masking strategy for EM-CoT (paper Figure 3)](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-halo/Attn_mask_04.86ue0pfxea.webp)
+
+**【Paper】** 文本 token 使用 causal mask；同一帧的视觉 token 双向注意，跨帧和跨模态仍保持因果约束；noise token 之间可双向注意，但非 noise token 不能读取 noise，避免目标泄漏。
+
+### 4.2 核心模块
+
+#### Multimodal Understanding Expert
+
+**【Paper】** Qwen2.5 tokenizer 处理语言；SigLIP2 初始化的 ViT 加 NaViT 处理原始长宽比图像；两层 MLP projector 将视觉特征映射到 LLM hidden space。该专家负责 VQA、指令理解和 textual CoT。
+
+#### Visual Generation Expert
+
+**【Paper】** FLUX VAE 将图像压缩为 latent，按 $2\times2$ 空间 patch 展平后投影为 token。Visual Generation Expert 预测未来帧的 flow velocity，再由 VAE decoder 重建 visual subgoal；VAE 参数保持冻结。
+
+#### Action Prediction Expert
+
+**【Paper】** 连续动作通过线性 encoder 进入统一 hidden space，action head 再映射回原始动作维度。该专家使用 flow matching 预测动作速度，输出一段动作而不是单步反应。
+
+#### EM-CoT 数据合成
+
+![EM-CoT data synthesis pipeline (paper Figure 2)](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-halo/CoT.3nscxqagex.webp)
+
+**【Paper】** 流水线分三步：规则匹配根据位姿和夹爪变化把轨迹转成 move/grasp/release primitive；Qwen3-VL 生成全局 task narrative、subtask 列表和逐帧第一人称 reasoning；每个 subtask 的终止帧被广播给该段所有帧，作为稀疏 visual subgoal 标签。
+
+**【Analysis】** 终止帧广播是一种“低带宽”未来监督：它不要求模型重建每个中间像素，而只要求模型知道当前子任务完成后应到达的视觉状态，降低了长视频预测的学习难度。
+
+### 4.3 关键公式
+
+**【Paper】** versatile pre-training 的联合损失为：
+
+$$
+\mathcal L_{\mathrm{pt}}=0.25\mathcal L_{\mathrm{CE}}+0.5\mathcal L_{\mathrm{MSE}}+\mathcal L_{\mathrm{L1}}.
+$$
+
+其中 $\mathcal L_{\mathrm{CE}}$ 是 VQA 的 token cross-entropy，$\mathcal L_{\mathrm{MSE}}$ 是视觉 flow matching 的均方误差，$\mathcal L_{\mathrm{L1}}$ 是动作 flow matching 的 L1 损失。权重体现了作者对 manipulation 目标的偏置。
+
+EM-CoT fine-tuning 使用：
+
+$$
+\mathcal L_{\mathrm{ft}}=\mathcal L_{\mathbf r}+\mathcal L_{\hat{\mathbf o}}+\mathcal L_{\mathbf a},
+$$
+
+分别监督文本 reasoning、子目标图像和动作预测；论文未给出三项在 fine-tuning 中的额外不等权系数（附录表给出 CE:MSE:L1 = 1:1:1）。
+
+### 4.4 Training
+
+**【Paper】** Stage 1 在 LLaVA-NeXT-779k（VQA）、OXE 与 Something-Something v2（视觉生成）以及 OXE 动作轨迹上预训练 90k steps；Stage 2 用 RoboTwin 2.0 的 2,500 条仿真示教和 320 条真实示教进行 EM-CoT fine-tuning，分别训练 110k 与 80k steps，并混入通用 VQA 以缓解 catastrophic forgetting。基础模型是 3 个 Qwen2.5-1.5B 专家，总参数约 4.5B；训练使用 32 张 H100、AdamW、常数学习率。
+
+<Algorithm number={1} title='HALO 两阶段训练' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>VQA、视频、机器人轨迹与 EM-CoT 标注数据</div>
+  <div slot='output'>具备 EM-CoT 条件动作预测能力的 HALO policy</div>
+  <AlgorithmStep>初始化三个 Qwen2.5-1.5B 专家及各自的视觉/动作投影器。</AlgorithmStep>
+  <AlgorithmStep>在 VQA、视觉生成、动作预测数据上优化加权损失 $\mathcal L_{\mathrm{pt}}$。</AlgorithmStep>
+  <AlgorithmStep>从轨迹抽取 primitive，并由 VLM 生成 reasoning、subtask 与 visual subgoal。</AlgorithmStep>
+  <AlgorithmStep>以联合损失 $\mathcal L_{\mathrm{ft}}$ 微调；保留少量 VQA 样本维持通用能力。</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 推理时给出指令和三帧观测，模型先自回归生成计划与当前 subtask reasoning，再切换到视觉专家生成目标图像，最后把文本和图像 token 作为上下文交给 action expert，输出 $K$ 步连续动作并执行。下一次观测到来后重复该闭环。
+
+<Algorithm number={2} title='HALO EM-CoT 推理' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>语言指令 $\mathbf l$、最近三帧观测和机器人状态</div>
+  <div slot='output'>动作 chunk $\mathbf a_{t:t+K}$</div>
+  <AlgorithmStep>通过 Multimodal Understanding Expert 生成任务计划与当前 subtask 的文本 reasoning。</AlgorithmStep>
+  <AlgorithmStep>触发 `<vision_start>`，Visual Generation Expert 预测该 subtask 的 visual subgoal。</AlgorithmStep>
+  <AlgorithmStep>将 EM-CoT token 作为条件，触发 `<action_start>` 并由 Action Prediction Expert 生成动作 chunk。</AlgorithmStep>
+  <AlgorithmStep>执行动作、获取新观测，在下一控制周期重新生成 EM-CoT。</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** 论文给出的代码链接是 [MikaStars39/PeRL](https://github.com/MikaStars39/PeRL)。截至本文撰写时，仓库 README 将 PeRL 定义为基于 TRL、verl 和 slime 的 Parameter-Efficient Reinforcement Learning 框架，示例围绕 Qwen 数学推理、LoRA/DoRA 等 PEFT 方法展开。
+
+**【Code】** 仓库中未找到 HALO、EM-CoT、RoboTwin、MoT 专家、视觉 VAE 或动作 expert 的模型定义、数据集类和训练脚本。因此本文不能把 PeRL 的 RL 代码当作 HALO 实现；HALO 的实现细节只能依据论文与附录复现。论文代码链接与仓库内容之间的版本/项目对应关系，论文未明确说明。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![Real-world Cobot Mobile ALOHA task settings (paper Figure 6)](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-halo/Real_Exp_Setting_08.96ahdviotg.webp)
+
+**【Paper】** 仿真使用 RoboTwin 2.0 的 50 个操作任务，每个任务 Easy（clean）和 Hard（domain-randomized）各评估 100 次；对比 $\pi_0$、RDT-1B、Diffusion Policy 和 HALO-w/o EM-CoT。真实实验在 Cobot Mobile ALOHA 上评估 tool-use sweeping、双臂套杯、跨臂螺丝刀交接和把物体放入抽屉四项长时程任务，每项 50 次。
+
+### 5.2 Main Results
+
+| 方法 | Easy 平均成功率 | Hard 平均成功率 |
+| --- | ---: | ---: |
+| $\pi_0$ | 46.4% | 16.3% |
+| RDT-1B | 34.5% | 13.7% |
+| Diffusion Policy | 28.0% | 0.6% |
+| HALO-w/o EM-CoT | 75.3% | 21.2% |
+| HALO | **80.5%** | **26.4%** |
+
+**【Paper】** HALO 相比 $\pi_0$ 在 Easy/Hard 上分别提升 34.1 和 10.1 个百分点；Hard 环境中的相对差距更大，说明结构化 reasoning 对未见随机化有帮助。即使去掉 EM-CoT，versatile pre-training 得到的 HALO-w/o EM-CoT 也已经比 $\pi_0$ 高 28.9 个百分点（Easy）。
+
+![Qualitative EM-CoT rollouts in clean and randomized scenes (paper Figure 5)](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-halo/visualize.9ddp9b4u6q.webp)
+
+### 5.3 Ablation Study
+
+**【Paper】** 训练配方消融（Easy/Hard）：完整 V+T+A 为 75.3/21.2；去掉视觉生成 V 为 58.2/10.5；再去掉文本 V+T 为 42.9/3.9；不做预训练 V+T+A 为 32.4/0.0。EM-CoT 消融中，完整 HALO 为 80.5/26.4；去掉文本 reasoning 为 77.8/18.3；去掉 visual subgoal 为 76.1/22.5；两者都去掉退化到 75.3/21.2。
+
+**【Analysis】** 视觉生成数据对 Hard 任务的跌幅最大，暗示“预测可达的未来视觉状态”比单纯增加语言 token 更接近 OOD 操作所需的归纳偏置；文本和视觉各自可部分替代，但联合时收益最高。
+
+### 5.4 Generalization
+
+![Real-world basic-setting success rates (paper Figure 7a)](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-halo/real_exp_fig1.102wndhfl3.webp)
+
+![Real-world generalization-setting success rates (paper Figure 7b)](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-halo/real_exp_fig2.5trrji24pw.webp)
+
+**【Paper】** 真实泛化设置加入 Coke 瓶、杯子等视觉干扰，改变光照与桌布背景，并用海绵替换扫帚等新物体。论文报告 HALO 在 basic 与 generalization 两种设置下都超过 $\pi_0$ 和 $\pi_{0.5}$；定性结果显示模型仍能定位目标并生成合理子目标。论文未在正文给出跨任务平均的单一汇总数字，因此这里不额外推算。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** HALO 同时缩短了决策难度和感知跨度：文本把长任务分解成可解释 subtask，视觉子目标把动作结果变成中期监督，action chunk 则把局部控制交给连续 expert。三者通过共享 attention 交换信息，减少了“语言计划与低层动作各说各话”的问题。
+
+### 6.2 核心创新
+
+**【Paper】** 创新组合包括 MoT 专家解耦、EM-CoT 的文本/视觉联合条件、自动化轨迹标注和 VQA+VG+AP 的两阶段训练。**【Analysis】** 单独看每个部件都并非全新，贡献更像是把 multimodal reasoning 变成可训练、可执行的统一接口。
+
+### 6.3 与已有方法的本质区别
+
+**【Analysis】** Text-CoT 只改变语义上下文，visual foresight 只预测画面，传统 VLA 只回归动作；HALO 要求三种中间表示按固定 token 协议串联，并让不同专家拥有匹配各自统计结构的注意力和输出头。
+
+### 6.4 关键假设
+
+**【Paper】** 方案依赖三个假设：VLM 能从 primitive 和视频中生成可信 reasoning；subtask 终止帧足以代表该子任务目标；预训练得到的视觉、语言和动作能力可以在共享 attention 中协作。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 正文没有单列局限性章节，也没有报告失败率分解、推理延迟、显存占用或 EM-CoT 标注噪声的系统分析。代码仓库也未提供可复现实验脚本。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+- 三个 1.5B 专家总计约 4.5B 参数，训练需要 32 张 H100，部署成本明显高于单体 VLA。
+- VLM 生成的 narrative、subtask 和第一人称 reasoning 可能出现幻觉；错误的子目标会把动作 expert 引向错误状态。
+- 终止帧广播提供稀疏目标，无法表达碰撞、力控或中间安全约束。
+- 论文主要证明成功率提升，尚未证明生成的文本 reasoning 是真实因果依据，而不是事后解释。
+- 当前公开的 PeRL 仓库与 HALO 模型不对应，研究者无法仅凭该仓库复现实验。
+
+## 8. 启发与研究思考
+
+**【Analysis】** HALO 给出的可迁移设计原则是：把“可解释计划”和“可验证未来状态”都放进 policy 的训练目标，而不是只在推理时外挂一个 LLM。后续工作可以沿三个方向推进：用不确定性估计筛掉错误的 VLM 标注；让 visual subgoal 从单帧扩展为带接触事件的短视频；在较小 backbone 上蒸馏三专家协作，以降低真实机器人部署延迟。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码可确认内容，`【Analysis】`
+  表示基于论文和代码的分析推断。图床 CDN 对新文件仍返回 404，因此文中图像暂时使用 GitHub Raw 地址。
+</Aside>
