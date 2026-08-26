@@ -1,0 +1,237 @@
+---
+title: 'Helix 技术发布精读：快慢双系统 VLA'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 Figure Helix 技术发布：以 7–9Hz 的语义 VLM 和 200Hz 的视觉运动策略分工，在人形上半身连续控制中兼顾泛化与实时性。'
+heroImage:
+  { src: 'https://pic.hana0721.top/70217040_p0_master1200.77e5dp0f1s.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '70217040'
+tags:
+  - 'paper deep dive'
+  - 'Helix'
+  - 'VLA'
+  - 'humanoid robot'
+  - 'visuomotor control'
+paper:
+  arxivId: 'Figure AI Helix'
+  title: 'Helix: A Vision-Language-Action Model for Generalist Humanoid Control'
+  authors:
+    - 'Figure AI（技术发布未署名个人作者）'
+  venue: 'Figure AI 官方技术发布'
+  year: 2025
+  code: ''
+  project: 'https://www.figure.ai/news/helix'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='Figure AI Helix'
+  url='https://www.figure.ai/news/helix'
+  publication='Figure AI 技术发布（2025）'
+  tldr='Helix 把慢速、通用的 VLM（System 2）与高速、反应式的视觉运动策略（System 1）端到端连接：前者以连续 latent 给出语义意图，后者以 200Hz 生成全上半身连续控制。'
+  rank={4}
+  links={[{ type: 'website', href: 'https://www.figure.ai/news/helix' }]}
+/>
+
+## 1. 论文概述
+
+> **阅读范围。**【Paper】本文的唯一一手资料是 Figure AI 于 2025 年 2 月 20 日发布的技术说明《Helix: A Vision-Language-Action Model for Generalist Humanoid Control》。它不是 arXiv 论文：未公开论文 PDF、作者列表、代码仓库、训练配置或可复现实验表。为与本栏目组件兼容，顶部卡片保留了 `ArxivRating`，但其中的 “Figure AI Helix” 是来源标识，**不是 arXiv 编号**。下文的【Paper】均指该官方技术发布；【Code】部分只报告“未公开”，不会用第三方复现冒充官方代码。
+
+### 一句话总结
+
+**【Paper】** Helix 是面向 Figure 人形机器人上半身控制的 Vision-Language-Action（VLA）系统：System 2（S2）用一个 7B 的开放权重 VLM 以 7–9Hz 理解图像、机器人状态和自然语言，压缩出单个连续 latent；System 1（S1）以 200Hz 把该 latent 与最新视觉/状态结合，输出连续的全上半身控制。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 以不同时间尺度拆分“语义理解”和“反应式控制”：S2 慢、通用；S1 快、闭环。
+2. 用一个连续 latent 连接两个系统，而非把高维人形动作离散成 Action Token。
+3. 在约 500 小时、多机器人、多操作者的遥操作数据上，端到端训练同一组模型权重；训练物品会从评测中排除。
+4. 把 S2 与 S1 部署在机器人上的两块低功耗嵌入式 GPU 上，分别异步运行。
+
+## 2. 背景与相关工作
+
+**【Paper】** 家庭环境包含形状、材质和摆放都不稳定的物体。传统手工脚本的技能数量受专家工程时间限制；单任务模仿学习虽然能随数据扩张，却需要为新任务采集示教。Helix 的目标是把互联网预训练 VLM 的物体/语言先验转换为即时的机器人行为，从而让自然语言成为新增行为的接口。
+
+![Figure 官方发布中的技能获取缩放曲线（Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-helix/helix-scaling.helix20260826.webp)
+
+**【Analysis】** 这里的“缩放”是 Figure 给出的产品/研究主张，而不是可用于拟合的定量 scaling law：图中没有坐标数值、置信区间或统一评测协议。它准确表达了 Helix 想改变的瓶颈，但不能单独证明相对于其他路线的样本效率。
+
+**【Paper】** 此前 VLA 常遇到一项工程张力：VLM 的开放世界语义能力强，却难以直接承担高频闭环控制；专用 visuomotor policy 响应快，却通常依赖任务内数据、泛化范围有限。Helix 以 S2/S1 的异步分工处理该张力，而不是让一个网络以同一频率同时解决两件事。
+
+## 3. 问题定义
+
+**【Paper】** 给定单目机载图像 $I_t$、机器人状态 $s_t$ 与语言指令 $l$，Helix 要持续输出人形上半身的连续目标控制。官方列出的状态包含手腕位姿和手指位置；动作包含目标手腕位姿、手指屈曲/外展、躯干与头部朝向，以及一个人工加入的“任务完成百分比”动作。官方同时称系统在 200Hz 下协调 35-DoF action space；各 DoF 与上述控制量的一一对应、坐标系、限幅和底层控制器细节均未公开。
+
+可将发布中描述的策略抽象为：
+
+$$
+z_t = g_{\phi}(I_t, s_t, l), \qquad
+\hat a_t = f_{\theta}(I_t, s_t, z_t).
+$$
+
+其中 $g_{\phi}$ 是 S2，$z_t$ 是它输出的连续语义 latent，$f_{\theta}$ 是 S1，$\hat a_t$ 是一个高频连续动作。**【Analysis】** 这不是官方给出的原始公式，而是对其文字架构的记号化；它的价值在于把“任务意图”和“瞬时运动控制”之间唯一的显式通信接口标出来。
+
+| 要素 | 发布中可确认的信息 | 未公开的信息 |
+| --- | --- | --- |
+| 观测 | 单目机载图像、手腕位姿、手指位置、语言指令 | 图像分辨率、历史长度、标定和归一化 |
+| 动作 | 上半身连续控制；官方称 35 DoF、200Hz | 每一维定义、控制增益、执行器接口 |
+| 机器人 | Figure humanoid，双机器人可同时运行相同权重 | 硬件型号的完整规格与安全约束 |
+| 数据 | 约 500 小时、多机器人多操作者遥操作 | 任务分布、样本数、采样率与数据划分 |
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+**【Paper】** 数据流可压缩为一句：S2 将图像、机器人状态和语言压缩成连续 latent，S1 将该 latent 投影到自己的 token 空间、与其视觉特征沿序列维拼接，再生成连续控制；两者端到端训练，但部署时异步运行。
+
+**【Analysis】** 该结构的关键并非“两个模型”本身，而是把低带宽、慢更新的 $z_t$ 设为高层语义接口。S1 仍读取最新图像和状态，因此当伙伴机器人或被抓物体发生小尺度变化时，不必等待下一次 S2 更新才纠正动作。
+
+### 4.2 核心模块
+
+#### System 2：慢速语义 VLM
+
+**【Paper】** S2 是一个在互联网规模数据上预训练的 7B 开放权重 VLM，运行频率为 7–9Hz。它把单目图像和机器人状态投影到 vision-language embedding space，并与自然语言命令一起处理，输出单个连续 latent vector，承载与当前任务相关的语义信息。
+
+#### System 1：高速 latent-conditional policy
+
+**【Paper】** S1 是一个 80M 参数的 cross-attention encoder-decoder Transformer。其视觉支路是 fully convolutional、multi-scale backbone，并由纯仿真预训练初始化。S1 接收与 S2 相同类型的图像/状态输入，但以更高频率运行；它把 S2 latent 投影为 token，并与视觉特征按 sequence dimension 拼接，以条件化自己的动作输出。
+
+**【Analysis】** 这让 S1 的条件变量不是离散技能 ID，也不是逐步生成的文字推理，而是可端到端反传的连续向量。代价是 $z_t$ 的语义可解释性、维数与失效模式未披露；外部读者无法验证它是否真的只编码“高层意图”。
+
+#### 完成度动作与多机器人场景
+
+**【Paper】** 官方在动作空间中附加“percentage task completion”，并说明它可作为预测终止条件，便于串联多个已学行为。在双机器人杂货收纳演示中，两台机器人使用相同的 Helix 权重，根据诸如“把饼干袋递给右边的机器人”的指令协作；发布称未为不同机器人分配专门角色或专门权重。
+
+### 4.3 关键公式
+
+**【Paper】** 官方只说明使用“standard regression loss”从原始像素和文本映射到连续动作，未给出 L1/MSE 的具体形式、损失权重、优化器或训练步数。因此可确认的训练目标只能写成抽象形式：
+
+$$
+\min_{\theta,\phi}\; \sum_t D\!\left(
+f_{\theta}(I_t, s_t, g_{\phi}(I_{t-\Delta}, s_{t-\Delta}, l)),
+a_t
+\right).
+$$
+
+- $a_t$：遥操作示教中的连续目标动作；
+- $D$：官方所称的 regression loss，具体定义未公开；
+- $\Delta$：S2 与 S1 输入之间的 temporal offset；
+- $I_{t-\Delta}, s_{t-\Delta}$：S2 使用的较早观测，$I_t, s_t$ 则供高速 S1 使用。
+
+**【Paper】** 发布明确说会校准 $Δ$，使其匹配部署时 S1/S2 推理延迟的差距，并让来自 S1 的梯度经 latent 回传至 S2。**【Analysis】** 因而 offset 不是数据增强细节，而是异步系统的训练—推理对齐机制：若训练时两支路“同步”、部署时却使用陈旧 latent，S1 学到的条件分布会改变。
+
+### 4.4 Training
+
+**【Paper】** 训练数据是约 500 小时的高质量遥操作行为，覆盖多个机器人和操作者。Figure 先把机载相机视频切成片段，再用 auto-labeling VLM 生成 hindsight instruction；其提示语是“为了得到视频中看到的动作，你会给机器人什么指令？”。官方称评测物品均从训练物品中排除。
+
+<Algorithm number={1} title='Helix 的公开训练流程（按技术发布重述）' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>遥操作片段、机载图像、机器人状态；由自动标注 VLM 生成的 hindsight instruction。</div>
+  <div slot='output'>联合优化后的 S2 与 S1 权重。</div>
+  <AlgorithmStep>将视频切成片段，并为每段生成“该如何下达指令”的语言标签。</AlgorithmStep>
+  <AlgorithmStep>令 S2 从带时间偏移的图像、状态与语言计算连续 latent。</AlgorithmStep>
+  <AlgorithmStep>令 S1 从最新图像、状态和 latent 预测连续上半身动作。</AlgorithmStep>
+  <AlgorithmStep>以官方所称的标准回归损失监督动作，并把梯度经 latent 回传至 S2。</AlgorithmStep>
+</Algorithm>
+
+**【Paper】** 发布还说明训练只有单一阶段、所有行为共用一组权重，没有每任务 fine-tuning 或独立 action head。batch size、学习率、数据增强、仿真预训练的任务和冻结策略均未公开。
+
+### 4.5 Inference
+
+**【Paper】** 每台机器人配备两块低功耗嵌入式 GPU：S2 在一块 GPU 上作为异步后台进程，持续读取最新观测和语言指令，并将 latent 写入共享内存；S1 在另一块 GPU 上维持 200Hz 实时循环，每一步读取最新观测和最近一次 S2 latent。
+
+<Algorithm number={2} title='Helix 的异步流式推理' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>持续到达的机载图像、机器人状态、自然语言指令，以及共享的 S2 latent。</div>
+  <div slot='output'>以 200Hz 下发的连续上半身控制目标。</div>
+  <AlgorithmStep>S2 以 7–9Hz 更新共享 latent；更新不阻塞控制循环。</AlgorithmStep>
+  <AlgorithmStep>S1 在每个高频控制周期读取最新图像、状态与最近的 latent。</AlgorithmStep>
+  <AlgorithmStep>S1 预测连续动作，并执行手腕、手指、躯干、头部及完成度相关目标。</AlgorithmStep>
+  <AlgorithmStep>当新 latent 到达时，后续 S1 周期自然切换到新的高层条件。</AlgorithmStep>
+</Algorithm>
+
+**【Analysis】** 这是典型的 fast/slow control interface：S2 提供低频目标，S1 保留高频视觉反馈。它不会消除 S2 的语义误判，却能避免慢 VLM 的单次延迟直接决定 200Hz 执行环的时延。
+
+### 4.6 代码实现对照
+
+**【Code】** 截至本文发布日，Figure 的 Helix 官方页面未链接代码仓库，页面 HTML 中也没有 GitHub 链接；Figure AI 的 GitHub 组织 API 地址并不存在。检索到的公开仓库均由第三方标明为 implementation/reimplementation，不能当作官方实现。因此没有可核对的 model、dataset、loss、checkpoint 或 evaluation 代码路径，本节不进行虚构的逐文件对照。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+**【Paper】** 公开材料展示了 Figure humanoid 的上半身控制：手腕、手指、躯干和头部在 200Hz 下联动；发布称 35-DoF action space，并强调头/躯干运动会同时改变可达空间与相机视野。数据来自多机器人、多操作者遥操作，约 500 小时。
+
+**【Paper】** 该技术发布没有公开标准 benchmark 名称、训练/测试轨迹数、机械人重复次数、成功判据或随机种子。演示视频可以说明系统曾完成过展示的行为，不能替代可复现的实验设置。
+
+### 5.2 Main Results
+
+**【Paper】** Figure 报告三类定性结果：
+
+1. 单机器人以 200Hz 进行细粒度全上半身控制；
+2. 两台机器人以同一权重完成零样本杂货收纳与交接；
+3. 对“Pick up the [X]”等指令，在杂乱场景中抓取数千种训练中未出现的小型家居物品，并能把抽象描述（如 desert item）对应到目标物。
+
+**【Analysis】** 这些结果支持“语义条件 + 高频控制可以共同工作”的可行性，但发布没有给出成功率、失败率、对象集合、遮挡程度或和强基线的统一对比。因而“数千种”“零样本”和“匹配最快单任务 BC”的性能主张应视为厂商报告，不能换算为跨论文的排名。
+
+### 5.3 Ablation Study
+
+**【Paper】** 未公开 ablation table、消融视频对照或 S1/S2 频率、latent、视觉 backbone、时间偏移的单因素实验。
+
+**【Analysis】** 最关键而尚未被公开回答的问题包括：去掉 S2 latent 后，S1 的对象/语言泛化下降多少；降低 S1 频率时，接触操作和双机交接会如何退化；去掉 temporal offset 后，异步部署的错误是否显著增加。没有这些对照，就难以分离“互联网 VLM 先验”“500 小时遥操作数据”和“快慢架构”各自的贡献。
+
+### 5.4 Generalization
+
+**【Paper】** 官方称训练中处理过的物品都从评测中剔除，且同一组权重可在两台机器人上运行，不要求机器人专属训练或显式角色分配。其展示覆盖新物体抓取、抽屉/冰箱操作及协作交接。
+
+**【Analysis】** 这证明的主要是 object-level generalization 与相同 embodiment 的多实例协作，不等同于 cross-embodiment transfer。两台 Figure 机器人共享形态、传感器和动作空间；换成另一种手、相机或动力学平台时是否仍有效，官方资料没有证据。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** S2 把稀疏的高层语言、物体类别与场景关系压入 $z_t$，让 S1 不必在每个 5ms 控制周期重跑 7B VLM；S1 则保留对最新视觉与本体状态的读取，能在接触、运动伙伴和视角变化中快速修正。端到端梯度使 $z_t$ 可以针对“让 S1 更好控制”而非只针对文字描述优化。
+
+### 6.2 核心创新
+
+**【Analysis】** Helix 的新意更准确地说是**异步连续接口**：不是将慢 VLM 的离散结论直接下发给传统控制器，也不是强迫单个大模型在高频输出动作，而是以一个可学习 latent 作为慢语义与快控制之间的桥。这与它选择直接回归高维连续动作、避开 action tokenization 共同构成设计核心。
+
+### 6.3 与已有方法的本质区别
+
+| 路线 | 高层语义 | 低层动作 | Helix 的区别 |
+| --- | --- | --- | --- |
+| 单任务 BC | 通常隐含在任务内数据 | 高频连续控制 | Helix 额外从 VLM 引入语言/物体先验 |
+| 单速 VLA | 同一模型处理理解和动作 | 频率受大模型推理限制 | Helix 让 S2 与 S1 各以自己的时钟运行 |
+| Action Token VLA | 离散动作 token | 逐 token 解码 | Helix 直接回归 35-DoF 级连续目标（官方描述） |
+
+### 6.4 关键假设
+
+**【Analysis】** 该方案至少依赖四个假设：VLM 先验可映射到机器人相机视角；低频 latent 在两次更新之间足以保持任务意图；S1 可从 500 小时左右数据中掌握高维接触控制；共享内存与双 GPU 的延迟足够稳定，使训练时校准的 offset 在部署中仍成立。任一假设失效，都可能使“慢语义 + 快执行”的接口变成信息过期或不可靠的瓶颈。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 官方发布强调优势，但没有单列 limitations 部分，也未报告失败案例、边界条件或安全约束。因此作者明确提出的局限为：**论文未明确说明。**
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+1. **证据不完整。** 没有任务成功率、统计误差、基线细节和 ablation，无法独立判断所称泛化幅度。
+2. **可复现性有限。** 7B VLM 的具体型号、latent 维度、数据、损失、控制器与代码均未公开；第三方无法做严格复验。
+3. **安全与恢复未知。** 高维人形控制还涉及碰撞、夹持力、关节限位和失败恢复，但公开材料未描述 safety filter 或 fallback policy。
+4. **latent 过期风险。** S1 虽有新观测，却仍受最近一次 S2 latent 条件化；语义目标突变或遮挡消失时，慢通道更新可能成为限制。
+
+## 8. 启发与研究思考
+
+**【Analysis】** Helix 的价值在于把“VLM 太慢、控制策略太窄”这个常见二选一改写为接口设计问题。后续研究最值得公开和检验的，反而不是继续增大 S2，而是：如何量化 latent 更新率与控制质量的关系；如何让 S1 在高风险接触时拒绝过期语义条件；如何在不同相机、手部和机器人形态之间定义稳定的快慢接口；以及如何用标准 benchmark 与失败分布验证零样本抓取的真实边界。
+
+<Aside type='note' title='阅读提示'>
+  【Paper】表示 Figure AI 官方技术发布明确说明的内容；【Code】表示对官方代码可得性的核验；【Analysis】表示基于公开资料的推断。Helix 没有公开论文或官方代码，故本文不把宣传视频、第三方复现或未披露超参数当作已证实事实。
+</Aside>
