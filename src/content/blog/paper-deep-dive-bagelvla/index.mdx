@@ -1,0 +1,202 @@
+---
+title: 'BagelVLA 论文精读：用交错语言计划与视觉预见解决长时域操作'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 BagelVLA：在统一 MoT 模型中交错生成子任务文本、未来关键帧和动作，并用 Residual Flow Guidance 降低视觉预见延迟。'
+heroImage: { src: 'https://pic.hana0721.top/71187447_p0_master1200.13mdb6lism.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '71187447'
+tags:
+  - 'paper deep dive'
+  - 'VLA'
+  - 'long-horizon manipulation'
+  - 'world model'
+  - 'flow matching'
+paper:
+  arxivId: '2602.09849'
+  title: 'BagelVLA: Enhancing Long-Horizon Manipulation via Interleaved Vision-Language-Action Generation'
+  authors:
+    - 'Yucheng Hu'
+    - 'Jianke Zhang'
+    - 'Yuanfei Luo'
+    - 'Yanjiang Guo'
+    - 'Xiaoyu Chen'
+    - 'Xinshu Sun'
+    - 'Kun Feng'
+    - 'Qingzhou Lu'
+    - 'Sheng Chen'
+    - 'Yangang Zhang'
+    - 'Wei Li'
+    - 'Jianyu Chen'
+  venue: 'arXiv'
+  year: 2026
+  code: 'https://github.com/'
+  project: 'https://cladernyjorn.github.io/BagelVLA.github.io/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating id='2602.09849' tldr='BagelVLA 把子任务语言计划、未来关键帧预测和动作 chunk 生成放进同一条交错序列，并以 RFG 的单步 flow guidance 在长时域操作中兼顾规划质量与控制速度。' rank={4} />
+
+## 1. 论文概述
+
+**【Paper】** 长时域机器人任务同时需要回答“下一步做什么”“场景会变成什么样”和“机械臂该怎样运动”。既只做语言规划、又只做视觉预测的 VLA，往往无法把两种 foresight 对齐到动作。BagelVLA 基于 Bagel 的统一理解/生成模型，引入 2B action expert，把三种生成交错到一个 Mixture-of-Transformers（MoT）框架中。
+
+### 一句话总结
+
+**【Paper】** 给定全局指令 $L$ 和当前观测 $v_t$，模型先生成当前子任务 $l_t$，再预测该子任务完成后的关键帧 $v_{t+k}$，最后在两者条件下生成动作 chunk $a_t$；Residual Flow Guidance（RFG）让动作只读取关键帧 flow 的初始步，从而把视觉预见成本压到单步。
+
+### 核心贡献
+
+1. **【Paper】统一交错策略。** 在单一 MoT 序列中联合学习 linguistic planning、visual forecasting 和 action generation。
+2. **【Paper】Residual Flow Guidance。** 用当前图像作为噪声初始化的结构先验，单步 denoising 即可提取未来动态特征。
+3. **【Paper】两阶段数据引擎。** 先用通用 VQA、手部视频和机器人关键帧训练语言/视觉能力，再用带动作标签的数据学习控制。
+4. **【Paper】跨环境验证。** 在 Calvin、RoboTwin、ALOHA-AgileX 基础任务及长时域任务上显著优于 $π0$、RDT、UP-VLA 和 VPP。
+
+## 2. 背景与相关工作
+
+**【Paper】** RT-2/OpenVLA 把动作离散成 token，表达简单但连续控制受限；$π0$、RDT 等用 diffusion/flow 生成连续动作，却通常把语言规划和视觉预见作为外部模块。VPP、Cosmos Policy 证明未来视觉表示可以帮助控制，但缺少强 VLM 时，复杂指令分解仍然薄弱。另一方面，Bagel、Chameleon 等 unified understanding-and-generation 模型能在文本与图像间交错推理，却没有机器人动作接口。
+
+**【Analysis】** BagelVLA 的关键切入点不是再堆一个 world model，而是让“语言解释”和“视觉结果”成为动作 expert 的显式条件，并保持三种 token 在共享 self-attention 中的信息流。
+
+## 3. 问题定义
+
+**【Paper】** 一条演示轨迹写作 $\tau_i=\{(v_1,l_1,a_1),\ldots,(v_T,l_T,a_T)\}$，其中 $v_t$ 包含多视角图像和 proprioception，$l_t$ 是阶段子任务描述，$a_t$ 是动作 chunk。传统策略学习 $p_\theta(a_t|v_t,L)$；BagelVLA 改为最大化：
+
+$$
+ p_\theta(l_t,v_{t+k},a_t|v_t,L)=p_\theta(l_t|v_t,L)p_\theta(v_{t+k}|v_t,L,l_t)p_\theta(a_t|v_t,L,l_t,v_{t+k}).
+$$
+
+相关检查项：Vision Encoder（SigLIP2）、Language Model（Qwen2.5）、Multimodal Fusion（MoT）、Observation（图像/语言/proprioception）、Action Representation（flow-matched 连续 chunk）、Training Objective（CE + 两个 flow loss）、Dataset（通用多模态与机器人数据）、Action Horizon（论文默认 chunk 48）。论文没有公开可复现的官方代码仓库，项目页仍标注 “Code is coming soon”，因此以下代码对照仅限公开网页信息。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![BagelVLA framework overview from paper Figure 1](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-bagelvla/overview-bagelvla.webp)
+
+**【Paper】** 当前观测和全局指令进入 7B understanding/generation experts，生成子任务文本与关键帧 latent；2B action expert 读取这些中间状态、proprioception 和原始视觉特征，输出连续动作。三类 token 按时间阶段组成统一 interleaved sequence。
+
+### 4.2 核心模块
+
+![BagelVLA model architecture from paper Figure 2](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-bagelvla/model-bagelvla.webp)
+
+- **【Paper】Understanding expert**：Qwen2.5-LLM-7B 结构，SigLIP2 编码观测，autoregressive 生成 $l_t$，用 CE loss 训练。
+- **【Paper】Generation expert**：使用 FLUX VAE latent 与 flow matching 预测关键帧。它同时 attend 输入图像的 VAE/ViT 特征和文本条件。
+- **【Paper】Action expert**：独立的约 2B Transformer，输入 proprioception、动作噪声、语言计划、图像 latent 的中间状态，预测动作 velocity；KV cache 和异步执行使其可高频运行。
+- **【Paper】MoT 连接**：三个 expert 保留各自的参数和职责，却通过共享 self-attention 交换跨模态上下文。
+
+### 4.3 关键公式
+
+令关键帧 clean latent 为 $x_0$、Gaussian noise 为 $\epsilon$、动作 clean chunk 为 $a^1$，flow timestep 为 $\tau\in[0,1]$：
+
+$$x^\tau=(1-\tau)x_0+\tau\epsilon,\qquad v^x=\epsilon-x_0.$$
+
+$$a^\tau=(1-\tau)a^0+\tau a^1,\qquad v^a=a^1-a^0.$$
+
+**【Paper】** 模型分别用 $L_v=\|\hat v^x-v^x\|_2^2$ 和 $L_a=\|\hat v^a-v^a\|_2^2$ 学习图像与动作 flow，并以 $L_l=-\log p_\theta(l_t|v_t,L)$ 学习文本计划；总目标为三者之和。RFG 的区别在于初始关键帧噪声：朴素方案 $x^0\sim\mathcal N(0,I)$，RFG 使用 $x^0\sim\mathcal N(v_t,I)$，因此模型主要拟合变化区域而非静态背景。
+
+### 4.4 Training
+
+**【Paper】** Stage 1 只训练 understanding/generation experts：2.98M 通用 QA、310k human-hand episodes、146k + 297k open robot episodes 和 75k 自采机器人 episodes。Stage 2 引入动作标签，联合微调三个 expert：Calvin ABC split、RoboTwin 2,500 episodes、ALOHA basic 3,000 episodes、ALOHA long-horizon 1,500 episodes。
+
+<Algorithm number={1} title='BagelVLA 两阶段训练' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>交错的图像、指令、子任务、关键帧和动作轨迹</div>
+  <div slot='output'>可执行的 BagelVLA policy</div>
+  <AlgorithmStep keyword='Stage 1'>采样通用 QA 与带关键帧的机器人/手部视频，联合优化文本 CE 与关键帧 flow MSE。</AlgorithmStep>
+  <AlgorithmStep keyword='Stage 2'>加入 action expert，在下游机器人数据上同时优化 $L_l+L_v+L_a$。</AlgorithmStep>
+  <AlgorithmStep>对图像和动作采样 flow timestep；训练时把动作 block 放在关键帧 block 之后，使其读取中间视觉 latent。</AlgorithmStep>
+  <AlgorithmStep>随机替换当前帧为前一帧，为推理阶段 asynchronous execution 学习稳定 KV context。</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+![Dual flow-matching conditioning schemes from paper Figure 3](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-bagelvla/dual-denoise.webp)
+
+**【Paper】** 论文比较 Complete Denoise、Joint Denoise 和 Single-step Denoise。默认 RFG 属于最后一种：只执行关键帧 flow 的初始步，动作 expert 读取该步 KV；文本和关键帧 expert 每次更新较慢，动作 expert 可用 proprioception 高频刷新。单张 RTX 5090 上 chunk=48 时约 40Hz；启用异步执行后报告 72Hz。
+
+<Algorithm number={2} title='BagelVLA RFG 推理' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前观测 $v_t$、全局指令 $L$、proprioception</div>
+  <div slot='output'>下一段动作 chunk $a_t$</div>
+  <AlgorithmStep>用 SigLIP2/VAE 编码当前观测，并由 understanding expert 自回归生成子任务 $l_t$。</AlgorithmStep>
+  <AlgorithmStep>从 $\mathcal N(v_t,I)$ 初始化关键帧 latent，执行一次 generation flow，缓存其 KV。</AlgorithmStep>
+  <AlgorithmStep>action expert attend 文本、ViT、当前帧先验和关键帧初始 latent，执行 action flow denoising。</AlgorithmStep>
+  <AlgorithmStep>反归一化并执行动作 chunk；下一周期只更新 proprioception，按需刷新视觉/语言 KV。</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** 截至论文项目页（2026-08-26），代码按钮链接到空的 GitHub 首页并写着 “Code is coming soon”。因此没有可核验的 model definition、DataLoader、loss 实现、checkpoint 或 evaluation script。本文不把论文伪代码冒充官方实现；后续开源后应重点核对 MoT attention mask、RFG 噪声初始化和异步 KV 更新。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+**【Paper】** 仿真包含 Calvin ABC-D（单步任务）和 RoboTwin 2.0（50 tasks，clean/randomized、未见指令）；真实实验使用 ALOHA-AgileX 双臂平台，覆盖 9 类基础技能和两类长时域任务：按指定顺序堆方块、计算并摆放符号方块。每项真实任务运行 20 次。
+
+![Real-world interleaved planning visualization from paper Figure 4](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-bagelvla/visualize-results.webp)
+
+### 5.2 Main Results
+
+| 基准 | 最强对比 | BagelVLA | 观察 |
+| --- | ---: | ---: | --- |
+| Calvin ABC-D 平均完成长度 | VPP 4.329 | **4.405** | OOD 背景/颜色仍保持操作精度 |
+| RoboTwin Clean 成功率 | UP-VLA 52.92% | **75.26%** | 文本计划带来明显增益 |
+| RoboTwin Randomized 成功率 | $\pi0$ 16.34% | **20.87%** | 随机化场景更难但仍领先 |
+| 真实基础任务平均成功率 | $\pi0$ 65.0% | **75.5%** | 未见物体 pick-place 为 85% |
+
+### 5.3 Ablation Study
+
+| 方案 | 延迟/动作 chunk | Calvin ABC-D |
+| --- | ---: | ---: |
+| Complete Denoise | 6.04s | 2.480 |
+| Joint Denoise | 2.90s | 2.038 |
+| Single-step（纯噪声） | 1.23s | 3.345 |
+| **RFG** | **1.23s** | **3.600** |
+
+**【Paper】** 去掉 textual planning 后 RoboTwin Clean/Randomized 为 54.00/19.20；完整模型为 75.26/20.87。去掉 keyframe forecasting 后为 56.72/15.92。长时域真实任务中，完整模型在堆方块和符号计算的成功率分别为 73.3% 与 63.3%，规划准确率为 95% 与 85%。
+
+### 5.4 Generalization
+
+**【Paper】** 真实未见物体 pick-place、RoboTwin randomized 和 Calvin ABC-D 都显示出泛化优势。**【Analysis】** 语言计划负责把全局指令拆成可验证的局部目标，RFG 则把背景不变性编码进 flow 初态；二者分别缓解 semantic OOD 与 visual OOD，但细粒度接触控制仍是成功率低于规划准确率的主要原因。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** 交错因子分解把长任务的信用分配切成“语义目标 → 视觉结果 → 动作”三步。子任务文本提供离散的阶段边界，关键帧提供连续的物理状态锚点，动作 expert 不必仅从全局指令和当前像素猜测未来。
+
+### 6.2 核心创新
+
+**【Paper】** 真正的新意是 interaction scheme，而非单独的 world model 或 action flow：Single-step + RFG 让视觉生成成为低延迟的 predictive feature extractor；MoT 则允许理解、生成、控制共享上下文但保持参数专门化。
+
+### 6.3 与已有方法的本质区别
+
+**【Analysis】** VPP/Cosmos 主要把未来视觉作为外部条件，语言规划仍在另一路；传统 hierarchical policy 则通常先离线生成 subgoal 再执行。BagelVLA 在每个 action chunk 的同一上下文中在线地产生语言和视觉中间变量，因而能根据新观测重新规划。
+
+### 6.4 关键假设
+
+1. **【Paper】** 一个关键帧足以概括当前子任务的主要视觉结果。
+2. **【Analysis】** 语言子任务边界可由人工或 VLM 标注稳定恢复；边界错误会同时污染视觉和动作监督。
+3. **【Analysis】** 从当前帧加噪的 RFG 初态不会抹掉执行所需的细微接触信息。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 长时域实验中 planning accuracy 明显高于最终 success rate，说明动作映射和 fine-motor precision 仍受模型与数据集限制。完整/联合 denoising 还会遭遇 OOD 中间视觉状态和更高延迟。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】** 论文只在双臂平台和有限任务族上验证；72Hz 依赖 KV 异步假设，换相机频率、机器人本体或更长动作 horizon 可能失效。项目页尚未公开代码与权重，数据标注（尤其自动生成子任务）的噪声、计算成本和复现实验难以独立评估。
+
+## 8. 启发与研究思考
+
+**【Analysis】** BagelVLA 提示 VLA 的“思考 token”不必局限于文字：一个短子任务、一张粗略未来帧和一段动作 chunk 可以构成可观测的中间计划。后续值得研究：（1）让模型根据不确定性决定是否执行完整视觉 denoising；（2）用触觉或 3D state 替代单一 RGB 关键帧；（3）把 planning accuracy 与接触级控制误差联合训练；（4）开源后系统测量 RFG 对不同背景、相机和 embodiment 的迁移边界。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】` 表示基于论文和公开项目页的分析推断。当前项目页尚未提供可核验代码。
+</Aside>
