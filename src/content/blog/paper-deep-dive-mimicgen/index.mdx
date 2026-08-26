@@ -1,0 +1,333 @@
+---
+title: 'MimicGen 论文精读：用少量人类示教规模化生成机器人数据'
+publishDate: 2026-08-27
+updatedDate: 2026-08-27
+description: '精读 MimicGen：将人类示教拆成物体中心片段，通过位姿变换、插值和成功筛选生成跨场景、物体与机械臂的大规模模仿学习数据。'
+heroImage:
+  { src: 'https://pic.hana0721.top/126903857_p0_master1200.2dpaix2l3u.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '126903857'
+tags:
+  - 'paper deep dive'
+  - 'MimicGen'
+  - 'imitation learning'
+  - 'robot data generation'
+  - 'robot manipulation'
+paper:
+  arxivId: '2310.17596'
+  title: 'MimicGen: A Data Generation System for Scalable Robot Learning using Human Demonstrations'
+  authors:
+    - 'Ajay Mandlekar'
+    - 'Soroush Nasiriany'
+    - 'Bowen Wen'
+    - 'Iretiayo Akinola'
+    - 'Yashraj Narang'
+    - 'Linxi Fan'
+    - 'Yuke Zhu'
+    - 'Dieter Fox'
+  venue: '7th Annual Conference on Robot Learning (CoRL)'
+  year: 2023
+  code: 'https://github.com/NVlabs/mimicgen'
+  project: 'https://mimicgen.github.io/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2310.17596'
+  tldr='MimicGen 把少量人类示教切成物体中心动作片段，在新场景中做位姿重定向并只保留成功轨迹，从约 200 条示教生成 5 万条以上可用于模仿学习的数据。'
+  rank={5}
+/>
+
+## 1. 论文概述
+
+**【Paper】** MimicGen 研究的是机器人模仿学习中的数据瓶颈：高质量 teleoperation demonstration 很贵，但很多示教的核心操控技能在不同物体位置、场景和机械臂之间是重复的。系统从一个很小的 source dataset 出发，把每条轨迹按 object-centric subtask 切段，再将片段变换到新场景中执行；只有任务成功的尝试才写入 generated dataset。
+
+![MimicGen 系统流程：示教切段、片段变换与新轨迹执行（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-mimicgen/system-overview.mimicgen.webp)
+
+### 一句话总结
+
+**【Analysis】** MimicGen 的关键不是生成一条“看起来合理”的轨迹，而是把重定向后的轨迹放回环境中真实执行，用 task success 做最后过滤。因此它更像一个 replay-and-verify 数据工厂，而不是离线的几何数据增强器。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出通用的数据生成系统 MimicGen：从少量 human demonstrations 生成新的场景配置、物体实例和机器人硬件上的示教。
+2. 在 18 个任务、2 个模拟器和真实机械臂上生成 50K+ demonstrations，source demonstrations 约 200 条。
+3. 覆盖 pick-and-place、插入、铰接物体、长时程任务、移动操作和毫米级装配，而非只验证单一抓取任务。
+4. 证明 1,000 条 MimicGen 数据训练出的 BC-RNN policy，在许多任务上显著超过 10 条 source demos；与同数量的人类示教相比也有相近性能。
+
+**【Code】** 官方 [NVlabs/mimicgen](https://github.com/NVlabs/mimicgen) 发布了数据生成器、robosuite / Factory 环境接口、任务配置、数据集脚本和调试工具。README 当前版本说明公开数据集包含 12 个任务、48K+ trajectories；论文实验统计为 18 个任务、50K+ trajectories，二者是代码发布范围与论文实验范围的差异。
+
+## 2. 背景与相关工作
+
+**【Paper】** 传统 Behavior Cloning（BC）把示教中的状态—动作对直接拟合为 policy。问题在于，覆盖更大初始状态分布通常需要成百上千甚至数万条人类轨迹。论文用 robomimic 的例子说明：即使是把 coke can 从一个 bin 放到另一个 bin 的简单任务，200 条示教也只能达到 73.3% 成功率；而真实世界大规模数据收集还需要多名操作员、多个厨房和数月时间。
+
+已有 replay-based imitation 方法尝试把历史轨迹复用于新状态，但通常依赖特定任务、特定算法或不能真正验证重放是否成功。MimicGen 的区别是：它把“轨迹可重用”落实为统一的 object-centric 变换接口，并在环境执行后过滤失败样本，使生成数据可以无缝接入已有 BC pipeline。
+
+**【Analysis】** 这是一种 data-centric 视角：提升 policy 的办法不一定是更大的模型，也可以是把有限人类时间投入到少数高质量 source skills，再用环境交互把这些 skills 展开到更宽的状态分布。
+
+## 3. 问题定义
+
+**【Paper】** 每个操作任务被建模为 MDP，示教数据为：
+
+$$
+\mathcal D_{\mathrm{src}}=\{(s_0^i,a_0^i,s_1^i,a_1^i,\ldots,s_{H_i}^i)\}_{i=1}^{N}.
+$$
+
+目标是从小的 source dataset $\mathcal D_{\mathrm{src}}$ 生成目标任务分布上的 $\mathcal D$，再用 BC 学习 policy $\pi_\theta$：
+
+$$
+\theta^*=\arg\min_\theta\;\mathbb E_{(s,a)\sim\mathcal D}[-\log\pi_\theta(a\mid s)].
+$$
+
+系统依赖三个假设：
+
+1. **【Paper】Action space** 是末端执行器 delta pose（3D 平移、axis-angle 旋转和夹爪开关），因而可以转换成 controller target pose。
+2. **【Paper】Subtask structure** 已知，任务可写成相对于单个对象坐标系的一串 object-centric subtasks。
+3. **【Paper】Observation for generation**：每个 subtask 开始时可以取得相关对象的 pose；部署训练好的 policy 时不需要再显式提供这个 pose。
+
+| 要素 | MimicGen 定义 |
+| --- | --- |
+| 输入 | source demonstrations、目标场景初始状态、subtask specification |
+| 中间表示 | 每个 subtask 的末端执行器 target-pose sequence 与 gripper action |
+| 输出 | 在环境中成功执行并通过过滤的新 trajectory |
+| 变化维度 | 初始状态分布 $D$、对象实例 $O$、机器人硬件 $R$ |
+| 下游学习 | 论文使用 BC-RNN 训练 image-based 或 low-dim policy |
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+**【Paper】** 左侧先把 source trajectory 按 subtask termination signal 解析成连续片段；右侧针对一个新场景，逐个 subtask 选择 source segment、按对象 pose 变换、插入过渡轨迹并执行。整条轨迹完成后，通过 task success 判断是否写入数据集。
+
+数据流可以概括为：`source demos → segment parser → segment selector → object-pose transform → interpolation → controller execution → success filter`。
+
+### 4.2 核心模块
+
+#### Source Dataset Parser
+
+- **输入**：一条示教轨迹和 task spec 中的 `subtask_term_signal`。
+- **输出**：$M$ 个 subtask segment，每段保存 eef pose、target pose、gripper action 及相关 object pose。
+- **作用**：把长时程行为拆成可复用的局部技能，例如 coffee preparation 可拆成抓 mug、放到机器、抓 pod、插入机器。
+- **【Code】** `mimicgen/utils/file_utils.py` 的 `parse_source_dataset` 读取 HDF5 并根据 task spec 找到 segment 边界；`DataGenerator.randomize_subtask_boundaries` 还会按配置对边界加入随机 offset。
+
+#### Reference Segment Selection
+
+- **输入**：当前 eef pose、当前 subtask 的 object pose、所有 source segment 的起始信息。
+- **输出**：一个 source demonstration index。
+- **策略**：默认是 `random`；`nearest_neighbor_object` 按对象位置的 L2 距离加旋转角距离，从 top-$k$ 中随机选一个；代码还提供按机器人到目标轨迹距离选择的策略。
+- **为什么需要**：不同 source demo 可能有不同抓取姿态和动作风格。代码中的 `select_src_per_subtask` 决定每个 subtask 是否重新选择 demo；关闭时一条生成轨迹固定使用同一条 source demo，避免跨片段策略不兼容。
+
+#### Object-Centric Pose Transform
+
+- **输入**：source segment 的 target poses、source 对象 pose、当前场景对象 pose。
+- **输出**：新场景中的 target-pose sequence。
+- **作用**：保持末端执行器相对对象的位姿关系，使“以 mug 的这个方向接近”变成“以新 mug 的对应方向接近”。
+- **【Code】** 对应 `mimicgen/utils/pose_utils.py` 的 `transform_source_data_segment_using_object_pose`。
+
+#### Interpolation and Waypoint Execution
+
+- **输入**：当前 eef pose 与变换后片段的首个 target pose。
+- **输出**：可逐步执行的 `WaypointTrajectory`。
+- **作用**：用位置线性插值和旋转插值连接相邻片段，并可在首个 target pose 上固定若干步；执行时再把绝对 target pose 转成 delta action。
+- **【Code】** `WaypointTrajectory.merge` 负责插值，`WaypointSequence` 保存 pose、gripper action 与 noise；默认仿真配置是 5 个 interpolation steps、0 个 fixed steps。
+
+#### Success Filter and Dataset Writer
+
+- **输入**：一次完整执行的 states、observations、actions 和环境 success。
+- **输出**：成功 demonstration 或丢弃该尝试。
+- **作用**：生成失败率（data generation rate）可能很低，但保留下来的轨迹是真实执行过的成功数据，适合训练下游 policy。
+- **【Analysis】** 这一步让生成器与单纯 replay 的目标不同：生成器的成功率衡量“生产成本”，而 policy success 衡量“数据学习价值”，两者并不等价。
+
+### 4.3 关键公式
+
+#### 末端执行器位姿变换
+
+设 source segment 中的控制目标为 $T_W^{C_t}$，source 对象起始位姿为 $T_W^{O_0}$，新场景对象位姿为 $T_W^{O'_0}$。MimicGen 令相对对象位姿保持不变：
+
+$$
+T_{O_0}^{C_t}=T_{O'_0}^{C'_t},
+$$
+
+因此新场景的控制目标为：
+
+$$
+T_W^{C'_t}=T_W^{O'_0}\left(T_W^{O_0}\right)^{-1}T_W^{C_t}.
+$$
+
+这里 $W$ 是 world frame，$O_0/O'_0$ 是 source / new object frame，$C_t/C'_t$ 是控制器 target frame。公式只改变对象在世界中的位姿，不改变动作相对于对象的几何关系。
+
+#### Delta pose action
+
+**【Paper】** 每个动作包含 7 个量：$\Delta p\in\mathbb R^3$、axis-angle 形式的 $\Delta r\in\mathbb R^3$ 和 gripper command。控制器将：
+
+$$
+p_{t+1}^{\mathrm{target}}=p_t^{E}+\Delta p_t,
+$$
+
+并把 $\Delta r_t$ 施加到当前 eef rotation。**【Code】** `mimicgen/env_interfaces/robosuite.py` 将 pose target 与当前 eef pose 相减 / 相乘，执行时再乘以 controller 的最大平移和旋转尺度。
+
+#### Behavioral Cloning
+
+成功轨迹组成的 $\mathcal D$ 用 BC 训练：
+
+$$
+\mathcal L_{\mathrm{BC}}(\theta)=\mathbb E_{(s,a)\sim\mathcal D}[-\log\pi_\theta(a\mid s)].
+$$
+
+论文的实验 policy 是 robomimic 的 BC-RNN；low-dim 输入含 ground-truth object poses，image policy 输入 front-view 与 wrist-view RGB 图像。
+
+### 4.4 Training
+
+**【Paper】** 每个任务通常先由一名操作员收集 10 条 source demos（Mobile Kitchen 为 25 条，Square 使用 robomimic 数据），再用 MimicGen 生成每个 task variant 的 1,000 条成功轨迹。下游使用 BC-RNN；image agent 的图像为 84×84，真实机器人任务为 120×160，并采用 pixel-shift augmentation。low-dim policy 使用 $10^{-3}$ 学习率，image policy 沿用 robomimic 默认配置；模拟任务每个 checkpoint 用 50 次 rollout 评估，报告 3 个训练 seed 中的最大成功率。
+
+<Algorithm number={1} title='MimicGen 数据生成与下游训练' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>少量 source demonstrations、task spec、目标环境与目标 reset distribution</div>
+  <div slot='output'>成功轨迹数据集与训练好的 BC-RNN policy</div>
+  <AlgorithmStep>读取 HDF5 source dataset，并依据 subtask termination signals 解析片段边界</AlgorithmStep>
+  <AlgorithmStep>重置环境，采样一个新的任务初始状态和 subtask boundary offsets</AlgorithmStep>
+  <AlgorithmStep>为每个 subtask 选择 source segment，按当前对象 pose 变换 target poses</AlgorithmStep>
+  <AlgorithmStep>在相邻片段之间插入 interpolation / fixed waypoints，并加入配置的 action noise</AlgorithmStep>
+  <AlgorithmStep>把 target poses 转换为 delta actions，驱动机器人完成完整任务</AlgorithmStep>
+  <AlgorithmStep>若 task success 为真则写入 generated dataset，否则丢弃本次尝试</AlgorithmStep>
+  <AlgorithmStep>用保留下来的 states、observations、actions 训练 BC-RNN，并在多个 seed 上评估</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** MimicGen 不是部署时的 policy。数据生成完成后，训练好的 BC-RNN 只接收正常的 policy observation：low-dim agent 可以使用环境状态，image agent 使用相机图像和本体感知，不再需要显式 object pose 或 source segment。运行时由 policy 直接输出 action，环境控制器执行。
+
+<Algorithm number={2} title='训练后策略推理' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前 observation $s_t$、训练好的 BC-RNN policy $\pi_\theta$</div>
+  <div slot='output'>执行于机器人上的 delta pose action $a_t$</div>
+  <AlgorithmStep keyword='while'>任务尚未结束</AlgorithmStep>
+  <AlgorithmStep indent={1}>读取相机 / low-dim observation 和当前 eef 状态</AlgorithmStep>
+  <AlgorithmStep indent={1}>计算 $a_t=\pi_\theta(s_t)$，不再访问 source demonstrations</AlgorithmStep>
+  <AlgorithmStep indent={1}>由末端执行器控制器执行 delta pose 与 gripper command</AlgorithmStep>
+  <AlgorithmStep keyword='end while' />
+  <AlgorithmStep>根据任务 success 记录 rollout 结果</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+| 论文概念 | 官方代码位置 | 实际行为 |
+| --- | --- | --- |
+| 数据生成主循环 | `mimicgen/datagen/data_generator.py` | reset 环境、选择 source demo、变换每个 subtask、执行并收集结果 |
+| task spec | `mimicgen/configs/task_spec.py` | 保存 object reference、termination signal、selection、noise 和插值超参 |
+| source 解析 | `mimicgen/utils/file_utils.py` | 从 HDF5 读取 datagen info 并切出 subtask indices |
+| 位姿计算 | `mimicgen/utils/pose_utils.py` | pose transform、rotation / position interpolation |
+| 选择策略 | `mimicgen/datagen/selection_strategy.py` | random、nearest-neighbor object、robot-distance 等策略 |
+| waypoint 执行 | `mimicgen/datagen/waypoint.py` | 保存绝对 pose target，执行时转换为 delta action 并加噪声 |
+| 数据集脚本 | `mimicgen/scripts/generate_dataset.py` | 反复尝试直到收集指定数量的成功 demo |
+
+**【Code】** 官方实现还支持 `transform_first_robot_pose`、`interpolate_from_last_target_pose` 和随机 subtask boundary offsets 等论文正文没有展开的工程选项。Mobile Kitchen 的 base action 在当前实现中直接复制，而不像 arm action 那样按参考坐标系变换。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![MimicGen 的 reset distribution 与真实机器人 Stack 示例（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-mimicgen/reset-d0.mimicgen.webp)
+
+**【Paper】** 实验覆盖 robosuite（MuJoCo）和 Factory（Isaac Gym）中的基础堆叠、插入、铰接、长时程厨房、移动操作和精密装配。每个任务有默认分布 $D_0$、更宽的 $D_1$，部分任务还有更难的 $D_2$；也测试了新物体实例和 Sawyer、IIWA、UR5e 等不同机械臂。
+
+真实实验在 Stack 与 Coffee 上各收集 10 条 $D_0$ source demos，再为宽分布 $D_1$ 生成 200 / 100 条成功 demos。相机使用 front-facing 和 wrist-mounted RealSense。
+
+### 5.2 Main Results
+
+![MimicGen image-based agent 的 source、生成数据与数据规模对比结果（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-mimicgen/core-results.mimicgen.webp)
+
+**【Paper】** 论文报告的 image-based agent 结果显示，10 条 source demos 到 1,000 条 $D_0$ generated demos 后，多数任务有大幅提升：
+
+| 任务 | 10 条 source demos | 1,000 条 MimicGen $D_0$ demos |
+| --- | ---: | ---: |
+| Square | 11.3% | 90.7% |
+| Threading | 19.3% | 98.0% |
+| Three Piece Assembly | 1.3% | 82.0% |
+| Mobile Kitchen | 2.0% | 46.7% |
+
+**【Paper】** 更宽的 $D_1/D_2$ 分布上，训练成功率为 42%–99%；Mug Cleanup 在未见 mug 上达到 90.7%，在每回合更换的 12 个 mugs 上达到 75.3%。Factory 的 Nut-Bolt、Gear 和 Frame Assembly 在 $D_0$ 上达到 82%–99%，在更宽分布上仍有 37%–81%。
+
+### 5.3 Ablation Study
+
+![真实机器人 Stack 任务示例（论文 Figure 6 右侧子图）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-mimicgen/real-stack.mimicgen.webp)
+
+**【Paper】** 动作噪声是一个关键消融：默认在执行 transformed segment 时加入 $\sigma=0.05$ 的 Gaussian noise。去掉噪声会提高 data generation rate，却可能让 low-dim agent 下降最多 30%、image agent 下降最多 40%。仅在原始场景 replay 并加噪声，也不如进行 object-pose transform：Square 的 $D_0$ 成功率从 source 的 11.3% 提升到 42.0%，但仍低于 MimicGen 的 90.7%。
+
+**【Paper】** 选择策略的消融显示，关闭 nearest-neighbor / per-subtask 选择通常显著降低数据生成率，但 policy 成功率不一定同步下降。生成 200、1,000、5,000 条数据时，主要收益出现在 200→1,000，继续增加到 5,000 往往出现 diminishing returns。使用 10、50、200 条 source demos 的差异也通常 modest，说明 source demo 的选择质量可能比单纯数量更重要。
+
+### 5.4 Generalization
+
+**【Paper】**
+
+- **跨机器人**：用 Panda source demos 生成 Sawyer、IIWA、UR5e 数据，Square $D_0$ 的 data generation rate 为 38%–74%，但训练后的 policy 成功率仍约 80%–91%。
+- **跨物体**：同一 Mug Cleanup source mug 可转移到未见 mug 以及每回合随机的新 mug。
+- **真实世界**：Stack 的 generation rate 为 82.3%，Coffee 为 52.1%；宽分布上的最终成功率分别为 36% 与 14%。论文认为真实结果较低的一个原因是安全设置使用了 50 个 interpolation steps，而仿真通常只有 5 个。
+- **低质量示教**：来自不同熟练度操作员、不同 teleoperation device 的 source demos 仍能生成性能相近的下游 policy。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】**
+
+1. **降低 human labeling burden**：人类只需覆盖少数稳定技能，环境负责展开初始状态分布。
+2. **把几何不变性显式化**：相对对象坐标系保留了抓取、接近、插入等动作的局部结构，比对整条世界坐标轨迹做随机平移更合理。
+3. **执行闭环过滤**：失败的重定向轨迹不会污染训练集；所以即使 generation rate 低，数据质量仍可能高。
+4. **保留原有 policy pipeline**：最终数据仍是普通 observation-action trajectories，可以直接交给 BC-RNN，不需要为每个下游 policy 设计新损失。
+
+### 6.2 核心创新
+
+**【Analysis】** 真正的创新是三个工程假设的组合：以 object-centric subtasks 作为可复用单元，以 target pose 作为跨机器人接口，再以“执行成功”作为数据质量控制。单独的轨迹 replay、动作噪声或离线 pose augmentation 都无法同时提供这三点。
+
+### 6.3 与已有方法的本质区别
+
+**【Paper】** 与直接收集更多人类数据相比，MimicGen 用约 10 条 source demos 生成 1,000 条成功 demos，在不少任务上达到相近 policy 性能；与 replay-based imitation 相比，它改变了任务实例并在新场景中执行，而不是只在原始 reset 上重复播放。
+
+**【Analysis】** 它不是无条件的“数据倍增器”。生成器只会重用 source demos 已经包含的动作策略；如果新任务需要不同的 subtask 顺序、双物体关系或新的动力学，几何变换不会凭空创造这些能力。
+
+### 6.4 关键假设
+
+**【Paper】** 关键前提包括：subtask 顺序已知；每个 subtask 主要相对于一个对象；对象 pose 在生成时可观测；对象属于同一类别且有对齐的 canonical frame；任务是 quasi-static；机器人使用兼容的末端控制 frame。代码还隐含了 HDF5 数据格式、termination signal 和环境接口必须正确实现的工程假设。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】**
+
+- 需要人工指定 object-centric subtask 及其顺序，不能自动处理任务结构改变。
+- 每个 subtask 只支持一个 reference object，不适合依赖多个物体同时约束的动作。
+- 线性 / spherical interpolation 不感知碰撞，也可能加入不利于 policy 学习的中间动作。
+- 只展示了同类、刚性、尺度相近且 canonical frame 对齐的物体转移，不覆盖软体或形状差异很大的物体。
+- 主要验证 quasi-static 单臂任务；动态任务、不同物体动力学和多臂任务未被覆盖。
+- Mobile Kitchen 中 base action 直接复制，且当前实现假设 base 与 arm 不同时运动。
+- 只按 task success 过滤，生成数据仍可能存在选择偏差与轨迹 artifacts。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+1. **成功过滤产生 selection bias**：困难初始状态更容易被丢弃，训练集可能低估真实部署中的失败区域；generation rate 不能替代覆盖率指标。
+2. **位姿误差会沿长时程累积**：每个 subtask 只在起点对齐对象，若对象估计或控制器有偏差，后续片段仍可能从错误状态开始。
+3. **技能组合不是任意可交换的**：不同 source demos 的抓取姿态、放置方向和夹爪时序可能不兼容，`per-subtask=False` 虽能减少混搭，却也限制了组合多样性。
+4. **下游 BC 并不会自动识别生成痕迹**：插值段和动作噪声改变了状态—动作分布；仿真中有效的 noise / interpolation 超参需要针对真实硬件重新调节。
+
+## 8. 启发与研究思考
+
+**【Analysis】** MimicGen 给出的更一般启发是：机器人数据的“数量”应拆成技能多样性、状态覆盖率和执行质量三个维度。未来可以沿三个方向推进：
+
+- 让视觉语言模型或任务规划器自动提出并验证 subtask graph，减少手工 task spec。
+- 用碰撞感知 motion planner、可学习的插值器和更强的数据质量判别器替换线性插值与 binary success filter。
+- 把生成过程中的失败尝试、对象 pose uncertainty 和 source-demo provenance 一并记录，训练能感知数据置信度的 policy，而不是只保留成功轨迹。
+
+**【Analysis】** 对实际项目而言，最值得复用的不是某个固定的 5-step interpolation 超参，而是“source skill → 几何重定向 → 环境验证 → policy training”的闭环。只要任务能找到稳定的参考坐标系和可靠的成功判定器，就有机会把昂贵的人类示教转化为更宽的训练分布。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。
+</Aside>

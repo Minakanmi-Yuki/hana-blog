@@ -43,10 +43,10 @@ Use only after the count-1 pool is exhausted.
 |         3 | `142350190` | `https://pic.hana0721.top/142350190_p0_master1200.2yyy3wl757.webp` | `rl-note-29`, `paper-deep-dive-tinyvla`, `paper-deep-dive-vp-vla`                                       |
 |         3 | `143484250` | `https://pic.hana0721.top/143484250_p0_master1200.9ddjzdu0z1.webp` | `linux-dl-env-setup`, `paper-deep-dive-pi0`, `paper-deep-dive-robotwin-2`                               |
 |         3 | `131135880` | `https://pic.hana0721.top/131135880_p0_master1200.9rjzqc0dp5.webp` | `rl-note-20`, `paper-deep-dive-robodual`, `paper-deep-dive-robodojo`, `paper-deep-dive-open-x-embodiment` |
-|         3 | `103975128` | `https://pic.hana0721.top/103975128_p0_master1200.8vniavqp93.webp` | `rl-note-19`, `paper-deep-dive-smolvla`, `paper-deep-dive-ebench`                                       |
+|         4 | `103975128` | `https://pic.hana0721.top/103975128_p0_master1200.8vniavqp93.webp` | `rl-note-19`, `paper-deep-dive-smolvla`, `paper-deep-dive-ebench`, `paper-deep-dive-egoverse`, `paper-deep-dive-omniumi` |
 |         3 | `102841826` | `https://pic.hana0721.top/102841826_p0_master1200.4clh7xw95k.webp` | `rl-note-22`, `paper-deep-dive-inspire`, `paper-deep-dive-egoscale`                                  |
 |         3 | `120188807` | `https://pic.hana0721.top/120188807_p0_master1200.1lcf3tjzx5.webp` | `vibe-coding-3`, `paper-deep-dive-vista`, `paper-deep-dive-umi-bench`                                  |
-|         3 | `101003773` | `https://pic.hana0721.top/101003773_p0_master1200.3uvfruqg2c.webp` | `shared-server-git-ssh-workflow`, `paper-deep-dive-robochallenge`, `paper-deep-dive-egoinfinity`        |
+|         3 | `101003773` | `https://pic.hana0721.top/101003773_p0_master1200.3uvfruqg2c.webp` | `shared-server-git-ssh-workflow`, `paper-deep-dive-robochallenge`, `paper-deep-dive-egoinfinity`, `paper-deep-dive-egosteer`        |
 |         3 | `120269913` | `https://pic.hana0721.top/120269913_p0_master1200.3k8lu5pi8s.webp` | `vibe-coding-4`, `paper-deep-dive-unidex`, `paper-deep-dive-la4vla`                                     |
 |         3 | `124956717` | `https://pic.hana0721.top/124956717_p0_master1200.83amt2xvmx.webp` | `galgame-2`, `paper-deep-dive-hex`, `paper-deep-dive-umi`, `paper-deep-dive-dexumi`                       |
 |         3 | `49383596`  | `https://pic.hana0721.top/49383596_p0_master1200.6t7pmts45l.webp`  | `paper-reading-umllm2`, `paper-deep-dive-rdt-1b`, `paper-deep-dive-open-h-embodiment`                     |
@@ -54,7 +54,7 @@ Use only after the count-1 pool is exhausted.
 |         3 | `66497987`  | `https://pic.hana0721.top/66497987_p0_master1200.58hynbbxn8.webp`  | `paper-reading-eba3`, `paper-deep-dive-vla-0`, `paper-deep-dive-touchanything`                          |
 |         3 | `134041716` | `https://pic.hana0721.top/134041716_p0_master1200.5q80bz7b6v.webp` | `rl-note-27`, `paper-deep-dive-caip`, `paper-deep-dive-gr-rl`                                           |
 |         3 | `126839080` | `https://pic.hana0721.top/126839080_p0_master1200.232gprncye.webp` | `upload-project-to-github`, `paper-deep-dive-knowledge-insulating-vla`, `paper-deep-dive-worldarena`    |
-|         2 | `126903857` | `https://pic.hana0721.top/126903857_p0_master1200.2dpaix2l3u.webp` | `tmux-ssh-session-management`, `paper-deep-dive-internvla-m1`                                           |
+|         3 | `126903857` | `https://pic.hana0721.top/126903857_p0_master1200.2dpaix2l3u.webp` | `tmux-ssh-session-management`, `paper-deep-dive-internvla-m1`, `paper-deep-dive-mimicgen`                 |
 |         2 | `86800103`  | `https://pic.hana0721.top/86800103_p0_master1200.4qrwyrtj6a.webp`  | `rl-note-14`, `paper-deep-dive-qwen-vla`                                                                |
 |         2 | `92079701`  | `https://pic.hana0721.top/92079701_p0_master1200.64eg2t4l77.webp`  | `rl-note-15`, `paper-deep-dive-videovla`                                                                |
 |         2 | `93990522`  | `https://pic.hana0721.top/93990522_p0_master1200.et40soxif.webp`   | `scp-upload-to-server`, `paper-deep-dive-lingbot-va`                                                    |
