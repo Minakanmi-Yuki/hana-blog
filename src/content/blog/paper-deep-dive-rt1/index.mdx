@@ -43,7 +43,7 @@ import { Aside } from '@/components/user'
 **项目主页**：[Robotics Transformer 1](https://robotics-transformer1.github.io/)  
 **代码**：[google-research/robotics_transformer](https://github.com/google-research/robotics_transformer)
 
-<img src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rt1/rt1-teaser-model-crop.webp' alt='RT-1 概览（论文 Figure 1）' class='zoomable' width='1796' height='1117' loading='lazy' decoding='async' style='max-width:100%; height:auto;' />
+<img src='https://pic.hana0721.top/blog/paper-deep-dive-rt1/rt1-teaser-model-crop.webp' alt='RT-1 概览（论文 Figure 1）' class='zoomable' width='1796' height='1117' loading='lazy' decoding='async' style='max-width:100%; height:auto;' />
 
 ### 一句话总结
 
@@ -90,7 +90,7 @@ import { Aside } from '@/components/user'
 
 ### 4.1 Overall Architecture
 
-![RT-1 完整架构：USE、FiLM-EfficientNet、TokenLearner 与 Transformer（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rt1/rt1-full-model-crop.webp)
+![RT-1 完整架构：USE、FiLM-EfficientNet、TokenLearner 与 Transformer（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-rt1/rt1-full-model-crop.webp)
 
 **【Paper】** 6 帧图像经过 ImageNet-pretrained EfficientNet-B3，USE 指令 embedding 通过 identity-initialized FiLM 注入；81 个视觉 token 经 TokenLearner 压成 8 个，6 帧形成 48 个上下文 token，输入 8 层 decoder-only Transformer。
 
@@ -160,13 +160,13 @@ $$
 
 ### 5.1 Experimental Setup
 
-![RT-1 的训练教室、真实厨房和移动机械臂（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rt1/robot-setup-crop.webp)
+![RT-1 的训练教室、真实厨房和移动机械臂（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-rt1/robot-setup-crop.webp)
 
 **【Paper】** 数据来自 13 台 Everyday Robots，收集 17 个月；测试使用 classroom、Kitchen1、Kitchen2，覆盖 seen/unseen instructions、distractor/background robustness 与长时序指令。baseline 与 RT-1 使用同一份大规模数据。
 
 ### 5.2 Main Results
 
-![RT-1 与 Gato、BC-Z 的成功率（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rt1/main-baselines-crop.webp)
+![RT-1 与 Gato、BC-Z 的成功率（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-rt1/main-baselines-crop.webp)
 
 | 模型 | Seen | Unseen | Distractors | Backgrounds |
 | --- | ---: | ---: | ---: | ---: |
@@ -179,7 +179,7 @@ $$
 
 ### 5.3 Ablation Study
 
-![数据量与数据多样性消融（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rt1/data-ablation-crop.webp)
+![数据量与数据多样性消融（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-rt1/data-ablation-crop.webp)
 
 **【Paper】** 完整数据的 seen/unseen/distractor/background 为 97/76/83/59。将每任务样本上限降到 200、100、50（保留约 51%、37%、22% 数据）时泛化逐步下降；只保留 75% 任务、仍保留 97% 数据时，四项为 86/67/42/53。
 
@@ -187,7 +187,7 @@ $$
 
 ### 5.4 Generalization
 
-![RT-1 在模拟物体和跨机器人数据上的迁移结果（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rt1/sim-delta-crop.webp)
+![RT-1 在模拟物体和跨机器人数据上的迁移结果（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-rt1/sim-delta-crop.webp)
 
 **【Paper】** 加入 simulation data 后，模拟中见过的物体从 23% 提升到 87%，unseen skill 从 7% 到 33%，real-object performance 基本不降。加入 209k 条 Kuka 数据后，classroom 仅降 2 个百分点，EDR bin-picking 从 22% 到 39%；单独 Kuka 数据训练控制 EDR 为 0%。
 

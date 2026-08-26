@@ -54,7 +54,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** SmolVLA 不是把一个大 VLA 再压缩一点，而是重新划分计算职责：小型 VLM 负责“看懂图像、语言和机器人状态”，独立的 Action Expert 负责“生成连续动作块”，再用异步执行栈把低功耗机器人上的控制循环从昂贵的策略推理中解耦出来。
 
-![SmolVLA architecture from paper Figure 1](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-smolvla/smolvla-architecture.webp)
+![SmolVLA architecture from paper Figure 1](https://pic.hana0721.top/blog/paper-deep-dive-smolvla/smolvla-architecture.webp)
 
 **【Paper】** 论文报告的主模型约 450M 参数，预训练使用 481 个 community datasets、约 22.9K episodes 和 10.6M frames；模型可在单 GPU 训练，推理目标是消费级 GPU 甚至 CPU。仿真和真实机器人结果显示，它可以与参数量约 7–10 倍的 VLA 竞争。
 
@@ -227,7 +227,7 @@ $$
 
 ### 5.1 Experimental Setup
 
-![SmolVLA real-world tasks from paper Figure 2](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-smolvla/real-world-tasks.webp)
+![SmolVLA real-world tasks from paper Figure 2](https://pic.hana0721.top/blog/paper-deep-dive-smolvla/real-world-tasks.webp)
 
 **【Paper】** 仿真评测使用 LIBERO（Spatial、Object、Goal、Long 四类）和 Meta-World（Easy、Medium、Hard、Very Hard）。真实评测覆盖 SO100 的 pick-place、stacking、sorting，以及未参与预训练的 SO101 Pick-Place-Lego OOD 任务。
 
@@ -252,7 +252,7 @@ $$
 
 ### 5.3 Ablation Study
 
-![Action queue evolution in paper Figure 4](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-smolvla/action-queues.webp)
+![Action queue evolution in paper Figure 4](https://pic.hana0721.top/blog/paper-deep-dive-smolvla/action-queues.webp)
 
 **【Paper】** 关键结构消融（LIBERO 平均成功率）：
 
@@ -276,7 +276,7 @@ $$
 
 **【Paper】** 预训练与多任务共同训练是关键：SO100 上单任务无预训练平均 40%，多任务无预训练 51.7%，多任务加社区预训练升到 78.3%。这说明 community data 的作用不只是扩大样本量，还提供了跨任务的动作先验。
 
-![Asynchronous inference stack from paper Figure 3](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-smolvla/async-inference.webp)
+![Asynchronous inference stack from paper Figure 3](https://pic.hana0721.top/blog/paper-deep-dive-smolvla/async-inference.webp)
 
 **【Paper】** async 与 sync 的真实成功率接近（平均分别为 73.3% 和 78.3%），但 async 平均完成时间从 13.75 秒降到 9.70 秒，约快 30%；固定时间测试中，async 完成 19 个 pick-place 循环，sync 只有 9 个。它的价值主要体现为减少 idle 和提高单位时间内可完成的交互次数，而不是单纯提高单次成功率。
 

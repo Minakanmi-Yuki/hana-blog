@@ -72,7 +72,7 @@ import { Aside } from '@/components/user'
 **论文链接**：[arXiv:2607.14183](https://arxiv.org/abs/2607.14183)  
 **代码与数据**：[Open-AoE GitHub](https://github.com/ant-research/Open-AoE)、[Hugging Face 数据集](https://huggingface.co/datasets/inclusionAI/OpenAoE-2000h)、[ModelScope 数据集](https://www.modelscope.cn/datasets/inclusionAI/OpenAoE-2000h)
 
-![Open-AoE 数据集、处理管线与工具链总览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-open-aoe/figure1_v5.icuyygyg0.webp)
+![Open-AoE 数据集、处理管线与工具链总览（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-open-aoe/figure1_v5.icuyygyg0.webp)
 
 ### 一句话总结
 
@@ -110,7 +110,7 @@ Open-AoE 继承 AoE（Always-on Egocentric）的手机采集思路，试图解�
 
 ### 4.1 Overall Architecture
 
-![Open-AoE 的数据处理与下游模块总览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-open-aoe/figure1_v5.icuyygyg0.webp)
+![Open-AoE 的数据处理与下游模块总览（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-open-aoe/figure1_v5.icuyygyg0.webp)
 
 **【Paper】** 数据从手机端的 consent、自动录制和隐私控制开始，经过四阶段处理后形成同步的 RGB、MANO、相机运动和 action text；同一证据层随后被 Visualization、Reconstruct-Retarget 和 Training-Ready 复用。训练和推理的具体操作分别见 4.4 与 4.5。
 
@@ -141,7 +141,7 @@ Open-AoE 继承 AoE（Always-on Egocentric）的手机采集思路，试图解�
 
 #### E. 三条下游工具链
 
-![AoE-Reconstruct-Retarget：从手机视频到 4D 资产、机器人轨迹与 robotized video（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-open-aoe/fig3-reconstruct-retarget.4clmhwyvyx.webp)
+![AoE-Reconstruct-Retarget：从手机视频到 4D 资产、机器人轨迹与 robotized video（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-open-aoe/fig3-reconstruct-retarget.4clmhwyvyx.webp)
 
 **AoE-Visualization** 用 Rerun 风格的时间线同时显示去畸变视频、MANO mesh、21-keypoint skeleton、future wrist trail 与 world-frame 3D 视图。**【Code】** `aoe-visualization/visualize.py` 支持 `--sample` 或 `--data_dir`，每个样本输出 `AoE_output_vis.mp4`；没有 OpenGL 时会回退到 NumPy 着色渲染。
 
@@ -231,13 +231,13 @@ $$
 
 ### 5.1 Experimental Setup
 
-![Open-AoE 的 Training-Ready 表示谱与模型连接（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-open-aoe/fig4-training-ready.83as35nrci.webp)
+![Open-AoE 的 Training-Ready 表示谱与模型连接（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-open-aoe/fig4-training-ready.83as35nrci.webp)
 
 **【Paper】** 数据分析主要在随机抽取的 100 小时上进行，并与 OpenEgo、EgoDex、EgoXtreme 比较。视觉多样性使用 CLIP embedding；语义/时间分析统计 action vocabulary、覆盖率、片段时长与密度；一致性由 Idefics2 逐序列评分；训练效用使用 2 秒 history、2 秒 future、2 秒 stride 的窗口规则。
 
 ### 5.2 Main Results
 
-![CLIP 六项视觉多样性指标（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-open-aoe/fig_clip_six_metrics.4xva47tckn.webp)
+![CLIP 六项视觉多样性指标（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-open-aoe/fig_clip_six_metrics.4xva47tckn.webp)
 
 **【Paper】** Open-AoE 在 3,000 次平衡随机试验的六项视觉指标均值上排名第一：Effective Rank 97.43、Participation Ratio 40.47、Meaningful Coverage 19.89、Normalized Cluster Entropy 0.712、Effective Clusters 16.29、kNN Domain Mixing 0.0775。论文特别指出，前两项和 kNN mixing 的优势在所有试验中都保持第一，说明设备、场景和采集者带来的变化并非只由少数样本贡献。
 
@@ -245,7 +245,7 @@ $$
 
 ### 5.3 Ablation Study
 
-![不同数据集的语义宽度与时间标注特征（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-open-aoe/fig_temporal_semantic.5mojo8gvn1.webp)
+![不同数据集的语义宽度与时间标注特征（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-open-aoe/fig_temporal_semantic.5mojo8gvn1.webp)
 
 严格意义上，本文没有像 policy 论文那样逐模块移除的 ablation；它做的是数据属性审计。**【Paper】** 一致性评估中，Open-AoE 的 Idefics2 sequence-macro 为 4.583/5（95% bootstrap CI [4.557, 4.608]），85.4% 序列达到至少 4 分，只有 2.2% 处于不高于 2 分的低分区间。
 

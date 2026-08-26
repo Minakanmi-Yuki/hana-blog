@@ -45,7 +45,7 @@ import { Aside } from '@/components/user'
 
 ## 1. 论文概述
 
-![DreamZero overview from paper Figure 1](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dreamzero/dreamzero-header-v2.6t7uwglmsd.webp)
+![DreamZero overview from paper Figure 1](https://pic.hana0721.top/blog/paper-deep-dive-dreamzero/dreamzero-header-v2.6t7uwglmsd.webp)
 
 ### 一句话总结
 
@@ -92,7 +92,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![DreamZero model architecture from paper Figure 4](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dreamzero/dreamzero_model.8vnnkik84g.webp)
+![DreamZero model architecture from paper Figure 4](https://pic.hana0721.top/blog/paper-deep-dive-dreamzero/dreamzero_model.8vnnkik84g.webp)
 
 **【Paper】** VAE 将视觉序列编码为 video latent，text encoder 编码指令，state encoder 编码本体状态；三者进入 autoregressive Causal DiT。DiT 使用 flow matching，同时输出 video velocity 与 action velocity，分别经 video decoder 和 action decoder 得到未来帧与动作。
 
@@ -143,7 +143,7 @@ $$
 
 #### DreamZero-Flash 的解耦噪声
 
-![DreamZero-Flash noise schedules from paper Figure 5](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dreamzero/dreamzero-flash_noise_distribution-comparison.6bht7vkcmh.webp)
+![DreamZero-Flash noise schedules from paper Figure 5](https://pic.hana0721.top/blog/paper-deep-dive-dreamzero/dreamzero-flash_noise_distribution-comparison.6bht7vkcmh.webp)
 
 **【Paper】** 标准 DreamZero 让视频和动作共享 uniform timestep；少步推理时视频仍然很 noisy，却要求动作已经干净，出现 train-test mismatch。Flash 令视频 timestep 偏向高噪声（例如 $t_{video}=1-\eta,\eta\sim Beta(7,1)$），动作 timestep 仍 uniform：
 
@@ -211,17 +211,17 @@ $$
 
 ### 5.1 Experimental Setup
 
-![AgiBot evaluation setup from paper Figure 7](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dreamzero/main_eval_setting.8l0trd50uh.webp)
+![AgiBot evaluation setup from paper Figure 7](https://pic.hana0721.top/blog/paper-deep-dive-dreamzero/main_eval_setting.8l0trd50uh.webp)
 
 **【Paper】** 基线为 GR00T N1.6 与 $\pi_{0.5}$，分别比较 from-scratch 和官方 pretrained checkpoint。AgiBot seen tasks 共 80 rollouts，unseen tasks 另 80；DROID-Franka 在 40 个任务上共 80 rollouts。默认测试地点、物体和摆放都与训练不同，因此重点是 OOD generalization。
 
 ### 5.2 Main Results
 
-![Seen task evaluation from paper Figure 8](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dreamzero/eval_bar_chart.2oc9kcoji4.webp)
+![Seen task evaluation from paper Figure 8](https://pic.hana0721.top/blog/paper-deep-dive-dreamzero/eval_bar_chart.2oc9kcoji4.webp)
 
 **【Paper】** AgiBot seen-task 平均 task progress：DreamZero 62.2%，最佳 pretrained VLA 为 27.4%，超过 2×。PnP-Easy、PnP-Hard 和 contact-rich manipulation 三类均领先；from-scratch VLA 接近零，说明只用动作监督很难从非重复数据中学到稳健映射。
 
-![Unseen task evaluation from paper Figure 9](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dreamzero/unseen_success_rates.73uopm0xub.webp)
+![Unseen task evaluation from paper Figure 9](https://pic.hana0721.top/blog/paper-deep-dive-dreamzero/unseen_success_rates.73uopm0xub.webp)
 
 **【Paper】** AgiBot 的 10 个训练中不存在的任务上，DreamZero 平均 39.5%，pretrained VLA 为 16.3%；“Remove Hat from Mannequin” 达 85.7%，“Shake Hands” 达 59.2%。DROID-Franka 上 DreamZero 达 49% task progress、22.5% success rate，亦高于 GR00T 的 31%/12.5% 与 $\pi_{0.5}$ 的 33%/7.5%。
 
@@ -235,7 +235,7 @@ $$
 
 ### 5.4 Generalization
 
-![Cross-embodiment transfer from paper Figure 10](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dreamzero/embodiment_transfer.4qs28en4x5.webp)
+![Cross-embodiment transfer from paper Figure 10](https://pic.hana0721.top/blog/paper-deep-dive-dreamzero/embodiment_transfer.4qs28en4x5.webp)
 
 **【Paper】** 只加入 20 分钟 YAM video 或 12 分钟人类 egocentric video（没有目标机器人动作）就能提升 AgiBot 未见任务表现超过 42%。另一条路线从 AgiBot checkpoint 出发，用 30 分钟 YAM play data 做 few-shot embodiment adaptation，同时保留 zero-shot generalization。
 

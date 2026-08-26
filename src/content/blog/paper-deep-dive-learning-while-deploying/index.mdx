@@ -61,7 +61,7 @@ import { Aside } from '@/components/user'
        └──── 混合 replay、DIVL + QAM 更新、周期性下发 ────┘
 ```
 
-![LWD 的 fleet-scale deployment data flywheel（论文 teaser）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-learning-while-deploying/teaser.45iem6dhyx.webp)
+![LWD 的 fleet-scale deployment data flywheel（论文 teaser）](https://pic.hana0721.top/blog/paper-deep-dive-learning-while-deploying/teaser.45iem6dhyx.webp)
 
 ### 一句话总结
 
@@ -114,7 +114,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![LWD pipeline 与 DIVL/QAM architecture（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-learning-while-deploying/method.96ahdqj5yg.webp)
+![LWD pipeline 与 DIVL/QAM architecture（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-learning-while-deploying/method.96ahdqj5yg.webp)
 
 **【Paper】** 上半部分是两阶段 pipeline：Stage 1 在静态 offline buffer 上初始化 policy、critic 和 distributional value；Stage 2 将 offline buffer 与不断增长的 online buffer 混合训练，并周期性地把共享 generalist policy 下发给 fleet。下半部分把 learner 拆成 DIVL value learning 和 QAM policy extraction 两条支路。
 
@@ -195,7 +195,7 @@ $$
 
 分布越分散，熵越高，$\tau$ 越低，从而减少不确定状态上的过估计；分布集中时保留更乐观的 target。论文的 constant-$\tau$ 对照使用经验平均值 $\tau=0.52$。
 
-![DIVL 的 dynamic-$\tau$ 诊断图（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-learning-while-deploying/dynamic_tau_plot.5trrjd50bn.webp)
+![DIVL 的 dynamic-$\tau$ 诊断图（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-learning-while-deploying/dynamic_tau_plot.5trrjd50bn.webp)
 
 #### QAM：用 critic gradient 改进 flow
 
@@ -270,7 +270,7 @@ $$
 
 ### 5.1 Experimental Setup
 
-![八项真实任务与长时程操作场景（论文 task frames）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-learning-while-deploying/task-frames.1apqgdzi50.webp)
+![八项真实任务与长时程操作场景（论文 task frames）](https://pic.hana0721.top/blog/paper-deep-dive-learning-while-deploying/task-frames.1apqgdzi50.webp)
 
 **【Paper】** 四项 grocery 任务是 Restocking、Correction、Freezer Restocking 和 Open-Cooler Restocking，测试语言指令理解、物体选择、货架/容器变化与摆放修正。四项 long-horizon 任务是 Brew Gongfu Tea、Make Fruit Juice、Make Cocktail 和 Pack Shoes；每个 episode 通常持续 3–5 分钟，包含 5–8 个标注子步骤。
 
@@ -278,7 +278,7 @@ grocery 以 episode binary success rate 评分；long-horizon 以子步骤平均
 
 ### 5.2 Main Results
 
-![LWD 与基线的 success score、cycle time 对比（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-learning-while-deploying/success_rate_plot.362b909kq3.webp)
+![LWD 与基线的 success score、cycle time 对比（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-learning-while-deploying/success_rate_plot.362b909kq3.webp)
 
 **【Paper】** 主结果如下，数值为论文 Table 1 的任务分数：
 
@@ -300,7 +300,7 @@ grocery 以 episode binary success rate 评分；long-horizon 以子步骤平均
 
 **【Paper】** 将 DIVL 替换为 scalar expectile value regression，其余组件保持不变。long-horizon 平均分在 offline 阶段由 0.72 提升到 0.79（+9.7%），online 阶段由 0.78 提升到 0.91（+16.7%）；short-horizon 也由 0.96/0.97 提升到 0.97/0.99。
 
-![功夫茶成功与失败轨迹中的 value progression（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-learning-while-deploying/tea_demo_v4.2oc9kfakh2.webp)
+![功夫茶成功与失败轨迹中的 value progression（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-learning-while-deploying/tea_demo_v4.2oc9kfakh2.webp)
 
 成功轨迹的 value 通常随关键子步骤完成而上升，失败轨迹在碰撞后停留在较低水平。**【Analysis】** 这支持“分布化 value 可以提供进度信号”的解释，但图是代表性 qualitative diagnostic，不等同于形式化的因果证明。
 

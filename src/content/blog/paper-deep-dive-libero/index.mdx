@@ -44,7 +44,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** LIBERO（LIfelong learning BEchmark on RObot manipulation）是一个面向机器人操作的 lifelong learning benchmark。论文不是提出一套新的 policy，而是提供任务生成器、130 个任务、示教数据、三类策略架构、三类终身学习算法和一套评测协议，让研究者可以回答“机器人究竟迁移了什么知识”。
 
-![LIBERO benchmark overview from paper Figure 1](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-libero/overview.45ieme5n5d.webp)
+![LIBERO benchmark overview from paper Figure 1](https://pic.hana0721.top/blog/paper-deep-dive-libero/overview.45ieme5n5d.webp)
 
 ### 一句话总结
 
@@ -95,7 +95,7 @@ $$
 
 LIBERO 的系统由三层组成：任务生成器负责把自然语言行为模板变成场景和目标；benchmark 层固定任务套件、示教和任务顺序；policy 层接收图像、语言和机器人状态并输出连续动作。
 
-![LIBERO procedural task generation pipeline from paper Figure 2](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-libero/procedural-generation.1sfs56ruj7.webp)
+![LIBERO procedural task generation pipeline from paper Figure 2](https://pic.hana0721.top/blog/paper-deep-dive-libero/procedural-generation.1sfs56ruj7.webp)
 
 **【Paper】** 数据流可以概括为：Ego4D 语言模板 → 采样任务指令 → 选择 Robosuite 场景并生成 PDDL 初始状态 → 用谓词描述目标 → 视觉语言策略通过 GMM action head 输出末端执行器动作。
 
@@ -111,7 +111,7 @@ LIBERO 的系统由三层组成：任务生成器负责把自然语言行为模�
 
 #### 三种视觉语言策略
 
-![LIBERO policy architectures from paper Figure 6](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-libero/architectures.pg2uavz3g.webp)
+![LIBERO policy architectures from paper Figure 6](https://pic.hana0721.top/blog/paper-deep-dive-libero/architectures.pg2uavz3g.webp)
 
 **【Paper】**
 
@@ -196,7 +196,7 @@ $$
 | LIBERO-Goal | 10 | 物体和布局固定，目标变化 | procedural goal/behavior knowledge |
 | LIBERO-100 | 100 | 物体、布局、目标混合变化 | entangled knowledge |
 
-![LIBERO evaluation metrics from paper Figure 3](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-libero/metrics.362b982vxb.webp)
+![LIBERO evaluation metrics from paper Figure 3](https://pic.hana0721.top/blog/paper-deep-dive-libero/metrics.362b982vxb.webp)
 
 **【Paper】** 所有结果平均三个 random seeds，并报告标准误；success rate 被选作底层指标，因为操作任务中的训练 loss 与真实完成率并不总是同步。
 
@@ -218,13 +218,13 @@ $$
 
 **任务顺序。** 同一算法和架构仅改变 task ordering，性能就会显著变化，尤其是 PackNet。任务顺序不是实验噪声，而是 benchmark 应显式报告的条件。
 
-![Task ordering results from paper Figure 4](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-libero/task-order.3yf6qyjiou.webp)
+![Task ordering results from paper Figure 4](https://pic.hana0721.top/blog/paper-deep-dive-libero/task-order.3yf6qyjiou.webp)
 
 ### 5.4 Generalization
 
 **【Paper】** 作者用 LIBERO-90 的 90 个短任务做 supervised pretraining，再在 LIBERO-LONG 上进行 lifelong learning。结果显示，朴素预训练不一定改善下游性能，部分架构/算法组合反而下降。
 
-![Pretraining effects from paper Figure 5](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-libero/pretraining.2yz3dsgr1p.webp)
+![Pretraining effects from paper Figure 5](https://pic.hana0721.top/blog/paper-deep-dive-libero/pretraining.2yz3dsgr1p.webp)
 
 **【Analysis】** 这不是“预训练无效”的普遍结论，而是说明行为克隆预训练可能把模型塑造成过于具体的动作/视觉表示，降低后续任务中的可塑性；预训练目标、数据顺序和冻结策略需要与 lifelong objective 一起设计。
 

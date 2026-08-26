@@ -60,7 +60,7 @@ import { Aside } from '@/components/user'
 4. 框架兼容 2D RGB 与 3D point cloud、single action 与 action chunking，也兼容 diffusion 和 flow policy。
 5. **【Paper】** 八项真实任务最终评测达到 1000/1000 成功；零样本变化平均 90.0%，少样本适应平均 86.7%，人工扰动下平均 96.0%，榨汁机器人在商场连续运行约七小时无失败。
 
-![RL-100 八类真实机器人任务（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rl-100/fig1.39lx6oo16v.webp)
+![RL-100 八类真实机器人任务（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-rl-100/fig1.39lx6oo16v.webp)
 
 ## 2. 背景与相关工作
 
@@ -78,7 +78,7 @@ import { Aside } from '@/components/user'
 
 ### 4.1 Overall Architecture
 
-![RL-100 三阶段训练与策略分解（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rl-100/fig6.5trrjbo02z.webp)
+![RL-100 三阶段训练与策略分解（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-rl-100/fig6.5trrjbo02z.webp)
 
 **【Paper】** 观测编码器将点云/RGB 与 proprioception 融合为条件 $c_t$，扩散 actor 经过 $K$ 次去噪生成动作；离线阶段用改进策略产生新 rollout 并重新加入数据集，在线阶段直接在真实硬件上针对残余失败微调，部署时可切换 DDIM 或一步 consistency model。
 
@@ -170,7 +170,7 @@ $$\mathcal{L}_{on}=-J(\pi)+\lambda_V\mathbb{E}(V(s_t)-\hat V_t)^2,$$
 
 **【Paper】** 真实任务包含动态刚体、流体/颗粒、可变形毛巾、灵巧手旋拧、双臂折叠和多阶段榨汁。大多数任务每种方法评测 50 个 episode，Soft-towel Folding 的 consistency policy 额外连续评测 250 次。DP-2D 与 DP3 是 imitation baselines，RL-100 分别报告 DDIM 和 consistency model。
 
-![RL-100 在零样本、少样本和人工扰动下的测试设置（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rl-100/fig3.4qs28fs61r.webp)
+![RL-100 在零样本、少样本和人工扰动下的测试设置（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-rl-100/fig3.4qs28fs61r.webp)
 
 ### 5.2 Main Results
 
@@ -184,7 +184,7 @@ $$\mathcal{L}_{on}=-J(\pi)+\lambda_V\mathbb{E}(V(s_t)-\hat V_t)^2,$$
 
 **【Paper】** 离线阶段相对 DP3 在 Box Folding 提升 48 个百分点、Pouring 提升 44 个百分点；在线阶段消除剩余失败。CM 一步推理在 Box Folding 上为 41.4 s，DDIM 为 45.6 s，DP-2D 为 65.1 s。Dynamic Push-T 中 RL-100 每单位时间完成 20 次成功，高于专家 teleoperator 的 17 次和初学者的 13 次。
 
-![RL-100 与基线的步数、墙钟时间和人类效率比较（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rl-100/fig4.4joud060q4.webp)
+![RL-100 与基线的步数、墙钟时间和人类效率比较（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-rl-100/fig4.4joud060q4.webp)
 
 ### 5.3 Ablation Study
 

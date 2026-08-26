@@ -128,7 +128,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![RoboTwin 2.0-Plus 的七类结构化扰动示例（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-world-action-model-robustness/perturbation-strip-crop.8dxlvzs3s9.webp)
+![RoboTwin 2.0-Plus 的七类结构化扰动示例（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-world-action-model-robustness/perturbation-strip-crop.8dxlvzs3s9.webp)
 
 **【Paper】** 论文的方法主体是“benchmark + comparative protocol”：环境生成器从 clean episode 出发，只打开一个 YAML perturbation branch，候选 policy 读取被扰动的 observation 和 instruction，随后以 success rate 汇总。代码侧的核心数据流是 `task_config/*.yml → RoboTwin task setup → render-time / scene-time perturbation → policy rollout → success check`。
 
@@ -239,7 +239,7 @@ $$
 
 ### 5.1 Experimental Setup
 
-![RoboTwin 2.0-Plus 中 Camera、Robot、Language、Light、Background、Noise、Layout 的示例（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-world-action-model-robustness/perturbation-strip-crop.8dxlvzs3s9.webp)
+![RoboTwin 2.0-Plus 中 Camera、Robot、Language、Light、Background、Noise、Layout 的示例（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-world-action-model-robustness/perturbation-strip-crop.8dxlvzs3s9.webp)
 
 **【Paper】** RoboTwin 2.0-Plus 的 50 个双臂任务使用 clean + domain-randomized demonstrations；LIBERO-Plus 则是 40 个任务（4 suites × 10），两套 benchmark 的训练和控制频率不同。RoboTwin 评测统一使用单个模型覆盖所有任务；LIBERO 汇报更多公开 checkpoint。
 
@@ -261,7 +261,7 @@ $$
 
 **【Paper】** LIBERO-Plus 的关键总分是：$π_{0.5}$ 85.7%、Cosmos-Policy 82.2%、GE-Act 80.3%、VLA-JEPA 77.9%、Fast-WAM 51.5%。因此“WAM 必然超过 VLA”并不成立：在单臂 LIBERO 上，$π_{0.5}$ 既是最快的模型，也获得最高总体成功率。
 
-![RoboTwin 2.0-Plus 中 $π_{0.5}$ 与 LingBot-VA 的三组失败/成功案例（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-world-action-model-robustness/case-study-crop.7i14gjifek.webp)
+![RoboTwin 2.0-Plus 中 $π_{0.5}$ 与 LingBot-VA 的三组失败/成功案例（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-world-action-model-robustness/case-study-crop.7i14gjifek.webp)
 
 **【Paper】** 案例显示，噪声下 $π_{0.5}$ 可能撞上 hammer，layout 下会撞到红色干扰块，强光下抓取对齐失败；对应的 LingBot-VA 在图中三例均完成任务。案例是定性证据，不能替代表格中的全量 episode 统计。
 
@@ -275,7 +275,7 @@ $$
 
 ### 5.4 Generalization
 
-![Cosmos-Policy 在噪声、光照和背景变化下预测未来图像的示例（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-world-action-model-robustness/cosmos-pred-crop.13miky0j6h.webp)
+![Cosmos-Policy 在噪声、光照和背景变化下预测未来图像的示例（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-world-action-model-robustness/cosmos-pred-crop.13miky0j6h.webp)
 
 **【Paper】** WAM 的优势主要集中在视觉外观扰动。Cosmos-Policy 在 LIBERO 的 noise、light 和 layout 取得 92.7%、96.5% 和 82.2%；未来图像在噪声输入下仍能恢复运动中的机械臂。相反，异常高饱和背景可能造成空间扭曲和颜色不一致。
 

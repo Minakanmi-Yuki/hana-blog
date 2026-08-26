@@ -52,7 +52,7 @@ import { Aside } from '@/components/user'
 **代码**：[Yoonkyo/mu0](https://github.com/Yoonkyo/mu0)  
 **项目主页**：[mu0-wm.github.io](https://mu0-wm.github.io/)
 
-![μ₀ 从视频到可复用动作先验的总览（论文 teaser）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-mu0/teaser.1sfs501zw0.webp)
+![μ₀ 从视频到可复用动作先验的总览（论文 teaser）](https://pic.hana0721.top/blog/paper-deep-dive-mu0/teaser.1sfs501zw0.webp)
 
 ### 一句话总结
 
@@ -97,7 +97,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![μ₀ 与 Action Expert 接口的整体架构（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-mu0/architecture.9rk502h4dr.webp)
+![μ₀ 与 Action Expert 接口的整体架构（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-mu0/architecture.9rk502h4dr.webp)
 
 **【Paper】** 数据流可以压缩成一句话：RGB / optional depth / language 先进入 VLM context，query 的 history 与 noisy spline controls 进入 Trace Expert，4-step denoising 后渲染出未来 traces；下游 Action Expert 读取一次中间 trace features，再结合机器人观测输出 action chunk。
 
@@ -105,7 +105,7 @@ $$
 
 #### TraceExtract：从视频得到可训练的 3D 监督
 
-![TraceExtract 数据管线（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-mu0/pipeline.7zr655xr31.webp)
+![TraceExtract 数据管线（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-mu0/pipeline.7zr655xr31.webp)
 
 **【Paper】** TraceExtract 包含三个阶段：
 
@@ -236,7 +236,7 @@ $$
 
 ### 5.1 Experimental Setup
 
-![真实机器人平台与任务（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-mu0/setup.232ly5h8qa.webp)
+![真实机器人平台与任务（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-mu0/setup.232ly5h8qa.webp)
 
 **【Paper】** 轨迹预测在 2D / 3D 设置下比较 Gemini、GPT-5.5、Track2Act、Hamster、3DFlowAction、Dream2Flow 和 TraceGen，预测 horizon 为 $T\in\{8,16,32\}$，只在 moving points 上计算 ADE、FDE、DTW。下游动作实验包括：
 
@@ -257,13 +257,13 @@ $$
 
 **【Paper】** 在 RoboCasa365 上，μ₀ 平均成功率为 **30.25%**，比 TraceGen 高 7.25 个百分点，比 $\pi_0$ 高 5 个百分点，但低于使用大规模 action-labeled pretraining 的 $\pi_{0.5}$（42%）。这不是 data-matched 比较：μ₀ 的预训练只使用视频监督。
 
-![真实 UR3 任务的成功率（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-mu0/real-results.8z79ic0j07.webp)
+![真实 UR3 任务的成功率（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-mu0/real-results.8z79ic0j07.webp)
 
 **【Paper】** 真实任务中 μ₀ + Action Expert 的平均成功率为 **91.7%**，比去掉 Trace Expert 的 VLM + Action Expert 高 18.4 个百分点，比 $\pi_0$ 和 $\pi_{0.5}$ 分别高 20.0 和 11.7 个百分点，也比 TraceGen 高 10.0 个百分点。这里的结果支持“冻结轨迹特征不仅是可解释中间表示，也能提供有用的运动引导”。
 
 ### 5.3 Ablation Study
 
-![μ₀ 轨迹预测的定性比较（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-mu0/qualitative.4n8gash79t.webp)
+![μ₀ 轨迹预测的定性比较（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-mu0/qualitative.4n8gash79t.webp)
 
 **【Paper】** Top-5 DTW 消融如下：
 

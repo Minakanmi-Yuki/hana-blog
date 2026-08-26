@@ -49,7 +49,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】**《TouchWorld: A Predictive and Reactive Tactile Foundation Model for Dexterous Manipulation》来自哈尔滨工业大学（深圳）与 PHANES AI。论文的核心判断是：触觉不应该只是 VLA 的一个低频输入 token，而应同时扮演“预测接触目标”和“快速闭环纠错”两种角色。
 
-![TouchWorld 系统概念总览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-touchworld/teasor.13mikzb1e4.webp)
+![TouchWorld 系统概念总览（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-touchworld/teasor.13mikzb1e4.webp)
 
 ### 一句话总结
 
@@ -95,7 +95,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![TouchWorld 三层架构（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-touchworld/3-layer.8s41mwaxf3.webp)
+![TouchWorld 三层架构（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-touchworld/3-layer.8s41mwaxf3.webp)
 
 **【Paper】** 数据流是“任务指令与观测 → 子任务和触觉子目标 → 名义动作块 → 触觉残差动作”。三层分别以 1 Hz、10 Hz、30 Hz 更新，模块之间通过子任务文本、goal image / goal tactile 与 context token 传递信息。
 
@@ -181,9 +181,9 @@ $$
 
 ### 5.1 Experimental Setup
 
-![TouchWorld 真实机器人硬件平台（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-touchworld/hardware.2rvvi61bw1.webp)
+![TouchWorld 真实机器人硬件平台（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-touchworld/hardware.2rvvi61bw1.webp)
 
-![六个真实机器人任务与扰动设置（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-touchworld/task_setting.6m4n14ja0m.webp)
+![六个真实机器人任务与扰动设置（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-touchworld/task_setting.6m4n14ja0m.webp)
 
 **【Paper】** 每个任务收集 200 条 teleoperated training trajectories，并进行 100 次真实机器人评估 rollout。基线为 Pi-0.5、FTP-1（无预测-反应层级的单体触觉策略）和 GR00T N1.7。
 
@@ -200,7 +200,7 @@ $$
 
 ### 5.3 Ablation Study
 
-![TouchWorld 组件消融（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-touchworld/ablation_results_stacked.92qvg1q65d.webp)
+![TouchWorld 组件消融（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-touchworld/ablation_results_stacked.92qvg1q65d.webp)
 
 | 配置                | Clean 平均 | 扰动平均 | 移除后说明           |
 | ------------------- | ---------: | -------: | -------------------- |
@@ -224,7 +224,7 @@ TWM 的 held-out 子目标预测结果如下：
 
 **【Paper】** TWM 不只是复制当前触觉或检索相似轨迹，而是更准确地预测接触发生的时间与终点压力几何。Subtask Planner 分析中，memory-augmented Qwen3-VL-4B 的 subtask accuracy / execution success / transition F1 为 88 / 65 / 82，高于 zero-shot 32B 的 69 / 54 / 71，说明阶段监督与执行记忆比单纯增大模型更关键。
 
-![TouchWorld 代表性推理过程（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-touchworld/infer_demo.3k8qzwhy5y.webp)
+![TouchWorld 代表性推理过程（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-touchworld/infer_demo.3k8qzwhy5y.webp)
 
 ## 6. 方法分析
 

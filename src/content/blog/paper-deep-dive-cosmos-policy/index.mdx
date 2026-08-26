@@ -64,7 +64,7 @@ import { Aside } from '@/components/user'
 **模型与数据**：[Hugging Face collection](https://huggingface.co/collections/nvidia/cosmos-policy)
 
 <img
-  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-cosmos-policy/overview.7lkqe73l1z.webp'
+  src='https://pic.hana0721.top/blog/paper-deep-dive-cosmos-policy/overview.7lkqe73l1z.webp'
   alt='Cosmos Policy 论文 Figure 1：输入当前状态和任务描述，联合输出动作、未来状态和值'
   class='zoomable'
   width='1776'
@@ -118,7 +118,7 @@ import { Aside } from '@/components/user'
 
 Cosmos-Predict2-2B 原本接收首帧和文本、生成视频。Cosmos Policy 保留其 Wan2.1 VAE tokenizer、EDM 风格 latent diffusion transformer 与 T5 文本条件，只在 latent 序列中插入新帧：
 
-![Cosmos Policy 的 latent frame injection：把动作、未来状态和值插入视频扩散序列（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-cosmos-policy/latent-injection.8dxlvxk6jh.webp)
+![Cosmos Policy 的 latent frame injection：把动作、未来状态和值插入视频扩散序列（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-cosmos-policy/latent-injection.8dxlvxk6jh.webp)
 
 **【Paper】** 数据流可以概括为：当前观测 $s$ 和语言条件进入一串 clean latent frames，action、未来状态 $s'$ 与 value 的位置保留为待生成帧；扩散模型只对目标帧加噪并进行去噪，得到三类输出。
 
@@ -268,7 +268,7 @@ $j$ 索引未来状态 ensemble，$k$ 索引 value ensemble，`Agg` 是 majority
 
 **【Paper】** LIBERO 包含 Spatial、Object、Goal、Long 四个 suite，每 suite 500 条示教；RoboCasa 有 24 个厨房任务，每任务仅使用 50 条人工示教；ALOHA 使用 4 个双臂任务、185 条示教，并测试 in-distribution 与 OOD 初始状态。
 
-![ALOHA 真实双臂任务的 Cosmos Policy rollout（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-cosmos-policy/aloha-results.7i14ghahla.webp)
+![ALOHA 真实双臂任务的 Cosmos Policy rollout（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-cosmos-policy/aloha-results.7i14ghahla.webp)
 
 ALOHA 控制频率为 25 Hz，输入 14 维关节状态、一个 top-down 相机和两个 wrist 相机；动作 chunk 为 50 步。RoboCasa 每任务 50 trials、5 个场景、3 个随机种子；LIBERO 每 suite 500 trials、3 个种子。
 
@@ -284,7 +284,7 @@ ALOHA 控制频率为 25 Hz，输入 14 维关节状态、一个 top-down 相机
 
 LIBERO 的四个 suite 分别为 Spatial 98.1、Object 100.0、Goal 98.2、Long 97.6。**【Analysis】** Long suite 的高分说明 action chunk 与视频时空先验不仅改善短程抓取，也有助于长时序任务。
 
-![Cosmos Policy 与 VLA、Diffusion Policy 在 ALOHA 上的任务完成度（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-cosmos-policy/aloha-results.7i14ghahla.webp)
+![Cosmos Policy 与 VLA、Diffusion Policy 在 ALOHA 上的任务完成度（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-cosmos-policy/aloha-results.7i14ghahla.webp)
 
 论文还观察到：π0.5 在 ziploc bag 的高精度抓取上容易丢失滑块，OpenVLA-OFT+ 在多颗糖果任务中会落在两个目标之间。**【Analysis】** 这与 Cosmos Policy 直接建模连续多模态 action distribution 的设计相吻合，但仅凭这些案例不能推出对所有任务都优于 VLA。
 
@@ -292,7 +292,7 @@ LIBERO 的四个 suite 分别为 Spatial 98.1、Object 100.0、Goal 98.2、Long 
 
 **【Paper】** LIBERO 消融：去掉 auxiliary targets，平均 SR 从 98.5 降到 97.0；从随机初始化训练，降到 94.6。RoboCasa 逐步移除 value/world-model 样本和 policy 的辅助目标后，只有 action 的 barebones policy 降到 44.4%。
 
-![联合训练的 50% / 25% / 25% balanced batches（论文 Figure 12）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-cosmos-policy/balanced-batches.2vfhfsby0j.webp)
+![联合训练的 50% / 25% / 25% balanced batches（论文 Figure 12）](https://pic.hana0721.top/blog/paper-deep-dive-cosmos-policy/balanced-batches.2vfhfsby0j.webp)
 
 **【Analysis】** 消融把贡献拆成两层：预训练视频先验提供初始化，future state/value 辅助任务提供表征约束。RoboCasa 中从 67.1 降到 44.4 的大幅变化，说明未来状态预测比单纯增加一个 value head 更像是策略学习的关键正则。
 
@@ -302,7 +302,7 @@ LIBERO 的四个 suite 分别为 Spatial 98.1、Object 100.0、Goal 98.2、Long 
 
 rollout 微调后的 planning model 能预测基础策略容易漏掉的失败，例如 ziploc bag slider 脱手。与无规划 policy 相比，模型式规划在两个困难任务上平均提升 12.5 分。
 
-![基础模型与 rollout 微调模型的规划结果对比（论文 Figure 7）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-cosmos-policy/planning-results.3gp5236f1i.webp)
+![基础模型与 rollout 微调模型的规划结果对比（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-cosmos-policy/planning-results.3gp5236f1i.webp)
 
 模型式 $V(s')$ 规划优于直接学习 $Q(s,a)$ 的 model-free 版本；论文将原因归因于世界模型提供的动力学结构，以及有限 rollout 数据下 Q 函数更容易过拟合。
 

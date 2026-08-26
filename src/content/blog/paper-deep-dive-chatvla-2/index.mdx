@@ -47,7 +47,7 @@ import { Aside } from '@/components/user'
 **论文链接**：[arXiv](https://arxiv.org/abs/2505.21906)<br />
 **项目主页**：[ChatVLA-2](https://chatvla-2.github.io/)
 
-![ChatVLA-2 从训练数据、Dynamic MoE 到开放世界机器人任务的总览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-chatvla-2/chatvla2_overview-crop.7w7k3cvtcb.webp)
+![ChatVLA-2 从训练数据、Dynamic MoE 到开放世界机器人任务的总览（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-chatvla-2/chatvla2_overview-crop.7w7k3cvtcb.webp)
 
 ### 一句话总结
 
@@ -97,7 +97,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![ChatVLA-2 的 Dynamic MoE、reasoning-following action expert 与机器人动作路径（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-chatvla-2/Structure-crop.2ksnin9qhv.webp)
+![ChatVLA-2 的 Dynamic MoE、reasoning-following action expert 与机器人动作路径（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-chatvla-2/Structure-crop.2ksnin9qhv.webp)
 
 **【Paper】** 图像 patch 与语言 token 进入带 Dynamic MoE 的 VLM；上层输出 reasoning tokens 和 action tokens，后者经 projection 进入 ScaleDP action expert，最终输出连续机器人动作。推理时 router 为每个输入选择少数 experts，action expert 的后半层再接收 reasoning 条件。
 
@@ -167,7 +167,7 @@ $$
 
 ### 4.4 Training
 
-![ChatVLA-2 的两阶段训练：Stage 1 保留开放世界理解，Stage 2 冻结 VLM 并训练 reasoning-following action expert（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-chatvla-2/Stages-crop.3k8qvtchi9.webp)
+![ChatVLA-2 的两阶段训练：Stage 1 保留开放世界理解，Stage 2 冻结 VLM 并训练 reasoning-following action expert（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-chatvla-2/Stages-crop.3k8qvtchi9.webp)
 
 **【Paper】** Stage 1 在图文数据和机器人数据上 co-training。图文部分约包含 COCO 32k、TextVQA 20k、GQA 54k、RoboPoint 约 2k，以及约 5k 个真实环境样本；机器人部分包含数学匹配 600 条与玩具摆放 300 条轨迹，图文:机器人采样比例为 1:3。训练 15k steps，初始 learning rate 为 $2\times10^{-5}$。
 
@@ -220,7 +220,7 @@ $$
 
 ### 5.1 Experimental Setup
 
-![数学匹配与玩具摆放的真机平台、开放世界指令和执行过程（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-chatvla-2/task-crop.1hsy7rdxuk.webp)
+![数学匹配与玩具摆放的真机平台、开放世界指令和执行过程（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-chatvla-2/task-crop.1hsy7rdxuk.webp)
 
 **【Paper】** 论文使用两个专门设计的真机评测：
 

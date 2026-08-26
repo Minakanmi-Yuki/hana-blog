@@ -51,7 +51,7 @@ import { Aside } from '@/components/user'
 
 ## 1. 论文概述
 
-![InternData-A1 的数据规模、物体类型、技能与 embodiment（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-interndata-a1/interndata-a1-overview.webp)
+![InternData-A1 的数据规模、物体类型、技能与 embodiment（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-interndata-a1/interndata-a1-overview.webp)
 
 ### 一句话总结
 
@@ -92,7 +92,7 @@ $\mathcal D_{sim}=\{(o_{1:T}, q_{1:T}, a_{1:T}, l)\}$：$o$ 是多视角 RGB 与
 
 ### 4.1 Overall Architecture
 
-![InternData-A1 的环境构建、技能组合、随机化与生成流水线（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-interndata-a1/interndata-a1-pipeline.webp)
+![InternData-A1 的环境构建、技能组合、随机化与生成流水线（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-interndata-a1/interndata-a1-pipeline.webp)
 
 **【Paper】** 数据流为：任务模板检索 robot/scene/object 资产，组合原子技能为 waypoint，再经 domain randomization、CuRobo 规划与物理验证；成功轨迹才进入渲染和 LeRobot 存储。
 
@@ -186,13 +186,13 @@ $\xi$ 汇集相机、光照、布局、物体 pose、抓取候选和接触区域
 
 ### 5.1 Experimental Setup
 
-![真实机器人评测覆盖三种 embodiment 与九项任务（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-interndata-a1/interndata-a1-real_setup.webp)
+![真实机器人评测覆盖三种 embodiment 与九项任务（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-interndata-a1/interndata-a1-real_setup.webp)
 
 **【Paper】** 主要对比固定模型架构而改变 pre-training source：$\pi_0$ (Scratch) 没有预训练，$\pi_0$ 是以闭源 $\pi$-dataset 训练的官方 checkpoint，$\pi_0$(InternData-A1) 则只以论文合成数据预训练。仿真评测使用 RoboTwin 2.0 的 49 个双臂任务，Easy 为整洁场景、Hard 为杂乱场景；每种设置报告两个 checkpoint、每个 100 次 trial 的平均成功率。真实评测使用 Genie-1、ARX Lift-2 与二者均未见过的 ARX AC One，含 5 个 regular 与 4 个 dexterous 任务。
 
 ### 5.2 Main Results
 
-![InternData-A1 与官方 π₀ 在九项真实任务上的比较（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-interndata-a1/interndata-a1-real_results.webp)
+![InternData-A1 与官方 π₀ 在九项真实任务上的比较（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-interndata-a1/interndata-a1-real_results.webp)
 
 **【Paper】** 在 49 个 RoboTwin 任务上，$\pi_0$(InternData-A1) 的平均成功率为 Easy 60.0%、Hard 26.5%，高于官方 $\pi_0$ 的 55.0%、20.0%，也远高于 Scratch 的 23.5%、2.5%。论文文字将提升概括为对官方 checkpoint 的 Easy +5%、Hard +6.5%。
 
@@ -223,7 +223,7 @@ $\xi$ 汇集相机、光照、布局、物体 pose、抓取候选和接触区域
 
 ### 5.4 Generalization
 
-![四项直接 sim-to-real 任务及仿真/真实数据量对比（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-interndata-a1/interndata-a1-sim_to_real.webp)
+![四项直接 sim-to-real 任务及仿真/真实数据量对比（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-interndata-a1/interndata-a1-sim_to_real.webp)
 
 **【Paper】** 四项直接 sim-to-real 实验从同一个 $\pi_0$(InternData-A1) checkpoint 出发，分别以 200–1,600 条仿真 episode 或 200 条真实 episode post-train，每个策略评估 30 次。Sort Rubbish、Wipe Stain 等基础技能任务中，200 条仿真数据已可与 200 条真实数据相当；动态物体和语言 grounding 更强的 Flip Package、Instructional Pick 约需 1,600 条仿真数据，约为 $8:1$ 的数据比。
 

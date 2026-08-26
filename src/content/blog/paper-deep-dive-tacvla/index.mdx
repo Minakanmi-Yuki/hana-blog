@@ -51,7 +51,7 @@ import { Aside } from '@/components/user'
 **论文链接**：[arXiv:2603.12665](https://arxiv.org/abs/2603.12665)  
 **项目主页**：[TacVLA](https://sites.google.com/view/tacvla)
 
-![TacVLA 总览：双目视觉、本体状态与触觉进入 VLM 和 Action Expert（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-tacvla/Main_figure_V2.4ubo67rx8w.webp)
+![TacVLA 总览：双目视觉、本体状态与触觉进入 VLM 和 Action Expert（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-tacvla/Main_figure_V2.4ubo67rx8w.webp)
 
 ### 一句话总结
 
@@ -86,7 +86,7 @@ import { Aside } from '@/components/user'
 
 四个拆解任务分别需要拉出紧轴、按压卡扣、旋转 90° 后拉出，以及向内滑动后拉出；盒内抓取则要求先探索直到建立接触，再抓取并放入碗中。
 
-![四种 constraint-locked disassembly 的几何约束（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-tacvla/Disassembly.8adzyb1k63.webp)
+![四种 constraint-locked disassembly 的几何约束（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-tacvla/Disassembly.8adzyb1k63.webp)
 
 ## 4. 方法
 
@@ -175,11 +175,11 @@ $$
 
 ### 5.1 Experimental Setup
 
-![TacVLA 的 Franka、双相机与手指触觉阵列硬件（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-tacvla/Hardware_image.51ew1ne2n3.webp)
+![TacVLA 的 Franka、双相机与手指触觉阵列硬件（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-tacvla/Hardware_image.51ew1ne2n3.webp)
 
 **【Paper】** 每个任务 50 条 teleoperation demonstrations，四个拆解任务和一个盒内抓取任务都在真实 Franka 平台上评测。对照方法包括 finetuned Pi0.5、直接拼接触觉的 Pi0.5（w/o gating）、image Diffusion Policy 与 3D Diffusion Policy。
 
-![拆解与盒内抓取的时序步骤（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-tacvla/Tasks_Description_V3.92qvg1i66m.webp)
+![拆解与盒内抓取的时序步骤（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-tacvla/Tasks_Description_V3.92qvg1i66m.webp)
 
 ### 5.2 Main Results
 
@@ -194,13 +194,13 @@ $$
 
 ### 5.3 Ablation Study
 
-![相机遮挡下四个拆解任务的成功率（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-tacvla/robustness_bar_chart.4clmhmqjx1.webp)
+![相机遮挡下四个拆解任务的成功率（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-tacvla/robustness_bar_chart.4clmhmqjx1.webp)
 
 去掉门控、只把 tactile token 持续拼接时，拆解平均成功率从 83.75% 降到 71.25%，盒内抓取从 70% 降到 40%。Task 3 的 no-gating 版本只有 60%，甚至低于不使用触觉的 Pi0.5（65%）。**【Analysis】** 这说明增益并非来自“多一个传感器”这么简单，而来自触觉参与时机与接触状态的一致性。
 
 ### 5.4 Generalization
 
-![遮挡与人类干扰的鲁棒性测试流程（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-tacvla/Robustness_Demonstration.1vze2pjnup.webp)
+![遮挡与人类干扰的鲁棒性测试流程（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-tacvla/Robustness_Demonstration.1vze2pjnup.webp)
 
 **【Paper】** 阻挡 front camera 后，Pi0.5 在四个任务上的成功率为 40%、40%、5%、35%，TacVLA 为 70%、65%、45%、70%；平均成功率从约 30% 提升到约 62%。在人为把物体放回盒内的运行时干扰中，TacVLA 能检测状态变化、回到盒内并重新抓取，Pi0.5 则无法恢复。
 

@@ -51,7 +51,7 @@ import { Aside } from '@/components/user'
 
 **代码链接**：[xinyuguo1566/PriorVLA](https://github.com/xinyuguo1566/PriorVLA)
 
-![PriorVLA 总览：保留先验并比较 OOD、少样本表现（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-priorvla/overview.priorvla.webp)
+![PriorVLA 总览：保留先验并比较 OOD、少样本表现（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-priorvla/overview.priorvla.webp)
 
 ### 一句话总结
 
@@ -96,7 +96,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![PriorVLA 架构：Dual Action Experts 与三类 Expert Queries（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-priorvla/architecture.priorvla.webp)
+![PriorVLA 架构：Dual Action Experts 与三类 Expert Queries（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-priorvla/architecture.priorvla.webp)
 
 **【Paper】** 图像和指令先进入预训练 VLM；Scene Query 读取其层级表示。相同 noisy action chunk 同时送入 Prior Expert 和 Adaptation Expert，Motor Query 读取前者的内部去噪表示，Action Query 将 Scene/Motor Query 的缓存与当前适配分支的 token 融合，最后只有 Adaptation Expert 的输出执行 flow-matching 更新。
 
@@ -113,7 +113,7 @@ $$
 
 #### Expert Queries 与注意力路由
 
-![PriorVLA 的 token attention mask 与信息流（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-priorvla/attention.priorvla.webp)
+![PriorVLA 的 token attention mask 与信息流（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-priorvla/attention.priorvla.webp)
 
 - **Scene Query（SQ）**：插入 VLM 输入序列，可与原始 observation tokens 自注意力；其逐层 key/value cache 是紧凑的 scene-prior 接口。
 - **Motor Query（MQ）**：附加在 Prior Expert 上，只读取冻结分支 noisy action tokens 并自注意力；Prior Expert 的原始动作 token 不读取 SQ/MQ，因而保持预训练去噪路径不变。
@@ -191,7 +191,7 @@ $$
 
 ### 5.1 Experimental Setup
 
-![PriorVLA 的 LIBERO、RoboTwin 2.0 与真实机器人评测覆盖（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-priorvla/setup.priorvla.webp)
+![PriorVLA 的 LIBERO、RoboTwin 2.0 与真实机器人评测覆盖（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-priorvla/setup.priorvla.webp)
 
 **【Paper】** 实验覆盖三个层次：
 

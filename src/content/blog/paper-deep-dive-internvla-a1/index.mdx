@@ -48,7 +48,7 @@ import { Aside } from '@/components/user'
 **代码**：[InternVLA-A1](https://github.com/InternRobotics/InternVLA-A1/tree/InternVLA-A1)  
 **项目主页**：[InternVLA-A1](https://internrobotics.github.io/internvla-a1.github.io/)
 
-![InternVLA-A1 总览与任务结果（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-internvla-a1/figure1_teaser_internvla_a1.8z79i8gy4a.webp)
+![InternVLA-A1 总览与任务结果（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-internvla-a1/figure1_teaser_internvla_a1.8z79i8gy4a.webp)
 
 ### 一句话总结
 
@@ -88,7 +88,7 @@ import { Aside } from '@/components/user'
 
 ### 4.1 Overall Architecture
 
-![InternVLA-A1 的 MoT 三专家架构（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-internvla-a1/figure2_method_InternVLA-A1.1764ilnzpa.webp)
+![InternVLA-A1 的 MoT 三专家架构（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-internvla-a1/figure2_method_InternVLA-A1.1764ilnzpa.webp)
 
 **【Paper】** 信息按 Understanding → Generation → Action 的方向流动：理解专家产生语义上下文，生成专家基于上下文和历史图像预测未来视觉 latent，动作专家再结合本体状态输出动作。三个 token 流通过 blockwise masked self-attention 连接，后面的 block 可以看见前面的 block，前面的 block 不能反向读取后面的输出。
 
@@ -103,7 +103,7 @@ import { Aside } from '@/components/user'
 
 #### Generation Expert
 
-![Generation Expert 的输入压缩与并行解码（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-internvla-a1/figure3_specifics_gen_expert.41ysoe36mh.webp)
+![Generation Expert 的输入压缩与并行解码（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-internvla-a1/figure3_specifics_gen_expert.41ysoe36mh.webp)
 
 - **输入**：头部、左腕、右腕三个视角在 $t-15$ 和 $t$ 的 6 张 $256\times256$ 图像。
 - **Tokenization**：COSMOS CI8×8 VAE 把每张图像编码为 $32\times32$ latent grid（1024 token）。
@@ -199,7 +199,7 @@ $$
 
 **【Paper】** 真实评测覆盖 Genie-1、ARX Lift-2 和 ARX AC One。静态任务包括 Zip Bag、Unscrew Cap、Make Sandwich、Operate Oven、Sort Parts、Sort Rubbish、Sweep Trash、Wipe Stain、Place Markpen、Place Flower；动态任务为 Express Sorting 和 In-motion Ingredient Picking。每个任务在 30 个预定义设置上各执行一次。
 
-![动态任务设置（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-internvla-a1/figure5_dynamic_tasks.46f7ps64s.webp)
+![动态任务设置（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-internvla-a1/figure5_dynamic_tasks.46f7ps64s.webp)
 
 RoboTwin 2.0 覆盖 50 个双臂任务，Easy 使用干净场景，Hard 使用域随机化；微调共 27,500 条示范，评估结果平均 100 次试验。
 
@@ -231,11 +231,11 @@ RoboTwin 2.0 上，InternVLA-A1 (3B) 的 Easy/Hard 平均成功率为 89.4%/89.6
 
 ### 5.3 Ablation Study
 
-![预训练数据和从零训练对比（论文 Figure 8）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-internvla-a1/figure8_ablation_study_on_pretraining.13mikvuxeq.webp)
+![预训练数据和从零训练对比（论文 Figure 8）](https://pic.hana0721.top/blog/paper-deep-dive-internvla-a1/figure8_ablation_study_on_pretraining.13mikvuxeq.webp)
 
 **【Paper】** 去掉预训练后，12 个真实任务平均成功率从 77.0% 降到 25.4%，下降 51.6 个百分点。仅仿真数据在 RoboTwin 上已达 88.3%/88.5%，但真实 Place Flower 只有 53.3%、Sort Parts 只有 33.3%；加入人类视频后，Sort Parts 升至 40.0%；再加入真实机器人数据，Place Flower/Sort Parts 达到 60.0%/53.3%。
 
-![去掉 Generation Expert 的对比（论文 Figure 9）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-internvla-a1/figure9_ablation_study_on_gen_expert.3nscxiuw3v.webp)
+![去掉 Generation Expert 的对比（论文 Figure 9）](https://pic.hana0721.top/blog/paper-deep-dive-internvla-a1/figure9_ablation_study_on_gen_expert.3nscxiuw3v.webp)
 
 去掉 Generation Expert 后平均成功率由 77.0% 降到 57.6%，12 个任务中有 11 个变差，动态任务降幅尤其明显。这直接支持“预测未来状态是动作生成的有效条件”这一设计。
 

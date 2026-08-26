@@ -56,7 +56,7 @@ import { Aside } from '@/components/user'
 
 论文把“动作”拆成一个可从视频自监督学习的中间语言：先用两帧图像学习离散 latent action，再让 Vision-Language Model（VLM）根据当前图像和任务描述预测这个 latent action，最后只用少量带真实动作的机器人轨迹重新训练 action head，把 latent policy 迁移到可执行的机器人动作空间。
 
-![LAPA 从视频到机器人动作的三阶段问题设定（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lapa/Figure1.73uooala4k.webp)
+![LAPA 从视频到机器人动作的三阶段问题设定（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-lapa/Figure1.73uooala4k.webp)
 
 ### 一句话总结
 
@@ -108,7 +108,7 @@ import { Aside } from '@/components/user'
 
 ### 4.1 Overall Architecture
 
-![LAPA 三阶段总览：Latent Action Quantization、Latent Pretraining 和 Action Finetuning（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lapa/latent_action_pretraining.7lkqcvmnud.webp)
+![LAPA 三阶段总览：Latent Action Quantization、Latent Pretraining 和 Action Finetuning（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-lapa/latent_action_pretraining.7lkqcvmnud.webp)
 
 **【Paper】** 整体数据流是：相邻视频帧先经过 LAQ encoder 得到离散 $z_t$；VLM 再以当前帧和语言描述为条件预测 $z_t$；fine-tuning 时替换 latent head，用带标签轨迹学习真实 action head。LAQ 的 decoder 还可以把 latent action 解码回下一帧，用于可视化和 neural closed-loop rollout。
 
@@ -121,7 +121,7 @@ import { Aside } from '@/components/user'
 - **输出**：离散 latent token 序列 $z_t \in C^s$，以及重建帧 $\hat x_{t+H}$。
 - **为什么需要**：直接把连续像素变化交给 VLM 难以生成；离散 codebook 把“动作词表”变成标准分类/next-token prediction 问题。
 
-![LAQ encoder-decoder 与 NSVQ codebook 的结构（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lapa/latent_action_model.b9n1tv3ay.webp)
+![LAQ encoder-decoder 与 NSVQ codebook 的结构（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-lapa/latent_action_model.b9n1tv3ay.webp)
 
 **【Paper】** 论文对 GENIE 的改动包括：只使用当前帧和未来帧（不拼接更多历史帧），decoder 用 cross-attention 而不是简单相加 latent embedding，并采用只对两帧做输入的 C-ViViT 风格结构。**【Code】** `laq/laq_model/latent_action_quantization.py` 中确实实现了 `enc_spatial_transformer`、`enc_temporal_transformer`、带 context 的 `dec_spatial_transformer` 和 `NSVQ`；`laq/laq_model/data.py` 当前数据加载器按“每个轨迹目录包含多张帧图像”的 Something-Something V2 结构取随机起始帧和 offset 帧。
 
@@ -253,7 +253,7 @@ $$
 
 ### 5.1 Experimental Setup
 
-![LAPA 真实机器人实验的平均成功率对比（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lapa/real_robot.54yhxyfski.webp)
+![LAPA 真实机器人实验的平均成功率对比（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-lapa/real_robot.54yhxyfski.webp)
 
 **【Paper】** 实验覆盖三类问题：
 
@@ -294,7 +294,7 @@ $$
 
 ### 5.3 Ablation Study
 
-![LAPA 的模型规模、数据规模与 latent space scaling 消融（论文 Figure 7）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lapa/ablation_model_scale.4ubo4t0kjz.webp)
+![LAPA 的模型规模、数据规模与 latent space scaling 消融（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-lapa/ablation_model_scale.4ubo4t0kjz.webp)
 
 **【Paper】** 消融显示三类 scaling 都有收益：
 
@@ -306,7 +306,7 @@ $$
 
 ### 5.4 Generalization
 
-![不同离散 latent action 在视频重建中的语义对应关系（论文 Figure 8）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lapa/latent_analysis.58i3vo8vhu.webp)
+![不同离散 latent action 在视频重建中的语义对应关系（论文 Figure 8）](https://pic.hana0721.top/blog/paper-deep-dive-lapa/latent_analysis.58i3vo8vhu.webp)
 
 **【Paper】** 在 Language Table 中，不同 latent token 对应左/右、前/后等稳定移动方向；在 Something-Something V2 中，latent action 还会编码相机移动；在 Open-X 多 embodiment 数据上，相同 latent action 在不同机器人和环境中能诱导相似的视觉变化。
 

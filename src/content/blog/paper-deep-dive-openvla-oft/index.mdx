@@ -52,7 +52,7 @@ import { Aside } from '@/components/user'
 **项目主页**：[openvla-oft.github.io](https://openvla-oft.github.io/)
 
 <img
-  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-openvla-oft/openvla-oft-overview.9rk4vvm852.webp'
+  src='https://pic.hana0721.top/blog/paper-deep-dive-openvla-oft/openvla-oft-overview.9rk4vvm852.webp'
   alt='OpenVLA-OFT+ 在双臂 ALOHA 上的系统概览（论文 Figure 1）'
   class='zoomable'
   width='2497'
@@ -118,7 +118,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![OpenVLA-OFT 的并行解码、动作表示和 FiLM 设计（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-openvla-oft/design-decisions.7zr60z2uwk.webp)
+![OpenVLA-OFT 的并行解码、动作表示和 FiLM 设计（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-openvla-oft/design-decisions.7zr60z2uwk.webp)
 
 **【Paper】** 输入图像先经过 OpenVLA 的 SigLIP + DINOv2 fused vision encoder，视觉 patch、语言 token 和可选的 proprio token 被投影到 LLM embedding space；解码器在 action 位置接收空 embedding，并用 bidirectional attention 一次性产生 $K D$ 个动作隐藏状态，最后交给离散 logits 或连续 action head。
 
@@ -259,7 +259,7 @@ $$
 
 ### 5.1 Experimental Setup
 
-![LIBERO 四个任务套件与任务变化因素（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-openvla-oft/libero-tasks.et8wrw226.webp)
+![LIBERO 四个任务套件与任务变化因素（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-openvla-oft/libero-tasks.et8wrw226.webp)
 
 **【Paper】** LIBERO 每个 suite 包含 10 个任务，每个任务 50 次评测，共 500 trials。主要 baseline 是按原 recipe fine-tune 的 OpenVLA；同时比较 Diffusion Policy、Octo、DiT Policy、Seer、MDT、$\pi_0$ 等方法。ALOHA 评测四个真实任务，使用预定义的 staged scoring rubric，报告平均完成分数而非只看二值成功。
 
@@ -294,7 +294,7 @@ $$
 
 #### ALOHA 真实机器人
 
-![OpenVLA-OFT+ 与 ACT、Diffusion Policy、RDT-1B、$\pi_0$ 在 ALOHA 四个任务上的完成分数（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-openvla-oft/aloha-results.5xbdcx49r8.webp)
+![OpenVLA-OFT+ 与 ACT、Diffusion Policy、RDT-1B、$\pi_0$ 在 ALOHA 四个任务上的完成分数（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-openvla-oft/aloha-results.5xbdcx49r8.webp)
 
 **【Paper】** OpenVLA-OFT+ 在四个任务的平均得分为 **87.8**，各任务为 fold shorts 100.0、fold shirt 100.0、scoop X into bowl 100.0、put X into pot 51.3。它在四个任务上都高于或不低于对比方法，尤其在需要语言选择目标的任务上优势明显。
 

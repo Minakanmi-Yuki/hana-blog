@@ -52,7 +52,7 @@ import { Aside } from '@/components/user'
 **时间**：arXiv 预印本，2026 年 6 月  
 **论文链接**：[arXiv](https://arxiv.org/abs/2606.15768)
 
-![LaWAM 两阶段训练与推理总览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lawam/lawam-overview.4920k1cypw.webp)
+![LaWAM 两阶段训练与推理总览（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-lawam/lawam-overview.4920k1cypw.webp)
 
 ### 一句话总结
 
@@ -129,7 +129,7 @@ LaWAM 先用冻结视觉编码器 $f_{\psi}$ 得到当前和未来特征：$u=f_
 
 **【Code】** 论文没有给出可核验的官方代码仓库或项目页面，因此这里不推断具体文件、DataLoader 或 checkpoint 行为；本节只记录论文明确的架构。
 
-![一个 action chunk 内的 latent subgoal 引导执行（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lawam/libero-chunk.64elcnpejx.webp)
+![一个 action chunk 内的 latent subgoal 引导执行（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-lawam/libero-chunk.64elcnpejx.webp)
 
 ### 4.3 关键公式
 
@@ -224,7 +224,7 @@ $$H_b=\mathrm{round}(\tau h_b),\qquad t_{b,i}=i/h_b$$
 
 **【Paper】** 实验覆盖四个 LIBERO suite、RoboTwin 2.0 的 50 个双臂任务，以及真实世界的 pick-and-place、drawer opening 和 towel folding。LIBERO 报告 40 个任务、每任务 50 次试验；RoboTwin 每任务 100 次；真实任务各 30 次。延迟在 A100 上重复 1000 次 action-chunk prediction 后取平均。
 
-![真实机器人任务：抓取放置、打开抽屉和折叠毛巾（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lawam/real-world.5xbdh83954.webp)
+![真实机器人任务：抓取放置、打开抽屉和折叠毛巾（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-lawam/real-world.5xbdh83954.webp)
 
 ### 5.2 Main Results
 
@@ -240,23 +240,23 @@ $$H_b=\mathrm{round}(\tau h_b),\qquad t_{b,i}=i/h_b$$
 
 RoboTwin 的 clean-scene / randomized-scene 平均成功率为 92.64% / 89.80%，两者平均为 91.22%。真实世界 LaWAM 在 pick-and-place、drawer opening、towel folding 上分别达到 93.3%、86.7%、90.0%，平均 90.0%，高于对比方法的平均 83.3%（π0.5）。
 
-![LIBERO 上的延迟—成功率权衡（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lawam/libero-latency.102wndphfb.webp)
+![LIBERO 上的延迟—成功率权衡（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-lawam/libero-latency.102wndphfb.webp)
 
 ### 5.3 Ablation Study
 
-![LaWAM 组件消融：预训练、distillation、Knowledge Insulation 与 LaWM（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lawam/ablation.2yz3dpuzpg.webp)
+![LaWAM 组件消融：预训练、distillation、Knowledge Insulation 与 LaWM（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-lawam/ablation.2yz3dpuzpg.webp)
 
 **【Paper】** LIBERO 消融显示，移除 LaWM 的性能下降最大，尤其是 LIBERO-Long；移除 latent-action distillation 也会明显变差；同时移除 KI 与 distillation 进一步退化。说明最终收益来自一条完整接口：策略要能稳定驱动 LaWM，且动作专家不能反向改写其动力学。
 
 混合频率实验还表明，不加 physical-time encoding 时联合训练 5/10/20 Hz 数据会明显下降；加入时间编码后，性能大幅恢复到 20 Hz reference 附近。
 
-![混合控制频率训练与 physical-time encoding（论文 Appendix Figure）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lawam/mixed-frequency.3d5j4l3aol.webp)
+![混合控制频率训练与 physical-time encoding（论文 Appendix Figure）](https://pic.hana0721.top/blog/paper-deep-dive-lawam/mixed-frequency.3d5j4l3aol.webp)
 
 ### 5.4 Generalization
 
 **【Paper】** LaWM 的 open-loop rollout 在未见环境和未见 embodiment 上使用同一 latent-action trajectory 时，仍产生上下文相关且连贯的 latent 变化。真实测试还包含超出部分示教空间的物体、碗和抽屉初始位置；LaWAM 在这些配置下保持较高成功率。
 
-![500 条 LIBERO 轨迹上的 LaWM rollout 特征相似度（论文 Appendix Figure）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lawam/lawm-rollout.99u3bljtl5.webp)
+![500 条 LIBERO 轨迹上的 LaWM rollout 特征相似度（论文 Appendix Figure）](https://pic.hana0721.top/blog/paper-deep-dive-lawam/lawm-rollout.99u3bljtl5.webp)
 
 ## 6. 方法分析
 

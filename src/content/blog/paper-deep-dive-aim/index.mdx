@@ -49,7 +49,7 @@ import { Aside } from '@/components/user'
 
 **代码 / 项目页**：截至本文撰写时，arXiv 页面、LaTeX 源码和论文正文未提供可核验的官方代码或项目链接；因此下文不会虚构代码行为。
 
-![AIM 框架：联合预测未来帧、空间价值图和动作，并在第二阶段用 PPO/GRPO 类后训练优化动作头（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-aim/framework-crop.3uvkszqxqc.webp)
+![AIM 框架：联合预测未来帧、空间价值图和动作，并在第二阶段用 PPO/GRPO 类后训练优化动作头（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-aim/framework-crop.3uvkszqxqc.webp)
 
 ### 一句话总结
 
@@ -74,7 +74,7 @@ import { Aside } from '@/components/user'
 
 论文将 AIM 与已有路线的区别概括为“增加一个面向意图的空间中间层”：它不是把 value map 当作普通辅助 perception head，而是把价值图放进未来预测与动作解码之间的因果路径。
 
-![典型统一世界-动作模型直接从未来视觉表示解码动作，AIM 则增加空间价值图接口（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-aim/typicalvsaim-crop.3k8qzubpqw.webp)
+![典型统一世界-动作模型直接从未来视觉表示解码动作，AIM 则增加空间价值图接口（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-aim/typicalvsaim-crop.3k8qzubpqw.webp)
 
 **【Analysis】** 这里的关键不是“热图通常比 RGB 更小”，而是价值图把未来状态转换成了控制问题需要的坐标：从“画面变成什么样”变成“下一步应该在哪个像素附近发生交互”。
 
@@ -218,7 +218,7 @@ $$
 
 **【Paper】** 数据集包含约 30K 条 RoboTwin 2.0 仿真操作轨迹，每条轨迹同步保存多视角视频、动作序列、任务 ID 和逐步价值图标注。评测覆盖 50 个任务，分别在 Easy 与 Hard 设置下报告 success rate（SR）。对比方法包括 $\pi_{0.5}$、X-VLA、Motus、Fast-WAM、Giga-World、LingBot-VA，以及未经过 RL 的 Stage1。
 
-![RoboTwin 2.0 中的放置、按压、扫描、旋转和开合任务示例（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-aim/visual-crop.szorrplqr.webp)
+![RoboTwin 2.0 中的放置、按压、扫描、旋转和开合任务示例（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-aim/visual-crop.szorrplqr.webp)
 
 ### 5.2 Main Results
 

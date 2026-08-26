@@ -66,7 +66,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】**《EgoLive: A Large-Scale Egocentric Dataset from Real-World Human Tasks》关注的不是新的 Policy，而是机器人学习最常见的瓶颈：高质量、可扩展、具有真实世界覆盖的数据从哪里来。作者发布了一个面向人类日常工作任务的第一视角（egocentric）数据集，并配套一条从双目视频到几何、运动和语言标注的自动化生产线。
 
-![EgoLive 数据集规模与双目第一视角示例（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egolive/overview.egolive.webp)
+![EgoLive 数据集规模与双目第一视角示例（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-egolive/overview.egolive.webp)
 
 ### 一句话总结
 
@@ -115,7 +115,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![JoyEgoCam 采集设备与双目视野（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egolive/capture-system.egolive.webp)
+![JoyEgoCam 采集设备与双目视野（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-egolive/capture-system.egolive.webp)
 
 **【Paper】** 数据流从 JoyEgoCam 的双目 RGB 与 IMU 开始，经过去畸变/左右视图分离后并行进入手部重建、手物语义、深度与相机定位、子任务切分和语言描述模块，最终写出一个时间对齐的多模态 episode。
 
@@ -142,7 +142,7 @@ $$
 
 **【Paper】** FoundationStereo 在校准后的双目图像上生成 1152×1152 深度图。深度与相机轨迹结合后，可以恢复工作空间的点云，为接触关系、手-物相对位姿和后续 human-to-robot 对齐提供几何监督。
 
-![EgoLive 自动化多模态标注管线（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egolive/annotation-pipeline.egolive.webp)
+![EgoLive 自动化多模态标注管线（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-egolive/annotation-pipeline.egolive.webp)
 
 ### 4.3 关键公式
 
@@ -233,7 +233,7 @@ $$
 
 论文没有 Policy ablation，也没有逐项移除标注模块的消融实验。作者采用跨数据集对比和质量可视化替代消融：EgoLive 的 object/action/attribute 词频曲线均高于 EgoDex 与 Xperience-10M，表现出更长的语义尾部；t-SNE 中覆盖区域更广，同时局部簇更紧凑。
 
-![EgoLive 的离散任务类别与语义词云（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egolive/distribution.egolive.webp)
+![EgoLive 的离散任务类别与语义词云（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-egolive/distribution.egolive.webp)
 
 ### 5.4 Generalization
 
@@ -249,11 +249,11 @@ $$
 
 **【Paper】** 深度平均误差在 0.5–0.7 m 处约 3 mm；在约 0.9 m 以内属于典型人类操作距离时误差较低。距离增大到 3.5 m，平均误差升至 18.035 mm，$<40$ mm 的像素比例仍为 93.478%。
 
-![真实家庭、零售场景中的深度图与点云重建（论文 Figure 10）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egolive/depth-scenes.egolive.webp)
+![真实家庭、零售场景中的深度图与点云重建（论文 Figure 10）](https://pic.hana0721.top/blog/paper-deep-dive-egolive/depth-scenes.egolive.webp)
 
 #### Caption 质量
 
-![Instruction captioning 的四个定性示例（论文 Figure 11）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egolive/caption-examples.egolive.webp)
+![Instruction captioning 的四个定性示例（论文 Figure 11）](https://pic.hana0721.top/blog/paper-deep-dive-egolive/caption-examples.egolive.webp)
 
 **【Paper】** 四个示例中，玻璃清洁和外套整理的 caption 在 action/object/hand/global 四项均通过；海绵清洁和铺床示例出现动作或全局不一致。这说明 LLM caption 能提供丰富监督，但仍需要自动或人工质量控制。
 

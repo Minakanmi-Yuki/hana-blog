@@ -53,7 +53,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** 传统 Vision-Language-Action（VLA）把图像、任务指令和动作一起喂给策略。一个长轨迹可能包含数百个 image-action pair，却通常只有一个高层 instruction；同时，一张图像会被编码成远多于语言的视觉 token。作者认为，这种 data-level 和 input-level asymmetry 让模型很容易依赖“这张图像通常对应这个动作”的视觉 shortcut，而没有真正学会“这句语言应该怎样约束动作”。
 
-![LA4VLA 的数据构造、预训练范式与结果总览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-la4vla/main.3yf6qqia0y.webp)
+![LA4VLA 的数据构造、预训练范式与结果总览（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-la4vla/main.3yf6qqia0y.webp)
 
 ### 一句话总结
 
@@ -77,7 +77,7 @@ import { Aside } from '@/components/user'
 
 作者的诊断实验固定语言和 robot state，只替换视觉，比较四种条件：原始配对图像、去掉图像、同场景但不匹配的图像、与指令方向冲突的图像。标准输入下 DAR 为 0.98、DCS 为 0.95；冲突视觉下 DAR 降到 0.35、DCS 降到 0.03。**【Analysis】** 这不是简单的“看不清”问题：视觉换成相反方向的轨迹后，预测也被拉向相反方向，说明配对视觉可能覆盖了语言条件。
 
-![固定指令、干预视觉后的方向跟随轨迹（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-la4vla/visual_cue_dependence_v2.26m7vtyx9l.webp)
+![固定指令、干预视觉后的方向跟随轨迹（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-la4vla/visual_cue_dependence_v2.26m7vtyx9l.webp)
 
 LA4VLA 与已有 language-action 方法的区别是：它不把语言动作仅作为高层规划或 reasoning scaffold，也不要求把动作 token 化成文字供推理；它将短 segment 的语言描述作为一种独立的预训练监督，最终控制仍由连续 flow-matching action head 完成。
 
@@ -116,7 +116,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![LA-33K 的切分、标注、过滤与 action category 分布（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-la4vla/dataset_pipeline.6t7uwixh3r.webp)
+![LA-33K 的切分、标注、过滤与 action category 分布（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-la4vla/dataset_pipeline.6t7uwixh3r.webp)
 
 **【Paper】** 数据流是 `VLA demonstration → keyframe hints + atomic vocabulary → VLM proposals → human verification → LA episode`；训练时 LA episode 屏蔽视觉，VLA episode 保留视觉，二者可分别预训练、串联或混合。
 
@@ -225,7 +225,7 @@ $$
 
 **【Paper】** LA4VLA-1B 以 InternVL3-1B 为 backbone，配 flow-matching action head；所有对照固定模型、下游数据和 finetuning protocol。评测包括 MetaWorld、LIBERO、StarVLA transfer、xArm6 三项真实任务，以及 Gaussian image noise 鲁棒性。
 
-![xArm6 上 Press Button、Place Book、Place Drink 三类语言条件任务（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-la4vla/real_world_process.1764inw6eu.webp)
+![xArm6 上 Press Button、Place Book、Place Drink 三类语言条件任务（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-la4vla/real_world_process.1764inw6eu.webp)
 
 真实任务每个 policy 每项 20 次试验：按语言按下四个按钮之一，把书放入三个货架位置之一，把饮料放入九宫格之一。初始场景相同，所以目标选择不能只靠视觉。
 
@@ -253,7 +253,7 @@ LA 相比 no-pretraining 在 MetaWorld 提升 13.27 个百分点；MixPT 提升 
 | LA→VLA | 86.75 | **96.28** | 先学 prior，再恢复视觉 |
 | MixPT | **87.53** | 95.75 | 同阶段混合 LA 与 VLA |
 
-![LA-pretrained 的方向跟随与 action-decoding 表示分离（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-la4vla/b1_la_visual.96ahdqbaj6.webp)
+![LA-pretrained 的方向跟随与 action-decoding 表示分离（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-la4vla/b1_la_visual.96ahdqbaj6.webp)
 
 **【Paper】** 另一个关键对照是同一套 LA protocol 迁移到 StarVLA：MetaWorld 从 58.39% 提升到 69.91%，LIBERO 从 93.70% 提升到 94.85%。这说明收益不是 LA4VLA-1B 架构的偶然特性。
 

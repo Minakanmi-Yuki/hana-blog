@@ -42,7 +42,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** 论文报告的统一模型 Qwen-VLA-Instruct 同时取得：LIBERO 97.9%、Simpler-WidowX 73.7%、RoboTwin Easy/Hard 86.1%/87.2%、R2R OS 69.0%、RxR SR 59.6%；在真实 ALOHA 上平均 OOD 成功率 76.9%，在没有动态操作微调的 DOMINO 上 zero-shot SR 为 26.6%。
 
-![Qwen-VLA 从多种 embodied 数据生成动作与语言输出的总览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-qwen-vla/overview.7sny8cfjpm.webp)
+![Qwen-VLA 从多种 embodied 数据生成动作与语言输出的总览（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-qwen-vla/overview.7sny8cfjpm.webp)
 
 ### 一句话总结
 
@@ -85,7 +85,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![Qwen-VLA 的 Qwen3.5 VLM、DiT action expert 与四阶段训练配方（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-qwen-vla/architecture-crop.wjao5wbfq.webp)
+![Qwen-VLA 的 Qwen3.5 VLM、DiT action expert 与四阶段训练配方（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-qwen-vla/architecture-crop.wjao5wbfq.webp)
 
 **【Paper】** Qwen3.5 的视觉 token 与文本 token 在 backbone 内早期融合；DiT action expert 将 VLM hidden states 与 noisy action chunk 拼接，在 joint self-attention 中用 AdaLN 注入 timestep，再通过 flow matching 生成连续动作。数据流可概括为：`images + embodiment prompt + instruction → Qwen3.5 hidden states → DiT denoising / Euler integration → action or trajectory chunk`。
 
@@ -222,7 +222,7 @@ VL loss 的作用不是生成动作，而是在重型 embodied co-training 中�
 - **Navigation**：VLN-CE 的 R2R 与 RxR Val-Unseen。
 - **OOD**：SimplerEnv-OOD、DOMINO 动态操作，以及 ALOHA 的 color、instance、position、background、instruction shift。
 
-![ALOHA 真实评测的六类任务与五种 OOD 变化（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-qwen-vla/task-overview.wjao5wbnd.webp)
+![ALOHA 真实评测的六类任务与五种 OOD 变化（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-qwen-vla/task-overview.wjao5wbnd.webp)
 
 ### 5.2 Main Results
 
@@ -242,11 +242,11 @@ VL loss 的作用不是生成动作，而是在重型 embodied co-training 中�
 
 ### 5.3 Ablation Study
 
-![T2A 数据比例、timestep 分布和训练时长消融（论文补充实验图）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-qwen-vla/t2a-ablation.70b2qlz0gu.webp)
+![T2A 数据比例、timestep 分布和训练时长消融（论文补充实验图）](https://pic.hana0721.top/blog/paper-deep-dive-qwen-vla/t2a-ablation.70b2qlz0gu.webp)
 
 **【Paper】** T2A 的最佳设置是 20% synthetic + 80% real（且 real 不看图像），SFT success 达到 71.1%；完全 real 只有 51.0%，完全 synthetic 为 64.0% 左右。T2A 使用 Sig-Norm timestep 分布时比 Beta 分布更好，且训练过久（约 40× data passes）会从稳定区间跌落。
 
-![VL co-training 与预训练 DiT 收敛速度消融（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-qwen-vla/vl-ablation.2ksnlcmm67.webp)
+![VL co-training 与预训练 DiT 收敛速度消融（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-qwen-vla/vl-ablation.2ksnlcmm67.webp)
 
 **【Paper】** 混入 VL 数据在 LIBERO、Simpler 上几乎不损害动作性能，但在需要细粒度识别与组合指令的 RoboCasa-GR1 上提升 4.9 个百分点（51.1 → 56.0），RoboTwin 2.0 提升 4.6 个百分点（81.8 → 86.4）。预训练 DiT 相比随机初始化收敛更快且峰值更高。
 

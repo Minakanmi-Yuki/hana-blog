@@ -94,7 +94,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![USER 的系统架构（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rlinf-user/architecture-crop.5c1purygs9.webp)
+![USER 的系统架构（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-rlinf-user/architecture-crop.5c1purygs9.webp)
 
 **【Paper】** 数据从 edge 上的 Env Worker/Robot Node 经 distributed channel 流向 Rollout Worker 与 Train Worker；HAL 决定进程实际绑定的机器人或 GPU，通信平面承担 tunnel、数据通道与权重同步。
 
@@ -108,7 +108,7 @@ $$
 
 #### 自适应通信平面
 
-![USER 学习框架与跨节点数据流（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rlinf-user/communication-pipeline-crop.9ddp962k7w.webp)
+![USER 学习框架与跨节点数据流（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-rlinf-user/communication-pipeline-crop.9ddp962k7w.webp)
 
 **【Paper】** tunnel 将 NAT、校园网或工厂 VLAN 彼此隔离的节点放入扁平 TCP/IP 视图。`Channel` 是可异步 `put/get` 的具名 FIFO；它按 robot ID 等 key 分片到多个轻量服务，尽量让同一 edge 域内的 observation/action 不必绕行云端。GPU 间 NCCL 同步会消耗 streaming multiprocessor（SM），因此 USER 通过可调的 NCCL CTA 上限避免同步抢占 rollout。
 
@@ -116,7 +116,7 @@ $$
 
 #### 异步流水线与持久缓冲区
 
-![Persistent-Cache-Aware Buffer：内存缓存保存最近轨迹，磁盘保存持久历史（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rlinf-user/buffer-crop.8z79iau9g1.webp)
+![Persistent-Cache-Aware Buffer：内存缓存保存最近轨迹，磁盘保存持久历史（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-rlinf-user/buffer-crop.8z79iau9g1.webp)
 
 **【Paper】** Env/Rollout 持续产生 trajectory；训练从 autonomous replay buffer 与 demonstration buffer 异步采样，reward 可以在 rollout 时或离线后处理；新权重再按周期推给 rollout。buffer 将数据异步写入磁盘，在内存只保留带 FIFO replacement 的有界 cache；索引携带 policy version、timestamp 和 episode ID，已逐出的数据仍可按需从磁盘载入。
 
@@ -210,7 +210,7 @@ $$
 
 ### 5.3 Ablation Study
 
-![Peg Insertion 上 asynchronous 与 synchronous pipeline 的收敛对比（论文 Figure 10a）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rlinf-user/async-sync-ablation.7ehiitx22z.webp)
+![Peg Insertion 上 asynchronous 与 synchronous pipeline 的收敛对比（论文 Figure 10a）](https://pic.hana0721.top/blog/paper-deep-dive-rlinf-user/async-sync-ablation.7ehiitx22z.webp)
 
 **【Paper】** 异步化的收益来自 stage overlap，而不是每个单独 stage 变快。对 $\pi_0$ + HG-DAgger，episode generation period 从 45.068 s 降至 37.538 s（1.20×），training period 从 45.011 s 降至 7.903 s（5.70×）；对 CNN + SAC，分别从 20.291 s 降至 13.108 s（1.55×）和从 0.643 s 降至 0.135 s（4.61×）。Peg Insertion 的曲线中，异步方案约 1,500 s 收敛，同步方案超过 8,000 s。
 

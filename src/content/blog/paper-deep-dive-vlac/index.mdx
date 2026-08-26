@@ -50,7 +50,7 @@ import { Aside } from '@/components/user'
 **论文链接**：[arXiv:2509.15937](https://arxiv.org/abs/2509.15937)  
 **代码 / 模型**：[VLAC GitHub](https://github.com/InternRobotics/VLAC)、[Hugging Face](https://huggingface.co/InternRobotics/VLAC)
 
-![VLAC overview from paper Figure 1](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-vlac/overview.webp)
+![VLAC overview from paper Figure 1](https://pic.hana0721.top/blog/paper-deep-dive-vlac/overview.webp)
 
 ### 一句话总结
 
@@ -91,7 +91,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![VLAC architecture and data mixture from paper Figure 2](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-vlac/vlac-architecture.webp)
+![VLAC architecture and data mixture from paper Figure 2](https://pic.hana0721.top/blog/paper-deep-dive-vlac/vlac-architecture.webp)
 
 **【Paper】** 多源数据先被转成 progress、done、task-description、VQA 和 action 任务；InternVL backbone 输出统一语义 token，推理时按 prompt 选择 Critic 或 Actor 角色。RL rollout 中，8B VLAC 负责 reward / done，2B VLAC 负责动作，二者通过异步服务与机器人交互。
 
@@ -190,13 +190,13 @@ $$
 
 ### 5.1 Experimental Setup
 
-![Real-world task setup from paper Figure A1](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-vlac/tasks.webp)
+![Real-world task setup from paper Figure A1](https://pic.hana0721.top/blog/paper-deep-dive-vlac/tasks.webp)
 
 **【Paper】** Critic 评估覆盖 Bridge、Droid、RT1、RoboNet、Dobb-E、RH20T、EgoDex、RoboFAC，重点考察新实体、新场景、新任务和成功 / 失败轨迹区分。Actor 评估使用五类桌面任务；真实 RL 主要报告四类任务，每个成功率点由 10 次 trial 计算。部署时 observation 包含 instruction、front camera image 和 robot end-pose。
 
 ### 5.2 Main Results
 
-![VOC-F1 comparison from paper](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-vlac/voc-f1.webp)
+![VOC-F1 comparison from paper](https://pic.hana0721.top/blog/paper-deep-dive-vlac/voc-f1.webp)
 
 **【Paper】** 关键结果包括：
 
@@ -205,7 +205,7 @@ $$
 - RoboFAC-success 的 VOC-F1 为 0.89，RoboFAC-fail 为 0.44，能够把失败过程与正常进展分开；
 - Actor 平均成功率为 75%，加入 lighting transfer 后为 57%，scene transfer 后为 63%，仍能在未额外采集数据的扰动环境中执行。
 
-![Real-world RL success curves from paper](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-vlac/rl-results.webp)
+![Real-world RL success curves from paper](https://pic.hana0721.top/blog/paper-deep-dive-vlac/rl-results.webp)
 
 **【Paper】** 四任务 RL 的 Baseline、Return-and-explore、Human-guided explore、Offline Demonstration Replay 平均最终成功率分别为 88%、95%、98%、93%。论文摘要还报告：约 200 个真实交互 episode 内，成功率从约 30% 提升到约 90%；人机介入可进一步提高样本效率并在部分任务达到 100%。
 
@@ -213,7 +213,7 @@ $$
 
 **【Paper】** 消融显示，去掉 task-progress pretraining 后，VLAC w/o pretrain 的平均成功率降至 16%，而完整 VLAC 为 75%；这说明进度理解不仅改善 critic，也帮助 Actor 判断“当前阶段是否真的完成”。在多机器人实验中，Pick-and-Place Bowl 达到 80% 成功率所需的每机器人 episode 数为：8 台 64、4 台 147、2 台 325；并行 embodiment 带来明显的数据效率收益。
 
-![VLAC actor and PPO interface from paper](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-vlac/vlac-ppo.webp)
+![VLAC actor and PPO interface from paper](https://pic.hana0721.top/blog/paper-deep-dive-vlac/vlac-ppo.webp)
 
 ### 5.4 Generalization
 

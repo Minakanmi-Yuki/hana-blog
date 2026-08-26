@@ -60,7 +60,7 @@ import { Aside } from '@/components/user'
 
 **代码状态**：项目页截至论文发布时标注 “GitHub (Coming Soon!)”，没有可供本文核对的公开官方代码。
 
-![EgoScale 两阶段人类到机器人学习流程（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egoscale/pull_figure-egoscale.webp)
+![EgoScale 两阶段人类到机器人学习流程（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-egoscale/pull_figure-egoscale.webp)
 
 ### 一句话总结
 
@@ -101,7 +101,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![EgoScale flow-based VLA 架构（论文 Figure 2b）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egoscale/architecture-egoscale.webp)
+![EgoScale flow-based VLA 架构（论文 Figure 2b）](https://pic.hana0721.top/blog/paper-deep-dive-egoscale/architecture-egoscale.webp)
 
 **【Paper】** 图像和语言先由 VLM backbone 编码，DiT action expert 在 flow-matching 目标下生成动作 chunk；共享的 wrist action abstraction 连接人类和机器人，embodiment-conditioned MLP adapters 只处理各平台的 state 输入和 hand action 输出。
 
@@ -115,7 +115,7 @@ $$
 
 #### 数据层：scale 与 alignment 解耦
 
-![EgoScale 人类数据采集与模型输入（论文 Figure 2a）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egoscale/ego_data_collection-egoscale.webp)
+![EgoScale 人类数据采集与模型输入（论文 Figure 2a）](https://pic.hana0721.top/blog/paper-deep-dive-egoscale/ego_data_collection-egoscale.webp)
 
 **【Paper】** Stage I 混合了多种 egocentric datasets，总计 20,854 小时，覆盖 9,869 个场景、6,015 个任务和 43,237 个物体；其中额外加入 829 小时高精度 EgoDex。Stage II 的 aligned play data 有约 50 小时人类轨迹和 4 小时机器人轨迹，344 个 tabletop tasks，每个任务约 30 条人类和 5 条机器人轨迹，并使用与机器人匹配的头戴及腕部相机、Vive trackers 和 Manus gloves。
 
@@ -192,13 +192,13 @@ $$
 
 ### 5.1 Experimental Setup
 
-![EgoScale 的五个灵巧操作评测任务（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egoscale/dexterous_manipulation_tasks_v2-egoscale.webp)
+![EgoScale 的五个灵巧操作评测任务（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-egoscale/dexterous_manipulation_tasks_v2-egoscale.webp)
 
 **【Paper】** 主要平台是 Galaxea R1 Pro + 22-DoF Sharpa hands，使用头戴相机和两台腕部相机。五个任务分别是双手卷衣服、从牌堆分离并插入指定卡片、用 tongs 夹水果、拧开瓶盖，以及抽取—注入液体的 syringe 长时程任务。除 Shirt Rolling 使用 20 条示教外，其余任务各使用 100 条 teleoperation demonstrations；每个方法使用两个随机种子，每个 checkpoint 通常评估 10 次，Tongs 在四种瓶子上共 16 次。
 
 ### 5.2 Main Results
 
-![主要任务完成分数与成功率（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egoscale/success_rate_task_completion_bar_plot-egoscale.webp)
+![主要任务完成分数与成功率（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-egoscale/success_rate_task_completion_bar_plot-egoscale.webp)
 
 **【Paper】** 论文比较 No Pretrain、Midtrain Only、Human Pretrain 和 Human Pretrain + Midtrain。完整方法在五个任务上总体最好；摘要报告平均 success rate 相对无预训练提升 54%，正文则报告平均 task-completion score 提升超过 55%。两种口径分别对应二值成功率与细粒度完成分数，不能混为同一个指标。
 
@@ -208,13 +208,13 @@ $$
 
 #### 数据规模
 
-![人类数据规模、验证损失和机器人性能的关系（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egoscale/human_data_scaling_combined-egoscale.webp)
+![人类数据规模、验证损失和机器人性能的关系（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-egoscale/human_data_scaling_combined-egoscale.webp)
 
 **【Paper】** 预训练数据从 1k、2k、4k、10k 增加到 20k 小时，平均 task-completion score 从 0.30 单调上升到 0.71；小数据模型更早过拟合，大数据模型在训练过程中持续改善。held-out human validation set 含 2,000 个 egocentric episodes，每条轨迹采样 20 个时间步，每步从 flow policy 采样 16 个 action chunks 后计算 wrist 与 hand action MSE。
 
 #### 手部动作空间
 
-![不同人类手部动作表示的消融（论文 Figure 8）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egoscale/human_action_space_completion_barplot-egoscale.webp)
+![不同人类手部动作表示的消融（论文 Figure 8）](https://pic.hana0721.top/blog/paper-deep-dive-egoscale/human_action_space_completion_barplot-egoscale.webp)
 
 **【Paper】** 对比 wrist-only、fingertip-based 和 retargeted joint-space。wrist-only 在 Cards、Tongs 等需要接触时序的任务上明显较差；fingertip-based 虽然几何信息更多，但映射到关节后可能产生不稳定构型；retargeted joints 在各任务上最稳定。这里说明的是监督空间的物理可执行性，而不是 retargeting 算法本身被宣称为论文核心创新。
 
@@ -222,7 +222,7 @@ $$
 
 #### One-shot task transfer
 
-![Aligned mid-training 带来的 one-shot transfer（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egoscale/midtraining_v2-egoscale.webp)
+![Aligned mid-training 带来的 one-shot transfer（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-egoscale/midtraining_v2-egoscale.webp)
 
 **【Paper】** Fold Shirt 和 Unscrewing Water Bottles 都不在 mid-training task 中。post-training 每个任务只给 1 条机器人示教，并配合每个物体 100 条 aligned human demonstrations；Pretrain + Midtrain 分别达到 0.88 和 0.55 成功率，而缺少任一阶段的模型在该设置下失败。
 
@@ -230,7 +230,7 @@ $$
 
 #### Cross-embodiment transfer
 
-![Unitree G1 tri-finger 跨 embodiment 结果（论文 Figure 7）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egoscale/g1taskandsuccess_v3-egoscale.webp)
+![Unitree G1 tri-finger 跨 embodiment 结果（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-egoscale/g1taskandsuccess_v3-egoscale.webp)
 
 **【Paper】** Unitree G1 使用较短手臂和 7-DoF tri-finger hand，评测 Pen in Bin 与 Dish in Rack。加入包含 G1 play data 的 mid-training 后，两项任务都优于只在 G1 数据上训练的模型；论文还观察到人类预训练策略的行为更平滑。
 

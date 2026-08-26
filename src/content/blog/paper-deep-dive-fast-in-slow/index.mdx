@@ -56,7 +56,7 @@ import { Aside } from '@/components/user'
 
 **论文链接**：[arXiv](https://arxiv.org/abs/2506.01953) · **代码**：[CHEN-H01/Fast-in-Slow](https://github.com/CHEN-H01/Fast-in-Slow) · **项目主页**：[fast-in-slow.github.io](https://fast-in-slow.github.io/)
 
-![FiS-VLA 总览与速度—成功率对比（论文 teaser figure）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-fast-in-slow/teaser_fig.szoru3fz5.webp)
+![FiS-VLA 总览与速度—成功率对比（论文 teaser figure）](https://pic.hana0721.top/blog/paper-deep-dive-fast-in-slow/teaser_fig.szoru3fz5.webp)
 
 ### 一句话总结
 
@@ -96,7 +96,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![FiS-VLA 的统一双系统架构（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-fast-in-slow/method_fig.67y7a9il7k.webp)
+![FiS-VLA 的统一双系统架构（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-fast-in-slow/method_fig.67y7a9il7k.webp)
 
 **【Paper】** 输入先经过 SigLIP 与 DINOv2 视觉编码器；轻量 3D tokenizer 将点云变成 token 后复用视觉编码器。完整 32 层 LLaMA2-7B 形成 System 2，最后若干层从其中“切出” System 1；System 2 的中间 latent 周期性地条件化 System 1，System 1 则在每个控制周期用新观测生成动作。
 
@@ -197,7 +197,7 @@ $$
 
 ### 5.1 Experimental Setup
 
-![RLBench、AgileX 与 AlphaBot 的实验示例（论文 real-world figure）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-fast-in-slow/realworld_fig.26m7vvehxy.webp)
+![RLBench、AgileX 与 AlphaBot 的实验示例（论文 real-world figure）](https://pic.hana0721.top/blog/paper-deep-dive-fast-in-slow/realworld_fig.26m7vvehxy.webp)
 
 **【Paper】** 仿真在 CoppeliaSim 的 RLBench 上测试 10 项任务，每项 100 条轨迹，输入单视角 RGB 与 1024 点点云；真实实验使用 AgileX 和 AlphaBot 两种双臂平台，每项任务采集 100 条三视角 teleoperation 示教。评估均为 20 次 rollout，仿真重复三次并报告均值和方差。
 
@@ -217,7 +217,7 @@ $$
 
 ### 5.3 Ablation Study
 
-![FiS-VLA 的共享 block、输入模态和异步比例消融（论文 ablation figure）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-fast-in-slow/ablation_fig.6m4n14qw03.webp)
+![FiS-VLA 的共享 block、输入模态和异步比例消融（论文 ablation figure）](https://pic.hana0721.top/blog/paper-deep-dive-fast-in-slow/ablation_fig.6m4n14qw03.webp)
 
 **【Paper】**
 
@@ -228,7 +228,7 @@ $$
 
 ### 5.4 Generalization
 
-![未见物体、复杂背景与光照变化下的泛化设置（论文 generalization figure）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-fast-in-slow/generalization_fig.5xbdh43d17.webp)
+![未见物体、复杂背景与光照变化下的泛化设置（论文 generalization figure）](https://pic.hana0721.top/blog/paper-deep-dive-fast-in-slow/generalization_fig.5xbdh43d17.webp)
 
 **【Paper】** 在“换物体、复杂背景、光照扰动”三种测试中，FiS-VLA 的下降幅度均小于 $\pi_0$。例如 AlphaBot 的未见物体任务成功率从 80% 降至 65%（下降 19%），$\pi_0$ 从 65% 降至 40%（下降 38%）；复杂背景下 FiS-VLA 下降 25%，光照变化下仍保持 55%。
 

@@ -71,7 +71,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】**《T-Rex: Tactile-Reactive Dexterous Manipulation》针对一个常被忽略的事实：视觉可以告诉机器人“物体在哪里”，但在插入、擦拭、翻页、拧灯泡等接触丰富任务中，真正决定成败的是力、滑移和局部形变。论文同时解决数据、表示和推理频率三个瓶颈：构建 100 小时触觉同步数据集；在 Qwen3-VL-2B 上设计具有 latent/action/tactile 三个专家的 Mixture-of-Transformers（MoT）；用时间触觉 VQ-VAE 压缩高频力历史。
 
-![T-Rex 系统总览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-t-rex/teaser_v6_0609.2rvvi62vex.webp)
+![T-Rex 系统总览（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-t-rex/teaser_v6_0609.2rvvi62vex.webp)
 
 ### 一句话总结
 
@@ -106,7 +106,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![T-Rex MoT 架构：latent、action、tactile 三专家（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-t-rex/model_v2_0524.1sfs5001vs.webp)
+![T-Rex MoT 架构：latent、action、tactile 三专家（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-t-rex/model_v2_0524.1sfs5001vs.webp)
 
 **【Paper】** 视觉语言上下文先进入 latent expert 和 action expert，action expert 从噪声去噪到 $\tau_{\mathrm{split}}=0.4$ 并缓存 KV；随后 tactile expert 读取实时触觉 token，在不重跑视觉塔的情况下完成剩余去噪并输出动作 chunk。
 
@@ -192,7 +192,7 @@ $$
 
 ### 5.1 Experimental Setup
 
-![Vega-1、Sharpa Wave 双手与遥操作采集系统（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-t-rex/setup_v3_0528.9kgx4mt181.webp)
+![Vega-1、Sharpa Wave 双手与遥操作采集系统（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-t-rex/setup_v3_0528.9kgx4mt181.webp)
 
 **【Paper】** 每个任务评估 16 次，随机化物体位置和朝向；多阶段任务使用 progress-based rubric。基线包括 ViTacFormer、RDP、Tactile-VLA、EgoScale、$\pi_{0.5}$ 和 $\pi_{0.5}$ + tactile。
 
@@ -214,7 +214,7 @@ $$
 
 ### 5.3 Ablation Study
 
-![触觉表示、异步结构和数据效率消融（论文 Figures 6–8）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-t-rex/data_efficiency_v2_0529.3uvkt1yl2l.webp)
+![触觉表示、异步结构和数据效率消融（论文 Figures 6–8）](https://pic.hana0721.top/blog/paper-deep-dive-t-rex/data_efficiency_v2_0529.3uvkt1yl2l.webp)
 
 六任务平均结果：完整模型 65%；去掉触觉 42%；用 MLP Force + Deform 58%；只用 Deform 54%；MLP Force + VQ-VAE Force 59%；去掉异步结构 60%。
 
@@ -222,7 +222,7 @@ $$
 
 ### 5.4 Generalization
 
-![T-Rex 数据集统计：物体、motor primitives 与长尾分布（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-t-rex/dataset_analysis_v2_0610.4n8gasf7k6.webp)
+![T-Rex 数据集统计：物体、motor primitives 与长尾分布（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-t-rex/dataset_analysis_v2_0610.4n8gasf7k6.webp)
 
 **【Paper】** 数据集由 207 个物体与 22 个 primitive 组合，经可行性筛选得到 502 对、7,755 条轨迹。与同等 100 小时的 task-specific 数据相比，motor-primitive 组织方式带来更好的 zero-shot transfer；在下游示教数从 10 增加到 200 的曲线中，mid-training 版本在低数据区间明显更高。
 

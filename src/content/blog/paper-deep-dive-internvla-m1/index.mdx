@@ -39,7 +39,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** InternVLA-M1 的问题意识很直接：机器人要执行“把红色玩具放进盒子”时，VLM 需要知道的不只是“是什么”，还包括“在哪里”和“怎样移动”。论文把空间 grounding 设为 instruction 与 embodiment-specific action 之间的桥梁，提出一个双系统（dual-system）VLA：慢而可靠的 `VLM Planner` 负责空间推理，快而专门化的 `DiT Actor` 负责连续控制。
 
-![InternVLA-M1 teaser from paper Figure 1](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-internvla-m1/teaser-crop.73uooafwu9.webp)
+![InternVLA-M1 teaser from paper Figure 1](https://pic.hana0721.top/blog/paper-deep-dive-internvla-m1/teaser-crop.73uooafwu9.webp)
 
 ### 一句话总结
 
@@ -92,7 +92,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![InternVLA-M1 overall framework from paper Figure 2](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-internvla-m1/main_framework-crop.2h91nlhdh8.webp)
+![InternVLA-M1 overall framework from paper Figure 2](https://pic.hana0721.top/blog/paper-deep-dive-internvla-m1/main_framework-crop.2h91nlhdh8.webp)
 
 **【Paper】** Stage 1 只训练 VLM Planner，使其获得 embodiment-agnostic spatial prior；Stage 2 以 spatial prompt 激活这些先验，并把 Planner 的 latent planning tokens 交给 DiT Actor，联合学习“where to act”和“how to act”。
 
@@ -220,7 +220,7 @@ $$
 
 **【Paper】** 实验覆盖四类场景：SimplerEnv 的 Google Robot/WidowX、LIBERO Franka、包含 200 个任务和 3K+ 物体的 Isaac Sim，以及真实 Franka Research 3 和 ARX LIFT2。SimplerEnv 主要测试视觉匹配、颜色/纹理变化和跨机器人泛化；LIBERO 测试 Spatial、Object、Goal 和 Long 四种语言条件任务。
 
-![InternVLA-M1 simulated instruction-following setup from paper](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-internvla-m1/sim-instruction-following-pick-and-place-result-crop.8z79gwscwm.webp)
+![InternVLA-M1 simulated instruction-following setup from paper](https://pic.hana0721.top/blog/paper-deep-dive-internvla-m1/sim-instruction-following-pick-and-place-result-crop.8z79gwscwm.webp)
 
 ### 5.2 Main Results
 
@@ -237,7 +237,7 @@ $$
 
 ### 5.3 Ablation Study
 
-![InternVLA-M1 ablation on spatial grounding, manipulation and gradient similarity](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-internvla-m1/combined_three_plots_abl-crop.8z79gwscsi.webp)
+![InternVLA-M1 ablation on spatial grounding, manipulation and gradient similarity](https://pic.hana0721.top/blog/paper-deep-dive-internvla-m1/combined_three_plots_abl-crop.8z79gwscsi.webp)
 
 **【Paper】** 去掉 spatial data 和 spatial prompt 后，RefCOCO-g grounding 很快退化，SimplerEnv-WidowX 收敛也更慢；加入 spatially guided action post-training 后，两条曲线同时改善。论文用 Projection-space Similarity 衡量两个任务的梯度子空间：普通 co-training 约为 0.25，空间引导方案约为 0.42。
 
@@ -245,11 +245,11 @@ $$
 
 ### 5.4 Generalization
 
-![InternVLA-M1 simulated and real-world generalization results](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-internvla-m1/instruction-following-pick-and-place-result-crop.7lkqcvhax7.webp)
+![InternVLA-M1 simulated and real-world generalization results](https://pic.hana0721.top/blog/paper-deep-dive-internvla-m1/instruction-following-pick-and-place-result-crop.7lkqcvhax7.webp)
 
 **【Paper】** 在 200-task 仿真中，加入 244K InternData-M1 mid-training 后平均提升 6.2%，并在 unseen objects、new backgrounds 和 paraphrased instructions 上稳定优于 $\pi_0$ 与 GR00T N1.5。真实 clustered pick-and-place 中，sim-to-real co-training 对未见物体与新位置尤其有效，论文摘要报告未见物体/新配置最高提升 20.6%。
 
-![InternVLA-M1 real-world long-horizon results](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-internvla-m1/long_horizon_result-crop.6t7uv50pbl.webp)
+![InternVLA-M1 real-world long-horizon results](https://pic.hana0721.top/blog/paper-deep-dive-internvla-m1/long_horizon_result-crop.6t7uv50pbl.webp)
 
 长时程任务包括桌面分类、抽屉整理、三明治制作、数学按钮选择和按价格购物。**【Paper】** Ours-3B 的 planner scheduling 成功率为 90/91/91/93/92，超过 GPT-5、Gemini-2.5 Pro、GPT-4o 和 Qwen2.5-VL-72B；在物理干扰和中途新增指令时，性能下降也更小。
 

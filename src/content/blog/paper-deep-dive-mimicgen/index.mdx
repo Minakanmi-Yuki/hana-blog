@@ -46,7 +46,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** MimicGen 研究的是机器人模仿学习中的数据瓶颈：高质量 teleoperation demonstration 很贵，但很多示教的核心操控技能在不同物体位置、场景和机械臂之间是重复的。系统从一个很小的 source dataset 出发，把每条轨迹按 object-centric subtask 切段，再将片段变换到新场景中执行；只有任务成功的尝试才写入 generated dataset。
 
-![MimicGen 系统流程：示教切段、片段变换与新轨迹执行（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-mimicgen/system-overview.mimicgen.webp)
+![MimicGen 系统流程：示教切段、片段变换与新轨迹执行（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-mimicgen/system-overview.mimicgen.webp)
 
 ### 一句话总结
 
@@ -231,7 +231,7 @@ $$
 
 ### 5.1 Experimental Setup
 
-![MimicGen 的 reset distribution 与真实机器人 Stack 示例（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-mimicgen/reset-d0.mimicgen.webp)
+![MimicGen 的 reset distribution 与真实机器人 Stack 示例（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-mimicgen/reset-d0.mimicgen.webp)
 
 **【Paper】** 实验覆盖 robosuite（MuJoCo）和 Factory（Isaac Gym）中的基础堆叠、插入、铰接、长时程厨房、移动操作和精密装配。每个任务有默认分布 $D_0$、更宽的 $D_1$，部分任务还有更难的 $D_2$；也测试了新物体实例和 Sawyer、IIWA、UR5e 等不同机械臂。
 
@@ -239,7 +239,7 @@ $$
 
 ### 5.2 Main Results
 
-![MimicGen image-based agent 的 source、生成数据与数据规模对比结果（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-mimicgen/core-results.mimicgen.webp)
+![MimicGen image-based agent 的 source、生成数据与数据规模对比结果（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-mimicgen/core-results.mimicgen.webp)
 
 **【Paper】** 论文报告的 image-based agent 结果显示，10 条 source demos 到 1,000 条 $D_0$ generated demos 后，多数任务有大幅提升：
 
@@ -254,7 +254,7 @@ $$
 
 ### 5.3 Ablation Study
 
-![真实机器人 Stack 任务示例（论文 Figure 6 右侧子图）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-mimicgen/real-stack.mimicgen.webp)
+![真实机器人 Stack 任务示例（论文 Figure 6 右侧子图）](https://pic.hana0721.top/blog/paper-deep-dive-mimicgen/real-stack.mimicgen.webp)
 
 **【Paper】** 动作噪声是一个关键消融：默认在执行 transformed segment 时加入 $\sigma=0.05$ 的 Gaussian noise。去掉噪声会提高 data generation rate，却可能让 low-dim agent 下降最多 30%、image agent 下降最多 40%。仅在原始场景 replay 并加噪声，也不如进行 object-pose transform：Square 的 $D_0$ 成功率从 source 的 11.3% 提升到 42.0%，但仍低于 MimicGen 的 90.7%。
 

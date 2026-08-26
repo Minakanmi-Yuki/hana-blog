@@ -52,7 +52,7 @@ import { Aside } from '@/components/user'
 **代码**：[SpatialVLA/SpatialVLA](https://github.com/SpatialVLA/SpatialVLA)  
 **项目主页**：[spatialvla.github.io](https://spatialvla.github.io)
 
-![SpatialVLA pipeline from paper Figure 2](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-spatialvla/pipeline.webp)
+![SpatialVLA pipeline from paper Figure 2](https://pic.hana0721.top/blog/paper-deep-dive-spatialvla/pipeline.webp)
 
 ### 一句话总结
 
@@ -88,7 +88,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![SpatialVLA overall architecture from paper Figure 2](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-spatialvla/pipeline.webp)
+![SpatialVLA overall architecture from paper Figure 2](https://pic.hana0721.top/blog/paper-deep-dive-spatialvla/pipeline.webp)
 
 **【Paper】** 图像经 SigLIP 提取语义特征，并与 Ego3D 位置嵌入相加；PaliGemma 2 根据视觉、语言上下文自回归预测三组空间动作 token，再由 tokenizer 解码成连续控制量。预训练后，动作网格和 token 嵌入可针对新机器人重新适配。
 
@@ -186,13 +186,13 @@ $$
 
 ### 5.1 Experimental Setup
 
-![SpatialVLA experiment overview from paper Figure 3](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-spatialvla/experinment_overview.webp)
+![SpatialVLA experiment overview from paper Figure 3](https://pic.hana0721.top/blog/paper-deep-dive-spatialvla/experinment_overview.webp)
 
 **【Paper】** 评估覆盖 7 类机器人学习场景、24 个真实机器人任务和 3 个模拟环境：SimplerEnv 的 Google Robot / WidowX 零样本，BridgeData V2 WidowX 实机，LIBERO 四个 suite，以及 Franka 新设置微调。空间理解任务专门改变物体布局、杯子高度、背景和动态干扰。
 
 ### 5.2 Main Results
 
-![WidowX zero-shot evaluation from paper Figure 5](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-spatialvla/windowx_zeroshot.webp)
+![WidowX zero-shot evaluation from paper Figure 5](https://pic.hana0721.top/blog/paper-deep-dive-spatialvla/windowx_zeroshot.webp)
 
 **【Paper】** 主要结果如下：
 
@@ -207,7 +207,7 @@ $$
 
 ### 5.3 Ablation Study
 
-![Adaptive action grids from paper Figure 2](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-spatialvla/action_grids.webp)
+![Adaptive action grids from paper Figure 2](https://pic.hana0721.top/blog/paper-deep-dive-spatialvla/action_grids.webp)
 
 **【Paper】** 在 Google Fractal + Bridge V2 混合数据上的预训练消融显示：完整模型在 `Move Near` 上达到 79.2% Variant Aggregation / 85.4% Visual Matching；将动作改成线性 256 bins 后分别降至 47.1% / 52.9%，去掉 Ego3D 后为 66.7% / 62.0%。8194 分辨率优于 1026 和 4610，说明空间结构与足够分辨率同时重要。
 
@@ -215,7 +215,7 @@ $$
 
 ### 5.4 Generalization
 
-![Spatial understanding setups from paper Figure 7](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-spatialvla/spatial_setup.webp)
+![Spatial understanding setups from paper Figure 7](https://pic.hana0721.top/blog/paper-deep-dive-spatialvla/spatial_setup.webp)
 
 **【Paper】** 空间理解测试包括“把离机器人最近的玩具放到车上”、改变杯子高度、改变锅高度等任务。SpatialVLA 在 Franka 空间指令任务达到 73% 准确率，并在 WidowX 的高度变化任务中显著超过基线。**【Analysis】** 这些结果更直接验证了 Ego3D 的作用：任务要求的是相对距离和布局，而不是只识别物体类别。
 

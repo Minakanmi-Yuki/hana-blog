@@ -40,7 +40,7 @@ import { Aside } from '@/components/user'
 
 ## 1. 论文概述
 
-![Ctrl-World policy-in-the-loop overview from paper Figure 1](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ctrl-world/overview.7zr652gyee.webp)
+![Ctrl-World policy-in-the-loop overview from paper Figure 1](https://pic.hana0721.top/blog/paper-deep-dive-ctrl-world/overview.7zr652gyee.webp)
 
 ### 一句话总结
 
@@ -93,7 +93,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![Ctrl-World architecture from paper Figure 2](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ctrl-world/architecture.1764ilqq2o.webp)
+![Ctrl-World architecture from paper Figure 2](https://pic.hana0721.top/blog/paper-deep-dive-ctrl-world/architecture.1764ilqq2o.webp)
 
 **【Paper】** 模型以预训练 SVD 的时空 U-Net 为 backbone：历史多视角 latent、当前帧和加噪未来帧进入 spatial-temporal transformer；动作先被投影为每帧的条件 embedding，并与历史和未来位姿一起通过 frame-wise cross-attention 注入。整体数据流是“稀疏历史帧 + 当前多视角帧 + action/pose 条件 → 联合去噪未来多视角视频”。
 
@@ -208,7 +208,7 @@ $$
 
 **【Paper】** 在 10 秒长轨迹上，完整 Ctrl-World 的 third-view 指标为 PSNR 23.56、SSIM 0.828、LPIPS 0.091、FID 25.00、FVD 97.4；相较最强的 single-view/多视角基线，FVD 更低，说明视频分布和时序质量更好。完整多视角版本也优于只预测 third-view 的 Ctrl-World，证明 wrist-view 并非冗余输出。
 
-![Ctrl-World long-horizon consistency from paper Figure 5](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ctrl-world/consistency.92qvfycrjm.webp)
+![Ctrl-World long-horizon consistency from paper Figure 5](https://pic.hana0721.top/blog/paper-deep-dive-ctrl-world/consistency.92qvfycrjm.webp)
 
 **【Paper】** Figure 5 展示了 wrist 相机视野大幅变化时的长期一致性：模型会从其他相机推断被遮挡区域，并从历史记忆取回相似状态。定性结果中，WPE、IRASim 和 single-view Ctrl-World 会出现物体瞬移或抓取 hallucination，而联合多视角模型能更准确地保持接触关系。
 
@@ -223,21 +223,21 @@ $$
 | 去掉 frame-level condition | 122.7 | 179.1 | action 与视觉帧失去精确对齐 |
 | 去掉 joint prediction | — | 158.1 | wrist 与其他视角不能联合约束 |
 
-![Ctrl-World controllability ablation from paper Figure 4](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ctrl-world/controllability-ablation.13mikwd3df.webp)
+![Ctrl-World controllability ablation from paper Figure 4](https://pic.hana0721.top/blog/paper-deep-dive-ctrl-world/controllability-ablation.13mikwd3df.webp)
 
 **【Paper】** Figure 4 还显示，即使 action 只相差几厘米，完整模型也能生成不同的未来；去掉 memory 后预测变模糊，去掉逐帧 pose condition 后控制精度下降。由此可见，三项模块分别负责“找回过去”“对齐动作”和“跨视角补足信息”，不是重复的正则化技巧。
 
 ### 5.4 Generalization
 
-![Ctrl-World policy evaluation correlation from paper Figure 7](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ctrl-world/policy-correlation.58i3wzuuh9.webp)
+![Ctrl-World policy evaluation correlation from paper Figure 7](https://pic.hana0721.top/blog/paper-deep-dive-ctrl-world/policy-correlation.58i3wzuuh9.webp)
 
 **【Paper】** 只在公开 DROID 上训练的 Ctrl-World 被直接用于新的 DROID 场景和新的相机位置。world-model 与真实世界的 instruction-following 相关性拟合线为 $y=0.87x-0.04$；成功率相关性为 $y=0.81x-0.11$。它能够正确排序 π₀、π₀-FAST、π₀.₅，但倾向于低估真实执行成功率。
 
 **【Paper】** 策略改进实验中，每个任务生成 400 条想象轨迹，只保留 25–50 条人工判断成功的轨迹，再对 π₀.₅ 做 2k steps supervised fine-tuning。四类任务平均成功率从 38.7% 增至 83.4%；这是 +44.7 个百分点，而非相对百分比提升。
 
-![Synthetic trajectories for policy improvement from paper Figure 8](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ctrl-world/improvement.7lkqe78n7z.webp)
+![Synthetic trajectories for policy improvement from paper Figure 8](https://pic.hana0721.top/blog/paper-deep-dive-ctrl-world/improvement.7lkqe78n7z.webp)
 
-![Policy improvement results from paper Figure 9](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ctrl-world/improvement-bars.5q85lkw7gq.webp)
+![Policy improvement results from paper Figure 9](https://pic.hana0721.top/blog/paper-deep-dive-ctrl-world/improvement-bars.5q85lkw7gq.webp)
 
 **【Analysis】** 评估和改进的收益来自不同层面：相关性实验只要求 world model 的“相对判断”稳定，不要求每个碰撞细节都物理精确；SFT 则依赖它能产生足够多的成功示范。后者因此更容易受到错误成功轨迹的影响，论文使用人工筛选而不是自动 reward model，成本仍然存在。
 

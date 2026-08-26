@@ -47,7 +47,7 @@ import { Aside } from '@/components/user'
 **代码与模型**：[ricl-vla/ricl_openpi](https://github.com/ricl-vla/ricl_openpi)  
 **项目主页**：[ricl-vla.github.io](https://ricl-vla.github.io/)
 
-![RICL 方法总览（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ricl/ricl-overview.6po8yuc47q.webp)
+![RICL 方法总览（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-ricl/ricl-overview.6po8yuc47q.webp)
 
 ### 一句话总结
 
@@ -86,7 +86,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![RICL-π₀-FAST-DROID 架构（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ricl/ricl-architecture.4g58fcrdkt.webp)
+![RICL-π₀-FAST-DROID 架构（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-ricl/ricl-architecture.4g58fcrdkt.webp)
 
 **【Paper】** 每个输入序列由 4 个 retrieved observations 和 1 个 query observation 组成；每个 observation 都含三路图像、prompt、state 与 action chunk。图像和文本 token 进入 PaliGemma，LLM 只在 query 的 action token 上计算训练损失，最后由 FAST tokenizer 解码为动作。推理时的完整循环见 4.5。
 
@@ -181,7 +181,7 @@ $$
 
 ### 5.1 Experimental Setup
 
-![Franka DROID 实验平台与厨房水槽新场景（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ricl/franka-droid-setup.2rvvi61363.webp)
+![Franka DROID 实验平台与厨房水槽新场景（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-ricl/franka-droid-setup.2rvvi61363.webp)
 
 **【Paper】** 每个评测任务收集 20 条示教用于检索；每种方法在随机初始位置和朝向下执行 10 次 rollout，并统计完整任务成功率和中间 checkpoint 成功率。比较对象包括：
 
@@ -191,13 +191,13 @@ $$
 - 从头训练的 Diffusion Policy（只在简单任务比较）；
 - π₀-FAST-DROID-finetuned 与 RICL-VLA-finetuned（在同一 20 条示教上训练）。
 
-![pokeball 任务的检索 query 与邻居可视化（论文 Figure 8）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ricl/retrieval-pokeball.5xbdh3vi6j.webp)
+![pokeball 任务的检索 query 与邻居可视化（论文 Figure 8）](https://pic.hana0721.top/blog/paper-deep-dive-ricl/retrieval-pokeball.5xbdh3vi6j.webp)
 
 **【Paper】** 评测任务按难度覆盖语言 grounding、新物体、新动作、新场景、长尾物体和长时程组合：pokeball、idli plate、squeegee、sink-idli plate、sink-squeegee、toaster lever、bottom-shelf door、bagel into toaster。
 
 ### 5.2 Main Results
 
-![pokeball 任务成功率示例（论文 Figure 5 的单任务图）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ricl/results-pokeball.2rvvi6138a.webp)
+![pokeball 任务成功率示例（论文 Figure 5 的单任务图）](https://pic.hana0721.top/blog/paper-deep-dive-ricl/results-pokeball.2rvvi6138a.webp)
 
 **【Paper】** 聚合 8 个任务、每任务 10 次 rollout：
 
@@ -214,7 +214,7 @@ $$
 
 ### 5.3 Ablation Study
 
-![idli plate 任务的示教数量消融（论文 Figure 5 右下角）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ricl/ablation-idli.1e9ce4q144.webp)
+![idli plate 任务的示教数量消融（论文 Figure 5 右下角）](https://pic.hana0721.top/blog/paper-deep-dive-ricl/ablation-idli.1e9ce4q144.webp)
 
 **【Paper】** 在 idli plate 任务中消融检索/finetune 使用的示教数量。5 条示教时 RICL 可能退化到基础 VLA 的错误行为（例如移动 apple）；至少 10 条后语言 grounding 才稳定，更多示教通常继续提升表现。RICL-VLA-finetuned 在每个示教数量下都优于直接 finetune π₀。
 

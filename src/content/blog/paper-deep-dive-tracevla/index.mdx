@@ -49,7 +49,7 @@ import { Aside } from '@/components/user'
 
 **论文链接**：[arXiv](https://arxiv.org/abs/2412.10345) · **代码**：[umd-huang-lab/tracevla](https://github.com/umd-huang-lab/tracevla) · **项目主页**：[tracevla.github.io](https://tracevla.github.io/)
 
-![TraceVLA 总体架构：原始观测、叠加轨迹的观测、分隔 token 与动作 token（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-tracevla/tracevla-overview.webp)
+![TraceVLA 总体架构：原始观测、叠加轨迹的观测、分隔 token 与动作 token（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-tracevla/tracevla-overview.webp)
 
 ### 一句话总结
 
@@ -88,7 +88,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![Visual Trace 生成：Co-Tracker 跟踪网格点、筛选 active points，并将轨迹叠加到当前观测（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-tracevla/tracevla-trace-generation.webp)
+![Visual Trace 生成：Co-Tracker 跟踪网格点、筛选 active points，并将轨迹叠加到当前观测（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-tracevla/tracevla-trace-generation.webp)
 
 **【Paper】** 数据流只有一句话：历史图像 $\rightarrow$ Co-Tracker 点轨迹 $\rightarrow$ active-point 筛选与采样 $\rightarrow$ 当前图像上的彩色 trace $\rightarrow$ 原图和 trace 图之间插入 separator token $\rightarrow$ VLA 预测动作 token。
 
@@ -188,7 +188,7 @@ $$
 
 **【Paper】** 仿真使用 SimplerEnv 的 visual matching 与 variant aggregation 两种设置，覆盖 Move Near、Pick Coke Can、Open/Close Drawer 三个任务和 137 个环境配置；真实评测使用固定第三人称相机的 WidowX-250，设计 8 个任务，其中 4 个任务用于未见泛化。
 
-![SimplerEnv 与真实机器人评测中的 TraceVLA / OpenVLA 平均结果（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-tracevla/tracevla-simplerenv-results.webp)
+![SimplerEnv 与真实机器人评测中的 TraceVLA / OpenVLA 平均结果（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-tracevla/tracevla-simplerenv-results.webp)
 
 基线包括 OpenVLA、OpenVLA-Phi3、Octo-Base 和 RT1-X。指标为任务成功率；variant aggregation 额外改变相机姿态、光照、背景、干扰物和桌面纹理。
 
@@ -205,13 +205,13 @@ $$
 
 三列顺序分别是 Move Near、Pick Coke Can、Open/Close Drawer。**【Paper】** TraceVLA 7B 相对 OpenVLA overall 提升 7.5 个百分点，4B 版本相对 OpenVLA-Phi3 提升 4.1 个百分点。
 
-![WidowX-250 真实机器人任务上的成功率对比（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-tracevla/tracevla-real-results.webp)
+![WidowX-250 真实机器人任务上的成功率对比（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-tracevla/tracevla-real-results.webp)
 
 **【Paper】** 在未出现在训练集的 pick-place corn 任务上，TraceVLA 成功 8/10，OpenVLA 成功 1/10。附加的 banana、eggplant、battery、push-cloth 四个未见任务也显示 TraceVLA 更能遵循新目标和新运动指令。
 
 ### 5.3 Ablation Study
 
-![微调、历史帧、visual trace 的消融对比（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-tracevla/tracevla-ablation.webp)
+![微调、历史帧、visual trace 的消融对比（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-tracevla/tracevla-ablation.webp)
 
 **【Paper】** 消融回答了三个问题：
 
@@ -225,7 +225,7 @@ $$
 
 **【Paper】** variant aggregation 中，TraceVLA 在相机方向、干扰物和背景变化下平均提升超过 20%（相对于对应 OpenVLA 条件）。真实实验则从三类变化测试泛化：未见物体（banana、battery）、未见目标（eggplant 放到 plate）和未见运动（push cloth）。
 
-![额外 GPU memory 与 inference time 开销（论文 Figure 9）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-tracevla/tracevla-costs.webp)
+![额外 GPU memory 与 inference time 开销（论文 Figure 9）](https://pic.hana0721.top/blog/paper-deep-dive-tracevla/tracevla-costs.webp)
 
 **【Paper】** batch size 为 32 时，加入第二张图的训练显存差异小于 10 GB；H100 上额外文本与图像 token 约增加 0.002 秒/步，5 点 Co-Tracker 约增加 0.03 秒/步，(40\times40) dense tracking 摊销后约 0.004 秒/步。
 

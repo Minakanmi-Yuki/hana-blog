@@ -65,7 +65,7 @@ import { Aside } from '@/components/user'
 
 ## 1. 论文概述
 
-![LingBot-VA 2.0 overview from paper Figure 2](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lingbot-va-2/framework.26m7vrtpfv.webp)
+![LingBot-VA 2.0 overview from paper Figure 2](https://pic.hana0721.top/blog/paper-deep-dive-lingbot-va-2/framework.26m7vrtpfv.webp)
 
 ### 一句话总结
 
@@ -115,7 +115,7 @@ $$
 
 ### 4.2 核心模块
 
-![LingBot-VA 2.0 semantic visual-action tokenizer from paper Figure 3](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lingbot-va-2/vae.4xva3uftlk.webp)
+![LingBot-VA 2.0 semantic visual-action tokenizer from paper Figure 3](https://pic.hana0721.top/blog/paper-deep-dive-lingbot-va-2/vae.4xva3uftlk.webp)
 
 #### Semantic visual-action tokenizer
 
@@ -133,7 +133,7 @@ planner 约以 2 Hz 后台运行，将 `done`、`instruction`、`generation_inst
 
 #### MCP、ICL 和 human-robot co-training
 
-![LingBot-VA 2.0 Multi-Chunk Prediction from paper Figure 4](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lingbot-va-2/mcp.45iem3z7ym.webp)
+![LingBot-VA 2.0 Multi-Chunk Prediction from paper Figure 4](https://pic.hana0721.top/blog/paper-deep-dive-lingbot-va-2/mcp.45iem3z7ym.webp)
 
 **【Paper】** MCP 从 main DiT 的特征同时预测后面 1--3 个视觉 chunks，loss 权重为 $(0.5,0.2,0.1)$。它只在训练时使用，通常可在部署时删除。
 
@@ -204,7 +204,7 @@ $$
 
 ### 4.5 Inference
 
-![LingBot-VA 2.0 Foresight Reasoning from paper Figure 5](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lingbot-va-2/async.3gp523bp3h.webp)
+![LingBot-VA 2.0 Foresight Reasoning from paper Figure 5](https://pic.hana0721.top/blog/paper-deep-dive-lingbot-va-2/async.3gp523bp3h.webp)
 
 **【Paper】** Foresight Reasoning 同步维持 execution stream 与 prediction stream。机器人执行 $a_t$ 时，模型从真实观测已校正的 cache $C_t$ 出发，先基于当前动作预测 $\hat z_{t+1}$，再以它预取 $a_{t+1}$；真实 $o_{t+1}$ 到达后会被编码为 $z_{t+1}$ 并覆盖 cache 中的 imagined latent。即在隐藏预测延迟的同时避免持续自回归变为 open loop。
 
@@ -235,7 +235,7 @@ real-world benchmark 包括 Fruit Sorting、Pen Collection、Drawer Tidying、Pl
 
 ### 5.2 Main Results
 
-![LingBot-VA 2.0 real-world results from paper Figure 7](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lingbot-va-2/manipulation_bar.3nscxixun6.webp)
+![LingBot-VA 2.0 real-world results from paper Figure 7](https://pic.hana0721.top/blog/paper-deep-dive-lingbot-va-2/manipulation_bar.3nscxixun6.webp)
 
 **【Paper】** RoboTwin success rate（%）为：
 

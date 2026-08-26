@@ -54,7 +54,7 @@ import { Aside } from '@/components/user'
 
 **代码链接**：[GrinningFace](https://github.com/zhangchuheng123/GrinningFace)
 
-![GrinningFace 任务总览：机器人把方块放到语言指定的 emoji 卡片上（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-grinningface/grinningface.2h91oye4e0.webp)
+![GrinningFace 任务总览：机器人把方块放到语言指定的 emoji 卡片上（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-grinningface/grinningface.2h91oye4e0.webp)
 
 ### 一句话总结
 
@@ -215,13 +215,13 @@ $$
 
 **【Paper】** 仿真使用 ManiSkill3，视角尽量对齐 Bridge-v2；默认机器人是 WidowX250S。每种协议 100 次试验，重复种子实验显示 `Val` execution SR 的标准差约 1.0 个百分点、recognition SR 约 1.5 个百分点。
 
-![不同 VLA 训练数据集（OXE、Bridge、OXE-Bridge）的比较（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-grinningface/datasets.wjaphgwuz.webp)
+![不同 VLA 训练数据集（OXE、Bridge、OXE-Bridge）的比较（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-grinningface/datasets.wjaphgwuz.webp)
 
 真实机器人使用 RM75 + Inspire gripper，验证集上每个变体 30 次试验；除直接微调 VLM 使用 20k steps 外，其余使用 5k steps。
 
 ### 5.2 Main Results
 
-![不同预训练与微调策略在 GrinningFace 上的结果（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-grinningface/variants.362b8z1nfv.webp)
+![不同预训练与微调策略在 GrinningFace 上的结果（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-grinningface/variants.362b8z1nfv.webp)
 
 **【Paper】** 主要趋势如下：
 
@@ -252,7 +252,7 @@ $$
 
 注意力可视化显示：VLM 能关注目标 emoji 但较分散；VLA 预训练后更关注夹爪、方块和卡片等操作相关物体；微调后对正确 emoji 的注意力更集中、对干扰卡片更少。
 
-![VLM、预训练 VLA 与微调 VLA 的 emoji 注意力图（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-grinningface/attention.1zj00dcqot.webp)
+![VLM、预训练 VLA 与微调 VLA 的 emoji 注意力图（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-grinningface/attention.1zj00dcqot.webp)
 
 ## 6. 方法分析
 

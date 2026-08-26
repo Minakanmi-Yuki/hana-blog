@@ -49,7 +49,7 @@ import { Aside } from '@/components/user'
 
 **论文链接**：[arXiv](https://arxiv.org/abs/2602.07322) · **代码**：[JIAjindou/A2A_Flow_Matching](https://github.com/JIAjindou/A2A_Flow_Matching) · **项目主页**：[A2A](https://lorenzo-0-0.github.io/A2A_Flow_Matching/)
 
-![回归、noise-to-action 与 A2A action-to-action 策略的比较（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-a2a/a2a-framework-crop.4joud72m0p.webp)
+![回归、noise-to-action 与 A2A action-to-action 策略的比较（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-a2a/a2a-framework-crop.4joud72m0p.webp)
 
 ### 一句话总结
 
@@ -89,7 +89,7 @@ import { Aside } from '@/components/user'
 
 ### 4.1 Overall Architecture
 
-![A2A 的视觉条件路径、历史动作 source path 与 latent Flow Net（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-a2a/a2a-pipeline-crop.1apqgjf4ph.webp)
+![A2A 的视觉条件路径、历史动作 source path 与 latent Flow Net（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-a2a/a2a-pipeline-crop.1apqgjf4ph.webp)
 
 **【Paper】** 图像序列经 ResNet-18 得到条件 $\mathbf c$；历史动作经三层 1D CNN 得到起点 $\mathbf z_0$；Flow Net 在 $\mathbf c$ 条件下把它运输为 $\mathbf z_1$，残差 MLP decoder 输出未来 action chunk。
 
@@ -196,7 +196,7 @@ $$
 
 ### 5.1 Experimental Setup
 
-![Roboverse 中的五个仿真操控任务（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-a2a/a2a-experiments-crop.99u3blu8xj.webp)
+![Roboverse 中的五个仿真操控任务（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-a2a/a2a-experiments-crop.99u3blu8xj.webp)
 
 **【Paper】** 仿真评估覆盖 Roboverse 中五个任务：ManiSkill 的 Stack Cube、Pick Cube，RLBench 的 Close Box，以及 LIBERO 的 Open Drawer、Pick-Place Bowl；另在 Franka 上做 Pick Cube 和 Open Drawer 真机实验。对比对象包括 DDPM-UNet / DiT、DDIM-UNet、FM-UNet / DiT、Score-UNet、ACT 和 VITA。
 
@@ -206,7 +206,7 @@ $$
 
 **【Paper】** 在五个仿真任务的主表中，A2A（6 steps）的成功率为 Close Box 92%、Pick Cube 92%、Stack Cube 86%、Open Drawer 92%、Pick-Place Bowl 90%；它在前四项最高，后者略低于 VITA 的 92%。作为比较，ACT（1 step）为 82%、86%、32%、80%、60%。
 
-![Close Box 上的步数—成功率、单步训练收敛与各方法推理耗时（论文 Figure 7）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-a2a/a2a-inference-cost-crop.54yhzhx3aq.webp)
+![Close Box 上的步数—成功率、单步训练收敛与各方法推理耗时（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-a2a/a2a-inference-cost-crop.54yhzhx3aq.webp)
 
 **【Paper】** Close Box 的推理成本图显示，固定 30 epochs 时，4 steps 已达到约 80% 成功率、6 steps 为约 88%，继续增加步数的边际收益趋小；单步设置在约 32 epochs 后超过 90%。在同一 RTX 5090 32GB 上测得，A2A 单步平均 0.56 ms，6 步仍低于 1 ms；论文将这个优势归因于较短 transport 与纯 MLP 运算。
 
@@ -214,7 +214,7 @@ $$
 
 ### 5.3 Ablation Study
 
-![Flow / regression 与 latent / raw action space 的结构消融（论文 Figure 10）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-a2a/a2a-structure-ablation-crop.8hh7tvdo6z.webp)
+![Flow / regression 与 latent / raw action space 的结构消融（论文 Figure 10）](https://pic.hana0721.top/blog/paper-deep-dive-a2a/a2a-structure-ablation-crop.8hh7tvdo6z.webp)
 
 **【Paper】** 结构消融固定 Close Box、100 demonstrations、30 epochs，flow 方法使用 6 steps。Flow-latent（A2A）与 Reg-latent 在训练分布上都能达到较高成功率，但在环境扰动下前者更稳；直接在 raw action space 做 Flow Matching，无论采用 UNet 还是 MLP，都弱于 latent-space flow。
 

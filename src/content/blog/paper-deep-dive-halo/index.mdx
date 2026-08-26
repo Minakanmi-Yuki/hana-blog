@@ -49,7 +49,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** HALO（Embodied Multimodal Chain-of-Thought）针对长时程、分布外的机器人操作任务，提出“思考（文本计划）—想象（视觉子目标）—行动（动作 chunk）”的统一 VLA。模型由三个 MoT 专家组成：Multimodal Understanding、Visual Generation 和 Action Prediction；专家参数彼此独立，却通过共享 self-attention 协作。
 
-![HALO MoT architecture and EM-CoT data flow (paper Figure 1)](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-halo/architecture.5j4xqcmvsi.webp)
+![HALO MoT architecture and EM-CoT data flow (paper Figure 1)](https://pic.hana0721.top/blog/paper-deep-dive-halo/architecture.5j4xqcmvsi.webp)
 
 ### 一句话总结
 
@@ -90,7 +90,7 @@ $$
 
 **【Paper】** 输入端将指令、当前图像和机器人状态分别编码；special token（如 `<think_start>`、`<vision_start>`、`<action_start>`）控制 hidden state 路由到三个专家。共享 self-attention 让专家读取彼此的上下文，最终依次产生文本 reasoning、visual subgoal 和 action chunk。
 
-![Attention masking strategy for EM-CoT (paper Figure 3)](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-halo/Attn_mask_04.86ue0pfxea.webp)
+![Attention masking strategy for EM-CoT (paper Figure 3)](https://pic.hana0721.top/blog/paper-deep-dive-halo/Attn_mask_04.86ue0pfxea.webp)
 
 **【Paper】** 文本 token 使用 causal mask；同一帧的视觉 token 双向注意，跨帧和跨模态仍保持因果约束；noise token 之间可双向注意，但非 noise token 不能读取 noise，避免目标泄漏。
 
@@ -110,7 +110,7 @@ $$
 
 #### EM-CoT 数据合成
 
-![EM-CoT data synthesis pipeline (paper Figure 2)](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-halo/CoT.3nscxqagex.webp)
+![EM-CoT data synthesis pipeline (paper Figure 2)](https://pic.hana0721.top/blog/paper-deep-dive-halo/CoT.3nscxqagex.webp)
 
 **【Paper】** 流水线分三步：规则匹配根据位姿和夹爪变化把轨迹转成 move/grasp/release primitive；Qwen3-VL 生成全局 task narrative、subtask 列表和逐帧第一人称 reasoning；每个 subtask 的终止帧被广播给该段所有帧，作为稀疏 visual subgoal 标签。
 
@@ -170,7 +170,7 @@ $$
 
 ### 5.1 Experimental Setup
 
-![Real-world Cobot Mobile ALOHA task settings (paper Figure 6)](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-halo/Real_Exp_Setting_08.96ahdviotg.webp)
+![Real-world Cobot Mobile ALOHA task settings (paper Figure 6)](https://pic.hana0721.top/blog/paper-deep-dive-halo/Real_Exp_Setting_08.96ahdviotg.webp)
 
 **【Paper】** 仿真使用 RoboTwin 2.0 的 50 个操作任务，每个任务 Easy（clean）和 Hard（domain-randomized）各评估 100 次；对比 $\pi_0$、RDT-1B、Diffusion Policy 和 HALO-w/o EM-CoT。真实实验在 Cobot Mobile ALOHA 上评估 tool-use sweeping、双臂套杯、跨臂螺丝刀交接和把物体放入抽屉四项长时程任务，每项 50 次。
 
@@ -186,7 +186,7 @@ $$
 
 **【Paper】** HALO 相比 $\pi_0$ 在 Easy/Hard 上分别提升 34.1 和 10.1 个百分点；Hard 环境中的相对差距更大，说明结构化 reasoning 对未见随机化有帮助。即使去掉 EM-CoT，versatile pre-training 得到的 HALO-w/o EM-CoT 也已经比 $\pi_0$ 高 28.9 个百分点（Easy）。
 
-![Qualitative EM-CoT rollouts in clean and randomized scenes (paper Figure 5)](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-halo/visualize.9ddp9b4u6q.webp)
+![Qualitative EM-CoT rollouts in clean and randomized scenes (paper Figure 5)](https://pic.hana0721.top/blog/paper-deep-dive-halo/visualize.9ddp9b4u6q.webp)
 
 ### 5.3 Ablation Study
 
@@ -196,9 +196,9 @@ $$
 
 ### 5.4 Generalization
 
-![Real-world basic-setting success rates (paper Figure 7a)](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-halo/real_exp_fig1.102wndhfl3.webp)
+![Real-world basic-setting success rates (paper Figure 7a)](https://pic.hana0721.top/blog/paper-deep-dive-halo/real_exp_fig1.102wndhfl3.webp)
 
-![Real-world generalization-setting success rates (paper Figure 7b)](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-halo/real_exp_fig2.5trrji24pw.webp)
+![Real-world generalization-setting success rates (paper Figure 7b)](https://pic.hana0721.top/blog/paper-deep-dive-halo/real_exp_fig2.5trrji24pw.webp)
 
 **【Paper】** 真实泛化设置加入 Coke 瓶、杯子等视觉干扰，改变光照与桌布背景，并用海绵替换扫帚等新物体。论文报告 HALO 在 basic 与 generalization 两种设置下都超过 $\pi_0$ 和 $\pi_{0.5}$；定性结果显示模型仍能定位目标并生成合理子目标。论文未在正文给出跨任务平均的单一汇总数字，因此这里不额外推算。
 

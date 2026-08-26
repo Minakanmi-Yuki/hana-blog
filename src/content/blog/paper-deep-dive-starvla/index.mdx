@@ -63,7 +63,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** StarVLA 用 policy-centric 表述把它们放在共同坐标中：未来观测预测、语言推理等可作为附加监督或归纳偏置；部署接口仍是从观测和语言到 action chunk 的 policy。
 
-![StarVLA 的统一 VLA 形式：以动作损失为核心、以辅助预测为可选归纳偏置（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-starvla/vla-form.icuynb422.webp)
+![StarVLA 的统一 VLA 形式：以动作损失为核心、以辅助预测为可选归纳偏置（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-starvla/vla-form.icuynb422.webp)
 
 **【Analysis】** 统一的是软件接口和比较单位，并不证明所有 world model 与 VLM policy 在建模或成本上等价；后者仍受辅助信号、数据规模、采样开销和闭环控制方式影响。
 
@@ -92,7 +92,7 @@ $\mathcal L_{\mathrm{action}}$ 监督动作，$\mathcal L_{\mathrm{aux}}$ 表示
 
 ### 4.1 Overall Architecture
 
-![四种 action decoding 在相同 VL foundation model 接口下的实例化：FAST、OFT、GR00T 与 π（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-starvla/frameworks.3d5j4fqaui.webp)
+![四种 action decoding 在相同 VL foundation model 接口下的实例化：FAST、OFT、GR00T 与 π（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-starvla/frameworks.3d5j4fqaui.webp)
 
 **【Paper】** 原始多视角图像、语言和可选 state 先经 backbone 得到多模态 hidden states，再由 action head 输出归一化 action chunk。模型内部唯一的可替换边界是“multimodal representation → actions”，所以数据、训练和评测不因 head 改变而改变。
 
@@ -146,7 +146,7 @@ $$
 
 ### 4.4 Training
 
-![StarVLA 将异构数据、dataloader、foundation model、action head 与训练 / 部署连成统一管线（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-starvla/dataflow.b9n37oyr1.webp)
+![StarVLA 将异构数据、dataloader、foundation model、action head 与训练 / 部署连成统一管线（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-starvla/dataflow.b9n37oyr1.webp)
 
 **【Paper】** 基础配方是 benchmark 内 supervised fine-tuning：从公开 VL 权重初始化，只用该 benchmark 的标准 demonstrations，不使用 VLA-specific 大规模预训练、data augmentation 或 DAgger。两种可复用扩展分别是双 dataloader 的 multimodal co-training，以及按 sampling weights 混合不同机器人数据的 cross-embodiment training。
 
@@ -236,7 +236,7 @@ $$
 
 **【Paper】** technical report 的实验重心是 framework baseline 与 cross-benchmark demonstration，而不是严格模块消融；论文未给出“移除统一接口 / 只替换某组件”且其余预算完全不变的标准 ablation。因此不能把不同 head 的横向成绩当作每个工程设计的因果效应。
 
-![空间 grounding 与机器人动作的 co-training 曲线：仅动作微调会快速遗忘感知能力，spatially guided co-training 更稳定（论文 Figure 4，图中研究引用自 ST4VLA）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-starvla/cotrain-curves.lwgwd470m.webp)
+![空间 grounding 与机器人动作的 co-training 曲线：仅动作微调会快速遗忘感知能力，spatially guided co-training 更稳定（论文 Figure 4，图中研究引用自 ST4VLA）](https://pic.hana0721.top/blog/paper-deep-dive-starvla/cotrain-curves.lwgwd470m.webp)
 
 **【Paper】** 论文引用的 StarVLA-based ST4VLA study 显示：action-only 的 Google Robot VM / VA、WidowX VM 为 66.1 / 63.5、54.7；加入 co-training 后为 70.2 / 66.5、61.1；加 spatial pretraining 后为 84.6 / 75.9、73.2。Vanilla VLA 的 RefCOCO-g IoU@0.5 在约 20K step 内接近随机。此证据支持 co-training infrastructure，但结果应归属于 ST4VLA，而非 StarVLA 四种 head 的消融。
 

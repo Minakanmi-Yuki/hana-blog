@@ -48,7 +48,7 @@ import { Aside } from '@/components/user'
 
 【Paper】StarVLA-α 不追求新的 action architecture，而是固定强大的 Qwen3-VL backbone，使用最小化的数据处理、连续 action regression 和跨 benchmark 的统一训练，回答“VLA 中哪些复杂设计真的必要”。
 
-![StarVLA-α overview from paper Figure 1](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-starvla-alpha/teaser.1hsybtanh3.webp)
+![StarVLA-α overview from paper Figure 1](https://pic.hana0721.top/blog/paper-deep-dive-starvla-alpha/teaser.1hsybtanh3.webp)
 
 ### 核心贡献
 
@@ -78,7 +78,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![StarVLA-α architecture from paper Figure 2](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-starvla-alpha/method.mta26itb.webp)
+![StarVLA-α architecture from paper Figure 2](https://pic.hana0721.top/blog/paper-deep-dive-starvla-alpha/method.mta26itb.webp)
 
 【Paper】统一流程是 `RGB + instruction → Qwen3-VL → action-token hidden states → MLP → continuous action chunk`；benchmark-specific 部分只保留薄适配器，用于 observation、action interface 和 evaluator 的格式转换。
 
@@ -188,7 +188,7 @@ $$
 
 【Paper】实验覆盖五类 embodiment/场景：LIBERO 单臂仿真、SimplerEnv 的 WidowX 与 Google Robot、RoboTwin 2.0 双臂、RoboCasa-GR1 humanoid，以及真实 ARX5 RoboChallenge。比较对象包括 FAST、OpenVLA-OFT、π0、π0.5 和 GR00T-N1.6。
 
-![Action-head comparison from paper Figure 3](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-starvla-alpha/model-compare-crop.8l0trfg3dx.webp)
+![Action-head comparison from paper Figure 3](https://pic.hana0721.top/blog/paper-deep-dive-starvla-alpha/model-compare-crop.8l0trfg3dx.webp)
 
 ### 5.2 Main Results
 
@@ -201,13 +201,13 @@ $$
 
 【Paper】specialist StarVLA-α 在 LIBERO 达到 98.8%，在 Google VM 达到 76.0%；generalist 在 RoboCasa-GR1 达到 57.3%，比 specialist 高 3.5 个百分点。表中 `*` 表示 clean 与 random 数据共同训练，`—` 表示论文未报告。
 
-![Scaling and batch-size results from paper Figure 5](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-starvla-alpha/combined_side_by_side.7ehiitr6uh.webp)
+![Scaling and batch-size results from paper Figure 5](https://pic.hana0721.top/blog/paper-deep-dive-starvla-alpha/combined_side_by_side.7ehiitr6uh.webp)
 
 真实机器人上，StarVLA-α 在 ARX5 的 11 个 RoboChallenge 任务平均 success rate 为 33.6%、progress score 为 54.5；π0.5 分别为 12.7% 和 27.6%。
 
 ### 5.3 Ablation Study
 
-![Action parameterization comparison from paper Figure 4](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-starvla-alpha/action-crop.4n8gar52rx.webp)
+![Action parameterization comparison from paper Figure 4](https://pic.hana0721.top/blog/paper-deep-dive-starvla-alpha/action-crop.4n8gar52rx.webp)
 
 #### Action head
 

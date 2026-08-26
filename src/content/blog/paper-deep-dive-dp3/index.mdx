@@ -56,7 +56,7 @@ import { Aside } from '@/components/user'
 4. 在 4 个真实任务中每个任务仅用 40 条示教，平均成功率达到 85%，并在空间、视角、外观和实例变化下保持泛化。
 5. 真实部署中 DP3 的安全违规率为 0%，而图像和深度 baseline 分别为 32.5% 和 25.0%；作者同时强调这一安全观察主要是定性评估。
 
-![DP3 teaser from paper](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dp3/teaser.8s41n2v1d9.webp)
+![DP3 teaser from paper](https://pic.hana0721.top/blog/paper-deep-dive-dp3/teaser.8s41n2v1d9.webp)
 
 ## 2. 背景与相关工作
 
@@ -77,7 +77,7 @@ import { Aside } from '@/components/user'
 
 ### 4.1 Overall Architecture
 
-![DP3 architecture from paper](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dp3/architecture.41ysoo3d87.webp)
+![DP3 architecture from paper](https://pic.hana0721.top/blog/paper-deep-dive-dp3/architecture.41ysoo3d87.webp)
 
 **【Paper】** 数据流是“深度图 → 相机坐标系点云 → crop/FPS → DP3 Encoder → 3D feature，与 robot state 拼接 → Conditional U-Net Diffusion Policy → 动作序列”。训练和推理的逐步过程分别见 4.4 与 4.5。
 
@@ -163,7 +163,7 @@ $$
 
 ### 5.1 Experimental Setup
 
-![Real robot benchmark from paper](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dp3/real-tasks.13mil5v4tt.webp)
+![Real robot benchmark from paper](https://pic.hana0721.top/blog/paper-deep-dive-dp3/real-tasks.13mil5v4tt.webp)
 
 **【Paper】** 仿真覆盖 7 个 domain、72 个任务，包含灵巧手、双手、可变形物体、铰接物体和 MetaWorld 平行夹爪；每个 seed 在训练中每 200 epochs 评估 20 episodes，报告 3 个 seed 的均值和标准差。真实实验使用单个 RealSense L515，4 个任务各 40 条人类 teleoperation 示教：Allegro hand 的 Roll-Up、Dumpling、Drill，以及 gripper 的 Pour。
 
@@ -178,7 +178,7 @@ $$
 
 真实任务逐项成功率为 Roll-Up 90%、Dumpling 70%、Drill 80%、Pour 100%。这说明 3D 表示同时适用于高维 Allegro hand 和低维 gripper。
 
-![Learning efficiency from paper](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dp3/learning-efficiency.45iemdwgib.webp)
+![Learning efficiency from paper](https://pic.hana0721.top/blog/paper-deep-dive-dp3/learning-efficiency.45iemdwgib.webp)
 
 ### 5.3 Ablation Study
 
@@ -195,13 +195,13 @@ $$
 
 **【Analysis】** 结果同时支持两点：深度信息只有在合适的 3D 表示中才真正有用；轻量编码器的归纳偏置比“更大、更通用”的预训练点云模型更适合少样本控制。
 
-![Demonstration scaling from paper](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dp3/demo-scaling.et9157l28.webp)
+![Demonstration scaling from paper](https://pic.hana0721.top/blog/paper-deep-dive-dp3/demo-scaling.et9157l28.webp)
 
 ### 5.4 Generalization
 
 **【Paper】** 真实实验中，DP3 在 Pour 的 5 个未见空间位置成功 4 次；在 Drill 中仅用绿色方块训练，却对 5 种颜色全部成功；把方块替换为 mouse、Espeon、cup、mug、hand 等日常物体时 5/5 成功；Roll-Up 的 3 个轻微相机视角变化也全部成功。相比之下，RGB/Depth baseline 在这些设置中大多失败。
 
-![Different 3D modalities from paper](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dp3/modalities.2dpfrhd3w5.webp)
+![Different 3D modalities from paper](https://pic.hana0721.top/blog/paper-deep-dive-dp3/modalities.2dpfrhd3w5.webp)
 
 ## 6. 方法分析
 

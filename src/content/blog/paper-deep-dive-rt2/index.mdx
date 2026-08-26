@@ -104,7 +104,7 @@ import { Aside } from '@/components/user'
 **代码链接**：[google-research/robotics_transformer](https://github.com/google-research/robotics_transformer)
 
 <img
-  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rt2/rt2-teaser.9rk4vpo60i.webp'
+  src='https://pic.hana0721.top/blog/paper-deep-dive-rt2/rt2-teaser.9rk4vpo60i.webp'
   alt='RT-2 overview：把 robot action 表示成另一种 language，并与 Internet-scale VLM data 一起训练（论文 Figure 1）'
   class='zoomable'
   width='3000'
@@ -173,7 +173,7 @@ RT-2 没有设计新的视觉-语言-动作专用网络，而是直接改造两�
 - **RT-2-PaLM-E**：基于 PaLM-E 12B。视觉编码器为 ViT-4B，语言骨干为 decoder-only PaLM。
 
 <img
-  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rt2/rt2-teaser.9rk4vpo60i.webp'
+  src='https://pic.hana0721.top/blog/paper-deep-dive-rt2/rt2-teaser.9rk4vpo60i.webp'
   alt='RT-2 architecture overview：VLM 输出自然语言或 robot action token（论文 Figure 1）'
   class='zoomable'
   width='3000'
@@ -331,7 +331,7 @@ Instruction: I'm hungry. Plan: pick rxbar chocolate. Action: 1 128 124 136 121 1
 **【Paper】** 论文使用约 6000 条 evaluation trajectory。主实验沿用 RT-1 的 seen tasks，包括 pick、knock、place upright、move、open/close drawer、pick from/place into drawer 等 200 多个任务。泛化实验分为 unseen objects、unseen backgrounds、unseen environments，每类再分 easy 和 hard。
 
 <img
-  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rt2/generalization-evals.8s41ijle7e.webp'
+  src='https://pic.hana0721.top/blog/paper-deep-dive-rt2/generalization-evals.8s41ijle7e.webp'
   alt='RT-2 generalization evaluation scenarios：novel objects、backgrounds、environments 的 easy/hard 设置（论文 Figure 3）'
   class='zoomable'
   width='3000'
@@ -353,7 +353,7 @@ Baselines 都使用与 RT-2 相同的 robot data：
 **【Paper】** RT-2 在 seen tasks 上与 RT-1 接近，在 unseen categories 上明显领先。两个 RT-2 实例的 unseen average 都约为 62%，相对 RT-1 和 MOO 的下一个最好结果约提升 2 倍，相对更弱 baseline 约提升 6 倍。
 
 <img
-  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rt2/rt2-main-results.232ltsoa29.webp'
+  src='https://pic.hana0721.top/blog/paper-deep-dive-rt2/rt2-main-results.232ltsoa29.webp'
   alt='RT-2 与 RT-1、VC-1、R3M、MOO 在 seen tasks 和 unseen generalization 上的成功率（论文 Figure 4）'
   class='zoomable'
   width='3000'
@@ -375,7 +375,7 @@ Baselines 都使用与 RT-2 相同的 robot data：
 Emergent capability 定量实验中，RT-2-PaLI-X-55B 的 average success rate 为 60%，RT-1 为 17%，VC-1 为 11%。RT-2-PaLI-X 相对最好 baseline 在平均成功率上超过 3 倍。
 
 <img
-  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rt2/rt2-emergent.9o0ixzv334.webp'
+  src='https://pic.hana0721.top/blog/paper-deep-dive-rt2/rt2-emergent.9o0ixzv334.webp'
   alt='RT-2 与 baseline 在 symbol understanding、reasoning、person recognition 上的对比（论文 Figure 5a）'
   class='zoomable'
   width='2112'
@@ -396,7 +396,7 @@ Language-Table 仿真 benchmark 上，RT-2-PaLI-3B 得到 `90 ± 10`，高于 BC
 - 55B 优于 5B，说明模型规模仍能带来额外泛化收益。
 
 <img
-  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rt2/rt2-ablations.8s41ijleaw.webp'
+  src='https://pic.hana0721.top/blog/paper-deep-dive-rt2/rt2-ablations.8s41ijleaw.webp'
   alt='RT-2-PaLI-X 在模型规模和 from scratch/fine-tuning/co-fine-tuning 上的消融（论文 Figure 5b）'
   class='zoomable'
   width='2112'
@@ -425,7 +425,7 @@ Language-Table 仿真 benchmark 上，RT-2-PaLI-3B 得到 `90 ± 10`，高于 BC
 Chain-of-thought 变体仅在 PaLM-E 上额外 fine-tune few hundred gradient steps，使用 `Instruction / Plan / Action` 数据格式。论文展示的 CoT rollout 说明模型能先做自然语言规划，再执行动作。
 
 <img
-  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rt2/rt2-cot.9o0ixzv2xm.webp'
+  src='https://pic.hana0721.top/blog/paper-deep-dive-rt2/rt2-cot.9o0ixzv2xm.webp'
   alt='RT-2 chain-of-thought rollout：模型先输出 Plan，再输出 Action（论文 Figure 6）'
   class='zoomable'
   width='2325'

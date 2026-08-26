@@ -57,7 +57,7 @@ import { Aside } from '@/components/user'
 **项目主页**：[LAM project](https://carldegio.github.io/latent_action.github.io/)  
 **代码链接**：[GitHub](https://github.com/XizoB/What-Matters-for-Latent-Actions-in-Robot-Learning)
 
-![论文 Figure 1：latent-action 学习的三阶段流程与 41 项设计选择](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-what-matters-latent-actions/main.8z79iaszqq.webp)
+![论文 Figure 1：latent-action 学习的三阶段流程与 41 项设计选择](https://pic.hana0721.top/blog/paper-deep-dive-what-matters-latent-actions/main.8z79iaszqq.webp)
 
 ### 一句话总结
 
@@ -108,7 +108,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![论文 Figure 2：LAPO、LAOF、CoMo 与 CFD-AE 的统一比较](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-what-matters-latent-actions/cfm.7i14gjov4h.webp)
+![论文 Figure 2：LAPO、LAOF、CoMo 与 CFD-AE 的统一比较](https://pic.hana0721.top/blog/paper-deep-dive-what-matters-latent-actions/cfm.7i14gjov4h.webp)
 
 **【Paper】** 统一数据流是：相邻观测进入 LAM 得到 $z_t$；Stage-II 用 $(o_t,z_t,l)$ 微调 VLM；Stage-III 再把 VLM 表征接到 physical-action head。IDM-FDM 通过未来帧重建学习隐式 transition，CFD-AE 则直接重建预定义的帧差分。
 
@@ -139,7 +139,7 @@ $$
 
 给定 $h_t=\mathrm{VLM}_{\psi}(o_t,l)$，论文比较五种 action head：DAP（$h\to a$）、LAP（$h\to z\to a$）、JAP（$h\to[z,a]$）、JAP-DAP 和 JAP-LAP。DAP 只把 latent action 当 Stage-II 的辅助监督；LAP 在推理时保留 latent bottleneck；JAP 则让 latent 与 physical action 从同一个高层特征并行预测。
 
-![论文 Figure 4：不同 action head 的跨 benchmark 平均性能](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-what-matters-latent-actions/actionhead.232ly48iyn.webp)
+![论文 Figure 4：不同 action head 的跨 benchmark 平均性能](https://pic.hana0721.top/blog/paper-deep-dive-what-matters-latent-actions/actionhead.232ly48iyn.webp)
 
 ### 4.3 关键公式
 
@@ -206,7 +206,7 @@ JAP 使用 $\mathcal{L}_{latent}+\mathcal{L}_{act}$，DAP/LAP 在各自阶段使
 
 **【Paper】** LIBERO 是 7-DoF 单臂 end-effector delta control；LIBERO-Plus 在相同任务上加入 RobotInit 等扰动，本文报告最具挑战的 RobotInit；RoboTwin2.0 是 14-DoF 双臂 joint-position control，选取 12 个任务。每个消融通常汇报 3 个随机种子的平均成功率。
 
-![论文 Figure 5：四种 latent-action proxy metric 与下游性能的相关性](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-what-matters-latent-actions/metrics.8adzya5h2c.webp)
+![论文 Figure 5：四种 latent-action proxy metric 与下游性能的相关性](https://pic.hana0721.top/blog/paper-deep-dive-what-matters-latent-actions/metrics.8adzya5h2c.webp)
 
 代理指标包括负的 Linear/MLP probe loss、SSIM Gain 和 MSE Gain。前两者测 latent 是否能解码 physical action，后两者测 FDM 是否比“直接复制当前帧”更好地重建未来帧。
 
@@ -220,7 +220,7 @@ JAP 使用 $\mathcal{L}_{latent}+\mathcal{L}_{act}$，DAP/LAP 在各自阶段使
 
 **【Paper】** 连续正则化的类型并非主导因素，强度才是关键。推荐值为 VAE $10^{-7}$、Sparsity $10^{-5}$、SIGReg $10^{-3}$，VQ-VAE 为 1；VQ-VAE 在 LIBERO-Plus 的平均成功率 0.517，高于 AE 0.445、VAE 0.433、Sparsity 0.468 和 SIGReg 0.467，但在其他 benchmark 不一定占优。
 
-![论文 Figure 7：latent action 维度对三个 benchmark 的影响](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-what-matters-latent-actions/latentdims.1hsybtf9py.webp)
+![论文 Figure 7：latent action 维度对三个 benchmark 的影响](https://pic.hana0721.top/blog/paper-deep-dive-what-matters-latent-actions/latentdims.1hsybtf9py.webp)
 
 **【Paper】** action integration 上，DAP 最弱，LAP 更强，JAP 以及先联合微调再接 DAP/LAP 的混合方案整体最好。解释是 latent action 不应只作为一次性的 Stage-II 标签，而应在 downstream training 中持续约束 backbone，同时避免过窄的 latent bottleneck 直接限制 physical action。
 
@@ -230,7 +230,7 @@ JAP 使用 $\mathcal{L}_{latent}+\mathcal{L}_{act}$，DAP/LAP 在各自阶段使
 
 Stage-II 数据规模从 Robotwin+Liberoplus（14.5%）扩展到完整约 59M 帧后，三个 benchmark 都提升，LIBERO-Plus 的增益最高可达 9.0%，说明 latent-action VLM tuning 存在稳定的 scaling trend，而不只是某个 action head 的偶然收益。
 
-![论文 Figure 8：Franka Panda 真实机器人任务与 LA-Tuned 对比](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-what-matters-latent-actions/realworld.6po8yt89su.webp)
+![论文 Figure 8：Franka Panda 真实机器人任务与 LA-Tuned 对比](https://pic.hana0721.top/blog/paper-deep-dive-what-matters-latent-actions/realworld.6po8yt89su.webp)
 
 真实实验中，OpenVLA-OFT（LA-Tuned）在 400 次 rollout 中成功 317 次，原始 OpenVLA-OFT 成功 259 次，整体成功率从 64.75% 提升到 79.25%；10k 个 Stage-III steps 时 LA-Tuned 已达 85.0%，超过 baseline 在 40k steps 的 76.25%。
 

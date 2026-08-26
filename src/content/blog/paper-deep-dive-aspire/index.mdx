@@ -51,7 +51,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** ASPIRE（Agentic Skill Programming through Iterative Robot Exploration）研究一个很具体但常被忽略的问题：机器人程序失败后，coding agent 究竟能看到什么、如何知道是哪一个 primitive 出错、修复能否被下一个任务复用。论文把“训练”重新定义成持续的程序调试与技能积累，而不是梯度下降。
 
-![ASPIRE system overview from paper Figure 1](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-aspire/system_design.1hsybyslpl.webp)
+![ASPIRE system overview from paper Figure 1](https://pic.hana0721.top/blog/paper-deep-dive-aspire/system_design.1hsybyslpl.webp)
 
 ### 一句话总结
 
@@ -97,7 +97,7 @@ import { Aside } from '@/components/user'
 
 例如 BEHAVIOR-1K 的 radio pickup 中，感知成功返回 radio 位姿，但 `navigate_to_pose` 连续返回 `PLANNING_ERROR`；trace 显示目标落在桌边约 20 cm 的碰撞缓冲区内。修复因此是从多个角度采样导航目标，而不是修改感知 prompt。
 
-![Trace-guided debugging example from paper Figure 4](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-aspire/coding_dojo.7sny9uhfpt.webp)
+![Trace-guided debugging example from paper Figure 4](https://pic.hana0721.top/blog/paper-deep-dive-aspire/coding_dojo.7sny9uhfpt.webp)
 
 #### Continual Skill Library
 
@@ -182,7 +182,7 @@ $$
 
 **【Paper】** LIBERO-Pro 使用每任务 15 个 debug seeds、50 个 held-out eval seeds；Robosuite 使用 25 个 debug seeds、100 个 eval trials；BEHAVIOR-1K 使用 26–35 学习、1–25 评估，并报告 navigation 与 task success。对比 CaP-Agent0、OpenVLA、$\pi_0$ 和 $\pi_{0.5}$。
 
-![LIBERO-Pro main results from paper](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-aspire/fig-main-libero-pro.4xva4229e7.webp)
+![LIBERO-Pro main results from paper](https://pic.hana0721.top/blog/paper-deep-dive-aspire/fig-main-libero-pro.4xva4229e7.webp)
 
 ### 5.2 Main Results
 
@@ -195,19 +195,19 @@ $$
 | BEHAVIOR-1K soda   |  Nav 92%，Task 88% | 超过 Human 的 80%/72% 与 CaP-Agent0 的 84%/72%。                                                   |
 | BEHAVIOR-1K radio  | Nav 100%，Task 88% | CaP-Agent0 task success 为 56%，ASPIRE 提升 32 个百分点。                                          |
 
-![BEHAVIOR-1K results from paper](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-aspire/fig-main-b1k.2oc9kkhiyp.webp)
+![BEHAVIOR-1K results from paper](https://pic.hana0721.top/blog/paper-deep-dive-aspire/fig-main-b1k.2oc9kkhiyp.webp)
 
 ### 5.3 Ablation Study
 
 **【Paper】** LIBERO-Pro 消融中，不含执行引擎和进化搜索的 base system 宏平均成功率为 14%；加入 Robot Execution Engine 后升至 62%；再加入 Evolutionary Search 达到 72%。随着搜索轮数增加，前几轮收益最大，之后仍有提升但出现 diminishing returns。
 
-![Execution engine ablation from paper](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-aspire/fig_evo_ablation_pos.6f1f5t6e7y.webp)
+![Execution engine ablation from paper](https://pic.hana0721.top/blog/paper-deep-dive-aspire/fig_evo_ablation_pos.6f1f5t6e7y.webp)
 
 ### 5.4 Generalization
 
 **【Paper】** 用 LIBERO-90 累积的技能库零样本迁移到 LIBERO-Pro Long：$N=90$ 时 Pos 22.6%、Task 38.3%、Overall 30.5%，而 CaP-Agent0 Overall 仅 3.8%。库规模从 $N=0$、25、50 增大到 90 时，平均成功率整体上升，说明短任务修复可组合到更长任务。
 
-![Skill-library scaling on LIBERO-Pro Long](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-aspire/fig_transfer_library_scaling.wjapny63w.webp)
+![Skill-library scaling on LIBERO-Pro Long](https://pic.hana0721.top/blog/paper-deep-dive-aspire/fig_transfer_library_scaling.wjapny63w.webp)
 
 **【Paper】** 真实 YAM 双臂迁移中，仿真技能包括 soda-can pickup、bowl-on-plate placement 和 drawer push/pull。加入技能后，soda-can 成功率从 13/20 提升到 19/20，总 token 从 61.94M 降至 6.58M；drawer 从 0/20 提升到 11/20，总 token 从 334.917M 降至 81.67M；bowl placement 两组均为 20/20，但 token 从 8.65M 降至 5.11M。
 

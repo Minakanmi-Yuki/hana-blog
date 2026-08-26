@@ -57,7 +57,7 @@ import { Aside } from '@/components/user'
 **项目主页**：[FAST](https://www.physicalintelligence.company/research/fast)
 
 <img
-  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-fast/teaser.8z79gvpw8e.webp'
+  src='https://pic.hana0721.top/blog/paper-deep-dive-fast/teaser.8z79gvpw8e.webp'
   alt='FAST 将高频动作压缩后输入自回归 VLA，并对比不同控制频率下的性能（论文 Figure 2）'
   class='zoomable'
   width='1600'
@@ -133,7 +133,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![FAST 动作 tokenization 流程：归一化动作块经过 DCT、量化、低频优先 flatten 与 BPE，得到压缩 token（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-fast/dct_method.4ubo4rsq9g.webp)
+![FAST 动作 tokenization 流程：归一化动作块经过 DCT、量化、低频优先 flatten 与 BPE，得到压缩 token（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-fast/dct_method.4ubo4rsq9g.webp)
 
 **【Paper】** 整体数据流是：`action chunk → quantile normalization → DCT → scale-and-round → low-frequency-first flatten → BPE → action tokens`；解码按相反方向执行，再将 token 拼回 VLA 的语言模型词表。
 
@@ -281,7 +281,7 @@ prefix 内部使用双向 attention，action postfix 使用 causal attention；�
 
 ### 5.2 Main Results
 
-![不同 action tokenizer 在 Libero、DROID、Table Bussing 与 T-Shirt Folding 上的策略结果（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-fast/main_result.1apqeyq0mc.webp)
+![不同 action tokenizer 在 Libero、DROID、Table Bussing 与 T-Shirt Folding 上的策略结果（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-fast/main_result.1apqeyq0mc.webp)
 
 **【Paper】** 主要结果有三层：
 
@@ -300,11 +300,11 @@ prefix 内部使用双向 attention，action postfix 使用 causal attention；�
 
 ### 5.4 Generalization
 
-![$\pi_0$-FAST 与 diffusion $\pi_0$ 在跨机器人数据混合上的 generalist policy 表现（论文 Figure 8）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-fast/pi0_multi_task.77ealz6joo.webp)
+![$\pi_0$-FAST 与 diffusion $\pi_0$ 在跨机器人数据混合上的 generalist policy 表现（论文 Figure 8）](https://pic.hana0721.top/blog/paper-deep-dive-fast/pi0_multi_task.77ealz6joo.webp)
 
 **【Paper】** 在单任务比较中，$\pi_0$-FAST 在 Table Bussing 上约用 3 倍更少训练 steps 达到较高表现；在 Libero 与 T-Shirt Folding 等小数据集上两者相近。对 10k 小时级跨 embodiment 数据混合训练的 $\pi_0$-FAST generalist policy，其平均表现与 diffusion $\pi_0$ 接近，但训练计算量更低。
 
-![单任务中自回归 $\pi_0$-FAST 与 diffusion $\pi_0$ 的收敛与任务进度对比（论文 Figure 7）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-fast/pi0_single_task.icux89eyc.webp)
+![单任务中自回归 $\pi_0$-FAST 与 diffusion $\pi_0$ 的收敛与任务进度对比（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-fast/pi0_single_task.icux89eyc.webp)
 
 **【Paper】** 代价也很明确：在 NVIDIA 4090 上，diffusion $\pi_0$ 约 100 ms 生成 1 秒动作块，而 $\pi_0$-FAST 约 750 ms；后者通常要解码 30–60 个 action tokens，并使用完整的约 2B 参数语言模型，而 diffusion 只需约 10 个采样 steps 和更小的 action expert。
 

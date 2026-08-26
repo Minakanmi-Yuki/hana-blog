@@ -46,7 +46,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** DreamControl-v2 研究的是一个很具体却很棘手的问题：如何让人形机器人自主完成“下蹲捡取、打开抽屉、倒水、擦拭、出拳”等需要全身协调和环境接触的长时任务。作者延续 DreamControl 的两阶段思想：先用生成模型“梦”出参考动作，再让物理仿真中的 RL 策略学会跟踪这些动作，同时完成任务目标。
 
-![DreamControl-v2 四阶段系统总览（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dreamcontrol-v2/method.dreamcontrolv2.webp)
+![DreamControl-v2 四阶段系统总览（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-dreamcontrol-v2/method.dreamcontrolv2.webp)
 
 ### 一句话总结
 
@@ -99,7 +99,7 @@ Pyroki/JAX 求解器最小化相对关节角、相对关键点、脚滑和尺度
 
 每帧使用 263 维表示：根角速度 1 维、平面速度 2 维、根高度 1 维、22 个关节的位置/速度/6D 旋转，以及 4 维足部接触特征。该表示沿用 HumanML3D/MDM 的 canonicalized SMPL 结构，因此可以从 MDM 权重初始化 OmniControl 风格 Transformer。
 
-![扩散模型在多种时空约束下生成的 G1 轨迹（论文附录 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dreamcontrol-v2/diffusion-qualitative.dreamcontrolv2.webp)
+![扩散模型在多种时空约束下生成的 G1 轨迹（论文附录 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-dreamcontrol-v2/diffusion-qualitative.dreamcontrolv2.webp)
 
 **【Paper】** realism-guidance block 是一个零初始化的 Transformer 副本，输入文字与约束并调制主干特征；采样时再结合 classifier-free guidance 和关键点空间梯度，把轨迹推向指定位置。与 ControlNet 的直觉相同，零初始化使训练初期不会破坏原有运动先验。
 
@@ -175,7 +175,7 @@ $\mu_t$ 是当前去噪轨迹，$\mathcal{G}$ 是前向运动学得到的关键�
 
 ### 5.3 Ablation Study
 
-![扩散轨迹数量对下游 RL 成功率的影响（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dreamcontrol-v2/traj-scale.dreamcontrolv2.webp)
+![扩散轨迹数量对下游 RL 成功率的影响（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-dreamcontrol-v2/traj-scale.dreamcontrolv2.webp)
 
 **【Paper】** 数据规模扩大带来稳定收益：Full-Mix 在 Non-AMASS 测试集上的 FID 从 AMASS-only 的 2.720 降至 0.316，R-Precision Top-3 从 0.117 升至 0.264。增加采样轨迹数量时，3 个任务的 RL 成功率持续上升并趋于饱和，说明参考轨迹覆盖度直接影响策略对物体位置变化的泛化。
 
@@ -183,7 +183,7 @@ $\mu_t$ 是当前去噪轨迹，$\mathcal{G}$ 是前向运动学得到的关键�
 
 在 AMASS 测试集上，Full-Mix 与 AMASS-only 表现接近（FID 0.320 vs. 0.328），没有明显损害旧域能力；在 Non-AMASS 测试集上则显著更好。**【Analysis】** 这支持“统一归一化 + 异构数据混合”可以扩展技能覆盖，而不是简单地用新数据覆盖旧分布。
 
-![直接在机器人空间 prompt 与人体空间试错校准的对比（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dreamcontrol-v2/spatial-prompt.dreamcontrolv2.webp)
+![直接在机器人空间 prompt 与人体空间试错校准的对比（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-dreamcontrol-v2/spatial-prompt.dreamcontrolv2.webp)
 
 Prompt calibration 的 FID/Control L2/有效轨迹率为 AMASS 2.010/0.180/8.0%、Full-Mix 3.260/0.260/4.0%；预重定向为 0.265/0.066/68.0%。从 MDM 初始化也优于随机初始化：FID 0.265 对 0.741，R@3 0.388 对 0.254。
 

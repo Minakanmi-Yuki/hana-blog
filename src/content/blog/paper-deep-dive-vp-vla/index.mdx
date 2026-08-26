@@ -46,7 +46,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** VP-VLA（Visual Prompting as an Interface for Vision-Language-Action Models）将一个端到端 VLA 拆为两个频率不同的系统：高层 **System 2 Planner** 负责理解指令、判断当前子任务并找出目标物与目标位置；低层 **System 1 Controller** 负责把这些结果转化为动作。两者不通过额外 token、dense mask 或新模态通信，而是通过叠加在原始 RGB 图像上的视觉提示（visual prompt）通信：抓取时画 crosshair，放置时画 bounding box。
 
-![VP-VLA generalization motivation from paper Figure 1](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-vp-vla/vp-vla-fig1-teaser.webp)
+![VP-VLA generalization motivation from paper Figure 1](https://pic.hana0721.top/blog/paper-deep-dive-vp-vla/vp-vla-fig1-teaser.webp)
 
 ### 一句话总结
 
@@ -89,7 +89,7 @@ $f_\omega$ 是 VLM backbone，$h_\psi$ 是连续 action decoder，$\theta=\{\ome
 
 ### 4.1 Overall Architecture
 
-![VP-VLA dual-system architecture from paper Figure 2](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-vp-vla/vp-vla-fig2-pipeline.webp)
+![VP-VLA dual-system architecture from paper Figure 2](https://pic.hana0721.top/blog/paper-deep-dive-vp-vla/vp-vla-fig2-pipeline.webp)
 
 **【Paper】** 数据流为：`instruction + observation + robot state → System 2 → text-conditioned segmentation → RGB visual prompt → System 1 → action chunk`。训练时，System 1 还从关键帧的提示中学习坐标 grounding；部署时，System 2 不需要每个控制步都调用。
 
@@ -202,7 +202,7 @@ $$
 
 ### 5.1 Experimental Setup
 
-![VP-VLA real-world robot setup and task suites from paper Figure 3](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-vp-vla/vp-vla-fig3-real-setup.webp)
+![VP-VLA real-world robot setup and task suites from paper Figure 3](https://pic.hana0721.top/blog/paper-deep-dive-vp-vla/vp-vla-fig3-real-setup.webp)
 
 **【Paper】** RoboCasa-GR1-Tabletop 包含 24 个桌面厨房任务、共 24,000 条视频；作者跟随 GR00T-X-Embodiment-Sim 的 Humanoid Robot Tabletop Manipulation subset，每个任务独立运行 50 次。SimplerEnv 使用 OXE 的 BridgeDataV2 与 Fractal 子集，训练 70k steps，8 GPU、每卡 batch size 32，并在四个官方任务上评测。
 
@@ -210,7 +210,7 @@ $$
 
 ### 5.2 Main Results
 
-![VP-VLA real-world quantitative results from paper Figure 4](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-vp-vla/vp-vla-fig4-real-results.webp)
+![VP-VLA real-world quantitative results from paper Figure 4](https://pic.hana0721.top/blog/paper-deep-dive-vp-vla/vp-vla-fig4-real-results.webp)
 
 **【Paper】** 在 RoboCasa-GR1-Tabletop 上，VP-VLA 的平均成功率为 **53.8%**，相对主要 baseline QwenOFT 的 **48.8%** 增加 **5.0** 个百分点；在多阶段 `PnP * to * Close` 上为 54.3% 对 43.7%。在 `Placemat → Plate` 的 novel split，论文报告 70.0% 对 52.0%；在 `Tray → Plate`，为 66.0% 对 56.0%。
 

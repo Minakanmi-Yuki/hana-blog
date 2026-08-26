@@ -49,7 +49,7 @@ import { Aside } from '@/components/user'
 **代码**：[HybridRobotics/whole_body_tracking](https://github.com/HybridRobotics/whole_body_tracking)  
 **项目主页**：[BeyondMimic](https://beyondmimic.github.io/)
 
-![BeyondMimic 总体框架：动作跟踪与引导扩散（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-beyondmimic/fig1.webp)
+![BeyondMimic 总体框架：动作跟踪与引导扩散（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-beyondmimic/fig1.webp)
 
 ### 一句话总结
 
@@ -84,7 +84,7 @@ import { Aside } from '@/components/user'
 
 ### 4.1 Overall Architecture
 
-![动作跟踪、VAE 与状态–动作扩散的两阶段架构（论文 Figure 7）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-beyondmimic/fig7.webp)
+![动作跟踪、VAE 与状态–动作扩散的两阶段架构（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-beyondmimic/fig7.webp)
 
 数据流可以概括为：参考动作 → RL motion tracker → 滚动得到 state/action → VAE 将动作变成 latent → state–latent diffusion 预测短轨迹 → classifier guidance 修改未来状态 → VAE decoder 解码当前 latent 为关节 setpoint。
 
@@ -185,13 +185,13 @@ $$
 
 ### 5.1 Experimental Setup
 
-![真实机器人多样动作与部署示例（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-beyondmimic/fig2.webp)
+![真实机器人多样动作与部署示例（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-beyondmimic/fig2.webp)
 
 **【Paper】** 训练约 2.5 小时动作，仿真中验证全部片段；挑选 30 段、总计 15 分钟部署到 G1。评估覆盖静态平衡、跳跃/踢腿/空翻、舞蹈和步行跑步，并在室外软土、落叶和不平地面测试。自然性用户研究招募 $N=77$，将 BeyondMimic 与 Unitree 原生控制器进行 20 组 5 秒片段二选一。
 
 ### 5.2 Main Results
 
-![自然步行、跑步与地面反作用力比较（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-beyondmimic/fig4.webp)
+![自然步行、跑步与地面反作用力比较（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-beyondmimic/fig4.webp)
 
 **【Paper】**
 
@@ -202,15 +202,15 @@ $$
 
 ### 5.3 Ablation Study
 
-![MDP 设计、自适应采样与潜空间扩散消融（论文 Figure 8）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-beyondmimic/fig8.webp)
+![MDP 设计、自适应采样与潜空间扩散消融（论文 Figure 8）](https://pic.hana0721.top/blog/paper-deep-dive-beyondmimic/fig8.webp)
 
 **【Paper】** Rot6D 比 quaternion/axis-angle 更利于 sim-to-real；注入 2 ms 延迟已增加速度误差，5 ms 出现失败，10 ms 在三次中失败两次。移除自适应采样后，四个动作中的三个在 30k iteration 仍有困难片段失败；潜空间扩散的 cartwheel 仿真成功率从无 latent 的 5% 提升到 95%。
 
 ### 5.4 Generalization
 
-![命令控制与关键帧 inpainting（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-beyondmimic/fig5.webp)
+![命令控制与关键帧 inpainting（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-beyondmimic/fig5.webp)
 
-![技能切换与任务组合（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-beyondmimic/fig6.webp)
+![技能切换与任务组合（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-beyondmimic/fig6.webp)
 
 **【Paper】** 推理时可组合航点代价与 SDF 障碍规避代价，绕开障碍后到达目标；也可把 joystick 速度跟踪替换为航点目标，或在走路、跑步和连续空翻之间切换。关键帧每 0.2 s 注入一次时，模型能把稀疏姿态补成连续的 cartwheel，并回到命令控制的步行。
 

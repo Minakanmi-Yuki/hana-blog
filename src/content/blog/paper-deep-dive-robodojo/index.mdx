@@ -65,7 +65,7 @@ import { Aside } from '@/components/user'
 3. **RoboDojo-RealEval**：固定机械臂、相机、灯光、工作区、场景 reset 与评分协议，并支持远程云端评测。
 4. **XPolicyLab**：将 30 个机器人策略接入同一代码框架，配套训练、部署、转换和 leaderboard 流程。
 
-![RoboDojo overall teaser from paper](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-robodojo/teaser.41ysor4oja.webp)
+![RoboDojo overall teaser from paper](https://pic.hana0721.top/blog/paper-deep-dive-robodojo/teaser.41ysor4oja.webp)
 
 **【Analysis】** 这项工作的价值不在于“任务数量更多”本身，而在于把 benchmark 从一次性的成功率表格变成持续的诊断循环：仿真快速定位能力短板，真实平台检查这些改进是否真的能安全执行。
 
@@ -100,7 +100,7 @@ RoboDojo 将相关工作中的互补思想组合起来：CALVIN 一类工作强�
 
 RoboDojo 的系统架构由三部分组成：配置驱动的 Isaac Sim 仿真平台、标准化的 RoboDojo-RealEval 真实平台，以及承上启下的 XPolicyLab。策略只需实现 observation 更新、action 预测、reset 和批量 query 等接口，就能在两种环境中运行。
 
-![RoboDojo task coverage from paper](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-robodojo/tasks.robodojo.webp)
+![RoboDojo task coverage from paper](https://pic.hana0721.top/blog/paper-deep-dive-robodojo/tasks.robodojo.webp)
 
 **【Paper】** 数据流可概括为：任务配置与随机种子生成场景 → 环境输出统一 observation → XPolicyLab policy server 预测 action → 仿真或真实机器人执行 → success/score 记录并汇总到 leaderboard。
 
@@ -123,7 +123,7 @@ RoboDojo 的系统架构由三部分组成：配置驱动的 Isaac Sim 仿真平
 
 #### RoboDojo-RealEval
 
-![RoboDojo-RealEval hardware from paper](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-robodojo/real_world_hardware.robodojo.webp)
+![RoboDojo-RealEval hardware from paper](https://pic.hana0721.top/blog/paper-deep-dive-robodojo/real_world_hardware.robodojo.webp)
 
 - **固定因素**：机械臂和相机相对位姿、工作区几何、照明、桌面与场景布局。
 - **评测界面**：触屏网页用于 scene reset、运行策略、急停、视频采集和云端评分。
@@ -134,7 +134,7 @@ RoboDojo 的系统架构由三部分组成：配置驱动的 Isaac Sim 仿真平
 
 #### XPolicyLab
 
-![XPolicyLab pipeline from paper](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-robodojo/xpolicylab_pipeline.robodojo.webp)
+![XPolicyLab pipeline from paper](https://pic.hana0721.top/blog/paper-deep-dive-robodojo/xpolicylab_pipeline.robodojo.webp)
 
 XPolicyLab 统一数据转换、训练模板、部署流程、配置和评测脚本，同时保留每个 Policy 的内部架构。论文将 30 个策略接入共享代码库，使同一个实现可以先在仿真中快速迭代，再以很少的 policy-side adaptation 部署到 RealEval。
 
@@ -207,7 +207,7 @@ Success Rate 则只统计完整任务是否成功。**【Analysis】** 这解释
 
 **【Paper】** 仿真 benchmark 在 42 个任务、2,100 个 episodes 上评测（每任务 50 次），并报告五维 Success Rate 与 Score。Generalization 再拆为 25 个 standard 和 25 个 random episodes。真实 benchmark 在 18 个任务上运行 10 trials，共 180 次物理试验/策略，覆盖 ARX X5、Piper、Piper X。
 
-![Representative real-world tasks from paper](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-robodojo/real_highlight.robodojo.webp)
+![Representative real-world tasks from paper](https://pic.hana0721.top/blog/paper-deep-dive-robodojo/real_highlight.robodojo.webp)
 
 **【Paper】** 仿真和渲染使用 8 张 RTX 4090；RealEval 的效率实验在同一局域网内用 RTX 4090 policy server。人类参考由有经验的 VR 或真实机器人 teleoperator 完成，并不参与策略排名。
 

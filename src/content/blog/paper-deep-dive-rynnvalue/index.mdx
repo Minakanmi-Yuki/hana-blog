@@ -53,7 +53,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** RynnValue 研究的不是“机器人下一步该怎么动”，而是“当前观测距离语言指定的目标还有多远”。论文把这个距离定义为 temporal distance：从观测时间戳到重新标注的任务完成 cutoff 的剩余秒数。它因此是一个带语言条件的 cost-to-go，而不是轨迹内部归一化到 `[0, 1]` 的进度分数。
 
-![RynnValue architecture overview from paper Figure 1](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/d7e072598ee01db79a2f1df132c746a1daa4c366/blog/paper-deep-dive-rynnvalue/rynnvalue-architecture.3d5j4en7wy.webp)
+![RynnValue architecture overview from paper Figure 1](https://pic.hana0721.top/blog/paper-deep-dive-rynnvalue/rynnvalue-architecture.3d5j4en7wy.webp)
 
 ### 一句话总结
 
@@ -275,7 +275,7 @@ $$
 
 任务包括 Bread Basket Placement、Steak Serving with a Spatula、Box-in-Drawer Placement、Bimanual Box Transfer。offline 使用固定初始状态；online 对前三个任务和双臂搬箱随机化物体初始位置。每个任务评估 20 次。
 
-![RynnValue training strategy and value isolation from paper Figure 2](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/d7e072598ee01db79a2f1df132c746a1daa4c366/blog/paper-deep-dive-rynnvalue/rynnvalue-training.1ow677wy7s.webp)
+![RynnValue training strategy and value isolation from paper Figure 2](https://pic.hana0721.top/blog/paper-deep-dive-rynnvalue/rynnvalue-training.1ow677wy7s.webp)
 
 ### 5.2 Main Results
 
@@ -290,13 +290,13 @@ $$
 
 RynnValue-8B 在 USC Franka、USC Koch、USC Trossen 上取得分项最好，4B 在 UTD SO101 上最好。4B 与 8B 差距很小，说明收益主要来自 temporal-distance target、数据多样性和 shortcut suppression，而不是单纯增大 backbone。
 
-![Instruction-trajectory confusion matrices from paper Figure 3](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/d7e072598ee01db79a2f1df132c746a1daa4c366/blog/paper-deep-dive-rynnvalue/rynnvalue-matrix.5trrjbu3x0.webp)
+![Instruction-trajectory confusion matrices from paper Figure 3](https://pic.hana0721.top/blog/paper-deep-dive-rynnvalue/rynnvalue-matrix.5trrjbu3x0.webp)
 
 RynnValue 的 instruction-trajectory confusion matrix 对角线最清晰，normalized diagonal margin 为 0.79，高于最强 baseline 的 0.67。这验证了它在给定语言目标下区分匹配和不匹配轨迹的能力，而不只是识别“画面是否总体更接近完成”。
 
 ### 5.3 Ablation Study
 
-![Scaling and design analysis for RynnValue from paper Figure 4](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/d7e072598ee01db79a2f1df132c746a1daa4c366/blog/paper-deep-dive-rynnvalue/rynnvalue-scaling.13mikx2huy.webp)
+![Scaling and design analysis for RynnValue from paper Figure 4](https://pic.hana0721.top/blog/paper-deep-dive-rynnvalue/rynnvalue-scaling.13mikx2huy.webp)
 
 **【Paper】** 完整模型平均为 0.675。去掉不同组件后的平均分：
 
@@ -315,7 +315,7 @@ RynnValue 的 instruction-trajectory confusion matrix 对角线最清晰，norma
 
 **【Paper】** scaling 分析把“episode 数量”和“task diversity”拆开控制。固定任务、增加 episode 时误差很快饱和；固定每任务 episode 数、增加任务数量时，held-out unseen tasks 的 temporal-distance error 持续下降。这说明异构数据的价值主要来自 goal structure、视觉配置和执行方式的覆盖，而非同一任务的重复观测。
 
-![Temporal-value curve comparison from paper Figure 5](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/d7e072598ee01db79a2f1df132c746a1daa4c366/blog/paper-deep-dive-rynnvalue/rynnvalue-value-case.2yz3djexnf.webp)
+![Temporal-value curve comparison from paper Figure 5](https://pic.hana0721.top/blog/paper-deep-dive-rynnvalue/rynnvalue-value-case.2yz3djexnf.webp)
 
 在真实轨迹案例中，RynnValue 能在 trial-and-error 区间明显降低 potential，恢复后再次上升，并在接近完成时对扰动保持敏感；Robometer 的 normalized progress 则更容易出现平台和突跳。真实 RL 平均成功率：online 为 72.5%（Robometer 52.5%），offline 为 82.5%（Robometer 63.8%）。
 

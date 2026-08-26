@@ -46,7 +46,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** ViVa（Video-generative Value model）针对长时程机器人任务中的价值估计问题：单帧 VLM 能理解“现在有什么”，却不一定知道动作之后会发生什么。作者将预训练视频生成器 Wan2.2 改造成一个 value function，在给定三路相机图像和机器人本体状态后，同时预测 $K$ 步之后的本体状态与当前状态的标量 value。
 
-![ViVa 方法总览（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-viva/viva-method.1zj00da5e9.webp)
+![ViVa 方法总览（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-viva/viva-method.1zj00da5e9.webp)
 
 ### 一句话总结
 
@@ -178,7 +178,7 @@ $$ERS_k=d_k\frac{V_{after}^{(k)}-V_{before}^{(k)}}{V_{before}^{(k)}+\epsilon},$$
 
 ### 5.1 Experimental Setup
 
-![ViVa 的三个真实机器人任务（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-viva/viva-tasks.pg2u1s68s.webp)
+![ViVa 的三个真实机器人任务（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-viva/viva-tasks.pg2u1s68s.webp)
 
 三个任务分别考察柔性织物双臂协调、纸箱多阶段装配和纸张撕取/回卷。评估集每任务 50 个 episode，并标注关键里程碑与实际发生的错误。
 
@@ -195,7 +195,7 @@ $$ERS_k=d_k\frac{V_{after}^{(k)}-V_{before}^{(k)}}{V_{before}^{(k)}+\epsilon},$$
 
 ViVa 在衬衫和纸卷上领先，纸箱上由 $pi^*_{0.6}$ 领先。事件级指标更能反映 RL 信号质量：衬衫任务 ViVa 的 MDR/ErrDR 为 0.990/1.000，而 VLM baseline 仅 0.407/0.500。
 
-![ViVa 对细微操作错误的 value 响应（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-viva/viva-errors.3k8qzu7cnv.webp)
+![ViVa 对细微操作错误的 value 响应（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-viva/viva-errors.3k8qzu7cnv.webp)
 
 接入 RECAP 的真实机器人成功率为：
 
@@ -210,7 +210,7 @@ ViVa 在衬衫和纸卷上领先，纸箱上由 $pi^*_{0.6}$ 领先。事件级�
 
 **【Paper】** 架构消融显示：将 VLM 换成 video generator 后，衬衫 MDR 从 0.407 提升到 1.000；加入当前 proprioception 和 future-state prediction 后，纸卷 ES/ErrDR 达到 0.055/0.778。去掉预训练视频权重会显著恶化，衬衫 ES 从 0.012 降至 -0.524。
 
-![损失权重与预测 horizon 消融（论文 Figure 8/9）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-viva/viva-loss.6f1f5mmjk5.webp)
+![损失权重与预测 horizon 消融（论文 Figure 8/9）](https://pic.hana0721.top/blog/paper-deep-dive-viva/viva-loss.6f1f5mmjk5.webp)
 
 最佳折中是 $\lambda_{prop}=0.5$、$K=50$；$K=10$ 上下文不足，$K=75$ 则引入更多噪声。
 
@@ -218,7 +218,7 @@ ViVa 在衬衫和纸卷上领先，纸箱上由 $pi^*_{0.6}$ 领先。事件级�
 
 **【Paper】** 在未见过的 pants folding 任务上，ViVa 的相关性为 0.819/0.799，事件敏感性 ES 为 0.037，综合指标较 $pi^*_{0.6}$ 的 0.643 提升超过 60%。
 
-![跨任务 value trajectory（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-viva/viva-trajectory.92qvfzfl9p.webp)
+![跨任务 value trajectory（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-viva/viva-trajectory.92qvfzfl9p.webp)
 
 效率方面，ViVa 训练成本 4 GPU·days、推理 0.18 s/frame；VLM baseline 为 6 GPU·days、0.32 s/frame。仅预测 value 的 video variant 更快（3 GPU·days、0.11 s/frame），但事件质量下降。
 

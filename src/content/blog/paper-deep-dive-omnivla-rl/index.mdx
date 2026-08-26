@@ -51,7 +51,7 @@ import { Aside } from '@/components/user'
 
 **论文链接**：[arXiv:2604.17706](https://arxiv.org/abs/2604.17706)
 
-![OmniVLA-RL overall architecture from paper Figure 1](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-omnivla-rl/figure_01.67y7a6ybjb.webp)
+![OmniVLA-RL overall architecture from paper Figure 1](https://pic.hana0721.top/blog/paper-deep-dive-omnivla-rl/figure_01.67y7a6ybjb.webp)
 
 ### 一句话总结
 
@@ -121,7 +121,7 @@ $$
 
 **【Paper】** Spatial 与 Reasoning token 组成 omni-visible prefix，彼此完全可见；action token 构成 causal suffix，每个 action block 可以看完整 prefix 和自己之前的 action token，但不能看未来 action token。prefix 被禁止访问后续 latent noise，避免 Flow Matching 的随机噪声污染场景理解。
 
-![Block-wise Causal Attention mask from paper Figure 2](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-omnivla-rl/attention_map.6wrgu7luip.webp)
+![Block-wise Causal Attention mask from paper Figure 2](https://pic.hana0721.top/blog/paper-deep-dive-omnivla-rl/attention_map.6wrgu7luip.webp)
 
 ### 4.3 关键公式
 
@@ -175,7 +175,7 @@ $$
 2. **Stage II：动作预训练**。解冻 Action Expert，关闭 Spatial Head，在 DROID 上用 CFM loss 学习动作生成：$\mathcal L_{CFM}=\mathbb E\|v_t(x_t,t;c)-(x_1-x_0)\|_2^2$。
 3. **Stage III：在线 RL**。从 Stage II checkpoint 出发，全模型解冻；每个状态采样 $G=8$ 个 action block，执行后用任务完成奖励与 gripper 对齐奖励更新 Flow-GSPO。
 
-![Three-stage training paradigm from paper Figure 3](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-omnivla-rl/train_stage_omni.1ow677suql.webp)
+![Three-stage training paradigm from paper Figure 3](https://pic.hana0721.top/blog/paper-deep-dive-omnivla-rl/train_stage_omni.1ow677suql.webp)
 
 论文报告的关键超参数为 $\varepsilon=0.2$、$\beta=0.01$、$\sigma_\tau=0.1(1-\tau)$、$K=10$、$H=16$；优化器是 AdamW，学习率 $10^{-5}$、weight decay $0.01$，进行 200 次 RL update，每 10 步刷新 rollout buffer。
 
@@ -220,7 +220,7 @@ $$
 
 **【Paper】** OmniVLA-RL 在 LIBERO 四个套件都排名第一：Spatial 99.2%、Object 99.2%、Goal 98.5%、Long 93.5%，平均 97.6%。相对 $\pi_0$ 的平均成功率 94.2%，绝对提升 3.4 个百分点；相对 OpenVLA 的 76.5%，提升 21.1 个百分点。Long 套件的 93.5% 说明 action block 和空间特征对误差累积敏感的长时序任务尤其重要。
 
-![LIBERO-Plus success-rate curves from paper Figure 4](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-omnivla-rl/libero_plus_final_vector.3d5j4ej4tb.webp)
+![LIBERO-Plus success-rate curves from paper Figure 4](https://pic.hana0721.top/blog/paper-deep-dive-omnivla-rl/libero_plus_final_vector.3d5j4ej4tb.webp)
 
 ### 5.3 Ablation Study
 

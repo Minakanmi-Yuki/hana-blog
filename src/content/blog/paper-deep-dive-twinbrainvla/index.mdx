@@ -84,7 +84,7 @@ import { Aside } from '@/components/user'
 
 论文对比了三类缓解思路：混入通用 QA 数据的 co-training、加入 Chain-of-Thought 的 VLA，以及通过数据工程避免视觉 shortcut。TwinBrainVLA 的取舍是结构性隔离：不要求每轮微调都重新维护通用数据，而是保留一份永不被 action loss 改写的语义副本。
 
-![VLA 微调中的 catastrophic forgetting 证据（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-twinbrainvla/motivation_2.webp)
+![VLA 微调中的 catastrophic forgetting 证据（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-twinbrainvla/motivation_2.webp)
 
 ## 3. 问题定义
 
@@ -238,9 +238,9 @@ $$
 
 **【Paper】** 主要指标是独立试验的平均成功率：SimplerEnv 每个任务 Avg@480，RoboCasa 每个任务 50 次，真实 Franka 任务每个设置 30 次。SimplerEnv 包含 WidowX 的四个 OOD 操作；RoboCasa GR1 Tabletop 包含 24 个带铰接物体的操作任务；真实实验使用 Franka Research 3，训练 300 条遥操作轨迹。
 
-![RoboCasa GR1 Tabletop 的任务可视化（论文 Appendix Figure 9）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-twinbrainvla/RoboCasa_visualize.webp)
+![RoboCasa GR1 Tabletop 的任务可视化（论文 Appendix Figure 9）](https://pic.hana0721.top/blog/paper-deep-dive-twinbrainvla/RoboCasa_visualize.webp)
 
-![Franka Research 3 真实机器人设置（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-twinbrainvla/franka.webp)
+![Franka Research 3 真实机器人设置（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-twinbrainvla/franka.webp)
 
 ### 5.2 Main Results
 
@@ -271,7 +271,7 @@ Qwen3-VL-4B 版本相对最强基线提升 $+7.4$ 个百分点。RoboCasa 24 任
 
 AsyMoT 交互频率的消融显示，过度稀疏的跨脑连接会损害性能：Qwen3-VL-4B 在间隔 $k=8$ 层时为 61.9%，而完整连接为 64.5%；不过 Qwen2.5-VL-3B 在 $k=1$、Qwen3-VL-4B 在 $k=2$ 有轻微波动优势，说明“每层交互”不是普适最优的唯一选择。
 
-![Right Brain 查询 Left Brain 语义 token 的运行时注意力图（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-twinbrainvla/attn_map.webp)
+![Right Brain 查询 Left Brain 语义 token 的运行时注意力图（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-twinbrainvla/attn_map.webp)
 
 ### 5.4 Generalization
 

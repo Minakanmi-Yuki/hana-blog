@@ -48,7 +48,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** 《WSA1: a 3D-Centric World-Spatial-Action Model for Generalizable Robot Control》提出 World-Spatial-Action（WSA）范式。它不把机器人控制理解为“看图后直接回归动作”，而是要求模型同时回答三个问题：动作会怎样改变 3D 世界、目标 3D 状态应该在 2D 视觉上呈现什么样子、从这个 3D 状态变化反过来应该执行什么动作。
 
-![WSA1 的数据配方与三层闭环概览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-wsa1/overview-crop.szoryhhgr.webp)
+![WSA1 的数据配方与三层闭环概览（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-wsa1/overview-crop.szoryhhgr.webp)
 
 ### 一句话总结
 
@@ -70,7 +70,7 @@ import { Aside } from '@/components/user'
 - **2D-centric VLA**：以 π0.5、OpenVLA 等为代表，从语言、图像和 proprioception 直接生成连续动作，优点是继承 VLM 的语义知识，但通常是 reactive policy。
 - **2D/3D-centric WAM**：先预测未来视频或几何，再由 action expert 执行，提供 imagine-then-execute 能力，但很多工作仍是单向的“预测后执行”。
 
-![VLA、WAM 与 WSA 的建模范式对比（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-wsa1/paradigms-crop.7p4cc50rnv.webp)
+![VLA、WAM 与 WSA 的建模范式对比（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-wsa1/paradigms-crop.7p4cc50rnv.webp)
 
 论文认为两类方法共享两个瓶颈：第一，2D 视觉表示与真实物理交互的 3D 结构不匹配；第二，单纯 imitation learning 依赖大规模真实 teleoperation，成本高且数据只覆盖演示分布。WSA 的回答是：用 3D 因果先验提高每小时数据的信息密度，并用 simulation 与 human egocentric data 补足真实数据。
 
@@ -107,7 +107,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![WSA1 的 Mixture-of-Transformers 与注意力依赖规则（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-wsa1/framework-crop.2dpfrfeoub.webp)
+![WSA1 的 Mixture-of-Transformers 与注意力依赖规则（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-wsa1/framework-crop.2dpfrfeoub.webp)
 
 **【Paper】** 当前图像、语言和机器人状态先编码成 observation tokens，再送入共享的 MoT。2D Spatial Expert 产生视觉子目标 latent，3D Spatial Expert 产生未来 3D scene latent，3D Action Expert 对 noisy action chunk 做 flow-based denoising。数据流只有一条主线：`Observation + Instruction → 2D/3D latent → action chunk`，同时 3D latent 与 action token 双向交互。
 
@@ -240,11 +240,11 @@ $$
 
 ### 5.3 Ablation Study
 
-![WSA 三种联合目标的消融结果（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-wsa1/wsa_study-crop.7w7k7kmxei.webp)
+![WSA 三种联合目标的消融结果（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-wsa1/wsa_study-crop.7w7k7kmxei.webp)
 
 **【Paper】** 在 RoboTwin2.0 上，action-only baseline SR 约 59.7%（另一处实验描述四舍五入为 60%）；加入 visual thinking 后约 76%，加入 3D world prediction 后约 75%，三者联合达到 80.14%。视频监督更擅长 appearance/语义和时序可见变化，3D 监督更擅长物体位姿、接触和几何约束。
 
-![WSA 预训练与后训练策略消融（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-wsa1/pretrain_study-crop.39lx6vodjf.webp)
+![WSA 预训练与后训练策略消融（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-wsa1/pretrain_study-crop.39lx6vodjf.webp)
 
 预训练消融从约 80% 提升到 89%，在预训练和 post-training 两阶段都保留 WSA modeling 后达到约 93%。**【Analysis】** 这说明辅助目标不仅是“预训练正则项”：如果下游阶段移除 2D/3D 目标，模型会丢掉一部分可迁移的 world-action prior。
 
@@ -252,7 +252,7 @@ $$
 
 **【Paper】** 泛化来自三个维度：
 
-![WSA1 的视觉子目标、3D 世界预测与动作执行可视化（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-wsa1/vis_study-crop.2vfhg0g2rq.webp)
+![WSA1 的视觉子目标、3D 世界预测与动作执行可视化（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-wsa1/vis_study-crop.2vfhg0g2rq.webp)
 
 1. **数据源泛化**：simulation 提供大量低成本交互，human video 提供手物关系与任务语义，real robot data 缩小 sim-to-real gap。
 2. **空间泛化**：随机物体位置、姿态、背景和 distractor，检验模型是否学习几何而非像素记忆。

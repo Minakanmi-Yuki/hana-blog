@@ -58,7 +58,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】**《SimpleVLA-RL: Scaling VLA Training via Reinforcement Learning》研究一个很具体但重要的问题：当 VLA 已经通过 SFT 学会基本操作后，能否像 Large Reasoning Model 一样，仅用环境最终成败的奖励继续扩展能力？作者在 veRL 上实现了 SimpleVLA-RL，并将 OpenVLA-OFT 作为主要 backbone。
 
-![SimpleVLA-RL 论文 Figure 1：从 SFT 模型出发进行在线 RL，环境返回任务成败奖励](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-simplevla-rl/overview_v4.2h91oy30jh.webp)
+![SimpleVLA-RL 论文 Figure 1：从 SFT 模型出发进行在线 RL，环境返回任务成败奖励](https://pic.hana0721.top/blog/paper-deep-dive-simplevla-rl/overview_v4.2h91oy30jh.webp)
 
 ### 一句话总结
 
@@ -125,7 +125,7 @@ SimpleVLA-RL 由四个协同部分组成：OpenVLA-OFT policy、veRL actor/rollo
 2. **Clip higher**：把 importance ratio 的上界从 $1.2$ 提高到 $1.28$，允许低概率 action token 更快增权。
 3. **Higher rollout temperature**：采样温度从 $1.0$ 调到 $1.6$，扩大动作轨迹的多样性。
 
-![SimpleVLA-RL 的 clip higher 消融（论文 Figure 3b）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-simplevla-rl/vla_ablation_1_clip_higher.8hh7tocme5.webp)
+![SimpleVLA-RL 的 clip higher 消融（论文 Figure 3b）](https://pic.hana0721.top/blog/paper-deep-dive-simplevla-rl/vla_ablation_1_clip_higher.8hh7tocme5.webp)
 
 ### 4.3 关键公式
 
@@ -207,9 +207,9 @@ $$r_{i,t}=\frac{\pi_\theta(a_{i,t}\mid s_{i,t})}{\pi_{\theta_{old}}(a_{i,t}\mid 
 
 ### 5.3 Ablation Study
 
-![Dynamic sampling 消融（论文 Figure 3a）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-simplevla-rl/vla_ablation_3_dynamic_sampling.5q85llqihp.webp)
+![Dynamic sampling 消融（论文 Figure 3a）](https://pic.hana0721.top/blog/paper-deep-dive-simplevla-rl/vla_ablation_3_dynamic_sampling.5q85llqihp.webp)
 
-![Higher rollout temperature 消融（论文 Figure 3c）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-simplevla-rl/vla_ablation_2_temperature_higher.1lck9htccc.webp)
+![Higher rollout temperature 消融（论文 Figure 3c）](https://pic.hana0721.top/blog/paper-deep-dive-simplevla-rl/vla_ablation_2_temperature_higher.1lck9htccc.webp)
 
 **【Paper】** 三个策略分别缓解不同问题：dynamic sampling 防止无梯度 group，higher temperature 提供更多候选轨迹，clip higher 放宽成功 token 的增权幅度。论文报告三者组合带来约 10–15% 的一致收益；单独移除任一项都会下降，说明它们并非重复的“加随机性”。
 
@@ -217,11 +217,11 @@ $$r_{i,t}=\frac{\pi_\theta(a_{i,t}\mid s_{i,t})}{\pi_{\theta_{old}}(a_{i,t}\mid 
 
 **【Paper】** 在每个 LIBERO 套件只用 9 个 seen tasks 训练、留出 1 个 unseen task 时，SFT 随训练任务成功率提高而明显过拟合，部分 unseen task 甚至降到 0%；SimpleVLA-RL 则在 Spatial、Object、Goal 三类划分上持续提高 unseen task。
 
-![LIBERO Goal unseen 泛化曲线（论文 Figure 4 顶部样例）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-simplevla-rl/libero_goal_unseen_2_new.4920jumdz1.webp)
+![LIBERO Goal unseen 泛化曲线（论文 Figure 4 顶部样例）](https://pic.hana0721.top/blog/paper-deep-dive-simplevla-rl/libero_goal_unseen_2_new.4920jumdz1.webp)
 
-![LIBERO Object unseen 泛化曲线（论文 Figure 4 中部样例）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-simplevla-rl/libero_object_unseen_1_new.70b2rx8i45.webp)
+![LIBERO Object unseen 泛化曲线（论文 Figure 4 中部样例）](https://pic.hana0721.top/blog/paper-deep-dive-simplevla-rl/libero_object_unseen_1_new.70b2rx8i45.webp)
 
-![LIBERO Spatial unseen 泛化曲线（论文 Figure 4 底部样例）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-simplevla-rl/libero_spatial_unseen_0_new.7ehiisgt2k.webp)
+![LIBERO Spatial unseen 泛化曲线（论文 Figure 4 底部样例）](https://pic.hana0721.top/blog/paper-deep-dive-simplevla-rl/libero_spatial_unseen_0_new.7ehiisgt2k.webp)
 
 **【Paper】** 最极端的数据效率实验只给每个任务一条 demonstration：平均成功率由 48.9% 提升到 96.9%，LIBERO-Long 由 17.3% 提升到 91.7%，与使用完整 500 条示教后再 RL 的 99.1% 仅差 2.2 个百分点。
 

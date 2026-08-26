@@ -68,7 +68,7 @@ import { Aside } from '@/components/user'
 **项目主页**：[OpenVLA](https://openvla.github.io/)
 
 <img
-  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-openvla/openvla-teaser.3d5iz72qes.webp'
+  src='https://pic.hana0721.top/blog/paper-deep-dive-openvla/openvla-teaser.3d5iz72qes.webp'
   alt='OpenVLA 系统总览：970k 机器人 episode 训练 7B VLA，支持多机器人控制与高效微调（论文 Figure 1）'
   class='zoomable'
   width='3447'
@@ -129,7 +129,7 @@ $$
 
 OpenVLA 的结构就是标准 VLM 三步：视觉编码器、视觉-语言 projector、LLM 骨干。
 
-![OpenVLA 模型结构：DINOv2+SigLIP 融合视觉编码、MLP Projector、Llama 2 7B、Action De-Tokenizer（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-openvla/openvla-model.pg2ou9pei.webp)
+![OpenVLA 模型结构：DINOv2+SigLIP 融合视觉编码、MLP Projector、Llama 2 7B、Action De-Tokenizer（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-openvla/openvla-model.pg2ou9pei.webp)
 
 整体数据流是：图像经双视觉编码器提取 patch，再由 projector 转成语言模型 token，Llama 2 自回归生成动作 token，最后 de-tokenize 为连续动作。训练和推理的逐步过程分别见 4.4 和 4.5。
 
@@ -298,7 +298,7 @@ $$
 - **Metrics**：平均成功率与 StdErr；部分任务允许 0.5 partial credit。
 - **Generalization 轴**：visual、motion、physical、semantic 以及 language grounding。
 
-![Franka-DROID 的 Wipe Table 微调任务：左为 in-distribution，右为加入干扰物的 OOD 场景（论文 Figure 11）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-openvla/droid-wipe-task.1e9c8uxab0.webp)
+![Franka-DROID 的 Wipe Table 微调任务：左为 in-distribution，右为加入干扰物的 OOD 场景（论文 Figure 11）](https://pic.hana0721.top/blog/paper-deep-dive-openvla/droid-wipe-task.1e9c8uxab0.webp)
 
 ### 5.2 Main Results
 
@@ -313,7 +313,7 @@ $$
 
 除 semantic generalization 外，OpenVLA 在其余类别都超过 RT-2-X；RT-1-X 与 Octo 在干扰物、language grounding 等任务上经常无法操作正确物体。
 
-![BridgeData V2 WidowX 评测任务与结果（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-openvla/bridge-results.5trre49mtt.webp)
+![BridgeData V2 WidowX 评测任务与结果（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-openvla/bridge-results.5trre49mtt.webp)
 
 Google robot 环境中的平均成功率为：
 
@@ -328,7 +328,7 @@ Google robot 环境中的平均成功率为：
 
 **【Paper】** 在新机器人适配实验中，OpenVLA 全量微调取得最高平均性能。Franka-Tabletop 平均成功率 67.2 ± 4.0%，Franka-DROID 平均 58.3 ± 7.2%。Diffusion Policy 在窄的单指令任务上更稳，例如 `Put Carrot in Bowl`、`Pour Corn into Pot`；但在多物体、多指令、language grounding 任务中，OpenVLA 和 Octo 等预训练策略明显更强。论文指出，OpenVLA 是唯一在所有评测任务上成功率都至少达到 50% 的方法。
 
-![新机器人适配实验：Diffusion Policy 与微调后的 Octo、OpenVLA 在 Franka 任务上的对比（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-openvla/finetune-results.5trre49nlw.webp)
+![新机器人适配实验：Diffusion Policy 与微调后的 Octo、OpenVLA 在 Franka 任务上的对比（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-openvla/finetune-results.5trre49nlw.webp)
 
 ### 5.3 Ablation Study
 
@@ -357,7 +357,7 @@ LoRA 只训练约 1.4% 参数，就能匹配 full fine-tuning 的性能；论文
 
 4-bit 量化在显存减半以上的同时性能基本不下降；8-bit 因为量化操作开销反而更慢，导致系统动态与训练时 5Hz 控制器不匹配。
 
-![OpenVLA 在不同 GPU 与 bf16/int4 精度下的推理速度（论文 Figure 7）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-openvla/inference-speed.64el79owhz.webp)
+![OpenVLA 在不同 GPU 与 bf16/int4 精度下的推理速度（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-openvla/inference-speed.64el79owhz.webp)
 
 #### 其他消融
 

@@ -65,7 +65,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** 项目页将论文标注为 ICLR 2026 接收稿；论文 arXiv 版本为 v1（2025-10-30）。
 
-![PLD 三阶段框架：残差 RL、混合轨迹收集与 SFT 蒸馏（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-pld/pld-framework.8okfp46at7.webp)
+![PLD 三阶段框架：残差 RL、混合轨迹收集与 SFT 蒸馏（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-pld/pld-framework.8okfp46at7.webp)
 
 ## 2. 背景与相关工作
 
@@ -193,7 +193,7 @@ SFT 阶段使用 base VLA 原有 action head 的行为克隆目标：autoregress
 
 **【Paper】** 仿真使用 LIBERO-90 与 SimplerEnv；VLA 基座包括 flow-matching 的 $\pi_0$ 和 autoregressive action-token 的 OpenVLA。每个任务测试 50 episodes。真实实验使用 7-DoF Franka Panda（20 Hz、腕部与侧视相机、proprioception）以及双 6-DoF YAM arms 的 GPU insertion 长时任务。
 
-![PLD 残差 RL 在 8 个 LIBERO 任务上的训练曲线（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-pld/method-compare-1.3rbyv9sivv.webp)
+![PLD 残差 RL 在 8 个 LIBERO 任务上的训练曲线（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-pld/method-compare-1.3rbyv9sivv.webp)
 
 ### 5.2 Main Results
 
@@ -210,7 +210,7 @@ SFT 阶段使用 base VLA 原有 action head 的行为克隆目标：autoregress
 
 ### 5.3 Ablation Study
 
-![Base-policy probing 比例消融：探测到约 0.6 后性能饱和（论文 Figure 12）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-pld/probing-ratio-1.3k8qzu6dpd.webp)
+![Base-policy probing 比例消融：探测到约 0.6 后性能饱和（论文 Figure 12）](https://pic.hana0721.top/blog/paper-deep-dive-pld/probing-ratio-1.3k8qzu6dpd.webp)
 
 **【Paper】** 消融显示：
 
@@ -220,7 +220,7 @@ SFT 阶段使用 base VLA 原有 action head 的行为克隆目标：autoregress
 - action scale 过大导致早期偏离 base policy、训练不稳定；过小则探索不足。
 - Cal-QL critic warm-start 比 CQL / 简化 IQL 更稳定；on-the-fly 多动作采样主要改善样本效率，最终性能差异较小。
 
-![探测状态与恢复动作带来的真实世界失败模式覆盖（论文 Figure 10）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-pld/real-world-low-1.67y7a6zf6o.webp)
+![探测状态与恢复动作带来的真实世界失败模式覆盖（论文 Figure 10）](https://pic.hana0721.top/blog/paper-deep-dive-pld/real-world-low-1.67y7a6zf6o.webp)
 
 ### 5.4 Generalization
 

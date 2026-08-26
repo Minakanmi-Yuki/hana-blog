@@ -63,7 +63,7 @@ import { Aside } from '@/components/user'
 3. 提供覆盖 imitation learning、reinforcement learning 与 VLA 的 PyTorch 策略实现，以及可在远程机器运行的 asynchronous inference。
 4. 通过 Hugging Face Hub 的公开数据和模型生态，形成“采集—训练—分享—复用”的闭环。
 
-![LeRobot end-to-end stack from paper Figure 1](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/gh-pages/blog/paper-deep-dive-lerobot/lerobot-figure1-crop.b9n37tken.webp)
+![LeRobot end-to-end stack from paper Figure 1](https://pic.hana0721.top/blog/paper-deep-dive-lerobot/lerobot-figure1-crop.b9n37tken.webp)
 
 ### 一句话总结
 
@@ -77,7 +77,7 @@ import { Aside } from '@/components/user'
 
 **【Analysis】** 因此 LeRobot 不是要取代 ACT、Diffusion Policy 或 Pi0，而是为它们提供共同的 data contract、robot contract 和 runtime contract。
 
-![Open hardware and data accessibility from paper Figure 3](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/gh-pages/blog/paper-deep-dive-lerobot/sec2-robot-and-data-accessibility-crop.3d5j4fuwwf.webp)
+![Open hardware and data accessibility from paper Figure 3](https://pic.hana0721.top/blog/paper-deep-dive-lerobot/sec2-robot-and-data-accessibility-crop.3d5j4fuwwf.webp)
 
 ## 3. 问题定义
 
@@ -127,7 +127,7 @@ import { Aside } from '@/components/user'
 
 **【Code】** `PreTrainedPolicy` 约定 `forward`、`predict_action_chunk` 和 `select_action`。ACT、Diffusion、VQ-BeT、Pi0、SmolVLA 等策略用相同的 action-chunk 消费接口，训练器不需要知道每个模型的内部网络。
 
-![Robot learning algorithms supported by LeRobot](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/gh-pages/blog/paper-deep-dive-lerobot/sec3-robot-learning-algos-crop.7ehiitz22x.webp)
+![Robot learning algorithms supported by LeRobot](https://pic.hana0721.top/blog/paper-deep-dive-lerobot/sec3-robot-learning-algos-crop.7ehiitz22x.webp)
 
 #### Asynchronous inference
 
@@ -136,7 +136,7 @@ import { Aside } from '@/components/user'
 - **重叠 chunk**：对相同 timestep 的动作调用可插拔聚合函数 `f`；默认实现取最新动作，也可使用 weighted average。
 - **【Code】** `policy_server.py` 负责 observation 到 chunk 的推理，`robot_client.py` 的 `_aggregate_action_queues` 合并时间戳重叠的 chunk，并通过 gRPC 传输。
 
-![Asynchronous inference schema from paper Figure 6](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/gh-pages/blog/paper-deep-dive-lerobot/sec3-async-inf-crop.9gxb6vxlje.webp)
+![Asynchronous inference schema from paper Figure 6](https://pic.hana0721.top/blog/paper-deep-dive-lerobot/sec3-async-inf-crop.9gxb6vxlje.webp)
 
 ### 4.3 关键公式
 
@@ -228,11 +228,11 @@ $$
 
 **【Paper】** 截至 2025 年 9 月，`LeRobotDataset` 已有 16K+ 个公开数据集、2.2K+ 位贡献者。数据不仅来自原生支持的平台，Franka Panda、xArm、R1Pro 等机器人也被社区转换到统一格式，说明 schema 的价值超出硬件支持范围。
 
-![Dataset downloads by robot type from paper Figure 4](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/gh-pages/blog/paper-deep-dive-lerobot/sec3-downloads_over_time_by_robot_type-crop.2a5ttjz3di.webp)
+![Dataset downloads by robot type from paper Figure 4](https://pic.hana0721.top/blog/paper-deep-dive-lerobot/sec3-downloads_over_time_by_robot_type-crop.2a5ttjz3di.webp)
 
 **【Paper】** 在策略生态中，轻量的单任务 ACT 因体积小、推理快、约 50 条轨迹即可起效而拥有最高上传/使用热度；SmolVLA 则通过语言条件获得更广的任务适用性。ACT 在 RTX 4090/A100 上约可达到 100–200 Hz，而较大的 `π_0` 在低端设备上可能超过 5 秒超时。
 
-![Policy uploads over time from paper Figure 5](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/gh-pages/blog/paper-deep-dive-lerobot/sec3-models_uploaded_over_time_by_policy-crop.4g58fbqrv5.webp)
+![Policy uploads over time from paper Figure 5](https://pic.hana0721.top/blog/paper-deep-dive-lerobot/sec3-models_uploaded_over_time_by_policy-crop.4g58fbqrv5.webp)
 
 ### 5.3 Ablation Study
 

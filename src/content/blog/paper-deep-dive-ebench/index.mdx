@@ -61,7 +61,7 @@ import { Aside } from '@/components/user'
 
 ## 1. 论文概述
 
-![EBench benchmark teaser from paper Figure 1](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ebench/teaser-1.icuyxspc6.webp)
+![EBench benchmark teaser from paper Figure 1](https://pic.hana0721.top/blog/paper-deep-dive-ebench/teaser-1.icuyxspc6.webp)
 
 ### 一句话总结
 
@@ -92,7 +92,7 @@ import { Aside } from '@/components/user'
 
 ### 4.1 Overall Architecture
 
-![EBench end-to-end data synthesis and client-server architecture from paper Figure 2](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ebench/method-1.83as34zidb.webp)
+![EBench end-to-end data synthesis and client-server architecture from paper Figure 2](https://pic.hana0721.top/blog/paper-deep-dive-ebench/method-1.83as34zidb.webp)
 
 数据流是“任务与资产 → 两路 demonstration synthesis → IsaacSim server → VLA/WAM client → 共享评分库”：灵巧任务由遥操作采集，移动与长时程任务由关键帧位姿和 cuRobo 生成，再经 client-server 协议执行。
 
@@ -172,7 +172,7 @@ $$R_{\mathrm{SR}}=\frac{\mathrm{SR}_{test}}{\mathrm{SR}_{val\text{-}train}},\qqu
 
 ### 5.1 Experimental Setup
 
-![EBench capability profiling setup from paper Figure 3](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ebench/capability_profiling-1.3gp52g0yka.webp)
+![EBench capability profiling setup from paper Figure 3](https://pic.hana0721.top/blog/paper-deep-dive-ebench/capability_profiling-1.3gp52g0yka.webp)
 
 **【Paper】** 26 任务包括 10 mobile pick-and-place、9 mobile long-horizon、7 tabletop dexterous；每模型评测三次并报告均值 ± 标准差。OOD 轴分别固定改变 background、object、instruction，或同时改变三者。
 
@@ -189,13 +189,13 @@ $$R_{\mathrm{SR}}=\frac{\mathrm{SR}_{test}}{\mathrm{SR}_{val\text{-}train}},\qqu
 
 ### 5.3 Ablation Study
 
-![EBench generalization results from paper Figure 4](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ebench/generalize-sr-1.4g58fm3pta.webp)
+![EBench generalization results from paper Figure 4](https://pic.hana0721.top/blog/paper-deep-dive-ebench/generalize-sr-1.4g58fm3pta.webp)
 
 **【Paper】** 预训练敏感性实验显示，EBench 是三套 benchmark 中最能拉开 pretrained / from-scratch 差距的一套：$\pi_{0.5}$ 从零训练到预训练提升 8.5%→29.5% SR（+21.0），$\pi_0$ 提升 +13.2，XVLA 提升 +9.0；LIBERO 已接近饱和，RoboTwin 2.0 Hard 的 from-scratch 结果甚至可超过预训练 baseline。
 
 ### 5.4 Generalization
 
-![Fit-generalization curves across training steps from paper Figure 5](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ebench/sr-vs-steps-1.9ddp9ghhqn.webp)
+![Fit-generalization curves across training steps from paper Figure 5](https://pic.hana0721.top/blog/paper-deep-dive-ebench/sr-vs-steps-1.9ddp9ghhqn.webp)
 
 **【Paper】** Background / Instruction 的 Test SR 约为 27–35%，Object swap 降至 21–29%，三者混合的 Mix 最难（18–23%）。训练动态上，$\pi_{0.5}$ 的 Val-Train 与 Test 曲线最同步；XVLA 在中间 checkpoint 非单调；InternVLA-A1 到 200K 时拟合最强但保留率仍只有 0.83。
 

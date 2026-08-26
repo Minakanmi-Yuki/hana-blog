@@ -53,7 +53,7 @@ import { Aside } from '@/components/user'
 **论文与代码**：[arXiv](https://arxiv.org/abs/2608.09771) · [Project Page](https://kzz1031.github.io/slim-project-page/) · [官方代码](https://github.com/kzz1031/SLIM)
 
 <img
-  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-slim/teaser.7q15njif8.webp'
+  src='https://pic.hana0721.top/blog/paper-deep-dive-slim/teaser.7q15njif8.webp'
   alt='SLIM 总览与参数、延迟、真实世界评测对比（论文 Figure 1）'
   class='zoomable'
   width='2800'
@@ -118,7 +118,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![SLIM 的 MoT 双流骨干：observation/action joint attention，分别对语言做 cross-attention（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-slim/architecture.9ddp9bfzqo.webp)
+![SLIM 的 MoT 双流骨干：observation/action joint attention，分别对语言做 cross-attention（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-slim/architecture.9ddp9bfzqo.webp)
 
 **【Paper】** 视觉 latent 与一个状态 token 组成 observation stream；带 flow timestep 的连续动作嵌入组成 action stream；两流在每层共享 joint attention，再各自对语言做 cross-attention 和 FFN。future-slot embeddings $M_z$ 占据未来 latent 的位置，供 FDM 与策略阶段使用。
 
@@ -140,7 +140,7 @@ $$
 
 **【Paper】** FDM 用 learnable mask slots $M_z$ 替换未来位置，只给出 $Z_t,A_t,q_t,\ell$，预测 $\hat Z_{t+H}$；目标来自 stop-gradient 的 EMA encoder。它迫使未来表示保留可被当前状态与动作预测的成分，而不是重建所有像素细节。
 
-![IDM、FDM 与目标专用 attention mask（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-slim/idm-fdm.39lx6vdbfy.webp)
+![IDM、FDM 与目标专用 attention mask（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-slim/idm-fdm.39lx6vdbfy.webp)
 
 **【Analysis】** 两个目标构成一个有用的“夹逼”：只做 IDM 可能学习与数据集动作相关、却不稳定的捷径；只做 FDM 又可能把动作忽略为平均未来。两者共享 MoT，才要求同一个空间既能区分动作，也能保留动作可预测的变化。
 
@@ -233,7 +233,7 @@ $$
 
 ### 5.1 Experimental Setup
 
-![SLIM 的真实世界、LIBERO/LIBERO-Plus 与 CALVIN ABC→D 评测设置（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-slim/experiment-settings.6po8yymyq4.webp)
+![SLIM 的真实世界、LIBERO/LIBERO-Plus 与 CALVIN ABC→D 评测设置（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-slim/experiment-settings.6po8yymyq4.webp)
 
 **【Paper】** LIBERO 包含 Long、Spatial、Object、Goal 四个 suite；LIBERO-Plus 在其上加入相机、初始机器人状态、语言、光照、背景、噪声、布局七类扰动，SLIM 只以原始 LIBERO 数据训练并零样本测试。CALVIN 在 A/B/C 训练环境中训练、在未见的 D 环境中进行最多五条指令的长程组合评测。
 
@@ -253,11 +253,11 @@ $$
 
 **【Analysis】** SLIM 在 LIBERO-Plus 并非所有扰动均最好：例如 robot initial-state shift 为 36.90%，低于表中 VLA-JEPA 的 67.7%。更准确的结论是其整体鲁棒性强且计算效率突出，而不是在每种 OOD 偏移上全面领先。
 
-![真实世界各条件下的平均 progress score（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-slim/realworld-bars.7lkqeewndo.webp)
+![真实世界各条件下的平均 progress score（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-slim/realworld-bars.7lkqeewndo.webp)
 
 ### 5.3 Ablation Study
 
-![Stage 1、IDM:FDM 权重和 EMA target 的消融（论文 Figure 7）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-slim/ablation.73uoptv9rr.webp)
+![Stage 1、IDM:FDM 权重和 EMA target 的消融（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-slim/ablation.73uoptv9rr.webp)
 
 **【Paper】** 加上 Stage 1 后，LIBERO-Plus 从约 68.2% 升至 77.45%，CALVIN 从约 4.43 升至约 4.52；IDM:FDM = 0.125:1 给出最好的联合结果，极端权重更差。
 

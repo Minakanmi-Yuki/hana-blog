@@ -49,7 +49,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】**《Hume: Introducing System-2 Thinking in Visual-Language-Action Model》把 VLA 控制拆成两个异步系统：System 2 是较慢但能反复采样、用 state-action value 选择动作的规划器；System 1 是轻量、快速的 visuomotor policy，负责把尚未完全去噪的动作片段变成流畅控制信号。论文在 3 个仿真环境、3 种真实机器人平台和 21 个真实任务上评估这一设计。
 
-![Hume 双系统总览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-hume/pipeline-crop.8vnnkq28ao.webp)
+![Hume 双系统总览（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-hume/pipeline-crop.8vnnkq28ao.webp)
 
 ### 一句话总结
 
@@ -102,7 +102,7 @@ $$
 \mathbf A_t^{\tau^*}=\arg\max_{n\in\{1,\ldots,N\}}Q_\theta(\mathbf q_t,\mathbf A_t^{\tau_n}).
 $$
 
-![候选 action 与 Q 值的 PCA value map（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-hume/pca_map-crop.6m4n18hhsf.webp)
+![候选 action 与 Q 值的 PCA value map（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-hume/pca_map-crop.6m4n18hhsf.webp)
 
 **【Analysis】** 这个 head 把当前 observation、语言条件和整段 action chunk 联合编码，因此能偏好更可能完成长时域任务的候选，而不是只判断单步动作。
 
@@ -186,7 +186,7 @@ $$
 
 ### 5.1 Experimental Setup
 
-![Hume 实验平台：WidowX、AgiBot G-1 与 Franka（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-hume/exp_setup-crop.4clmhqwr82.webp)
+![Hume 实验平台：WidowX、AgiBot G-1 与 Franka（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-hume/exp_setup-crop.4clmhqwr82.webp)
 
 **【Paper】** 实验覆盖 SimplerEnv 和 LIBERO 仿真，以及 WidowX、Franka、AgiBot G-1 三个平台；真实测试共 21 个 manipulation tasks，包含视角/纹理/光照变化、未见物体、可变形物体、工具使用和 humanoid 控制。
 
@@ -194,15 +194,15 @@ $$
 
 **【Paper】** LIBERO 平均成功率为 **98.6%**，四个 suite 均排名第一；LIBERO-Long 为 **96.7%**，高于 $\pi_0$ 的 85.2%。SimplerEnv WidowX 平均 **72.6%**，Google robot 的 variant aggregation 平均 **74.1%**、visual matching 平均 **78.7%**。
 
-![WidowX 真实任务结果（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-hume/exp_widowx-crop.2ksnmudedl.webp)
+![WidowX 真实任务结果（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-hume/exp_widowx-crop.2ksnmudedl.webp)
 
 **【Paper】** WidowX 真实任务平均成功率为 91%，相对 $\pi_0$ 提升 12 个百分点；Franka 平均 87%，相对 $\pi_0$ 提升 14.75 个百分点。AgiBot 的 Fold Shorts 成功率 88%，Pour Water 为 82%。
 
-![Franka 与 AgiBot G-1 真实任务结果（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-hume/exp_franka_agibot-crop.7zr659sjo1.webp)
+![Franka 与 AgiBot G-1 真实任务结果（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-hume/exp_franka_agibot-crop.7zr659sjo1.webp)
 
 ### 5.3 Ablation Study
 
-![Hume 真实平台消融结果（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-hume/ablation_bar-crop.mta7dfn1.webp)
+![Hume 真实平台消融结果（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-hume/ablation_bar-crop.mta7dfn1.webp)
 
 **【Paper】** LIBERO 平均成功率从完整模型的 98.6% 降至：去掉 cascaded denoising 为 95.9%，去掉 repeat sampling 为 93.8%，去掉 System 1 为 89.8%，去掉 value-query head 为 84.9%。SimplerEnv WidowX 对应平均值为 72.6%、68.7%、65.6%、61.6%、56.3%。
 

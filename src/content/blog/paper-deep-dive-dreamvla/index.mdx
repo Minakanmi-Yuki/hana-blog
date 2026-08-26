@@ -52,7 +52,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** DreamVLA 的核心问题是：VLA 需要“向前看”，但直接生成未来 RGB 帧既昂贵又包含大量与动作无关的背景。论文把视觉-语言-动作推理改写成一个逆动力学问题：模型先从当前观测形成未来的 `world embedding`，再用该表示预测动作序列。
 
-![DreamVLA framework overview from paper Figure 2](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dreamvla/Pipeline.51ew1k0mmz.webp)
+![DreamVLA framework overview from paper Figure 2](https://pic.hana0721.top/blog/paper-deep-dive-dreamvla/Pipeline.51ew1k0mmz.webp)
 
 ### 一句话总结
 
@@ -115,7 +115,7 @@ $$
 
 **【Paper】** CoTracker 从演示视频提取随末端执行器或可动物体移动的区域，目标是预测“哪里会变”，而不是回归完整 optical flow 或未来 RGB。动态区域重建损失采用 masked reconstruction / ELBO 形式。
 
-![Dynamic-region target from paper Figure 3](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dreamvla/dynamic_mask.4g58f971to.webp)
+![Dynamic-region target from paper Figure 3](https://pic.hana0721.top/blog/paper-deep-dive-dreamvla/dynamic_mask.4g58f971to.webp)
 
 **【Analysis】** 二值区域比稠密 flow 更贴近控制接口：策略只需知道动作相关区域，不必拟合每个背景像素的精确速度。消融实验中移除 dynamic-region 信号造成的性能下降最大，也支持了这个取舍。
 
@@ -127,7 +127,7 @@ $$
 
 #### (4) Block-wise structured attention
 
-![Structured attention from paper Figure 4](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dreamvla/attention.1e9ce15plo.webp)
+![Structured attention from paper Figure 4](https://pic.hana0721.top/blog/paper-deep-dive-dreamvla/attention.1e9ce15plo.webp)
 
 **【Paper】** 每个 `<dream>` 子 query 可以读共享的图像、语言和状态 token，却不能直接读取另外两类 `<dream>` query；`<action>` query 也遵循时间因果约束。这样 dynamic 的高频运动细节不会污染 depth，semantic 也不会反向泄漏到 motion 表示。
 
@@ -225,7 +225,7 @@ $$
 
 **【Paper】** 仿真部分使用 CALVIN ABC-D 和 LIBERO 四个 suite；真实实验使用 Franka Panda、两台 RealSense D415（第三视角和腕部视角），覆盖 pick、place 与抽屉开关。真实任务每个任务收集 100 条 demonstration，并与 Diffusion Policy、Octo-Base、OpenVLA 比较。
 
-![Real-world experiment from paper Figure 6](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dreamvla/real_world_exp.2vfhfs9uhi.webp)
+![Real-world experiment from paper Figure 6](https://pic.hana0721.top/blog/paper-deep-dive-dreamvla/real_world_exp.2vfhfs9uhi.webp)
 
 ### 5.2 Main Results
 
@@ -241,11 +241,11 @@ $$
 
 **【Paper】** LIBERO 的平均成功率为 92.6%，在 Spatial/Object/Goal/Long 四个 suite 上分别为 97.5/94.0/89.5/89.5；真实 Franka 任务总体成功率为 76.7%。
 
-![Simulation results from paper Figure 7](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dreamvla/simulation_exp.8vnnkijgcu.webp)
+![Simulation results from paper Figure 7](https://pic.hana0721.top/blog/paper-deep-dive-dreamvla/simulation_exp.8vnnkijgcu.webp)
 
 ### 5.3 Ablation Study
 
-![Ablation results from paper Figure 8](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dreamvla/module.5mojnuvyhj.webp)
+![Ablation results from paper Figure 8](https://pic.hana0721.top/blog/paper-deep-dive-dreamvla/module.5mojnuvyhj.webp)
 
 **【Paper】** 消融回答了几个关键问题：
 

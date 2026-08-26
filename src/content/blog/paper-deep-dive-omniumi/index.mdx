@@ -43,7 +43,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** UMI（Universal Manipulation Interface）让人类在机器人不在场的地方采集示教，但传统 UMI 主要记录 RGB 与轨迹。OmniUMI 认为，擦除、插入、脆弱物体抓取等任务的关键不是几何位置，而是“接触发生了什么”：手指施加了多大抓取力、末端承受了什么外部力矩、触觉表面如何变形。
 
-![OmniUMI 系统总览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-omniumi/fig1-crop.73uopzidux.webp)
+![OmniUMI 系统总览（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-omniumi/fig1-crop.73uopzidux.webp)
 
 ### 一句话总结
 
@@ -76,7 +76,7 @@ import { Aside } from '@/components/user'
 
 ### 4.1 Overall Architecture
 
-![OmniUMI 硬件架构（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-omniumi/fig2-crop.3yf6r1o041.webp)
+![OmniUMI 硬件架构（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-omniumi/fig2-crop.3yf6r1o041.webp)
 
 **【Paper】** custom hub 把相机、深度、6 轴力传感器、运动跟踪、电机夹爪和触觉模块接到一条主机链路；同步观测进入多模态 policy，输出再经过 virtual-target 与 impedance controller 执行。
 
@@ -162,7 +162,7 @@ $$K_{p,t}^{(q)}=J^\top K_{x,t}J+K_q,\quad K_{d,t}^{(q)}=J^\top K_{xd,t}J+K_{qd}$
 
 **【Paper】** 实验分三层：先在 10 个静态姿态下验证外部 wrench 的重力补偿；再在同一个白板擦除任务中比较 direct human、无 bilateral feedback 的 teleoperation 和 OmniUMI 的三种示教信号；最后测试三类下游接触任务。
 
-![重力补偿前后的外部力测量（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-omniumi/fig4-crop.5mojo8ebwa.webp)
+![重力补偿前后的外部力测量（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-omniumi/fig4-crop.5mojo8ebwa.webp)
 
 ### 5.2 Main Results
 
@@ -174,7 +174,7 @@ $$K_{p,t}^{(q)}=J^\top K_{x,t}J+K_q,\quad K_{d,t}^{(q)}=J^\top K_{xd,t}J+K_{qd}$
 | 白板交互擦除 | 无 wrench：5% 残留标准 0% | 100% | 50% 残留标准：60% → 100% |
 | 嵌套透明杯选择性释放 | 无 tactile：20% | 100% | 双杯同时保留率 80% → 0% |
 
-![力相关接触任务定性结果（论文 Figure 8）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-omniumi/fig9-crop.26m7w54p45.webp)
+![力相关接触任务定性结果（论文 Figure 8）](https://pic.hana0721.top/blog/paper-deep-dive-omniumi/fig9-crop.26m7w54p45.webp)
 
 **【Paper】** 白板擦除中，加入 wrench 的策略能维持 $F_z>7\,N$，而无 wrench 的策略出现高频接触振荡并留下红色痕迹。
 
@@ -182,7 +182,7 @@ $$K_{p,t}^{(q)}=J^\top K_{x,t}J+K_q,\quad K_{d,t}^{(q)}=J^\top K_{xd,t}J+K_{qd}$
 
 **【Paper】** 三种示教信号在同一白板任务上都更接近 direct human：OmniUMI 的抓取力时间曲线幅值和节奏更稳定，擦除阶段 $F_z$ 的振荡更小，触觉 marker-offset 的 ℓ₂ 轨迹也更接近人类；无 bilateral feedback 的 teleoperation 在三者上都更噪。
 
-![触觉选择性释放结果（论文 Figure 9）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-omniumi/fig10-crop.7ehij4xmi7.webp)
+![触觉选择性释放结果（论文 Figure 9）](https://pic.hana0721.top/blog/paper-deep-dive-omniumi/fig10-crop.7ehij4xmi7.webp)
 
 ### 5.4 Generalization
 

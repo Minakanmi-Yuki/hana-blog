@@ -121,7 +121,7 @@ import { Aside } from '@/components/user'
 BAGEL 采用 MoT 架构：一个“理解 expert”处理文本与 ViT token，一个“生成 expert”处理 VAE token；两类 token 在每一层都通过同一组 shared self-attention 交换信息，但 attention、FFN、LayerNorm 参数分别属于各自 expert。
 
 <img
-  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-bagel/arch-final-1.7w7k37h530.webp'
+  src='https://pic.hana0721.top/blog/paper-deep-dive-bagel/arch-final-1.7w7k37h530.webp'
   alt='BAGEL 架构总览：理解 expert 处理文本与 ViT token，生成 expert 处理 VAE token，两类 expert 共享 self-attention（论文 Figure 2）'
   class='zoomable'
   width='1214'
@@ -184,7 +184,7 @@ BAGEL 采用 MoT 架构：一个“理解 expert”处理文本与 ViT token，�
 对于多图或视频交错生成，论文采用 Diffusion Forcing：每张图使用独立噪声水平，并让后续图 attend 前面图的 noisy representation；同时随机把连续图像分组，组内使用 full attention、相同噪声水平，增强生成一致性。
 
 <img
-  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-bagel/attention-final-1.58i3suo3rx.webp'
+  src='https://pic.hana0721.top/blog/paper-deep-dive-bagel/attention-final-1.58i3suo3rx.webp'
   alt='BAGEL 的 generalized causal mask：单图生成只能 attend 前面图像的 clean VAE 与 ViT，多图/视频生成使用 diffusion forcing 和分组 full attention（论文 Figure 15）'
   class='zoomable'
   width='2058'
@@ -303,7 +303,7 @@ $$
 | Interleaved Generation: Web   |         20 |          0.4 |
 
 <img
-  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-bagel/data-pipelines.3k8qvoi6jn.webp'
+  src='https://pic.hana0721.top/blog/paper-deep-dive-bagel/data-pipelines.3k8qvoi6jn.webp'
   alt='BAGEL 交错数据构建流水线 (a)/(b)：视频生成时序 grounded caption，网页文档做两阶段 topic selection、质量过滤和 caption-first 重排（论文 Figure 4）'
   class='zoomable'
   width='4782'
@@ -432,7 +432,7 @@ IntelligentBench 每例 0-2 分，最终归一化到 100 分。论文同时用 R
 #### 能力涌现曲线
 
 <img
-  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-bagel/emerging-curves.3nscte5bct.webp'
+  src='https://pic.hana0721.top/blog/paper-deep-dive-bagel/emerging-curves.3nscte5bct.webp'
   alt='BAGEL 预训练涌现曲线四子图：Understanding、Generation、Image Editing、Intelligent Editing，展示不同能力在约 0.18T 到 3.61T token 阶段依次出现（论文 Figure 7）'
   class='zoomable'
   width='3148'
@@ -449,7 +449,7 @@ IntelligentBench 每例 0-2 分，最终归一化到 100 分。论文同时用 R
 **【Paper】** BAGEL 支持任意宽高比、中英双语 prompt、多图交错生成和思考式生成。世界建模部分用 ParticleSfM 标注相机轨迹，从视频交错数据构造导航数据，再提高视频与导航数据比例做 fine-tune。
 
 <img
-  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-bagel/nav-final-1.2oc9g7o5by.webp'
+  src='https://pic.hana0721.top/blog/paper-deep-dive-bagel/nav-final-1.2oc9g7o5by.webp'
   alt='BAGEL 世界建模：输入图像后生成动态数量的导航、旋转和多图结果，并从真实街景泛化到水墨画、卡通和游戏风格（论文 Figure 14）'
   class='zoomable'
   width='2668'

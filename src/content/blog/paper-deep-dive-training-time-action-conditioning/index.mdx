@@ -87,13 +87,13 @@ $$
 p(\mathbf{A}_{t+d:H}\mid\mathbf{o}_t,\mathbf{A}_{t:t+d}).
 $$
 
-![Overlapping action chunks and action prefix from paper Figure 1](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-training-time-action-conditioning/diagram.99u3bluu18.webp)
+![Overlapping action chunks and action prefix from paper Figure 1](https://pic.hana0721.top/blog/paper-deep-dive-training-time-action-conditioning/diagram.99u3bluu18.webp)
 
 ## 4. 方法
 
 ### 4.1 Overall Architecture
 
-![Training-time action conditioning architecture from paper Figure 2](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-training-time-action-conditioning/architecture.13mil3tkb6.webp)
+![Training-time action conditioning architecture from paper Figure 2](https://pic.hana0721.top/blog/paper-deep-dive-training-time-action-conditioning/architecture.13mil3tkb6.webp)
 
 **【Paper】** 输入是观测、带噪 action chunk 和逐 token 的 flow-matching timestep；prefix token 输入 ground-truth action 且 timestep 固定为 `1.0`，postfix token 仍按普通 flow matching 加噪并预测。数据流可以概括为：`observation + clean prefix + noisy postfix → action expert / DiT → postfix velocity`。
 
@@ -194,17 +194,17 @@ $$
 
 真实实验使用 $\pi_{0.6}$ VLA，在 box building 与 espresso making 两个任务上 fine-tune；机器人控制频率为 50 Hz，远程 H100 上使用 5 个 denoising steps。训练时 RTC 平均端到端延迟为 108 ms（约 $d=5$），inference-time RTC 为 135 ms（约 $d=7$）。
 
-![Real-world evaluation tasks from paper Figure 4](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-training-time-action-conditioning/box.2a5ttpih0b.webp)
+![Real-world evaluation tasks from paper Figure 4](https://pic.hana0721.top/blog/paper-deep-dive-training-time-action-conditioning/box.2a5ttpih0b.webp)
 
-![Espresso evaluation task from paper Figure 4](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-training-time-action-conditioning/coffee.51ew1s4l5m.webp)
+![Espresso evaluation task from paper Figure 4](https://pic.hana0721.top/blog/paper-deep-dive-training-time-action-conditioning/coffee.51ew1s4l5m.webp)
 
 ### 5.2 Main Results
 
-![Simulated solve rate versus inference delay from paper Figure 3](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-training-time-action-conditioning/plots-sim.2a5ttpih85.webp)
+![Simulated solve rate versus inference delay from paper Figure 3](https://pic.hana0721.top/blog/paper-deep-dive-training-time-action-conditioning/plots-sim.2a5ttpih85.webp)
 
 **【Paper】** 仿真曲线显示：在 $d=0$ 与 $d=1$，training-time RTC 与 inference-time RTC 接近，前者略低；从 $d=2$ 起，training-time RTC 超过 inference-time RTC，且延迟越高差距越明显。naive async 随 delay 增长下降最快。
 
-![Real-world success rate and duration from paper Figure 5](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-training-time-action-conditioning/real-results.7w7k7kjs3n.webp)
+![Real-world success rate and duration from paper Figure 5](https://pic.hana0721.top/blog/paper-deep-dive-training-time-action-conditioning/real-results.7w7k7kjs3n.webp)
 
 **【Paper】** 在两个真实任务上，training-time 与 inference-time RTC 的成功率和执行时长相近，但都比 synchronous inference 更快。论文的关键结论不是“训练时方法一定更准”，而是用少量额外训练换掉了实时路径中的额外计算。
 

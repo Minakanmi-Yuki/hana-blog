@@ -38,7 +38,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** 《GR00T N1: An Open Foundation Model for Generalist Humanoid Robots》提出一个面向通用人形机器人的开放式 Vision-Language-Action（VLA）基础模型。论文的关键判断是：人形机器人要进入开放的日常环境，硬件只是身体，还需要一个能理解语言、视觉和机器人状态，并且能在不同 robot embodiment 间迁移的策略模型。
 
-![GR00T N1 双系统 VLA 总览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-gr00t-n1/groot_inference_yuke_v2.wjao4p57s.webp)
+![GR00T N1 双系统 VLA 总览（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-gr00t-n1/groot_inference_yuke_v2.wjao4p57s.webp)
 
 ### 一句话总结
 
@@ -64,7 +64,7 @@ import { Aside } from '@/components/user'
 
 论文还把 human video、仿真和生成视频视为三种互补信号：人类视频提供丰富的 affordance 与行为先验，仿真提供可扩展的动作标签，真实机器人数据负责把先验落到目标硬件上。
 
-![GR00T N1 的数据金字塔：从 web/human video 到 synthetic，再到 real-world data（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-gr00t-n1/data_pyramid.5q85k99tu7.webp)
+![GR00T N1 的数据金字塔：从 web/human video 到 synthetic，再到 real-world data（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-gr00t-n1/data_pyramid.5q85k99tu7.webp)
 
 ## 3. 问题定义
 
@@ -89,7 +89,7 @@ $$
 
 GR00T N1 的数据流可以压缩为一句话：**image + language 经过 Eagle-2 得到 vision-language tokens，robot state 与带噪 action 经过 embodiment-specific encoders 后进入 DiT，DiT 通过 cross-attention 读取 VLM tokens，最后由 action decoder 输出 $H$ 步 motor actions。**
 
-![GR00T N1 模型架构：Eagle-2 VLM 与跨 embodiment DiT action head（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-gr00t-n1/groot_model_v6.9kgx37rsjt.webp)
+![GR00T N1 模型架构：Eagle-2 VLM 与跨 embodiment DiT action head（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-gr00t-n1/groot_model_v6.9kgx37rsjt.webp)
 
 论文给出的公开模型约 2.2B 参数，其中 VLM 约 1.34B；在 L40、bf16 上生成 16-step action chunk 的报告延迟为 63.9ms。VLM 以约 10Hz 运行，动作模块以更高频率闭环生成控制信号。
 
@@ -235,13 +235,13 @@ $$
 
 论文使用三个 simulation benchmark：RoboCasa Kitchen 24 tasks、DexMimicGen Cross-Embodiment 9 tasks、GR-1 Tabletop 24 tasks。它们分别覆盖单臂、双臂 dexterous manipulation 和人形机器人控制。
 
-![仿真任务示例：RoboCasa、DexMimicGen 与 GR-1 tabletop（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-gr00t-n1/fig_task_v6.7i14f5t73h.webp)
+![仿真任务示例：RoboCasa、DexMimicGen 与 GR-1 tabletop（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-gr00t-n1/fig_task_v6.7i14f5t73h.webp)
 
 实机部分使用 Fourier GR-1，任务包含 pick-and-place、articulated object、industrial manipulation 和 multi-agent coordination。仿真报告 100 trials 的平均成功率；实机多数任务报告 10 trials，Pack Machinery 因时间限制使用 5 trials 的部分评分。
 
 基线是 RoboMimic 的 BC-Transformer 和 Diffusion Policy。前者输入 10 帧并预测 10 个动作，后者从单帧观测生成 16-step action chunk。
 
-![GR-1 预训练与 post-training 任务（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-gr00t-n1/real_gr1_task_figure.45iekscnij.webp)
+![GR-1 预训练与 post-training 任务（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-gr00t-n1/real_gr1_task_figure.45iekscnij.webp)
 
 ### 5.2 Main Results
 
@@ -263,7 +263,7 @@ GR-1 上的提升最大：相对 Diffusion Policy 提升 17.3 个百分点，说
 
 论文专门比较了 neural trajectories、LAPA latent actions 与 IDM pseudo-actions。RoboCasa 中，在 30/100/300 demonstrations/task 三个数据规模下，加入神经轨迹的平均增益分别为 +4.2、+8.8、+6.8 个百分点；GR-1 实机低数据设置下，8 个任务平均提升 5.8 个百分点。
 
-![Neural trajectory、LAPA 与 IDM 的消融结果（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-gr00t-n1/dream_figure.4xva2it8dn.webp)
+![Neural trajectory、LAPA 与 IDM 的消融结果（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-gr00t-n1/dream_figure.4xva2it8dn.webp)
 
 在 RoboCasa 的低数据规模，LAPA 略优于 IDM；数据增加后 IDM 逐渐超过 LAPA。**【Analysis】** 一个合理解释是 IDM 的伪动作标签需要足够多样本才能学准，但一旦 IDM 与目标机器人动作空间对齐，其监督信号比纯 latent motion 更接近部署动作。
 

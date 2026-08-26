@@ -53,7 +53,7 @@ import { Aside } from '@/components/user'
 **论文链接**：[arXiv](https://arxiv.org/abs/2510.13626)  
 **代码与基准**：[GitHub](https://github.com/sylvestf/LIBERO-plus) · [项目主页](https://sylvestf.github.io/LIBERO-plus/) · [Hugging Face 数据集](https://huggingface.co/datasets/Sylvest/LIBERO-plus)
 
-![LIBERO-Plus 基准组成：7 类扰动、21 个低层组件和 10,030 个任务（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-libero-plus/benchmark.45iemea1ln.webp)
+![LIBERO-Plus 基准组成：7 类扰动、21 个低层组件和 10,030 个任务（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-libero-plus/benchmark.45iemea1ln.webp)
 
 ### 一句话总结
 
@@ -97,7 +97,7 @@ import { Aside } from '@/components/user'
 
 LIBERO-Plus 不是一个新的 Policy，而是一套“生成扰动 → 分层任务 → 统一 rollout → 统计分析”的诊断管线。原始 LIBERO 任务先按七维因素扩展，再过滤、平衡并由四个代表模型的准确率划分难度；最终将模型输出汇总为单维、双维和极端遮挡实验。
 
-![LIBERO-Plus 难度等级下的模型性能曲线（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-libero-plus/diff-crop.64elcqfkfq.webp)
+![LIBERO-Plus 难度等级下的模型性能曲线（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-libero-plus/diff-crop.64elcqfkfq.webp)
 
 数据流可以概括为：`LIBERO task → BDDL/scene perturbation → simulator rollout → success rate → robustness/compositionality metrics`。训练增强实验则从同一自动化管线收集成功轨迹，对 OpenVLA-OFT 做 mix-SFT。
 
@@ -193,7 +193,7 @@ $$
 
 论文评测十个开源 checkpoint：OpenVLA、OpenVLA-OFT、去 wrist 的 OpenVLA-OFT_w、mix-SFT 的 OpenVLA-OFT_m、$\pi_0$、$\pi_0$-Fast、Nora、WorldVLA、UniVLA 和 RIPT-VLA。原始列 `Original` 是未扰动 LIBERO 成功率，其余列是七个扰动维度的成功率。
 
-![相机视角扰动示例（论文 Figure 11–16 中的 Camera dimension）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-libero-plus/camera-crop.70b2s6p92h.webp)
+![相机视角扰动示例（论文 Figure 11–16 中的 Camera dimension）](https://pic.hana0721.top/blog/paper-deep-dive-libero-plus/camera-crop.70b2s6p92h.webp)
 
 ### 5.2 Main Results
 
@@ -212,7 +212,7 @@ $$
 
 ### 5.3 Ablation Study
 
-![双扰动条件概率热图：上三角是独立性乘积，下三角是真实联合结果（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-libero-plus/heatmap-crop.5trrjl0cfl.webp)
+![双扰动条件概率热图：上三角是独立性乘积，下三角是真实联合结果（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-libero-plus/heatmap-crop.5trrjl0cfl.webp)
 
 **对象布局。** 加入干扰物时，$\pi_0$、$\pi_0$-Fast、RIPT-VLA、UniVLA 和 WorldVLA 的下降较小；但移动目标物会让成功率显著下滑，说明模型更像记住目标的空间位置。
 

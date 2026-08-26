@@ -52,7 +52,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** X-VLA（Cross-Embodiment VLA）针对一个很现实的瓶颈：机器人数据越多，硬件、相机、控制接口和采集流程越不一致，直接把数据混在一起训练反而会造成梯度冲突与训练不稳定。论文把每个数据源的硬件配置视为一个隐含任务，为其分配可学习的 `Soft Prompt`，并将这些 prompt 在多模态 token 早期注入共享 Transformer。
 
-![X-VLA 总览：Soft Prompt、可扩展预训练与跨本体适配（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-x-vla/intro_small.54yhv9zq5y.webp)
+![X-VLA 总览：Soft Prompt、可扩展预训练与跨本体适配（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-x-vla/intro_small.54yhv9zq5y.webp)
 
 ### 一句话总结
 
@@ -99,7 +99,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![X-VLA 详细架构：Florence 编码器、动作流和 Soft Prompt 共同进入 Transformer（论文 Figure 1 中的 architecture）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-x-vla/archi.8okfl32fwx.webp)
+![X-VLA 详细架构：Florence 编码器、动作流和 Soft Prompt 共同进入 Transformer（论文 Figure 1 中的 architecture）](https://pic.hana0721.top/blog/paper-deep-dive-x-vla/archi.8okfl32fwx.webp)
 
 **【Paper】** 数据流可以概括为：主视角图像与语言经预训练 Florence-Large 编码，辅助腕部视角经共享视觉编码器编码；noisy action、proprioception 和 flow-matching 时间 $t$ 经过动作投影后，与对应 domain 的 Soft Prompt 一起送入标准 Transformer，最后只读取动作 token 并解码为 EE6D action chunk。
 
@@ -220,21 +220,21 @@ $A_t$ 是当前噪声动作，$o$ 包含视觉、语言和 proprioception，$A-A
 
 ### 5.1 Experimental Setup
 
-![X-VLA 评测设置：跨本体、跨环境、跨任务与真实机器人（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-x-vla/all_setup.67y765vjv8.webp)
+![X-VLA 评测设置：跨本体、跨环境、跨任务与真实机器人（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-x-vla/all_setup.67y765vjv8.webp)
 
 **【Paper】** 仿真评测覆盖 Simpler-WidowX、Simpler-Franka、NAVSIM、LIBERO、RoboTwin-2.0、Calvin 和 VLABench 等设置；真实评测覆盖 WidowX 简单操作、Agilex 双臂布料折叠以及 AIRBOT 的 PEFT 适配。预训练 validation 使用 AGIBOT-beta 中未参与训练的 189 个任务、每任务 3 条轨迹，主要指标是动作预测的平均 $\ell_1$ error。
 
 ### 5.2 Main Results
 
-![仿真 benchmark 汇总结果（论文 Figure 6 / Table 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-x-vla/all_bench.6m4mx13unv.webp)
+![仿真 benchmark 汇总结果（论文 Figure 6 / Table 2）](https://pic.hana0721.top/blog/paper-deep-dive-x-vla/all_bench.6m4mx13unv.webp)
 
 **【Paper】** 表 2 报告 X-VLA-0.9B（0.9B）在 Simpler VM/VA 上为 80.4/75.7，在 Simpler-WidowX 为 95.8，在 LIBERO 四类任务的平均为 97.6，在 RoboTwin-2.0 为 98.1，在 Calvin 为 4.43，在 VLABench 为 51.1，NAVSIM PDMS 为 87.3。论文据此声称在 6 个仿真 benchmark 中多数取得新的 SOTA。
 
 **【Paper】** 真实实验中，X-VLA 在五个任务上超过对比方法；Soft-Fold 布料折叠使用 1,200 条示教，报告接近 100% 成功率与每小时 33 次折叠（约每件两分钟以内）。
 
-![真实机器人结果：WidowX、Agilex 与 AIRBOT（论文 Figure 7）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-x-vla/real_exp.4xv9zudkty.webp)
+![真实机器人结果：WidowX、Agilex 与 AIRBOT（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-x-vla/real_exp.4xv9zudkty.webp)
 
-![Soft-Fold 双臂布料折叠任务与数据采集流程（论文 Appendix Figure）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-x-vla/softfold.1zizwc5bgt.webp)
+![Soft-Fold 双臂布料折叠任务与数据采集流程（论文 Appendix Figure）](https://pic.hana0721.top/blog/paper-deep-dive-x-vla/softfold.1zizwc5bgt.webp)
 
 **【Code】** 官方 README 发布的 checkpoint 数字与论文略有更新，例如 X-VLA-Libero 标为 98.1%，Simpler-WidowX 为 95.8%，不同于论文表格中的 98.1/95.8 组合。复现时应以具体 checkpoint、评测脚本和版本为准。
 
@@ -246,11 +246,11 @@ $A_t$ 是当前噪声动作，$o$ 包含视觉、语言和 proprioception，$A-A
 
 ### 5.4 Generalization
 
-![Soft Prompt 的 t-SNE：相似硬件配置形成结构化簇（论文 Figure 8）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-x-vla/tsne.4qs24erflk.webp)
+![Soft Prompt 的 t-SNE：相似硬件配置形成结构化簇（论文 Figure 8）](https://pic.hana0721.top/blog/paper-deep-dive-x-vla/tsne.4qs24erflk.webp)
 
 **【Paper】** t-SNE 显示不同数据源的 prompt 形成与硬件配置对应的簇；两个只改变主视角的 Franka 设置部分混合，说明 prompt 不只是机械地记住 dataset id。对未在预训练出现的 WidowX，使用预训练的相近单臂 prompt 能在早期带来迁移收益，但最终仍需要适配。
 
-![模型规模、数据多样性和数据量的 scaling trend（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-x-vla/scaling.4ubo24ki69.webp)
+![模型规模、数据多样性和数据量的 scaling trend（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-x-vla/scaling.4ubo24ki69.webp)
 
 **【Paper】** 在模型容量、数据多样性和数据量三个轴上，validation prediction error 都持续下降，最大测试配置（0.9B、290K episodes、7 sources）仍未观察到明显饱和。论文报告 prediction error 与下游适配率强相关，因此将其作为预训练阶段的 proxy。
 

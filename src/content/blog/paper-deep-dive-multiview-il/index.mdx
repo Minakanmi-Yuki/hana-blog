@@ -52,7 +52,7 @@ import { Aside } from '@/components/user'
 **代码状态**：截至本文撰写时，论文与项目主页均未公开官方代码仓库。
 
 <img
-  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-multiview-il/multiview-il-overview-cropped.3uvkt0pjjw.webp'
+  src='https://pic.hana0721.top/blog/paper-deep-dive-multiview-il/multiview-il-overview-cropped.3uvkt0pjjw.webp'
   alt='从一次遥操作示范同步采集多个相机视角，并生成伪示范的流程（论文 Figure 1）'
   class='zoomable'
   width='889'
@@ -109,7 +109,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![相机视角扩展总览：一次示范被投影为多个视角伪示范（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-multiview-il/multiview-il-overview-cropped.3uvkt0pjjw.webp)
+![相机视角扩展总览：一次示范被投影为多个视角伪示范（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-multiview-il/multiview-il-overview-cropped.3uvkt0pjjw.webp)
 
 **【Paper】** 数据流是：一次遥操作同时记录多视角 RGB 序列；训练时随机选择一个视角，将该视角图像和对应动作表示送入原有单视角策略。默认部署只输入 $Cam_F$；当部署端有多个相机时，可在 diffusion sampling 中聚合各视角预测。
 
@@ -121,7 +121,7 @@ $$
 
 #### 动作坐标系选择
 
-![Base、EEF 与 Camera 三种伪示范动作坐标系（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-multiview-il/multiview-il-action-space-cropped.60uzesh7d5.webp)
+![Base、EEF 与 Camera 三种伪示范动作坐标系（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-multiview-il/multiview-il-action-space-cropped.60uzesh7d5.webp)
 
 **【Paper】** 三种动作处理如下：
 
@@ -214,7 +214,7 @@ $$
 
 ### 5.1 Experimental Setup
 
-![FANUC CRX-10iA 真实倒水任务、平行夹爪与双相机设置（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-multiview-il/multiview-il-real-robot-cropped.6wrgu8qvxf.webp)
+![FANUC CRX-10iA 真实倒水任务、平行夹爪与双相机设置（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-multiview-il/multiview-il-real-robot-cropped.6wrgu8qvxf.webp)
 
 **【Paper】** 仿真选取 robomimic 的 Square、Can、Lift，以成功率为指标。默认相机为正前方 $Cam_F$；相机绕工作区中心向左、右、上、下各旋转 $15^\circ$，得到 $Cam_{FL}$、$Cam_{FR}$、$Cam_{FU}$、$Cam_{FD}$。除特殊说明外，部署仅用 $Cam_F$。
 
@@ -238,7 +238,7 @@ $$
 
 ### 5.3 Ablation Study
 
-![五视角训练的注意力更集中于任务相关区域（论文 Figure 3 上半部分）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-multiview-il/multiview-il-attention-multiview-cropped.4clmhlqx9r.webp)
+![五视角训练的注意力更集中于任务相关区域（论文 Figure 3 上半部分）](https://pic.hana0721.top/blog/paper-deep-dive-multiview-il/multiview-il-attention-multiview-cropped.4clmhlqx9r.webp)
 
 **【Paper】** 在 Square 上，EEF action space 低于 base：单视角 $N=10/25/50$ 为 0.06/0.25/0.32，五视角为 0.09/0.27/0.41，而对应 base 为 0.14/0.26/0.42 和 0.18/0.42/0.55。作者认为原因是 EEF 坐标原点随时间移动，增加了学习难度。
 

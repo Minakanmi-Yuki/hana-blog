@@ -53,7 +53,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** VISTA（Visual Subgoal Task decomposition）针对 VLA 在 out-of-distribution（OOD）物体和场景上的脆弱性，把长时程操作拆成两层：一个大规模预训练的 Embodied World Model 负责规划，GoalVLA 负责执行。规划器不只输出语言，而是交错生成每个子任务的文本说明和对应 goal image；执行器同时看实时观测、子任务文本和目标图像，生成连续动作块。
 
-![VISTA hierarchical system overview from paper Figure 1](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-vista/teaser.362b7gynzn.webp)
+![VISTA hierarchical system overview from paper Figure 1](https://pic.hana0721.top/blog/paper-deep-dive-vista/teaser.362b7gynzn.webp)
 
 ### 一句话总结
 
@@ -94,7 +94,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![VISTA method architecture from paper Figure 2](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-vista/method.4joubi9rb6.webp)
+![VISTA method architecture from paper Figure 2](https://pic.hana0721.top/blog/paper-deep-dive-vista/method.4joubi9rb6.webp)
 
 **【Paper】** 整体数据流是：初始图像与全局 instruction 进入 Embodied World Model，模型自回归地产生 `Step 1: text → goal image → Step 2: text → goal image`；GoalVLA 将实时观测、当前文本和目标图像融合为动作块，subtask switcher 在当前里程碑满足后切换阶段。
 
@@ -199,13 +199,13 @@ $z\sim\mathcal N(0,I)$ 是噪声，$a$ 是真实动作块，$\tau\in[0,1]$ 是 f
 
 ### 5.1 Experimental Setup
 
-![VISTA real-world setup and evaluation scenarios from paper Figure 4](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-vista/real_illustrate_single_col.2vfhebjhr2.webp)
+![VISTA real-world setup and evaluation scenarios from paper Figure 4](https://pic.hana0721.top/blog/paper-deep-dive-vista/real_illustrate_single_col.2vfhebjhr2.webp)
 
 **【Paper】** 真实训练只收集 pick-and-place 的 2 小时数据，目标物体为 egg、cola can、apple、milk bin 和 croissant。评测包含 15 个 in-domain 场景和 63 个 OOD 场景：OOD 使用 21 个未见目标，每个目标配 3 种桌布/布局设置；每个场景运行 3 次，共 234 次 rollout。指标分为 approach success（接近成功）和 execution success（完成操作成功）。
 
 ### 5.2 Main Results
 
-![VISTA quantitative comparison on novel object categories from paper Figure 10](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-vista/vista-ood-results.5trrhtu9oc.webp)
+![VISTA quantitative comparison on novel object categories from paper Figure 10](https://pic.hana0721.top/blog/paper-deep-dive-vista/vista-ood-results.5trrhtu9oc.webp)
 
 **【Paper】** 在训练分布内，π0、π0-subtask 和 VISTA 的平均 execution success 分别为 0.96、0.91 和 0.93，说明视觉目标并不会牺牲已见场景性能。在 unseen distractor 设置下，三者分别为 0.73、0.78 和 0.82；在 unseen target 设置下，分别为 0.04、0.31 和 0.67。VISTA 在未见目标上的 approach success 为 1.00，而 π0 和 π0-subtask 分别只有 0.40 和 0.73。
 
@@ -213,7 +213,7 @@ $z\sim\mathcal N(0,I)$ 是噪声，$a$ 是真实动作块，$\tau\in[0,1]$ 是 f
 
 ### 5.3 Ablation Study
 
-![VISTA failure and baseline comparison from project Figure 9](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-vista/case_compare.2h91ngb8ex.webp)
+![VISTA failure and baseline comparison from project Figure 9](https://pic.hana0721.top/blog/paper-deep-dive-vista/case_compare.2h91ngb8ex.webp)
 
 **【Analysis】** 论文的主要对照可以看作一个表示层 ablation：
 

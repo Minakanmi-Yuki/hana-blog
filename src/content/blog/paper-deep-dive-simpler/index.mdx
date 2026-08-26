@@ -56,7 +56,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** 论文提出 SIMPLER（Simulated Manipulation Policy Evaluation for Real Robot Setups），将“在真实世界训练的机器人操作策略”放入为 Google Robot 与 WidowX/BridgeData V2 定制的仿真环境中评测。作者不要求做完整 digital twin，而是优先修正最影响评测相关性的 control gap 与 visual gap，并通过配对 sim-real 实验证明：仿真成功率能够较好地反映真实策略的相对排名、分布偏移敏感性和新型纹理鲁棒性。
 
-![SIMPLER 环境与真实评测的总体流程（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-simpler/fig2.8adzyiudiv.webp)
+![SIMPLER 环境与真实评测的总体流程（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-simpler/fig2.8adzyiudiv.webp)
 
 ### 核心贡献
 
@@ -111,7 +111,7 @@ MMRV 范围为 $[0,1]$，越低越好；它把“排错了多少”与“被排�
 
 ### 4.1 Overall Architecture
 
-![SIMPLER 的控制与视觉 gap 修正组件（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-simpler/fig2.8adzyiudiv.webp)
+![SIMPLER 的控制与视觉 gap 修正组件（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-simpler/fig2.8adzyiudiv.webp)
 
 SIMPLER 的数据流可以压缩成一句话：从真实 demo 或评测视频抽取 setup 信息，建立 SAPIEN/ManiSkill 环境；用 SysID 校准机器人控制器，用 Visual Matching 或 Variant Aggregation 生成观测；把 policy action 按真实机器人接口执行，统计每个任务和策略的成功率。
 
@@ -121,7 +121,7 @@ SIMPLER 的数据流可以压缩成一句话：从真实 demo 或评测视频抽
 
 **【Paper】** 输入是一小批真实演示轨迹中的动作 $\{\mathbf a_i\}$、末端位姿 $\{(\mathbf x_i,R_i)\}$ 和初始仿真控制器参数。输出是关节 PD stiffness 与 damping，使同一串开环动作在仿真中产生接近真实的 6D 末端轨迹。作者使用三轮 simulated annealing，每轮缩小搜索范围。
 
-![系统辨识前后，仿真机器人对真实轨迹的跟踪差异（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-simpler/control_gap.9kgx4uccst.webp)
+![系统辨识前后，仿真机器人对真实轨迹的跟踪差异（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-simpler/control_gap.9kgx4uccst.webp)
 
 **【Analysis】** 这一步不是把物理世界完全辨识出来，而是对评测最敏感的“动作到末端运动”的闭环接口做校准。对于基于视觉的策略，几厘米的抓取偏差可能就会把成功变成失败，因此控制 gap 往往比物体质量的细节更优先。
 
@@ -133,7 +133,7 @@ SIMPLER 的数据流可以压缩成一句话：从真实 demo 或评测视频抽
    $$I'=M\odot I_{\text{sim}}+(1-M)\odot I_{\text{real}}.$$ 
 2. **Texture matching**：对差异最大的物体，先在真实图像中分割并对齐仿真姿态，再把真实 RGB texture unproject 到仿真 mesh；机器人 link 则可直接从真实图像挑选颜色并制作多套 texture。
 
-![Visual Matching：真实背景绿幕与前景纹理烘焙（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-simpler/visual_matching.5q85lvuf0m.webp)
+![Visual Matching：真实背景绿幕与前景纹理烘焙（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-simpler/visual_matching.5q85lvuf0m.webp)
 
 **【Code】** 官方仓库的 `rgb_overlay_path` 将真实背景图传给 evaluator，环境通过 segmentation mask 生成前景合成；`additional_env_build_kwargs` 可选择 `robot_init_x/y`、物体位置、相机和纹理 variant。`simpler_env/utils/env/` 提供观测转换，策略只接收与真实部署相同格式的 RGB 图像。
 
@@ -225,7 +225,7 @@ SIMPLER 本身不训练新的 robot policy；训练对象是被评测的 RT-1、
 
 ### 5.2 Main Results
 
-![BridgeData V2 上真实与仿真成功率（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-simpler/results_bridge.mtab01fh.webp)
+![BridgeData V2 上真实与仿真成功率（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-simpler/results_bridge.mtab01fh.webp)
 
 **【Paper】** Google Robot 三个任务上，Validation MSE、Variant Aggregation、Visual Matching 的平均指标如下：
 
@@ -237,19 +237,19 @@ SIMPLER 本身不训练新的 robot policy；训练对象是被评测的 RT-1、
 
 按任务看，Visual Matching 在 Pick Coke Can 的 MMRV/Pearson 为 0.031/0.976，在 Drawer 上为 0.027/0.942。论文报告 RT-1 Converged 与 RT-2-X 在 Google Robot 上通常同时获得较高 real/sim 表现，RT-1 Begin 与 RT-1-X 较低；BridgeData V2 上 Octo-Small 整体优于 Octo-Base 与 RT-1-X。个别 policy 对视觉差异敏感，例如 RT-1 15% 和 Octo-Base 的 sim-real 成功率变化明显。
 
-![SIMPLER 的 real-sim 策略排序散点图（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-simpler/fig1_scatterplot.86ue0t1asd.webp)
+![SIMPLER 的 real-sim 策略排序散点图（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-simpler/fig1_scatterplot.86ue0t1asd.webp)
 
 **【Analysis】** 结果支持的不是“仿真成功率就是现实成功率”，而是“SIMPLER 的排序错误通常只发生在现实成功率接近的策略之间”。这正是 MMRV 比单纯 Pearson 更适合 checkpoint selection 的原因。
 
 ### 5.3 Ablation Study
 
-![不同分布偏移下的成功率变化（论文 Figure 8）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-simpler/results_dist_shifts_google_robot.3uvkt9hzdd.webp)
+![不同分布偏移下的成功率变化（论文 Figure 8）](https://pic.hana0721.top/blog/paper-deep-dive-simpler/results_dist_shifts_google_robot.3uvkt9hzdd.webp)
 
 **【Paper】** SysID 消融中，论文给出的 control loss/MMRV 为：未校准设置 0.267/0.070、另一组参数 0.432/0.100，SIMPLER SysID 达到 **0.131/0.031**。视觉消融中，仅调整 drawer 或 robot texture、或只做 green-screen 都不能稳定改善相关性；同时使用 green-screen、drawer matching 与 robot matching 时，MMRV 为 **0.050**、real-sim success gap 为 **0.136**，最佳。
 
 物理属性消融改变空可乐罐密度、夹爪静摩擦和柜门关节摩擦，成功率最多变化约 15%，但在合理参数范围内 MMRV 仍低、Pearson 仍高。把 Google Robot 环境移植到 Isaac Sim 后也保持良好相关性，说明对于这些以刚体为主的任务，具体 simulator 不是决定性因素。
 
-![SAPIEN 与 Isaac Sim 的比较（论文 Figure 10）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-simpler/results_simulators.7w7k7nm2r8.webp)
+![SAPIEN 与 Isaac Sim 的比较（论文 Figure 10）](https://pic.hana0721.top/blog/paper-deep-dive-simpler/results_simulators.7w7k7nm2r8.webp)
 
 ### 5.4 Generalization
 

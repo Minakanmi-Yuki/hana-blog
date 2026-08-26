@@ -43,7 +43,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** ThinkAct 关注一个常见但棘手的 VLA 缺口：模型可以把当前图像和指令映射到动作，却不一定知道“接下来要完成哪些子目标”。论文提出双系统（dual-system）框架：Reasoning MLLM $\mathcal{F}_\theta$ 负责慢速思考，DiT Action Model $\pi_\phi$ 负责快速控制；两者通过视觉计划 latent $c_t$ 连接。
 
-![ThinkAct architecture overview from paper Figure 2](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-thinkact/overview.4n8gap3tkg.webp)
+![ThinkAct architecture overview from paper Figure 2](https://pic.hana0721.top/blog/paper-deep-dive-thinkact/overview.4n8gap3tkg.webp)
 
 ### 一句话总结
 
@@ -194,7 +194,7 @@ $$
 
 训练数据包括 OXE 的 fractal20220817 与 bridge 子集、Something-Something v2、RoboVQA、EgoPlan-IT、Reflect 与 LLaVA-Video-178K。评测覆盖 SimplerEnv、LIBERO、EgoPlan-Bench2、RoboVQA 和 OpenEQA。
 
-![ThinkAct qualitative manipulation reasoning from paper Figure 3](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-thinkact/visualize_manipulation.lwgwazqhi.webp)
+![ThinkAct qualitative manipulation reasoning from paper Figure 3](https://pic.hana0721.top/blog/paper-deep-dive-thinkact/visualize_manipulation.lwgwazqhi.webp)
 
 ### 5.2 Main Results
 
@@ -209,11 +209,11 @@ $$
 
 在 embodied reasoning 上，ThinkAct 在 EgoPlan-Bench2 达到 48.2，RoboVQA Overall 达到 59.8，OpenEQA Overall 达到 56.2。论文报告其相较第二名在 EgoPlan-Bench2 提升 2.5 个百分点、RoboVQA 提升 4.1 BLEU。
 
-![ThinkAct embodied reasoning comparisons from paper Figure 4](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-thinkact/visualize_comparisons.46f7pyd3q.webp)
+![ThinkAct embodied reasoning comparisons from paper Figure 4](https://pic.hana0721.top/blog/paper-deep-dive-thinkact/visualize_comparisons.46f7pyd3q.webp)
 
 ### 5.3 Ablation Study
 
-![ThinkAct few-shot adaptation results from paper Figure 5](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-thinkact/fewshot.1vze2mhs58.webp)
+![ThinkAct few-shot adaptation results from paper Figure 5](https://pic.hana0721.top/blog/paper-deep-dive-thinkact/fewshot.1vze2mhs58.webp)
 
 **【Paper】** 去掉 $r_{traj}$ 后 SimplerEnv / EgoPlan / RoboVQA 为 59.2 / 47.9 / 58.5；去掉 $r_{goal}$ 后为 59.1 / 47.6 / 58.9；同时去掉两者仅剩 56.9 / 47.2 / 58.3，接近 SFT cold-start 的 56.4 / 46.4 / 57.9。说明 QA 奖励单独不足以诱导结构化长时计划，轨迹和终点视觉反馈缺一不可。
 
@@ -221,7 +221,7 @@ $$
 
 **【Paper】** 少样本 LIBERO 实验每个任务只用 10 条示范、评测 100 次。ThinkAct 在 Spatial、Object、Goal、Average 上分别达到 52%、39.1%、36.2%、34.7%，相对 Magma 在 Spatial 和 Goal 上分别高 9.5 和 7.3 个百分点。论文还展示了失败后重抓物体的自纠错案例。
 
-![ThinkAct self-reflection and correction from paper Figure 6](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-thinkact/visualize_reflection.8adzy7zopz.webp)
+![ThinkAct self-reflection and correction from paper Figure 6](https://pic.hana0721.top/blog/paper-deep-dive-thinkact/visualize_reflection.8adzy7zopz.webp)
 
 ## 6. 方法分析
 

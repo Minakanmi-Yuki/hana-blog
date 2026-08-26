@@ -50,7 +50,7 @@ import { Aside } from '@/components/user'
 
 **论文 / 代码 / 项目**：[arXiv:2601.04061](https://arxiv.org/abs/2601.04061) · [OpenCLAP](https://github.com/LinShan-Bin/OpenCLAP) · [项目主页](https://lin-shan.com/CLAP/)
 
-![CLAP 从机器人和人类视频学习对齐 latent action 的概览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-clap/teaser-crop.b9n1vsd5y.webp)
+![CLAP 从机器人和人类视频学习对齐 latent action 的概览（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-clap/teaser-crop.b9n1vsd5y.webp)
 
 ### 一句话总结
 
@@ -111,7 +111,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![CLAP 的四阶段 pipeline：Act-VAE、VD-VAE、CLAP-NTP 和 CLAP-RF（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-clap/pipeline-crop.9ddp7u3b25.webp)
+![CLAP 的四阶段 pipeline：Act-VAE、VD-VAE、CLAP-NTP 和 CLAP-RF（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-clap/pipeline-crop.9ddp7u3b25.webp)
 
 **【Paper】** 整体数据流是：机器人 action chunk → Act-VAE codebook；机器人与人类的视觉 transition → VD-VAE；两种 action token 与图像、语言 → CLAP-NTP；目标域机器人数据 → CLAP-RF + KM。训练时先固定前一阶段的 tokenizer，避免对齐过程重新漂移物理坐标系。
 
@@ -144,7 +144,7 @@ $$
 
 **输入**为 NTP backbone 的 hidden states / KV cache 和目标域机器人 action chunk，**输出**为连续 $H\times D_a$ action。CLAP-RF 是 DiT 风格的 Rectified Flow head，通过 cross-attention 读取 NTP 的上下文；KM 维护一个冻结的 reference NTP，在 token positions 上对 trainable policy 加 reverse KL。
 
-![Knowledge Matching：用 token-level KL 约束 RF action head 的适配（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-clap/km-crop.39lx5e0mpb.webp)
+![Knowledge Matching：用 token-level KL 约束 RF action head 的适配（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-clap/km-crop.39lx5e0mpb.webp)
 
 **【Code】** `starVLA/model/framework/VLM4A/QwenPIKM.py` 会加载冻结 CLAP action VQ-VAE，把 GT continuous action 重新编码成 `<ACT_*>` 字符串，只在这些 token positions 计算 KL；Astribot 配置的 `kl_loss_weight` 为 `0.005`，`kl_type` 为 `reverse_kl`。因此 KM 不是对 RF 输出直接做 feature matching，而是约束“产生动作条件的 token policy”不要偏离可信的 NTP reference。
 
@@ -273,9 +273,9 @@ $$
 
 ### 5.1 Experimental Setup
 
-![Astribot S1 双臂机器人、相机与 VR teleoperation 数据采集设置（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-clap/data_setup-crop.3k8qyjfuuv.webp)
+![Astribot S1 双臂机器人、相机与 VR teleoperation 数据采集设置（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-clap/data_setup-crop.3k8qyjfuuv.webp)
 
-![CLAP 在真实世界任务中的部署流程（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-clap/real_task-crop.lwgv17lfw.webp)
+![CLAP 在真实世界任务中的部署流程（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-clap/real_task-crop.lwgv17lfw.webp)
 
 **【Paper】** 真实实验使用 Astribot S1 双 7-DoF 手臂，评估 Pick and Place、PnP (OOD)、Pack the Doll、Fold T-shirt 和 Make Bouquets；另在 LIBERO Spatial / Object / Goal / Long 四个 suite 上以单一 generalist policy 评估。LIBERO 每个 suite 含 10 个任务、每任务 50 条示教，CLAP-RF 训练 30k steps 并用 KM 适配。
 
@@ -312,7 +312,7 @@ $$
 
 ### 5.3 Ablation Study
 
-![VD-VAE action features 的 t-SNE：加入 contrastive loss 后同语义动作聚类更紧（论文 Figure 9）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-clap/tsne_vis-crop.4n8g9fbork.webp)
+![VD-VAE action features 的 t-SNE：加入 contrastive loss 后同语义动作聚类更紧（论文 Figure 9）](https://pic.hana0721.top/blog/paper-deep-dive-clap/tsne_vis-crop.4n8g9fbork.webp)
 
 上图使用裁剪后的 GitHub Raw 图像，避免 PDF 页面白边。
 

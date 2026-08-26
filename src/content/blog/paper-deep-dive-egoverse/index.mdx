@@ -77,7 +77,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** EgoVerse 不是单一的离线数据集，而是由数据采集设备、云端处理和访问系统、标准化数据集以及跨实验室评测组成的 living dataset。当前版本包含 1,362 小时、约 80,000 个 episode、1,965 个任务、240 个场景和 2,087 名 demonstrator。论文把资源分成两部分：`EgoVerse-A`（`egoversea`）按统一协议采集，用于可复现实验；`EgoVerse-I`（`egoversei`）由产业伙伴在真实环境中采集，强调规模、开放任务和丰富标注。
 
-![EgoVerse collaborative framework overview from paper Figure 1](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egoverse/teaser-crop.webp)
+![EgoVerse collaborative framework overview from paper Figure 1](https://pic.hana0721.top/blog/paper-deep-dive-egoverse/teaser-crop.webp)
 
 ### 一句话总结
 
@@ -116,7 +116,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![EgoVerse cross-embodiment policy architecture from paper Figure 4](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egoverse/arch-crop.webp)
+![EgoVerse cross-embodiment policy architecture from paper Figure 4](https://pic.hana0721.top/blog/paper-deep-dive-egoverse/arch-crop.webp)
 
 **【Paper】** 图像和 proprioception 先经过 modality-specific stems，被 token 化到共享空间；共享 Transformer encoder 聚合 human/robot 观测，随后由 embodiment-specific 或 shared action head 预测动作块。人类和机器人样本在训练时分别计算损失，再进行 co-training。
 
@@ -128,13 +128,13 @@ $$
 - **输出**：统一 episode，至少包含 egocentric RGB、每只手 21 个 3D keypoints、6-DoF head pose；`EgoVerse-A` 还记录 task、scene、object set 与 demonstrator 元数据，`EgoVerse-I` 可提供 1–2 秒粒度语言、active-hand 和 static/mobile manipulation 标签。
 - **为什么需要**：手和头的轨迹把“人类如何移动”转成可对齐的几何监督；任务与场景元数据则让受控 split 成为可能。
 
-![Human capture setup and unified annotations from paper Figure 2](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egoverse/capture_setup-crop.webp)
+![Human capture setup and unified annotations from paper Figure 2](https://pic.hana0721.top/blog/paper-deep-dive-egoverse/capture_setup-crop.webp)
 
 #### EgoDB 数据管理系统
 
 **【Paper】** 原始数据上传到 S3-backed storage，nightly pipeline 做预处理、验证和索引，episode metadata 写入 SQL；网页 viewer 支持浏览示例和标注，训练端按 filters 同步子集。
 
-![EgoDB data management pipeline from paper Figure 3](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egoverse/egoDB-crop.webp)
+![EgoDB data management pipeline from paper Figure 3](https://pic.hana0721.top/blog/paper-deep-dive-egoverse/egoDB-crop.webp)
 
 #### 跨 embodiment 表示
 
@@ -223,15 +223,15 @@ $$
 
 ### 5.1 Experimental Setup
 
-![Three robot platforms used in the consortium study from paper Figure 3](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egoverse/robots-crop.webp)
+![Three robot platforms used in the consortium study from paper Figure 3](https://pic.hana0721.top/blog/paper-deep-dive-egoverse/robots-crop.webp)
 
 **【Paper】** 评测覆盖三种平台：Georgia Tech 的双 ARX5、Stanford 的肩部安装双 ARX5，以及 UCSD 的 Unitree G1 + Inspire Hand。四个代表性 flagship task（具体主结果聚焦 object-in-container、cup-on-saucer、bag-grocery）各做 20 次 ID 和 20 次 OOD rollout，报告按任务子指标聚合的 normalized score。
 
-![Flagship task definitions from paper Figure 4](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egoverse/tasks-crop.webp)
+![Flagship task definitions from paper Figure 4](https://pic.hana0721.top/blog/paper-deep-dive-egoverse/tasks-crop.webp)
 
 ### 5.2 Main Results
 
-![Co-training results across robots from paper Figure 5](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egoverse/flagship-crop.webp)
+![Co-training results across robots from paper Figure 5](https://pic.hana0721.top/blog/paper-deep-dive-egoverse/flagship-crop.webp)
 
 **【Paper】** 加入 `EgoVerse-A` 人类数据后，大多数机器人和任务的 ID/OOD normalized score 都提升，最高约 30%。这不是单一平台现象：单臂 object-in-container、精细双臂 cup-on-saucer 和长时程 bag-grocery 在不同机器人上总体复现了 co-training 的收益。
 
@@ -239,7 +239,7 @@ $$
 
 ### 5.3 Ablation Study
 
-![Domain-aligned data enables scaling from paper Figure 6](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egoverse/scaling-crop.webp)
+![Domain-aligned data enables scaling from paper Figure 6](https://pic.hana0721.top/blog/paper-deep-dive-egoverse/scaling-crop.webp)
 
 **【Paper】** 固定机器人数据，逐步增加 diverse human data 与 domain-aligned human data：
 

@@ -52,7 +52,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** 《SIM1: Physics-Aligned Simulator as Zero-Shot Data Scaler in Deformable Worlds》研究一个很具体、但对具身学习很关键的问题：衣物的形状、接触和拓扑不断变化，真实示教昂贵，而传统刚体模拟生成的数据很难直接迁移。作者的判断是，模拟失败的根因不是“合成”，而是没有被真实世界约束。
 
-![SIM1 的 real-to-sim-to-real 总览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-sim1/figure-1.8vnnkw9qpr.webp)
+![SIM1 的 real-to-sim-to-real 总览（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-sim1/figure-1.8vnnkw9qpr.webp)
 
 ### 一句话总结
 
@@ -93,7 +93,7 @@ import { Aside } from '@/components/user'
 
 ### 4.1 Overall Architecture
 
-![SIM1 三阶段框架：场景数字化、变形稳定物理模拟与结构化轨迹合成（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-sim1/figure-2.1e9ceeyib7.webp)
+![SIM1 三阶段框架：场景数字化、变形稳定物理模拟与结构化轨迹合成（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-sim1/figure-2.1e9ceeyib7.webp)
 
 **【Paper】** 数据流是：真实场景扫描与资产导入 → 通过行为匹配校准的软体模拟 → 轨迹分解、扩散补全、质量筛选和外观随机化 → 输出可用于策略训练的合成 episode。
 
@@ -107,7 +107,7 @@ import { Aside } from '@/components/user'
 
 #### SIM1-Sim：变形稳定的刚柔耦合
 
-![AVBD 应变约束与双向行为校准（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-sim1/figure-3.7w7k7q9hm6.webp)
+![AVBD 应变约束与双向行为校准（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-sim1/figure-3.7w7k7q9hm6.webp)
 
 **【Paper】** cloth mesh 的顶点是粒子、边是连接关系。每次外力作用后，先运行 Newton-VBD 更新，再检查每条边的伸长；超过阈值时激活虚拟弹性约束，把额外的拉力加入下一轮顶点优化，从而快速传播接触引起的应变。
 
@@ -234,21 +234,21 @@ $g$ 是把轨迹扰动到等级 $k$ 的 corruption function，$\epsilon$ 是真�
 
 ### 5.1 Experimental Setup
 
-![SIM1 的真实/仿真采集与泛化评测设置（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-sim1/figure-4.2h91pb43bj.webp)
+![SIM1 的真实/仿真采集与泛化评测设置（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-sim1/figure-4.2h91pb43bj.webp)
 
 **【Paper】** 真实环境用 ARX ACONE 双臂和 kinesthetic teaching 收集 1,000 条轨迹；仿真在 RTX 4090 上运行，操作员通过 ARX X5 做同构遥操作，得到 200 条种子轨迹。每个配置评估 30 次，成功定义为衣物达到目标折叠构型且没有掉落或重新展开。
 
 训练数据包括 200 条真实/仿真源轨迹或扩展后的 10k synthetic samples。泛化测试分别改变空间位置（平移最多 8 cm、旋转 ±15°）、衣物/桌面纹理及摩擦、灯光强度/方向和相机高度（±5°）。
 
-![SIM1 生成的多衣物、多任务与多环境资产（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-sim1/figure-5.5flbst2lr0.webp)
+![SIM1 生成的多衣物、多任务与多环境资产（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-sim1/figure-5.5flbst2lr0.webp)
 
 ### 5.2 Main Results
 
-![真实机器人 zero-shot sim-to-real 部署与跨衣物泛化（论文 Figure 9）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-sim1/figure-9-10.9o0j2msuoc.webp)
+![真实机器人 zero-shot sim-to-real 部署与跨衣物泛化（论文 Figure 9）](https://pic.hana0721.top/blog/paper-deep-dive-sim1/figure-9-10.9o0j2msuoc.webp)
 
 **【Paper】** 主要结果如下：
 
-![SIM1 的 in-domain 与 out-of-domain 成功率（论文 Figure 7）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-sim1/figure-7.96ahe1rh03.webp)
+![SIM1 的 in-domain 与 out-of-domain 成功率（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-sim1/figure-7.96ahe1rh03.webp)
 
 | 评测                     | 结果                                                                      |
 | ------------------------ | ------------------------------------------------------------------------- |
@@ -262,7 +262,7 @@ $g$ 是把轨迹扰动到等级 $k$ 的 corruption function，$\epsilon$ 是真�
 
 ### 5.3 Ablation Study
 
-![SIM1 的数据规模曲线与模块效果（论文 Figure 8）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-sim1/figure-8.7p4ccancb0.webp)
+![SIM1 的数据规模曲线与模块效果（论文 Figure 8）](https://pic.hana0721.top/blog/paper-deep-dive-sim1/figure-8.7p4ccancb0.webp)
 
 **【Paper】** 消融表明模块是逐步累积的：
 

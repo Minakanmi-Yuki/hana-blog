@@ -52,7 +52,7 @@ import { Aside } from '@/components/user'
 **项目主页**：[RoboCasa](https://robocasa.ai/)
 
 <img
-  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-robocasa/robocasa-overview-web.lwgwogkca.webp'
+  src='https://pic.hana0721.top/blog/paper-deep-dive-robocasa/robocasa-overview-web.lwgwogkca.webp'
   alt='RoboCasa 的多样厨房场景与移动操作机器人（论文 Figure 1）'
   class='zoomable'
   width='2400'
@@ -117,7 +117,7 @@ import { Aside } from '@/components/user'
 **【Paper】** 25 个 atomic tasks 将 8 类基础技能显式拆开，便于复用轨迹分段逻辑；75 个 composite tasks 则描述“准备咖啡”“解冻食物”“整理食品柜”等有语义的厨房活动。任务设计分两步：先让 GPT-4 列出 20 类高层厨房活动，再由 GPT-4 或 Gemini 1.5 为每类活动提出代表性任务。论文明确说明，LLM 输出会被过滤或修改，最终任务仍需人工编程实现。
 
 <img
-  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-robocasa/robocasa-task-generation.26m7w5drzj.webp'
+  src='https://pic.hana0721.top/blog/paper-deep-dive-robocasa/robocasa-task-generation.26m7w5drzj.webp'
   alt='从 LLM 活动提示到复合厨房任务与子任务序列（论文 Figure 5）'
   class='zoomable'
   width='7705'
@@ -215,7 +215,7 @@ $$
 **【Paper】** composite-task 实验选择 ArrangeVegetables、MicrowaveThawing、RestockPantry、PreSoakPan 和 PrepareCoffee：每个任务只有 50 条人类示教，比较从零训练与在 Generated-3000 atomic policy 上微调。真实机器人实验使用 DROID 硬件上的 Franka Panda，覆盖 counter→sink、sink→counter、counter→cabinet 三个抓放任务；每任务收集 50 条、横跨 5 种物体类别的真实示教。
 
 <img
-  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-robocasa/robocasa-real-robot.4g58fmyjq9.webp'
+  src='https://pic.hana0721.top/blog/paper-deep-dive-robocasa/robocasa-real-robot.4g58fmyjq9.webp'
   alt='真实厨房中的 Franka Panda 与三个迁移评测任务示例（论文实验设置图）'
   class='zoomable'
   width='1970'
@@ -230,7 +230,7 @@ $$
 **【Paper】** 在 24 个 atomic tasks 上，Human-50 的总体成功率为 **28.8%**，Generated-3000 为 **47.6%**。从图中可见 Generated-100、Generated-300、Generated-3000 随数据量增大而逐步提升，说明收益并非只来自“生成轨迹替换人工轨迹”，还与规模直接相关。
 
 <img
-  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-robocasa/robocasa-main-results.3nscxwhxri.webp'
+  src='https://pic.hana0721.top/blog/paper-deep-dive-robocasa/robocasa-main-results.3nscxwhxri.webp'
   alt='Human-50 与不同规模 MimicGen 数据训练的 atomic task 成功率（论文主结果图）'
   class='zoomable'
   width='4497'

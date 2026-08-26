@@ -51,7 +51,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** 这篇论文研究的不是“连续动作头要不要用”，而是“随机初始化的连续动作头应该怎样接入预训练 VLM”。作者发现，直接让 Flow Matching / Diffusion action expert 的梯度更新 VLM，会同时拖慢收敛并破坏 web 预训练带来的语言知识；因此提出 Knowledge Insulation：训练时让 backbone 继续预测 FAST 离散动作，action expert 独立学习连续动作，但禁止 expert 梯度穿过注意力层回到 backbone。
 
-![Knowledge Insulation 的 backbone、离散动作与连续 action expert 总览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-knowledge-insulating-vla/model_v2.pg2sow9sf.webp)
+![Knowledge Insulation 的 backbone、离散动作与连续 action expert 总览（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-knowledge-insulating-vla/model_v2.pg2sow9sf.webp)
 
 ### 核心贡献
 
@@ -180,7 +180,7 @@ $M^{\mathrm{act}}$ 只在样本包含动作监督时打开；$\alpha$ 控制连�
 
 ### 4.4 Training
 
-![论文中的训练问题与标准 VLA 的失败模式（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-knowledge-insulating-vla/vla_problems.3gp50rie8b.webp)
+![论文中的训练问题与标准 VLA 的失败模式（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-knowledge-insulating-vla/vla_problems.3gp50rie8b.webp)
 
 **【Paper】** 作者在单机器人 specialist 与跨 embodiment generalist 两种设置下训练。generalist 数据包含 12 类机器人配置（静态单臂、静态双臂、移动双臂）以及 OXE；同时混合图像描述、VQA、目标定位等 VLM 数据。机器人任务包括 table bussing、items in drawer、shirt folding、make bed、dish in sink、mobile items in drawer 和 laundry in basket。
 
@@ -235,7 +235,7 @@ $M^{\mathrm{act}}$ 只在样本包含动作监督时打开；$\alpha$ 控制连�
 
 ### 5.1 Experimental Setup
 
-![论文中的实验任务：items in drawer、make bed、dish in sink、shirt folding、table bussing、DROID 与 LIBERO（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-knowledge-insulating-vla/tasks.8okfnrbdyp.webp)
+![论文中的实验任务：items in drawer、make bed、dish in sink、shirt folding、table bussing、DROID 与 LIBERO（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-knowledge-insulating-vla/tasks.8okfnrbdyp.webp)
 
 **【Paper】** 论文在真实机器人和公开 benchmark 上评估：静态单臂的 items in drawer / table bussing，静态双臂的 shirt folding，移动双臂的 make bed、dish in sink、mobile items in drawer、laundry in basket，以及 DROID 和 LIBERO。移动任务的测试场景完全未出现在训练中；每个真实任务每个策略评估 10 个 episode。
 
@@ -243,7 +243,7 @@ $M^{\mathrm{act}}$ 只在样本包含动作监督时打开；$\alpha$ 控制连�
 
 ### 5.2 Main Results
 
-![静态单臂 table bussing 上的性能、速度与语言跟随比较（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-knowledge-insulating-vla/ur5_all.99u3a25ul9.webp)
+![静态单臂 table bussing 上的性能、速度与语言跟随比较（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-knowledge-insulating-vla/ur5_all.99u3a25ul9.webp)
 
 **【Paper】** 主要结果可以归纳为：
 
@@ -264,7 +264,7 @@ $M^{\mathrm{act}}$ 只在样本包含动作监督时打开；$\alpha$ 控制连�
 
 ### 5.3 Ablation Study
 
-![generalist table bussing 的训练策略与训练曲线（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-knowledge-insulating-vla/training_curve.4xva2imj9f.webp)
+![generalist table bussing 的训练策略与训练曲线（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-knowledge-insulating-vla/training_curve.4xva2imj9f.webp)
 
 **【Paper】** 消融揭示了三个互补因素：
 
@@ -276,7 +276,7 @@ $M^{\mathrm{act}}$ 只在样本包含动作监督时打开；$\alpha$ 控制连�
 
 ### 5.4 Generalization
 
-![四个未见环境 mobile manipulation 任务的平均性能（论文 Figure 9）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-knowledge-insulating-vla/mm_end2end.4clmg7s324.webp)
+![四个未见环境 mobile manipulation 任务的平均性能（论文 Figure 9）](https://pic.hana0721.top/blog/paper-deep-dive-knowledge-insulating-vla/mm_end2end.4clmg7s324.webp)
 
 **【Paper】** 在新物体、新场景和移动操作任务上，VLM data co-training 对语义泛化尤其重要。作者把它解释为：caption、VQA、定位等数据让 backbone 保持对物体和语言的开放词汇知识，再由离散 action loss 把这些表示接到机器人动作上。
 

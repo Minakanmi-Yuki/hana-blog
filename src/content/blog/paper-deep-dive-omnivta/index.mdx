@@ -103,7 +103,7 @@ import { Aside } from '@/components/user'
 
 ### 4.1 Overall Architecture
 
-![OmniVTA 的 slow-fast 系统架构（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-omnivta/system.szortrrb9.webp)
+![OmniVTA 的 slow-fast 系统架构（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-omnivta/system.szortrrb9.webp)
 
 **【Paper】** Slow Policy 接收低频视觉、高频触觉和本体状态，由 VTWM 预测接触演化、AFP 生成长时域动作块；Fast Policy 即 RLTC，每 60Hz 比较预测和实际触觉并输出修正量，最终动作是两者的加权和。
 
@@ -115,13 +115,13 @@ import { Aside } from '@/components/user'
 
 **【Paper】** 光学触觉传感器原始图像分辨率高、推理慢。OmniVTA 使用每个 marker 的三维位移 $(x,y,z)$，将单帧表示为 $H\times W\times3$ 张量。Encoder 由 causal 3D convolution、$M$ 个下采样模块和 projection-out 组成，输出 $H/s\times W/s\times C$ 的时空 latent，其中 $s=2^M$。
 
-![TactileVAE 的时空编码与隐式形变解码（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-omnivta/vae.1vze2pnlc7.webp)
+![TactileVAE 的时空编码与隐式形变解码（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-omnivta/vae.1vze2pnlc7.webp)
 
 Decoder 不重建像素，而是用 implicit neural representation 表示连续形变场：给定空间坐标和 latent 局部特征，MLP 预测该点的三维位移。这样既保留局部接触结构，也能在任意查询坐标上连续重建。
 
 #### Visuo-Tactile World Model：预测短时接触动力学
 
-![VTWM 与 AFP 的 slow policy 结构（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-omnivta/slow-policy.4920jx1efg.webp)
+![VTWM 与 AFP 的 slow policy 结构（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-omnivta/slow-policy.4920jx1efg.webp)
 
 **【Paper】** VTWM 有两个并行分支：视觉分支用 SD-VAE 编码图像，触觉分支用预训练 TactileVAE 编码 marker displacement；两者分别送入 spatial-temporal diffusion transformer，联合生成未来视觉和触觉 latent。
 
@@ -151,7 +151,7 @@ $$
 
 #### Reflexive Latent Tactile Controller：60Hz 残差闭环
 
-![RLTC 的输入输出（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-omnivta/controller.2yz3dljf9f.webp)
+![RLTC 的输入输出（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-omnivta/controller.2yz3dljf9f.webp)
 
 **【Paper】** RLTC 输入单帧实测触觉、与当前控制步对齐的预测触觉 latent、历史 delta action 和 delta gripper state，经 LTD 与三层 MLP 输出单步 refined action $a_r$。由于 TactileVAE 在时间维压缩 4 倍，当前帧重复 4 次送入 encoder；15Hz 预测 latent 也重复 4 次，对齐 60Hz 反馈。
 
@@ -264,7 +264,7 @@ $$
 
 ### 5.1 Experimental Setup
 
-![OmniViTac 六类物理接触模式（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-omnivta/patterns.8okfp6dstd.webp)
+![OmniViTac 六类物理接触模式（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-omnivta/patterns.8okfp6dstd.webp)
 
 **【Paper】** OmniViTac 由 xArm7 机器人示教与 TacUMI 手持采集设备共同构建，记录 RGB-D、腕部/第三视角图像、指尖触觉、末端轨迹和夹爪状态。数据采集保持各传感器原生频率，离线按时间戳对齐，时间误差低于 10ms。
 
@@ -274,7 +274,7 @@ $$
 
 ### 5.2 Main Results
 
-![六类任务的真实机器人操作结果（论文 Figure 7）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-omnivta/manipulation.92qvg1m42s.webp)
+![六类任务的真实机器人操作结果（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-omnivta/manipulation.92qvg1m42s.webp)
 
 **【Paper】** 在对象多样性（O）、几何泛化（G）和扰动鲁棒性（P）三种设置中，OmniVTA 的主要成功率如下：
 

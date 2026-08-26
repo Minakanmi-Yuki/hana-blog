@@ -61,7 +61,7 @@ import { Aside } from '@/components/user'
 
 **项目主页**：[LingBot-VA](https://technology.robbyant.com/lingbot-va)
 
-![LingBot-VA 视频—动作统一框架（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lingbot-va/framework2-crop.8vnnkipamo.webp)
+![LingBot-VA 视频—动作统一框架（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-lingbot-va/framework2-crop.8vnnkipamo.webp)
 
 ### 一句话总结
 
@@ -115,7 +115,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![LingBot-VA 的 video stream 与 action stream 交错数据流（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lingbot-va/framework2-crop.8vnnkipamo.webp)
+![LingBot-VA 的 video stream 与 action stream 交错数据流（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-lingbot-va/framework2-crop.8vnnkipamo.webp)
 
 **【Paper】** prompt 经语言编码器进入 transformer；图像经 Wan2.2 causal VAE 变为 video latent，连续动作经轻量 MLP 变为 action embedding。二者按时间交错后进入 MoT：video stream 用 flow matching 预测未来 latent，action stream 则根据该视觉转变、历史和指令生成动作；每轮执行后，真实观测重新进入上下文。
 
@@ -147,7 +147,7 @@ $$
 
 #### Causal teacher forcing 与 Noisy History Augmentation
 
-![统一视频—动作预训练的因果 attention mask（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lingbot-va/attention_mask2-crop.3d5j4dh2mp.webp)
+![统一视频—动作预训练的因果 attention mask（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-lingbot-va/attention_mask2-crop.3d5j4dh2mp.webp)
 
 **【Paper】** 训练时将真实交错 trajectory 用作 teacher-forcing context，每个 token 只能 attend 到时间更早的 token，因此可在一次前向中并行优化所有时间步。以 $p=0.5$，视觉历史还会被扰动为：
 
@@ -204,7 +204,7 @@ $$
 
 ### 4.5 Inference
 
-![同步、朴素异步与 FDM-grounded 异步控制对比（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lingbot-va/async-crop.1764ilpewl.webp)
+![同步、朴素异步与 FDM-grounded 异步控制对比（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-lingbot-va/async-crop.1764ilpewl.webp)
 
 **【Paper】** 基础推理缓存历史 token 的 key / value。每轮从噪声生成 $K$ 个未来视频 latent（仅部分去噪），再生成对应动作（完整积分）；机器人执行动作、接收真实图像并编码为新 $z$，再更新 cache。KV cache 避免重复计算，也保留了跨 chunk 的历史。
 
@@ -244,7 +244,7 @@ $$
 
 **【Paper】** LIBERO 的 Spatial、Object、Goal、Long 四个 suite 各含 10 个任务、每任务训练 50 条示范；每个 suite 以 3 个随机 seed、每 seed 500 次试验评测。真实部署评测 Make Breakfast、Pick Screws、Insert Tubes、Unpack Delivery、Fold Clothes、Fold Pants，每项以 50 条真实示范、500 steps、学习率 $10^{-4}$ 微调。
 
-![六项真实机器人操控任务的成功率与进度分数（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lingbot-va/realworld_deployment-crop.4g58f9cwz3.webp)
+![六项真实机器人操控任务的成功率与进度分数（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-lingbot-va/realworld_deployment-crop.4g58f9cwz3.webp)
 
 ### 5.2 Main Results
 
@@ -264,13 +264,13 @@ $$
 
 ### 5.3 Ablation Study
 
-![不同动作网络初始化的训练动态（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lingbot-va/loss_comparison-crop.83as2s8pqv.webp)
+![不同动作网络初始化的训练动态（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-lingbot-va/loss_comparison-crop.83as2s8pqv.webp)
 
 **【Paper】** RoboTwin Easy 的完整模型为 92.9；FDM-grounded async 为 90.4，而 naive async 为 74.3，Horizon=3 更降至 32.9。结论是并行化本身不足，必须用真实反馈对齐异步视觉预测。使用原始 Wan2.2-5B 直接 fine-tune 的基线为 80.6；随机初始化 action stream 的曲线梯度波动更大、收敛更慢，插值加缩放初始化最平稳。
 
 ### 5.4 Generalization
 
-![新物体与 OOD 位置的泛化评测（论文 Figure 8）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lingbot-va/generalization-crop.7p4cbx0f71.webp)
+![新物体与 OOD 位置的泛化评测（论文 Figure 8）](https://pic.hana0721.top/blog/paper-deep-dive-lingbot-va/generalization-crop.7p4cbx0f71.webp)
 
 **【Paper】** 作者在“训练时仅见单一物体、测试换形状与纹理”和“训练时位置局部固定、测试随机特别是 OOD 区域”两个轴评估泛化，报告方法均优于比较对象。低数据分析中，10 条示范时该方法在 Make Breakfast progress score 比 $\pi_{0.5}$ 高 15.6 个百分点，在 RoboTwin Easy 高 10.3 个百分点。
 

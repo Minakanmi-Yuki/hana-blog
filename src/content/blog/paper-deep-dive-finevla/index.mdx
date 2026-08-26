@@ -59,7 +59,7 @@ import { Aside } from '@/components/user'
 **论文链接**：[arXiv](https://arxiv.org/abs/2605.27284)　**代码仓库**：[xlang-ai/FineVLA](https://github.com/xlang-ai/FineVLA)　**项目主页**：[finevla.xlang.ai](https://finevla.xlang.ai/)
 
 <img
-  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-finevla/main.webp'
+  src='https://pic.hana0721.top/blog/paper-deep-dive-finevla/main.webp'
   alt='FineVLA 框架总览（论文 Figure 1）'
   class='zoomable'
   width='6067'
@@ -108,7 +108,7 @@ import { Aside } from '@/components/user'
 
 FineVLA 是一个闭环框架：FineVLA-Tool 将异构轨迹变成细粒度监督；RoboFine-Bench 检查 VLM 是否真的看懂动作过程；RoboFine-VLM 负责未来数据的自动标注；FineVLA-Policy 则在固定 observation/action 下比较不同语言监督。
 
-![FineVLA 数据构建流水线（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-finevla/tool.webp)
+![FineVLA 数据构建流水线（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-finevla/tool.webp)
 
 **【Paper】** 数据流可以浓缩为：raw episodes → canonical 80-dim state/action → action-state quality gate → DTW clustering/sampling → ten-dimensional annotation + human verification → benchmark/VLM/policy。
 
@@ -125,7 +125,7 @@ FineVLA 是一个闭环框架：FineVLA-Tool 将异构轨迹变成细粒度监�
 
 #### RoboFine-Bench 与 RoboFine-VLM
 
-![RoboFine-Bench 组成：VQA 与 caption 两条评测轨道（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-finevla/benchmark.webp)
+![RoboFine-Bench 组成：VQA 与 caption 两条评测轨道（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-finevla/benchmark.webp)
 
 **【Paper】** RoboFine-Bench 的 500 个视频与训练数据严格 disjoint。VQA track 提供 1,030 个问题；caption track 把人工核验描述拆成 11,631 个 atomic facts，再由 LLM 判断生成 caption 对每个事实是 match、partial、contradiction、omission 还是 hallucination，汇总为 Consistency、Coverage 与 Anti-Hallucination。
 
@@ -238,7 +238,7 @@ $d(\cdot,\cdot)$ 是位置、旋转与夹爪等特征的加权距离。**【Code
 
 ### 5.1 Experimental Setup
 
-![真实双臂 paired steerability 任务：只改变语言中的一个控制因素（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-finevla/real.webp)
+![真实双臂 paired steerability 任务：只改变语言中的一个控制因素（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-finevla/real.webp)
 
 **【Paper】** 实验包含三条轴：RoboFine-Bench 视频理解、RoboTwin 双臂仿真、Cobot Magic 真实双臂 steerability suite。真实套件将视觉场景近似固定，只改变 color、pose、approach、rotation direction 或 active arm；每个 paired variant 运行 10 次，用 0–100 partial-completion rubric 评分。
 
@@ -264,7 +264,7 @@ $d(\cdot,\cdot)$ 是位置、旋转与夹爪等特征的加权距离。**【Code
 
 ### 5.3 Ablation Study
 
-![RoboTwin 中 FG:Raw 混合比例的 inverted-U 曲线（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-finevla/mixing.webp)
+![RoboTwin 中 FG:Raw 混合比例的 inverted-U 曲线（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-finevla/mixing.webp)
 
 **【Paper】** 架构与数据规模对结论的影响如下：
 

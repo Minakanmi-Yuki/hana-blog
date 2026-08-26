@@ -50,7 +50,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** 《ForceVLA2: Unleashing Hybrid Force-Position Control with Force Awareness for Contact-Rich Manipulation》发表于 arXiv，论文页面注明已被 CVPR 2026 接收。作者提出一个端到端的 force-aware VLA：高层用 force prompt 形成阶段性的任务概念，低层用 Cross-Scale Mixture-of-Experts（MoE）把视觉语言语义、末端位姿和实时力/力矩融合为混合力位动作。
 
-![ForceVLA2 的整体框架（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-forcevla2/2-crop.webp)
+![ForceVLA2 的整体框架（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-forcevla2/2-crop.webp)
 
 ### 一句话总结
 
@@ -111,7 +111,7 @@ ForceVLA 已经证明，把力作为输入可以提升接触任务表现，但�
 
 **【Paper】** MoE 包含视觉、状态和力三个轻量 MLP expert。门控网络为每个 token 产生 $w_V,w_S,w_F$，再按 token 动态加权。自由空间运动时，视觉和位姿可以占主导；接触、擦拭或插入时，力 expert 的权重可以上升。
 
-![ForceVLA2-Dataset 的任务与模态示意（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-forcevla2/3_rename-crop.webp)
+![ForceVLA2-Dataset 的任务与模态示意（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-forcevla2/3_rename-crop.webp)
 
 #### Flow-matching Action Expert
 
@@ -199,7 +199,7 @@ $$
 
 **【Paper】** 实验使用 7-DoF Flexiv Rizon 4s、AG-95 夹爪、两台 RealSense D455 第三人称相机和一台 D435 腕部相机；每项任务进行 20 次独立试验，指标为成功率。基线包括 ACP、$\pi_0$、$\pi_{0.5}$、ForceVLA 和带朴素力输入的 $\pi_0$。
 
-![数据采集系统：Flexiv、GELLO、相机与末端力传感器（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-forcevla2/4-crop.webp)
+![数据采集系统：Flexiv、GELLO、相机与末端力传感器（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-forcevla2/4-crop.webp)
 
 ### 5.2 Main Results
 
@@ -214,7 +214,7 @@ $$
 
 **【Paper】** ForceVLA2 在五项任务上平均 66%，尤其在 Assemble gears 上达到 70%，比第二名高 50 个百分点。朴素地把力拼到 $\pi_0$ 输入中只有 17%，说明“有力信号”不等于“会使用力信号”。
 
-![典型任务的定性结果与过载规避（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-forcevla2/5-crop.webp)
+![典型任务的定性结果与过载规避（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-forcevla2/5-crop.webp)
 
 ### 5.3 Ablation Study
 
@@ -228,7 +228,7 @@ $$
 
 视觉和力大致贡献相当，但 Press bottle 与 Clean board 加入额外力 token 后略有下降。**【Analysis】** 这些任务的控制模式较简单，过多自由度可能扰动本来稳定的位姿策略。
 
-![Cross-Scale MoE 与 Force Prompt 的组件消融（论文 Table 2 / Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-forcevla2/6_2-crop.webp)
+![Cross-Scale MoE 与 Force Prompt 的组件消融（论文 Table 2 / Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-forcevla2/6_2-crop.webp)
 
 ### 5.4 Generalization
 

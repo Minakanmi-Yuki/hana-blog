@@ -47,7 +47,7 @@ import { Aside } from '@/components/user'
 **作者**：Tao Lin、Gen Li、Yilei Zhong、Yanwen Zou、Yuxin Du、Jiting Liu、Encheng Gu、Bo Zhao  
 **链接**：[arXiv](https://arxiv.org/abs/2507.00416) · [项目主页](https://mint-sjtu.github.io/Evo-0.io/) · [官方代码](https://github.com/MINT-SJTU/Evo-0)
 
-![Evo-0 系统总览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-evo-0/Evo0-model.1764ip8bc1.webp)
+![Evo-0 系统总览（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-evo-0/Evo0-model.1764ip8bc1.webp)
 
 ### 一句话总结
 
@@ -160,11 +160,11 @@ $W_Q\in\mathbb{R}^{d_{2D}\times d}$、$W_K,W_V\in\mathbb{R}^{d_{3D}\times d}$ �
 
 ### 5.1 Experimental Setup
 
-![RLBench 五个空间精细操作任务（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-evo-0/rlbench2_cropped.8l0trgszfy.webp)
+![RLBench 五个空间精细操作任务（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-evo-0/rlbench2_cropped.8l0trgszfy.webp)
 
 **【Paper】** 仿真任务为 PlayJenga、PutKnifeOnChoppingBoard、TakeUmbrellaOutOfUmbrellaStand、PlaceHangerOnRack 和 MoveHanger，覆盖抓取运输、精确放置以及高度/平移变化。真实任务包括圆柱居中、peg-in-hole、中间瓶抓取、罐子取放和透明物体取放。
 
-![真实世界五类任务设置（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-evo-0/task_setup_realworld.9rk502hw2y.webp)
+![真实世界五类任务设置（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-evo-0/task_setup_realworld.9rk502hw2y.webp)
 
 ### 5.2 Main Results
 
@@ -185,15 +185,15 @@ $W_Q\in\mathbb{R}^{d_{2D}\times d}$、$W_K,W_V\in\mathbb{R}^{d_{3D}\times d}$ �
 
 ### 5.3 Ablation Study
 
-![训练步数与执行 horizon 实验（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-evo-0/chart1_cropped.5j4xq8rql0.webp)
+![训练步数与执行 horizon 实验（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-evo-0/chart1_cropped.5j4xq8rql0.webp)
 
-![执行 horizon 对成功率的影响（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-evo-0/chart2_cropped.4xva3xxab1.webp)
+![执行 horizon 对成功率的影响（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-evo-0/chart2_cropped.4xva3xxab1.webp)
 
 **【Paper】** 训练 15k 步的 Evo-0 已超过训练 20k 步的 π₀。执行 horizon 取 15、17、20、22、25 时，平均成功率分别为 49%、52%、56%、52%、55%，说明在该范围内对 horizon 不敏感。论文没有提供“移除 fuser / 移除 VGGT”的严格组件消融，因此不能把所有增益归因到某个单独层。
 
 ### 5.4 Generalization
 
-![五类真实扰动设置（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-evo-0/distractor.et90yrq5c.webp)
+![五类真实扰动设置（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-evo-0/distractor.et90yrq5c.webp)
 
 **【Paper】** 在未见干扰物、背景颜色、目标位置（后移 10/20/30 mm）、目标高度（增加 5/10/15 mm）和相机俯仰（±10°）五类 OOD 条件下，Evo-0 整体更稳健。未见干扰物时，正确选物率为 100%（π₀ 为 60%），完整取放成功率为 70%（π₀ 为 20%）；高度增加 10 mm 时为 30% 对 10%，相机向上 10° 时为 60% 对 40%。
 

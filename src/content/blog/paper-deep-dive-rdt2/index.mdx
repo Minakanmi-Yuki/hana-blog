@@ -45,7 +45,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** RDT2（Robotics Diffusion Transformer 2）研究一个比“在同一台机器人上多做几个任务”更难的问题：训练数据来自一类设备，部署时能否直接换到另一种机械臂，并同时面对未见过的物体、场景和指令。作者将其称为 **4U**：Unseen embodiment、scene、object、instruction。
 
-![重新设计的 UMI、部署与跨本体迁移（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rdt2/rdt2-umi.5c1ptcx7hy.webp)
+![重新设计的 UMI、部署与跨本体迁移（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-rdt2/rdt2-umi.5c1ptcx7hy.webp)
 
 ### 一句话总结
 
@@ -88,7 +88,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![RDT2 三阶段训练流程（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rdt2/rdt2-pipeline.6bht6izy6f.webp)
+![RDT2 三阶段训练流程（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-rdt2/rdt2-pipeline.6bht6izy6f.webp)
 
 **【Paper】** 数据流是：图像与语言先进入冻结或可训练的 7B Qwen2.5-VL；动作块经过 RVQ 变成离散 action tokens 供 Stage 1 学习；Stage 2 从 VLM 多层 latent 条件化连续 action expert；Stage 3 再把多步 flow 过程压缩为单步生成器。
 
@@ -217,7 +217,7 @@ $$
 
 **【Paper】** 零样本实验严格使用 4U 设置：测试场景、物体、指令和机械臂都不出现在训练组合中；每个任务进行 256 次试验，Pick 任务额外重复 1,000 次观察成功率收敛。下游 fine-tuning 比较 RDT2 与 π0.5、π0-FAST，涵盖变形物体、长时程、动态响应和灵巧操作。
 
-![4U 零样本任务的成功率（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rdt2/rdt2-zeroshot_results.8s41lg6uo8.webp)
+![4U 零样本任务的成功率（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-rdt2/rdt2-zeroshot_results.8s41lg6uo8.webp)
 
 ### 5.2 Main Results
 
@@ -231,13 +231,13 @@ $$
 
 其中 $E\approx2.1108,A\approx4.3754\times10^3,\alpha\approx0.4402,B\approx1.7906\times10^2,\beta\approx0.2251$。**【Analysis】** 这说明增加模型参数和数据量都仍有可预测收益，数据采集接口的可扩展性本身成为模型能力上限的一部分。
 
-![RDT2 的模型与数据 scaling law（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rdt2/rdt2-scaling_law_plot.7w7k5zx5rr.webp)
+![RDT2 的模型与数据 scaling law（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-rdt2/rdt2-scaling_law_plot.7w7k5zx5rr.webp)
 
 fine-tuning 表 2 中，RDT2 在折衣服总体成功率 77%（π0.5 36%、π0-FAST 29%），桌面收纳 progress score 0.58（0.39、0.30），解拉链成功率 45%（13%、8%）；按钮按压相对人类反应时间差为 +97 ms（+323、+981 ms）。乒乓球在 1×/1.2×/1.5×/1.7×/2× 人类速度下的命中率为 88/85/76/68/—%，π0-FAST 因频率不足无法完成该项。
 
 ### 5.3 Ablation Study
 
-![AR 预训练与 diffusion-only 的收敛对比（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rdt2/rdt2-hybrid_training.5mojmicf2w.webp)
+![AR 预训练与 diffusion-only 的收敛对比（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-rdt2/rdt2-hybrid_training.5mojmicf2w.webp)
 
 **【Paper】** 主要消融结论有三点：
 
@@ -245,9 +245,9 @@ fine-tuning 表 2 中，RDT2 在折衣服总体成功率 77%（π0.5 36%、π0-F
 - RVQ 在相同量化误差下需要更少 token；论文 Figure 8 显示相较 FAST 可节省约三分之二 token。
 - Stage 3 蒸馏把 RDT2-FM 的 5 步积分变为单步生成，使 RDT2-UltraFast 达到 23.0 Hz；RDT2-FM 为 17.0 Hz，RDT2-VQ 为 16.0 Hz，π0.5 为 2.7 Hz，π0-FAST 为 1.6 Hz。
 
-![不同 VLA 的推理频率（论文 Figure 7）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rdt2/rdt2-speed_ablation.4ubo4rvtqk.webp)
+![不同 VLA 的推理频率（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-rdt2/rdt2-speed_ablation.4ubo4rvtqk.webp)
 
-![RVQ 与 FAST 的动作离散化误差（论文 Figure 8）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rdt2/rdt2-tokenizer_results.39lx5aymdq.webp)
+![RVQ 与 FAST 的动作离散化误差（论文 Figure 8）](https://pic.hana0721.top/blog/paper-deep-dive-rdt2/rdt2-tokenizer_results.39lx5aymdq.webp)
 
 ### 5.4 Generalization
 

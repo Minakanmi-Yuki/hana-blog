@@ -49,7 +49,7 @@ import { Aside } from '@/components/user'
 **数据集**：[Hugging Face](https://huggingface.co/datasets/nvidia/PhysicalAI-Robotics-Open-H-Embodiment)  
 **代码**：[Open-H 数据仓库](https://github.com/open-h/open-h-embodiment)、[GR00T-H](https://github.com/NVIDIA-Medtech/GR00T-H)、[C-H-S-S](https://github.com/NVIDIA-Medtech/Cosmos-H-Surgical-Simulator)
 
-![Open-H 数据集与两条基础模型路线（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-open-h-embodiment/overview.webp)
+![Open-H 数据集与两条基础模型路线（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-open-h-embodiment/overview.webp)
 
 ### 一句话总结
 
@@ -91,7 +91,7 @@ import { Aside } from '@/components/user'
 
 ### 4.1 Overall Architecture
 
-![Open-H 的机构、机器人、任务和两条模型路线（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-open-h-embodiment/overview.webp)
+![Open-H 的机构、机器人、任务和两条模型路线（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-open-h-embodiment/overview.webp)
 
 **【Paper】** 数据经 LeRobot v2.1 统一后，一路进入 GR00T-H 的 VLA post-training，另一路进入 C-H-S-S 的动作条件视频生成；前者用于真实机器人控制，后者用于仿真评估与合成数据。
 
@@ -104,7 +104,7 @@ import { Aside } from '@/components/user'
 - **输出**：可由统一 DataLoader 读取的多具身 episode。
 - **为什么需要**：仅统一张量维度会隐藏 clutch、线缆迟滞、未驱动器械等语义；README 把这些“数据外知识”显式交给下游用户。
 
-![Open-H 数据组成：平台、环境和任务分布（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-open-h-embodiment/dataset-composition.webp)
+![Open-H 数据组成：平台、环境和任务分布（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-open-h-embodiment/dataset-composition.webp)
 
 #### GR00T-H Policy
 
@@ -191,13 +191,13 @@ $$
 
 ### 5.1 Experimental Setup
 
-![GR00T-H 在 dVRK、Versius 与 MIRA 上的评估设置（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-open-h-embodiment/eval-setups.webp)
+![GR00T-H 在 dVRK、Versius 与 MIRA 上的评估设置（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-open-h-embodiment/eval-setups.webp)
 
 **【Paper】** 主要 policy 对比包括 GR00T-H、未 post-train 的 GR00T-N1.6、ACT 和用 50 小时 dVRK 子集适配的 LingBot-VA。SutureBot 端到端实验包含 needle pickup、handover、throw、extraction、knot tying 五个阶段，每个模型 20 次尝试。OOD 实验改变 wound 配置和光照；data-efficiency 实验使用约 33% 或 100% 的本地微调数据。另在 Versius Peg Transfer、MIRA needle pickup 和皮肤猪肉离体缝合上验证跨具身性能。
 
 ### 5.2 Main Results
 
-![SutureBot 端到端任务生存率与 OOD 结果（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-open-h-embodiment/subtask-survival.webp)
+![SutureBot 端到端任务生存率与 OOD 结果（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-open-h-embodiment/subtask-survival.webp)
 
 **【Paper】** 结果呈现出明显的长程优势：
 
@@ -210,13 +210,13 @@ $$
 
 在端到端实验中，GR00T-H 到 throw 阶段仍保留 12/20 条轨迹，GR00T-N1.6 和 ACT 都只有 4/20；这说明 post-training 主要改善了错误累积后的恢复能力，而不是只提升早期抓取。
 
-![GR00T-H 的跨具身成功率（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-open-h-embodiment/gr00t-h-multi-embodiment.webp)
+![GR00T-H 的跨具身成功率（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-open-h-embodiment/gr00t-h-multi-embodiment.webp)
 
 **【Paper】** 在 dVRK-Si、CMR Versius 和 MIRA 三个平台上，GR00T-H 都显著优于 GR00T-N1.6，总体平均差异的 Fisher 检验为 $p<0.001$。这支持“共享 backbone + 具身专属 head”比单平台策略更能抵抗设备变化的结论。
 
 ### 5.3 Ablation Study
 
-![GR00T-H 在 29 个离体缝合子任务上的成功率（论文 Figure 7）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-open-h-embodiment/gr00t-h-exvivo.webp)
+![GR00T-H 在 29 个离体缝合子任务上的成功率（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-open-h-embodiment/gr00t-h-exvivo.webp)
 
 **【Paper】** 29 步、290 次离体实验的平均成功率为 64%。needle pickup、handover、set-down needle 和三步 knot tying 基本接近满分；readjust、open wound、抓取 suture tail 以及两步 cut suture 明显较弱，切线步骤只有 20–30% 左右。
 
@@ -224,7 +224,7 @@ $$
 
 ### 5.4 Generalization
 
-![C-H-S-S 在 benchtop 与 tissue-based 数据上的 L1/SSIM（论文 Figure 8）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-open-h-embodiment/cosmos-results.webp)
+![C-H-S-S 在 benchtop 与 tissue-based 数据上的 L1/SSIM（论文 Figure 8）](https://pic.hana0721.top/blog/paper-deep-dive-open-h-embodiment/cosmos-results.webp)
 
 **【Paper】** C-H-S-S 在 25 个数据集上做 72 帧自回归重放，每个 episode 使用 3 个随机种子。benchtop 场景保持较低 L1 和较高 SSIM，tissue-based 场景误差更高、种子方差更大；原因包括内窥镜光照、器械遮挡、湿组织高光和可变形解剖结构。chunk 边界的 sawtooth 误差存在但幅度有限，说明模型能维持跨 chunk 的场景状态。
 

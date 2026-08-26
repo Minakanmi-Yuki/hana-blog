@@ -45,7 +45,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** EgoInfinity 不把网络视频直接当作 2D pseudo-action，而是建设一个可替换模块组成的 4D hand-object interaction（HOI）data engine。输入为带语义标注的 RGB 视频，输出为米制手部轨迹、物体点云/网格、6-DoF 物体轨迹与交互状态；这些 agent-agnostic 表示随后可被编译到不同机器人上。
 
-![EgoInfinity 数据引擎总览（论文 pipeline 图）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egoinfinity/egoinfinity-pipeline.5c1pv2pjc1.webp)
+![EgoInfinity 数据引擎总览（论文 pipeline 图）](https://pic.hana0721.top/blog/paper-deep-dive-egoinfinity/egoinfinity-pipeline.5c1pv2pjc1.webp)
 
 ### 一句话总结
 
@@ -86,7 +86,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![从重建手轨迹到跨 embodiment 运动 retargeting（论文 Figure：Retargeting pipeline）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egoinfinity/egoinfinity-retarget.4joudc8xqq.webp)
+![从重建手轨迹到跨 embodiment 运动 retargeting（论文 Figure：Retargeting pipeline）](https://pic.hana0721.top/blog/paper-deep-dive-egoinfinity/egoinfinity-retarget.4joudc8xqq.webp)
 
 **【Paper】** 数据流为：视频与语义描述 → 共享度量几何下的手/物体重建 → interaction-aware refinement → 4D HOI → 机器人根坐标候选 → IK 与后处理关节轨迹。架构中的前半段刻画“人做了什么”，后半段处理“这个机器人怎样做”。
 
@@ -185,7 +185,7 @@ ${}^c\mathbf R^r$ 是预测的根旋转，$\mathbf v$ 是 root-relative offset�
 
 ### 5.1 Experimental Setup
 
-![EgoInfinity 的数据浏览、跨机器人 retargeting 与真实机器人示例（论文 experiments 图）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egoinfinity/egoinfinity-experiments.7q15spmc6.webp)
+![EgoInfinity 的数据浏览、跨机器人 retargeting 与真实机器人示例（论文 experiments 图）](https://pic.hana0721.top/blog/paper-deep-dive-egoinfinity/egoinfinity-experiments.7q15spmc6.webp)
 
 **【Paper】** 作者在 Action100M 的可扩展 curated subset 上处理 106 段 manipulation videos。评估涵盖浏览器式数据服务、数据统计、三种差异很大的 embodiment（Unitree G1、NASA Robonaut2、dual-Franka FR3）和真实机器人执行/学习。报告的 retarget 指标包括逐帧 IK rate、手位置/朝向误差、关节限位余量、manipulability 与 joint-velocity smoothness。
 
@@ -203,7 +203,7 @@ ${}^c\mathbf R^r$ 是预测的根旋转，$\mathbf v$ 是 root-relative offset�
 
 **【Analysis】** G1 的 tracking error 和 IK rate 最好，不能简单推出它“更适合所有任务”：指标还取决于 root-frame 模型、工作区与人手轨迹的重合程度。Dual-Franka 的较低 IK rate 与较大误差更像是在量化 embodiment mismatch，也说明编译到不同机器人不会是零损失操作。
 
-![106 段 curated Action100M 子集的时长、物体、动词与交互状态分布（论文 Figure：Dataset statistics）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egoinfinity/egoinfinity-stats.6m4n1e7j0h.webp)
+![106 段 curated Action100M 子集的时长、物体、动词与交互状态分布（论文 Figure：Dataset statistics）](https://pic.hana0721.top/blog/paper-deep-dive-egoinfinity/egoinfinity-stats.6m4n1e7j0h.webp)
 
 **【Paper】** 数据统计图显示：88% clips 中、47% objects 被实际操作；握持类型在左手、右手与双手间较均衡。该图的意义是证明 pipeline 处理的不是只含静态物体的 web 视频，不过作者未在正文给出端到端吞吐量、单位视频成本或大规模训练集上的 policy scaling curve。
 

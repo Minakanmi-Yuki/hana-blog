@@ -49,7 +49,7 @@ import { Aside } from '@/components/user'
 
 **项目页**：[ST-VLA](https://ampiromax.github.io/ST-VLA)
 
-![ST-VLA 总体架构：轨迹与深度图融合后同 RGB、语言一并送入 VLA（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-spatial-traces/st-vla-architecture.webp)
+![ST-VLA 总体架构：轨迹与深度图融合后同 RGB、语言一并送入 VLA（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-spatial-traces/st-vla-architecture.webp)
 
 ### 一句话总结
 
@@ -110,7 +110,7 @@ $$
 
 **【Paper】** 为减少相邻帧几乎不变时 Co-Tracker 不能立即找到显著点的影响，前五个环境步骤不提供 trace。这个设计意味着方法在 episode 开始时退化为不含时间提示的空间/视觉输入，而不是假装有可靠历史。
 
-![三种轨迹写入深度图的方式：自身帧深度（A）、前一帧深度（B）、当前帧最近物体深度（C），论文 Figure 7）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-spatial-traces/st-vla-trace-variants.webp)
+![三种轨迹写入深度图的方式：自身帧深度（A）、前一帧深度（B）、当前帧最近物体深度（C），论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-spatial-traces/st-vla-trace-variants.webp)
 
 #### 双路视觉编码与融合
 
@@ -128,7 +128,7 @@ $$
 
 **【Paper】** Type A 把轨迹像素赋为其对应历史观测中的深度；Type B 使用前一观察的深度，往往接近背景深度；Type C 则取当前深度图中最近物体的深度。论文因 Type B 不够有信息量而未将它纳入后续测试，比较 A 与 C。
 
-![当前深度图、原始轨迹与写入后的轨迹深度示例（论文 Figure 8）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-spatial-traces/st-vla-depth-traces.webp)
+![当前深度图、原始轨迹与写入后的轨迹深度示例（论文 Figure 8）](https://pic.hana0721.top/blog/paper-deep-dive-spatial-traces/st-vla-depth-traces.webp)
 
 ### 4.3 关键公式
 
@@ -206,13 +206,13 @@ $$
 
 **【Paper】** 评测环境是建立在 Robosuite 之上的 SimplerEnv。任务来自 Bridge 数据分布，包含 Put Spoon、Put Carrot、Stack Blocks、Put Eggplant 四项。GCS（Goal Condition Success）衡量是否达到基础完成条件，例如使目标物离开桌面；SR（Success Rate）要求完成所有任务阶段并达到最终目标状态，因此比 GCS 更严格。
 
-![SimplerEnv 中的四类 Bridge 任务与语言指令示例（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-spatial-traces/st-vla-simplerenv-tasks.webp)
+![SimplerEnv 中的四类 Bridge 任务与语言指令示例（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-spatial-traces/st-vla-simplerenv-tasks.webp)
 
 **【Paper】** 对比方法包括 OpenVLA、RT-1-X、Octo、Octo-Small、RoboVLM、SpatialVLA 和 TraceVLA。前五项 baseline 的数值取自 SpatialVLA 论文；SpatialVLA、TraceVLA 与 ST-VLA 在本文的相同训练和后处理流程下比较。因而跨越这两组的绝对比较需谨慎，而 ST-VLA 对 SpatialVLA / TraceVLA 的相对比较最直接。
 
 ### 5.2 Main Results
 
-![各方法的平均 GCS 与 SR；ST-VLA 在图中最高（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-spatial-traces/st-vla-main-results.webp)
+![各方法的平均 GCS 与 SR；ST-VLA 在图中最高（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-spatial-traces/st-vla-main-results.webp)
 
 **【Paper】** 四任务逐项结果中，ST-VLA 的 GCS 分别为 36.4、50.0、90.9、81.8；SR 分别为 36.4、25.0、36.4、54.5。SpatialVLA 的平均 GCS / SR 为 50.0 / 34.1，ST-VLA 在 Figure 4 中为 64.8 / 38.1，故对应提升为 14.8 与 4.0 个百分点。
 

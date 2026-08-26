@@ -54,7 +54,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** 《HEX: Humanoid-Aligned Experts for Cross-Embodiment Whole-Body Manipulation》关注一个经常被 VLA 论文略过的问题：机器人不仅要“看懂并完成任务”，还要在走路、转身、下蹲、抓取和放置之间维持同一个全身动力学状态。作者在 Tienkung 2.0/3.0 上展示了一个高层 VLA 与低层 RL whole-body controller 的分层系统，并用七种人形形态、超过 12M 帧的轨迹做跨形态预训练。
 
-![HEX 系统总览：跨形态数据、VLA 与全身控制器（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-hex/teaser-crop.1apqexan65.webp)
+![HEX 系统总览：跨形态数据、VLA 与全身控制器（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-hex/teaser-crop.1apqexan65.webp)
 
 ### 一句话总结
 
@@ -94,7 +94,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![HEX 高层 VLA 架构：VLM、UPP 和 Action Expert（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-hex/model-crop.7p4caisj91.webp)
+![HEX 高层 VLA 架构：VLM、UPP 和 Action Expert（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-hex/model-crop.7p4caisj91.webp)
 
 **【Paper】** 数据流可以压缩成一句话：Qwen-VL 编码当前图像/语言并保留 query history，UPP 在 body-part token 上预测未来状态，Action Expert 以带噪动作 token 为 query，同时读取视觉语言与预测状态，输出连续动作 chunk。
 
@@ -114,7 +114,7 @@ $$
 
 #### UPP：body-part 对齐与 morphology-aware MoE
 
-![UPP、MoE 与 Action Expert 的细节（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-hex/model_details-crop.mt8lsnge.webp)
+![UPP、MoE 与 Action Expert 的细节（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-hex/model_details-crop.mt8lsnge.webp)
 
 **【Paper】** UPP 把当前部件 token 与未来 query tokens $N_{t+1:t+\tau_p}$ 拼成 part-time 网格，并加入时间位置和部件位置编码。共享 Transformer 在这个网格上交替建模 body-part 内部关系与视觉语言条件下的时间动态。输入和输出边界的 MoE 用 learned top-$k$ gate 路由 token：routed experts 负责形态/部件特化，shared experts 保留跨形态的公共变换。
 
@@ -235,7 +235,7 @@ $\alpha$ 控制预测状态对总训练目标的影响。它让 UPP 学到“下
 
 ### 5.1 Experimental Setup
 
-![真实机器人遥操作数据采集设置（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-hex/hardware-crop.54yhxvskjj.webp)
+![真实机器人遥操作数据采集设置（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-hex/hardware-crop.54yhxvskjj.webp)
 
 **【Paper】** 实验使用 Tienkung 2.0 与 Tienkung 3.0。高层模型统一使用同一个 RL-based low-level controller，以隔离 VLA policy 的贡献。对比方法包括 ACT、SwitchVLA、GR00T N1.5 和 $\pi_{0.5}$；HEX 使用 Qwen3-VL-2B-Instruct、4-layer UPP、50-step state horizon、16-layer DiT-B action head 和 100-step action chunk。
 
@@ -245,21 +245,21 @@ $\alpha$ 控制预测状态对总训练目标的影响。它让 UPP 学到“下
 
 **【Paper】** seen scenarios 的总体平均成功率为：ACT 57.1%、SwitchVLA 40.5%、GR00T N1.5 70.2%、$\pi_{0.5}$ 71.8%、HEX 79.8%。在 long-horizon box convey 的四个阶段（Grasp、Turn、Walk、Place）中，HEX 分别为 100%、100%、73.3%、53.3%；最后的 Place Box 比最强 baseline 高约 13.3 个百分点，说明优势主要体现在错误累积最严重的末段。
 
-![延迟与成功率的权衡（论文 Figure 11）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-hex/latency-crop.6f1f47ajwf.webp)
+![延迟与成功率的权衡（论文 Figure 11）](https://pic.hana0721.top/blog/paper-deep-dive-hex/latency-crop.6f1f47ajwf.webp)
 
 **【Paper】** 在 RTX 4090 上，HEX 以 73.34 ms 延迟取得 79.8% 成功率；它不是最低延迟模型，但在实际推理预算下提供最高成功率。
 
 ### 5.3 Ablation Study
 
-![预训练与组件消融（论文 Figure 9）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-hex/ablation_all-crop.1apqexal8f.webp)
+![预训练与组件消融（论文 Figure 9）](https://pic.hana0721.top/blog/paper-deep-dive-hex/ablation_all-crop.1apqexal8f.webp)
 
 **【Paper】** 消融显示 UPP 的贡献最大。在 Pouring 上，逐步加入 UPP、history cache 和 MoE 后成功率由 4/12 提升到完整 HEX 的 11/12；Box Conveying 则由 3/15 提升到 8/15。预训练主要改善早期优化和 sample efficiency：20k steps 时预训练模型成功率 10/12，未预训练为 7/12，但最终分别达到 11/12 与 10/12。
 
 ### 5.4 Generalization
 
-![分布外泛化任务（论文 Figure 7）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-hex/generalization_tasks-crop.4joubky3pa.webp)
+![分布外泛化任务（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-hex/generalization_tasks-crop.4joubky3pa.webp)
 
-![分布外泛化结果（论文 Figure 8）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-hex/generalization-crop.3gp50p29p5.webp)
+![分布外泛化结果（论文 Figure 8）](https://pic.hana0721.top/blog/paper-deep-dive-hex/generalization-crop.3gp50p29p5.webp)
 
 **【Paper】** 八个泛化变体的平均成功率为 HEX 61.8%、$\pi_{0.5}$ 44.3%、GR00T N1.5 41.0%、SwitchVLA 22.4%。变化包括更快的人体姿态切换、背景干扰、视觉 distractor、瓶子位置变化、动态物体、未见物体、周围物体和光照。尤其在 Pouring distractors 上，baseline 为 0%，HEX 为 53.3%；在未见球体的 Kneel Pick Objects 上，HEX 达到 100%。
 

@@ -64,7 +64,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** π₀.₇ 是一个约 5B 参数的 Vision-Language-Action（VLA）模型。它在 Gemma 3 4B VLM 与 860M flow-matching action expert 之上，把“做什么”和“怎么做”都写入 prompt：除了任务语言，还加入下一子任务、未来子目标图像、速度/质量/错误等 episode metadata，以及 joint/EE control mode。这样模型可以从多机器人示范、失败数据、自主 rollout、开源数据和人类视频中学习，并在未见环境、未见 embodiment 和组合任务上被直接提示或语言 coaching。
 
-![π₀.₇ 的总体思想：用丰富 context 让同一策略组合不同技能（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-pi07/fig1.8l0tq2xq2f.webp)
+![π₀.₇ 的总体思想：用丰富 context 让同一策略组合不同技能（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-pi07/fig1.8l0tq2xq2f.webp)
 
 ### 核心贡献
 
@@ -112,7 +112,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![π₀.₇ 的 5B 架构：Gemma3 VLM、MEM history encoder、action expert 与 world model（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-pi07/model_architecture.5j4xouwego.webp)
+![π₀.₇ 的 5B 架构：Gemma3 VLM、MEM history encoder、action expert 与 world model（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-pi07/model_architecture.5j4xouwego.webp)
 
 **【Paper】** π₀.₇ 由约 4B 参数 VLM backbone、MEM-style history vision encoder 和 860M 参数 flow-matching action expert 组成，总规模约 5B。运行时，high-level policy 生成子任务文字，BAGEL 初始化的 lightweight world model 生成 subgoal images，低层 VLA 再根据最新观测和 context 输出 50-step action chunk。
 
@@ -142,7 +142,7 @@ $$
 
 #### Prompt dropout 与控制模式
 
-![π₀.₇ prompt 的组成：子任务、子目标图像、速度/质量/错误 metadata 可以灵活组合（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-pi07/prompts_v4.54yhxzo3tc.webp)
+![π₀.₇ prompt 的组成：子任务、子目标图像、速度/质量/错误 metadata 可以灵活组合（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-pi07/prompts_v4.54yhxzo3tc.webp)
 
 **【Paper】** 每个 prompt 组成在训练时独立 dropout：subgoal image 只出现在 25% batch 样本中；有 subgoal 时，subtask text 以 30% 概率丢弃；metadata 整体以 15% 概率丢弃，speed、quality、mistake 还各自以 5% 概率丢弃；control mode 不丢弃。这让测试时可以只用语言，也可以组合语言、目标图像和 metadata。
 
@@ -220,7 +220,7 @@ $$
 
 ### 5.1 Experimental Setup
 
-![π₀.₇ 评测中的机器人形态：移动双臂、静态双臂、双臂 UR5e 与单臂机器人（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-pi07/pi07robots_v5.8dxlunblru.webp)
+![π₀.₇ 评测中的机器人形态：移动双臂、静态双臂、双臂 UR5e 与单臂机器人（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-pi07/pi07robots_v5.8dxlunblru.webp)
 
 **【Paper】** 评测覆盖双臂移动机器人、轻量静态双臂 BiPi、双臂 UR5e 和单臂 6 DoF 机器人。大多数机器人以 50 Hz 运行，UR5e 以 20 Hz 运行；每台机器人有 front camera 和左右 wrist cameras，移动平台额外有 rear camera。输出通过简单 PD controller 执行，EE action 需要数值 inverse kinematics 转成 joint target。
 
@@ -234,7 +234,7 @@ $$
 
 ### 5.3 Ablation Study
 
-![多样 context 与数据规模的消融：metadata 使混合质量数据可扩展，task diversity 提升组合泛化（论文 Figure 18）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-pi07/generalization_and_conditioning.7zr63s3csf.webp)
+![多样 context 与数据规模的消融：metadata 使混合质量数据可扩展，task diversity 提升组合泛化（论文 Figure 18）](https://pic.hana0721.top/blog/paper-deep-dive-pi07/generalization_and_conditioning.7zr63s3csf.webp)
 
 **【Paper】** 对照 `π₀.₇ (no metadata)` 和 `π₀.₇ (no eval data)` 的结果显示：metadata 和 autonomous evaluation data 都重要，尤其影响 throughput。没有 metadata 时，模型难以区分 specialist rollout、失败片段和一般示范，加入更多混合质量数据反而可能退化。
 
@@ -242,7 +242,7 @@ $$
 
 ### 5.4 Generalization
 
-![π₀.₇ 在 UR5e 上折叠衣物的零样本跨形态迁移（论文 Figure 12/13）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-pi07/cross_embodiment.lwgv0ioib.webp)
+![π₀.₇ 在 UR5e 上折叠衣物的零样本跨形态迁移（论文 Figure 12/13）](https://pic.hana0721.top/blog/paper-deep-dive-pi07/cross_embodiment.lwgv0ioib.webp)
 
 **【Paper】** 训练数据没有包含双臂 UR5e 的 laundry folding，但 π₀.₇ 能在 UR5e 上折叠 T-shirt 和 towel。10 位有平均 375 小时 teleoperation 经验的专家首次操作该 embodiment 时，human 的 task progress 为 90.9%、success rate 为 80.6%；π₀.₇ 为 85.6% 和 80%，接近专家水平。策略没有机械复制源机器人动作，而是学会针对 UR5e 的形态和工作空间改变抓取策略。
 

@@ -56,7 +56,7 @@ import { Aside } from '@/components/user'
 
 【Paper】FTP-1 将图像式、阵列式与状态式触觉映射到 **Morphology-Aware Tactile Token Space（MTTS）**，再由一个跨传感器共享的 Tactile Transformer Expert 建模；它在约 3,000 小时、26 个来源、21 种触觉传感器的聚合数据上预训练，目标不是为某个夹爪或皮肤做一个更好的策略，而是提供触觉操作的共同初始化点。
 
-![FTP-1 overview from paper Figure 1](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ftp-1/ftp1-overview.96ahdrnvw4.webp)
+![FTP-1 overview from paper Figure 1](https://pic.hana0721.top/blog/paper-deep-dive-ftp-1/ftp1-overview.96ahdrnvw4.webp)
 
 ### 核心贡献
 
@@ -90,7 +90,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![FTP-1 architecture from paper Figure 2](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ftp-1/ftp1-architecture.szoru0hen.webp)
+![FTP-1 architecture from paper Figure 2](https://pic.hana0721.top/blog/paper-deep-dive-ftp-1/ftp1-architecture.szoru0hen.webp)
 
 【Paper】数据流可概括为：异构触觉 $\rightarrow$ 传感器专属 encoder 与 MTTS Token $\rightarrow$ 共享 Tactile Expert，随后由 Action Expert 联合视觉、语言、本体状态与触觉信息生成连续动作块。
 
@@ -193,11 +193,11 @@ $$
 
 ### 5.1 Experimental Setup
 
-![FTP-1 dataset overview from paper Figure 4](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ftp-1/ftp1-dataset.4joud2pcsi.webp)
+![FTP-1 dataset overview from paper Figure 4](https://pic.hana0721.top/blog/paper-deep-dive-ftp-1/ftp1-dataset.4joud2pcsi.webp)
 
 【Paper】作者把预训练 checkpoint 分发给 5 个硬件设置，覆盖 14 个接触密集任务。已见传感器评测包括 UniVTAC 仿真（GelSight-Mini）与两套真实机器人设置：Sharpa North 的长时程灵巧操作、Sharpa&Dexmate 的按压/力控操作；未见传感器评测包括 FlexivXense（Xense 图像触觉）和 TactileUMI（Contactile 阵列触觉）。
 
-![Seen-sensor fine-tuning setups from paper Figure 5](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ftp-1/ftp1-seen-setup.7i14gkxmhe.webp)
+![Seen-sensor fine-tuning setups from paper Figure 5](https://pic.hana0721.top/blog/paper-deep-dive-ftp-1/ftp1-seen-setup.7i14gkxmhe.webp)
 
 【Paper】仿真每个任务评测 100 次 rollout，真实机器人每个任务 20 次。比较对象分别隔离了触觉输入、融合结构和预训练的贡献：无触觉的 $\pi_{0.5}$、将触觉注入 VLM 的 Tactile-VLA、未作 FTP-1 预训练的同架构 FTP-$\pi_{0.5}$，以及 FTP-1。
 
@@ -211,7 +211,7 @@ $$
 
 ### 5.3 Ablation Study
 
-![Pretrained tactile knowledge ablation from paper Figure 7](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ftp-1/ftp1-pretraining-ablation.2yz3dls5yy.webp)
+![Pretrained tactile knowledge ablation from paper Figure 7](https://pic.hana0721.top/blog/paper-deep-dive-ftp-1/ftp1-pretraining-ablation.2yz3dls5yy.webp)
 
 【Paper】作者用 NTP-1 区分「数据分布更接近下游」和「触觉分支学到可迁移知识」两种解释：NTP-1 使用与 FTP-1 相同的数据和优化设置预训练，但预训练阶段删除触觉输入与触觉架构；微调时再添加同一触觉架构。
 

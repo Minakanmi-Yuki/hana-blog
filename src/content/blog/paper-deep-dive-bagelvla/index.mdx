@@ -76,13 +76,13 @@ $$
 
 ### 4.1 Overall Architecture
 
-![BagelVLA framework overview from paper Figure 1](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-bagelvla/overview-bagelvla.webp)
+![BagelVLA framework overview from paper Figure 1](https://pic.hana0721.top/blog/paper-deep-dive-bagelvla/overview-bagelvla.webp)
 
 **【Paper】** 当前观测和全局指令进入 7B understanding/generation experts，生成子任务文本与关键帧 latent；2B action expert 读取这些中间状态、proprioception 和原始视觉特征，输出连续动作。三类 token 按时间阶段组成统一 interleaved sequence。
 
 ### 4.2 核心模块
 
-![BagelVLA model architecture from paper Figure 2](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-bagelvla/model-bagelvla.webp)
+![BagelVLA model architecture from paper Figure 2](https://pic.hana0721.top/blog/paper-deep-dive-bagelvla/model-bagelvla.webp)
 
 - **【Paper】Understanding expert**：Qwen2.5-LLM-7B 结构，SigLIP2 编码观测，autoregressive 生成 $l_t$，用 CE loss 训练。
 - **【Paper】Generation expert**：使用 FLUX VAE latent 与 flow matching 预测关键帧。它同时 attend 输入图像的 VAE/ViT 特征和文本条件。
@@ -114,7 +114,7 @@ $$a^\tau=(1-\tau)a^0+\tau a^1,\qquad v^a=a^1-a^0.$$
 
 ### 4.5 Inference
 
-![Dual flow-matching conditioning schemes from paper Figure 3](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-bagelvla/dual-denoise.webp)
+![Dual flow-matching conditioning schemes from paper Figure 3](https://pic.hana0721.top/blog/paper-deep-dive-bagelvla/dual-denoise.webp)
 
 **【Paper】** 论文比较 Complete Denoise、Joint Denoise 和 Single-step Denoise。默认 RFG 属于最后一种：只执行关键帧 flow 的初始步，动作 expert 读取该步 KV；文本和关键帧 expert 每次更新较慢，动作 expert 可用 proprioception 高频刷新。单张 RTX 5090 上 chunk=48 时约 40Hz；启用异步执行后报告 72Hz。
 
@@ -137,7 +137,7 @@ $$a^\tau=(1-\tau)a^0+\tau a^1,\qquad v^a=a^1-a^0.$$
 
 **【Paper】** 仿真包含 Calvin ABC-D（单步任务）和 RoboTwin 2.0（50 tasks，clean/randomized、未见指令）；真实实验使用 ALOHA-AgileX 双臂平台，覆盖 9 类基础技能和两类长时域任务：按指定顺序堆方块、计算并摆放符号方块。每项真实任务运行 20 次。
 
-![Real-world interleaved planning visualization from paper Figure 4](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-bagelvla/visualize-results.webp)
+![Real-world interleaved planning visualization from paper Figure 4](https://pic.hana0721.top/blog/paper-deep-dive-bagelvla/visualize-results.webp)
 
 ### 5.2 Main Results
 

@@ -59,7 +59,7 @@ import { Aside } from '@/components/user'
 **项目主页**：[Diffusion Policy](https://diffusion-policy.cs.columbia.edu/)
 
 <img
-  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-diffusion-policy/DP_teaser-1.4ubo1tbsfg.webp'
+  src='https://pic.hana0721.top/blog/paper-deep-dive-diffusion-policy/DP_teaser-1.4ubo1tbsfg.webp'
   alt='三类策略表示：显式策略、隐式能量策略与 Diffusion Policy 的梯度场（论文 Figure 1）'
   class='zoomable'
   width='2439'
@@ -120,7 +120,7 @@ $$
 ### 4.1 Overall Architecture
 
 <img
-  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-diffusion-policy/policy_input_output-1.lwgrzinog.webp'
+  src='https://pic.hana0721.top/blog/paper-deep-dive-diffusion-policy/policy_input_output-1.lwgrzinog.webp'
   alt='Diffusion Policy 总览：receding-horizon、CNN FiLM conditioning 与 Transformer cross-attention（论文 Figure 2）'
   class='zoomable'
   width='4270'
@@ -351,7 +351,7 @@ $Z$ 对 $\mathbf a$ 的梯度为零，因此训练和推理都不需要估计 $Z
 - **Evaluation**：仿真报告 best checkpoint 与最后 10 个 checkpoint 平均，跨 3 seeds 和多个 initial conditions。
 
 <img
-  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-diffusion-policy/real_task_setup-1.8hh7pc4pcy.webp'
+  src='https://pic.hana0721.top/blog/paper-deep-dive-diffusion-policy/real_task_setup-1.8hh7pc4pcy.webp'
   alt='真实 Push-T 硬件设置、任务定义和结果指标（论文 Realworld Push-T Experiment）'
   class='zoomable'
   width='2834'
@@ -379,7 +379,7 @@ $Z$ 对 $\mathbf a$ 的梯度为零，因此训练和推理都不需要估计 $Z
 多阶段 state 任务中，Diffusion Policy 尤其能处理 long-horizon multimodality。论文报告 Block Push `p2` 相对改进 32%，Kitchen `p4` 相对改进 213%。
 
 <img
-  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-diffusion-policy/multimodal_sim-1.51evx8v1sk.webp'
+  src='https://pic.hana0721.top/blog/paper-deep-dive-diffusion-policy/multimodal_sim-1.51evx8v1sk.webp'
   alt='Push-T 中短时程多模态行为：Diffusion Policy 能同时保留左右两侧 mode，并在单次 rollout 中 commit 到一条轨迹（论文 Figure 3）'
   class='zoomable'
   width='2700'
@@ -404,7 +404,7 @@ $Z$ 对 $\mathbf a$ 的梯度为零，因此训练和推理都不需要估计 $Z
 | DP CNN E2E         | **0.80** | **0.95** | **22.9s** |
 
 <img
-  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-diffusion-policy/real_results-1.8s41ihjxbp.webp'
+  src='https://pic.hana0721.top/blog/paper-deep-dive-diffusion-policy/real_results-1.8s41ihjxbp.webp'
   alt='真实 Push-T 轨迹与最终状态对比：End-to-end Diffusion Policy 更准确且更稳定（论文 Figure 7）'
   class='zoomable'
   width='2684'
@@ -438,7 +438,7 @@ $Z$ 对 $\mathbf a$ 的梯度为零，因此训练和推理都不需要估计 $Z
 - **Vision encoder**：从零训练 ResNet、frozen pretrained、finetune pretrained 三种设置中，finetune 最好，尤其 CLIP ViT-B/16 达到 0.98；但从零训练 ResNet 已经接近，真实系统仍以 end-to-end training 为最佳。
 
 <img
-  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-diffusion-policy/ablation_figure-1.icuu9pkse.webp'
+  src='https://pic.hana0721.top/blog/paper-deep-dive-diffusion-policy/ablation_figure-1.icuu9pkse.webp'
   alt='Action horizon 的 temporal consistency 与 responsiveness 权衡，以及 position control 的 latency robustness（论文 Figure 5）'
   class='zoomable'
   width='1745'

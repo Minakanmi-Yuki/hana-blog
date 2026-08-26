@@ -56,7 +56,7 @@ import { Aside } from '@/components/user'
 **代码与模型**：[egosteer/egosteer](https://github.com/egosteer/egosteer)、[Hugging Face](https://huggingface.co/EgoSteer/models)  
 **项目主页**：[egosteer.github.io](https://egosteer.github.io/)
 
-![EgoSmith、Robot Stack 与 EgoSteer 的全栈系统（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egosteer/Teaser.5q85lxzbqq.webp)
+![EgoSmith、Robot Stack 与 EgoSteer 的全栈系统（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-egosteer/Teaser.5q85lxzbqq.webp)
 
 ### 一句话总结
 
@@ -95,7 +95,7 @@ $$\tau=\{l,\mathbf K,(\mathbf I_t,\mathbf D_t,\mathbf T^{w2c}_t,\mathbf s^w_t,\m
 
 ### 4.1 Overall Architecture
 
-![EgoSteer 模型架构：Qwen3-VL、Action Expert 与训练期 World Model（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egosteer/model-arch.5xbdhdlgro.webp)
+![EgoSteer 模型架构：Qwen3-VL、Action Expert 与训练期 World Model（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-egosteer/model-arch.5xbdhdlgro.webp)
 
 **【Paper】** 多模态输入先经过共享 Qwen3-VL backbone；Action Expert 读取 backbone 的 key-value cache，通过 joint attention 生成 flow-matching 动作 chunk；World Model Expert 读取相同骨干表示并预测未来 DINOv3 特征，只在训练时存在。整体数据流是“语言 + 图像历史 + 状态 → backbone → action/world-model heads”。
 
@@ -103,7 +103,7 @@ $$\tau=\{l,\mathbf K,(\mathbf I_t,\mathbf D_t,\mathbf T^{w2c}_t,\mathbf s^w_t,\m
 
 #### EgoSmith 数据流水线
 
-![EgoSmith 四阶段数据处理流水线（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egosteer/pipeline_recreated_editable.5c1pv2r0c2.webp)
+![EgoSmith 四阶段数据处理流水线（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-egosteer/pipeline_recreated_editable.5c1pv2r0c2.webp)
 
 **【Paper】**
 
@@ -114,7 +114,7 @@ $$\tau=\{l,\mathbf K,(\mathbf I_t,\mathbf D_t,\mathbf T^{w2c}_t,\mathbf s^w_t,\m
 
 #### 统一机器人栈与 DAgger
 
-![统一机器人栈支持遥操作、推理和人工纠错（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egosteer/robot-stack.7sny9zxwic.webp)
+![统一机器人栈支持遥操作、推理和人工纠错（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-egosteer/robot-stack.7sny9zxwic.webp)
 
 **【Paper】** 手套提供腕部 $SE(3)$ 位姿和手指关节；腕部通过 mink 求 IK，手部通过关节映射驱动。推理时策略发布同一坐标约定下的腕部轨迹和指尖关键点，因此训练、介入和部署共享低层动力学。
 
@@ -204,13 +204,13 @@ $$\mathcal L_{\mathrm{total}}=\mathcal L_{\mathrm{CFM}}+\mathcal L_{\mathrm{WM}}
 
 ### 5.1 Experimental Setup
 
-![七类灵巧操作任务与双手机器人设置（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egosteer/teleop_task_7x6.5q85lxzbqq.webp)
+![七类灵巧操作任务与双手机器人设置（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-egosteer/teleop_task_7x6.5q85lxzbqq.webp)
 
 **【Paper】** 主实验覆盖 32 个 seen、4 个 compositional generalization、4 个 unseen task，每个任务 10 次随机试验；动作和语言均采用自由形式，物体、桌布和初始布局随机化。数据集包含 PnP Easy/Medium/Hard、non-prehensile、reorient、bimanual、contact-rich 七类。
 
 ### 5.2 Main Results
 
-![40 个任务上的成功率与类别分布（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egosteer/main_exp_visualization.7sny9zxwne.webp)
+![40 个任务上的成功率与类别分布（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-egosteer/main_exp_visualization.7sny9zxwne.webp)
 
 **【Paper】** EgoSteer 在 40 个任务上平均成功率 75%，其中 22 个任务超过 80%；组合泛化平均 65%，未见任务 62%。它能遵循目标物体、指定手和细粒度动作指令，并在失败后重试。
 
@@ -218,7 +218,7 @@ $$\mathcal L_{\mathrm{total}}=\mathcal L_{\mathrm{CFM}}+\mathcal L_{\mathrm{WM}}
 
 ### 5.3 Ablation Study
 
-![预训练规模、DAgger、基线和组件消融结果（论文 Figure 7 / Table 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egosteer/scaling_law_visualization.et918d91t.webp)
+![预训练规模、DAgger、基线和组件消融结果（论文 Figure 7 / Table 1）](https://pic.hana0721.top/blog/paper-deep-dive-egosteer/scaling_law_visualization.et918d91t.webp)
 
 **【Paper】**
 

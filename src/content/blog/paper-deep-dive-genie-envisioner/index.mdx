@@ -57,7 +57,7 @@ import { Aside } from '@/components/user'
 - **GE-Sim**：把 GE-Base 改造成 action-conditioned 的视频神经模拟器；
 - **EWMBench**：面向 embodied world model 的视觉、运动和语言-动作一致性评测套件。
 
-![Genie Envisioner 平台总览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-genie-envisioner/Banner.2h91oxadkq.webp)
+![Genie Envisioner 平台总览（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-genie-envisioner/Banner.2h91oxadkq.webp)
 
 ### 一句话总结
 
@@ -117,7 +117,7 @@ instruction + observation → policy → action chunk → GE-Sim → predicted v
 
 ### 4.1 Overall Architecture
 
-![GE-Base 的多视角 autoregressive world model 与 cross-view causal block（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-genie-envisioner/GE-Base.8dxlvxl63q.webp)
+![GE-Base 的多视角 autoregressive world model 与 cross-view causal block（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-genie-envisioner/GE-Base.8dxlvxl63q.webp)
 
 **【Paper】** GE-Base 接收 head、left wrist、right wrist 三路同步相机，分别编码初始图像与稀疏历史帧；不同 view 的 latent 与 noise 加上 2D rotary position embedding、view-specific embedding 和 timestep embedding 后进入 DiT。部分 block 做跨视角 self-attention，其余 block 将 view 维折叠进 batch，以平衡一致性和计算量。
 
@@ -137,7 +137,7 @@ instruction + observation → policy → action chunk → GE-Sim → predicted v
 
 #### GE-Act：共享视觉 backbone 的 action branch
 
-![GE-Act 的 parallel action branch 与 flow-matching decoder（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-genie-envisioner/GE-Act.icuykz4za.webp)
+![GE-Act 的 parallel action branch 与 flow-matching decoder（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-genie-envisioner/GE-Act.icuykz4za.webp)
 
 - **输入**：GE-Base visual tokens、instruction embedding、噪声初始化的 action tokens。
 - **中间模块**：视觉 DiT block 与 action DiT block 并行；action branch 通过 cross-attention 读取每层视觉表示。
@@ -147,7 +147,7 @@ instruction + observation → policy → action chunk → GE-Sim → predicted v
 
 #### GE-Sim：把动作重新注入世界模型
 
-![GE-Sim 的 Pose2Image、motion token 与 action-conditioned video generation（论文 Figure 8）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-genie-envisioner/GE-Sim.3gp5237eqv.webp)
+![GE-Sim 的 Pose2Image、motion token 与 action-conditioned video generation（论文 Figure 8）](https://pic.hana0721.top/blog/paper-deep-dive-genie-envisioner/GE-Sim.3gp5237eqv.webp)
 
 GE-Sim 要解决的不是“生成一段看起来像机器人视频”，而是让低层动作与高层视觉 latent 对齐。它包含两条条件路径：
 
@@ -207,7 +207,7 @@ $$
 
 #### GE-Act 训练与任务适配
 
-![GE-Act 的 text-video-policy 三阶段训练流程（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-genie-envisioner/Train-Action.6t7uwgnyym.webp)
+![GE-Act 的 text-video-policy 三阶段训练流程（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-genie-envisioner/Train-Action.6t7uwgnyym.webp)
 
 **【Paper】** action pretraining 固定 GE-Base-LF，只训练 action decoder；输入 4 张 5 Hz memory，预测 30 Hz 的 54-step action。之后先做 video adaptation，再做 action specialization：前者适配新任务视觉分布，后者在任务数据上微调整个 action policy。
 
@@ -275,7 +275,7 @@ $$
 
 ### 5.2 Main Results
 
-![AgiBot G1 上 GE-Act 与 VLA baselines 的 SR/E2E 对比（论文 Figure 7）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-genie-envisioner/Exp-SR-E2E-iclr.3rbyv8mn24.webp)
+![AgiBot G1 上 GE-Act 与 VLA baselines 的 SR/E2E 对比（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-genie-envisioner/Exp-SR-E2E-iclr.3rbyv8mn24.webp)
 
 **【Paper】** 在 AgiBot G1 的多项真实任务上，GE-Act 的 SR 与 E2E 总体高于 UniVLA 和 GR00T N1；fast mode 在动态目标跟踪和 conveyor 抓取等低延迟任务上尤其有优势。论文将收益归因于 GE-Base 提供的时空先验和视觉-语言 grounding，而不仅是 action head 本身。
 
@@ -296,13 +296,13 @@ $$
 
 ### 5.4 Generalization
 
-![不同 embodiment 上的任务成功率对比（论文 Figure 10）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-genie-envisioner/Exp-crossbody-iclr.6po8yquwt7.webp)
+![不同 embodiment 上的任务成功率对比（论文 Figure 10）](https://pic.hana0721.top/blog/paper-deep-dive-genie-envisioner/Exp-crossbody-iclr.6po8yquwt7.webp)
 
 **【Paper】** RoboTwin 中，GE-Act 用一个 all-in-one 模型联合适配四个任务，在四个任务中的三个超过 $\pi_0$ 和 GO-1；lift pot 的小幅落后被作者解释为 joint training 的 task interference。这个结果说明 GE 的泛化不只来自“为每个任务训练一套 policy”，而是共享 world representation 后再适配 action head。
 
 GE-Sim 的 action-conditioned 表格结果显示，LTX 和 COSMOS2 版本在 BLEU、CLIP、dynamic、scene 等指标上总体接近，COSMOS2 在动态一致性上更好；EWMBench 与人类偏好排序的一致性也高于通用 VBench。**【Analysis】** 这验证的是“模拟器可用性”而非真实 task success：视频与动作对齐是必要条件，但还不是安全部署的充分条件。
 
-![EWMBench 对多个视频世界模型的多维度比较（论文 Figure 12）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-genie-envisioner/Exp-8metric-v2.2h91ox4nvx.webp)
+![EWMBench 对多个视频世界模型的多维度比较（论文 Figure 12）](https://pic.hana0721.top/blog/paper-deep-dive-genie-envisioner/Exp-8metric-v2.2h91ox4nvx.webp)
 
 ## 6. 方法分析
 

@@ -53,7 +53,7 @@ import { Aside } from '@/components/user'
 
 **论文链接**：[arXiv:2510.25889](https://arxiv.org/abs/2510.25889) ｜ **官方代码**：[RLinf/RLinf](https://github.com/RLinf/RLinf)
 
-![πRL 的在线强化学习总览：SFT 后的 flow-based VLA 通过 Flow-Noise 或 Flow-SDE 与环境交互，再以 RL 更新](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-pi-rl/pi-rl-overview-crop.icuyly6aq.webp)
+![πRL 的在线强化学习总览：SFT 后的 flow-based VLA 通过 Flow-Noise 或 Flow-SDE 与环境交互，再以 RL 更新](https://pic.hana0721.top/blog/paper-deep-dive-pi-rl/pi-rl-overview-crop.icuyly6aq.webp)
 
 ### 一句话总结
 
@@ -98,7 +98,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![πRL 的两种 MDP：Flow-Noise 单层 MDP 与 Flow-SDE 的去噪—环境两层 MDP（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-pi-rl/pi-rl-mdp-formulation-crop.54yhzawpuc.webp)
+![πRL 的两种 MDP：Flow-Noise 单层 MDP 与 Flow-SDE 的去噪—环境两层 MDP（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-pi-rl/pi-rl-mdp-formulation-crop.54yhzawpuc.webp)
 
 **【Paper】** 数据流为：观测条件化 vector field 从初始噪声生成 action chunk，随机去噪转移给出 log-probability，执行 chunk 获得环境 reward，再用 PPO 更新 VLA 的可训练部分。
 
@@ -106,7 +106,7 @@ $$
 
 #### Flow-Noise：可求概率的去噪链
 
-![Flow-Noise 与 Flow-SDE 在去噪轨迹中注入随机性的示意（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-pi-rl/pi-rl-noise-injection-crop.8s41mtsidx.webp)
+![Flow-Noise 与 Flow-SDE 在去噪轨迹中注入随机性的示意（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-pi-rl/pi-rl-noise-injection-crop.8s41mtsidx.webp)
 
 **【Paper】** Flow-Noise 在第 $k$ 个去噪步令下一状态服从高斯分布，均值保持原有 Euler 更新，协方差由噪声网络 $\sigma_{\theta'}$ 给出。该网络以当前噪声动作和观测为条件，与 velocity field 联合训练。
 
@@ -122,7 +122,7 @@ $$
 
 #### Critic placement
 
-![π0.5 将 critic 接在 VLM 输出后的结构（论文 Figure 4 右）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-pi-rl/pi-rl-critic-pi05-crop.9kgx4k93zk.webp)
+![π0.5 将 critic 接在 VLM 输出后的结构（论文 Figure 4 右）](https://pic.hana0721.top/blog/paper-deep-dive-pi-rl/pi-rl-critic-pi05-crop.9kgx4k93zk.webp)
 
 **【Paper】** $\pi_{0.5}$ 将 critic 接在融合多模态输入的 VLM 输出后得到 $V_{\mathrm{vlm}}(\mathbf{o}_t)$；$\pi_0$ 的 action expert 同时依赖 noisy action 和 state，论文以去噪时间上的 value 均值近似 observation-level value。共享 actor-critic backbone 的动机是降低额外显存。
 
@@ -248,7 +248,7 @@ $$
 
 ### 5.3 Ablation Study
 
-![Flow-SDE 中不同 MDP 表述的训练与评测曲线（论文消融图）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-pi-rl/pi-rl-mdp-ablation-crop.45iem4tyn8.webp)
+![Flow-SDE 中不同 MDP 表述的训练与评测曲线（论文消融图）](https://pic.hana0721.top/blog/paper-deep-dive-pi-rl/pi-rl-mdp-ablation-crop.45iem4tyn8.webp)
 
 **【Paper】** Flow-SDE 消融有三条直接结论：
 

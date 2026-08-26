@@ -75,7 +75,7 @@ import { Aside } from '@/components/user'
 
 **项目主页**：[Galaxea G0.5](https://opengalaxea.github.io/G05/)
 
-![G0.5 系统、ActionCodec、CoT 和实验结论总览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-g05/teaser.7sny8a8q34.webp)
+![G0.5 系统、ActionCodec、CoT 和实验结论总览（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-g05/teaser.7sny8a8q34.webp)
 
 ### 一句话总结
 
@@ -127,7 +127,7 @@ CoT 方面，bolt-on 方法把高层计划交给另一个 controller；ECoT 等 
 
 ### 4.1 Overall Architecture
 
-![G0.5 的单流架构与跨形态动作编码（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-g05/teaser.7sny8a8q34.webp)
+![G0.5 的单流架构与跨形态动作编码（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-g05/teaser.7sny8a8q34.webp)
 
 整体数据流是：多视角图像、instruction、proprioception 和 embodiment id 进入 Qwen3.5 2B 初始化的 VLM；decoder 先生成可选 CoT，再生成按 active 部件组织的离散 action codes；ActionCodec 将 codes 还原为统一 action space 中的连续 motor command。**【Paper】** 主实验默认使用 AR policy，flow-matching head 只是可选的部署/对照分支，不是训练主干。
 
@@ -140,7 +140,7 @@ CoT 方面，bolt-on 方法把高层计划交给另一个 controller；ECoT 等 
 - **输出**：每个 residual round 的部件 marker 和 8 个离散 code。
 - **为什么需要**：平坦向量会把形态差异和动作语义混在一起；部件化后，静止的右臂或底盘无需产生 token。
 
-![Structured ActionCodec：部件分组、RVQ 与 active token 序列（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-g05/tokenizer_v2.1764h94oiv.webp)
+![Structured ActionCodec：部件分组、RVQ 与 active token 序列（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-g05/tokenizer_v2.1764h94oiv.webp)
 
 **【Analysis】** 该设计把“跨机器人迁移”从 action head 的后处理变成 vocabulary 级别的归纳偏置。它的代价是需要为新部件定义稳定的语义分组，并维护 codec 的 reconstruction quality；论文没有给出新增 embodiment 的独立 scaling 曲线。
 
@@ -165,7 +165,7 @@ CoT span 可由四种字段的任意子集组成：
 
 #### 4.2.4 Single-stream token template
 
-![G0.5 的完整 token sequence template（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-g05/token_template.9o0j0wl5w7.webp)
+![G0.5 的完整 token sequence template（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-g05/token_template.9o0j0wl5w7.webp)
 
 条件段使用 user-side chat tokens，包含 images、embodiment、task、state 和 CoT prompt，并以 `<EOC>` 结束；生成段使用 assistant-side chat tokens，CoT 之后由 `<EOV>` 切换到 action codes。只有生成段计算 loss，因此输入图像和指令本身不被错误地当成 target。
 
@@ -253,7 +253,7 @@ $e_r$ 是第 $r$ 层 codebook，$c_r$ 是离散 code，$\hat a$ 是还原的连�
 | Real-world FT | R1-Lite/R1-Pro | 六个真实任务-形态设置 | 76.7% |
 | PP Bench | R1-Lite | 语言跟随与 pick-and-place | 75.0% success（50H） |
 
-![DROID 环境与物体级 zero-shot 任务及每任务结果（论文 Figure 5/6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-g05/droid_results.39lx5b38zi.webp)
+![DROID 环境与物体级 zero-shot 任务及每任务结果（论文 Figure 5/6）](https://pic.hana0721.top/blog/paper-deep-dive-g05/droid_results.39lx5b38zi.webp)
 
 ### 5.2 Main Results
 
@@ -271,7 +271,7 @@ $e_r$ 是第 $r$ 层 codebook，$c_r$ 是离散 code，$\hat a$ 是还原的连�
 
 #### CoT × action head
 
-![Air Fryer 与 Cook Bacon 上的 AR/FM × CoT zero-shot probe（论文 Figure 11）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-g05/cot_head_long_horizon.5mojmih23k.webp)
+![Air Fryer 与 Cook Bacon 上的 AR/FM × CoT zero-shot probe（论文 Figure 11）](https://pic.hana0721.top/blog/paper-deep-dive-g05/cot_head_long_horizon.5mojmih23k.webp)
 
 **【Paper】** 在同一个 pretrained checkpoint 上只切换 inference configuration：
 
@@ -288,7 +288,7 @@ AR + CoT 在语言跟随率和五阶段完成数上都最好。PP Bench 这种�
 
 #### RL compatibility
 
-![GRPO 微调中 AR 与 FM 的收敛曲线（论文 Figure 12）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-g05/rl_grpo.7i14f4thve.webp)
+![GRPO 微调中 AR 与 FM 的收敛曲线（论文 Figure 12）](https://pic.hana0721.top/blog/paper-deep-dive-g05/rl_grpo.7i14f4thve.webp)
 
 **【Paper】** 从每任务一条 demonstration 的 LIBERO policy 出发，AR 直接用 token-level log-probability 做 GRPO；FM 则需要给 denoising trajectory 加 SDE、离散化并近似 log-probability。AR 收敛更快、最终成功率更高且方差更小。论文把它解释为 likelihood parameterization 的结构优势，而不是声称所有 RL 算法都天然偏好 AR。
 

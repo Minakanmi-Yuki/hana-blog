@@ -42,7 +42,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** UMI（Universal Manipulation Interface）要解决的是一个很实际的矛盾：裸手视频足够便携却没有精确动作，传统 teleoperation 有动作却必须把机器人带到每个环境。作者把 GoPro、3D 打印平行夹爪和软指套在手上，直接在家庭、咖啡馆等环境采集“带动作的第一视角数据”，再把同样的摄像头和夹爪装到机器人上执行。
 
-![UMI 硬件与示教接口（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-umi/UMI_hardware_v2.szos3czxc.webp)
+![UMI 硬件与示教接口（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-umi/UMI_hardware_v2.szos3czxc.webp)
 
 ### 一句话总结
 
@@ -76,7 +76,7 @@ import { Aside } from '@/components/user'
 
 ### 4.1 Overall Architecture
 
-![UMI Policy Interface：同步观测、相对动作与延迟补偿（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-umi/UMI-method.lwgwnquct.webp)
+![UMI Policy Interface：同步观测、相对动作与延迟补偿（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-umi/UMI-method.lwgwnquct.webp)
 
 **【Paper】** 数据流为：GoPro 视频与 IMU → 视觉惯性 SLAM、镜像处理和夹爪跟踪 → 与机器人流对齐的相对观测 → Diffusion Policy → 带时间戳的相对 EE/夹爪动作。
 
@@ -151,13 +151,13 @@ $$t_{execute}=t_{obs}+\Delta_{obs}+\Delta_{infer}+\Delta_{act}$$
 
 ### 5.1 Experimental Setup
 
-![UMI 评测任务：杯子、动态投掷、双臂折衣与洗碗（论文 Figure 7）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-umi/UMI-Task.2yz3dv4lnp.webp)
+![UMI 评测任务：杯子、动态投掷、双臂折衣与洗碗（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-umi/UMI-Task.2yz3dv4lnp.webp)
 
 **【Paper】** 四类任务覆盖 prehensile/non-prehensile、动态、双臂、可变形物体和超长时序；每个任务在随机初始状态评估，并单独做镜头、动作空间、延迟和双臂 proprioception 消融。
 
 ### 5.2 Main Results
 
-![UMI 窄域与野外实验结果（论文 Figure 8/9）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-umi/UMI-eval.8l0trq5x3r.webp)
+![UMI 窄域与野外实验结果（论文 Figure 8/9）](https://pic.hana0721.top/blog/paper-deep-dive-umi/UMI-eval.8l0trq5x3r.webp)
 
 **【Paper】** 主要结果如下：
 
@@ -173,7 +173,7 @@ $$t_{execute}=t_{obs}+\Delta_{obs}+\Delta_{infer}+\Delta_{act}$$
 
 **【Paper】** 杯子任务中，去掉鱼眼降至 55%（11/20）；delta action 为 80%，absolute action 仅 25%；镜像未经数字反射为 85%，反射并交换左右后达到 100%。投掷任务关闭延迟匹配后由 87.5% 降至 57.5%；去掉双臂相对位姿后折衣由 70% 降至 30%；洗碗中不用 CLIP ViT、从零训练 ResNet-34 为 0/10。
 
-![相对轨迹动作表示（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-umi/UMI-Action_repr.4920k6mkyf.webp)
+![相对轨迹动作表示（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-umi/UMI-Action_repr.4920k6mkyf.webp)
 
 ### 5.4 Generalization
 

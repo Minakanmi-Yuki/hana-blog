@@ -70,7 +70,7 @@ import { Aside } from '@/components/user'
 3. 将探索从末端位姿/关节空间移到 action diffusion 的 latent noise 空间，减小毫米级任务中“加一点噪声就彻底失败”的问题。
 4. 在真实双臂移动操作机器人上完成鞋带穿过多个 eyelet，并展示掉落重抓、错位重试、重定向鞋子等恢复行为。
 
-![GR-RL 鞋带任务与三阶段训练流程（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-gr-rl/gr_rl_main.4joud0b2bb.webp)
+![GR-RL 鞋带任务与三阶段训练流程（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-gr-rl/gr_rl_main.4joud0b2bb.webp)
 
 ## 2. 背景与相关工作
 
@@ -108,7 +108,7 @@ $$
 
 GR-RL 由 VLA policy $\pi_\theta$ 和 multi-task critic $Q_\phi$ 组成，总参数量约 5B。VLA 读取视觉、语言和机器人状态，flow-matching DiT 输出动作 chunk；critic 对同一条件下的每个动作评估一段 Q 值。训练先用 critic 计算进度并筛选数据，再 BC 和镜像增强，最后冻结大部分 VLA、只在 latent noise 上做在线探索。
 
-![GR-RL 的 Mixture-of-Transformer 架构：VLA、Action Diffusion Transformer 与 Critic（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-gr-rl/model_arch.70b2rxhzol.webp)
+![GR-RL 的 Mixture-of-Transformer 架构：VLA、Action Diffusion Transformer 与 Critic（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-gr-rl/model_arch.70b2rxhzol.webp)
 
 ### 4.2 核心模块
 
@@ -121,7 +121,7 @@ GR-RL 由 VLA policy $\pi_\theta$ 和 multi-task critic $Q_\phi$ 组成，总参
 
 **【Paper】** distributional critic 将值限制在 $[0,1]$，相比无界回归更能抵抗长时域 sparse reward 的过估计。
 
-![成功轨迹上的学习到的任务进度示例（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-gr-rl/progress_main.5q85lm01a1.webp)
+![成功轨迹上的学习到的任务进度示例（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-gr-rl/progress_main.5q85lm01a1.webp)
 
 #### Filtered behavior cloning
 
@@ -202,21 +202,21 @@ $$
 
 **【Paper】** 任务是将鞋带依次穿过多个 eyelet，再把鞋带放回桌面。观测包含三路 RGB、proprioception 和自然语言指令；奖励为只有成功时为 1 的 binary sparse signal。实验使用 ByteMini-v2 双臂移动机器人。
 
-![ByteMini-v2：7-DoF 双臂移动操作机器人（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-gr-rl/bm_v2.b9n36l10r.webp)
+![ByteMini-v2：7-DoF 双臂移动操作机器人（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-gr-rl/bm_v2.b9n36l10r.webp)
 
 ### 5.2 Main Results
 
 **【Paper】** 多阶段消融的成功率为：GR-3 原始 BC 45.7%，加入 progress filtering 后 61.6%，再加入镜像增强后 72.7%，完整 GR-RL（含 online steering）83.3%。在线训练早期因 offline-to-online 分布偏移短暂下降，随后移动平均成功率超过 90%；最终采用 online step 500 的 checkpoint 做评测。
 
-![GR-RL 各训练阶段成功率及在线曲线（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-gr-rl/main_metric.8s41mu1g3c.webp)
+![GR-RL 各训练阶段成功率及在线曲线（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-gr-rl/main_metric.8s41mu1g3c.webp)
 
 ### 5.3 Ablation Study
 
 **【Paper】** 非分布式 critic 会在长时域 sparse reward 下严重过估计，早期状态的值尺度失真；distributional critic 的值被限制在预设范围内，能更稳定地反映时间顺序。直接回归成功轨迹的 $t/T$ 也会过度平滑，难以捕捉“只差几毫米”的插入失败和具有长期影响的重新抓取。
 
-![分布式与非分布式 critic 的进度预测对比（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-gr-rl/progress_ablation.9kgx4ki3os.webp)
+![分布式与非分布式 critic 的进度预测对比（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-gr-rl/progress_ablation.9kgx4ki3os.webp)
 
-![不同训练阶段的中间步骤成功率（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-gr-rl/bar_stage_label.3nscxk1jmc.webp)
+![不同训练阶段的中间步骤成功率（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-gr-rl/bar_stage_label.3nscxk1jmc.webp)
 
 ### 5.4 Generalization
 

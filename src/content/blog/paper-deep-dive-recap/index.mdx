@@ -64,7 +64,7 @@ import { Aside } from '@/components/user'
 
 **代码链接**：[Physical-Intelligence/openpi](https://github.com/Physical-Intelligence/openpi)
 
-![RECAP 通过奖励反馈与人工干预训练 VLA（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-recap/teaser.54yhxzhf3t.webp)
+![RECAP 通过奖励反馈与人工干预训练 VLA（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-recap/teaser.54yhxzhf3t.webp)
 
 ### 一句话总结
 
@@ -122,7 +122,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![π*₀.₆ VLA 与 value function 的交互（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-recap/architecture.2ksnlchfy4.webp)
+![π*₀.₆ VLA 与 value function 的交互（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-recap/architecture.2ksnlchfy4.webp)
 
 **【Paper】** RECAP 的数据流可以浓缩成一句话：VLA 在任务上试验并收集轨迹，value function 把每个状态映射到成功进度，再将 advantage 的正负作为策略输入，重新训练出更偏向成功行为的 VLA。
 
@@ -252,9 +252,9 @@ $$
 
 ### 5.1 Experimental Setup
 
-![论文实验任务：洗衣、纸箱装配与咖啡制作（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-recap/tasks.4920ij7ql4.webp)
+![论文实验任务：洗衣、纸箱装配与咖啡制作（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-recap/tasks.4920ij7ql4.webp)
 
-![实验中的双臂机器人与三路相机（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-recap/robot.1sfs3m0um5.webp)
+![实验中的双臂机器人与三路相机（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-recap/robot.1sfs3m0um5.webp)
 
 **【Paper】** 评估包含五类设置：
 
@@ -268,7 +268,7 @@ $$
 
 ### 5.2 Main Results
 
-![Diverse laundry 的吞吐量结果（论文 Figure 6 中的子图）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-recap/diverse-throughput.5q85kabv87.webp)
+![Diverse laundry 的吞吐量结果（论文 Figure 6 中的子图）](https://pic.hana0721.top/blog/paper-deep-dive-recap/diverse-throughput.5q85kabv87.webp)
 
 **【Paper】** 最终 RECAP policy 相比 offline RL + SFT 基线，在 diverse laundry 和 espresso 上的 throughput 超过 2 倍，失败率约下降 2 倍。简单 T-shirt / shorts 任务在 SFT 后成功率已经接近上限，RECAP 的主要收益转化为更快执行。Box assembly 的四个子阶段（取板、成盒、贴标、入 crate）均获得更一致的成功率，最终在 600 秒限制内折叠和贴标都达到约 90% 成功率。
 
@@ -278,7 +278,7 @@ $$
 
 **【Paper】** 论文比较了三种 policy extraction：RECAP 的 advantage conditioning、AWR 和 PPO。使用同一批机器人数据时，AWR 可以获得合理 success rate，但策略明显更慢；PPO 需要很小的 trust-region constraint（$\eta=0.01$）才能稳定，在 throughput 上仍难以超过 offline RL + SFT。RECAP 同时保持成功率和速度。
 
-![严格领口朝向任务的失败模式移除结果（论文 Figure 12）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-recap/failure-success.362b7nbwmj.webp)
+![严格领口朝向任务的失败模式移除结果（论文 Figure 12）](https://pic.hana0721.top/blog/paper-deep-dive-recap/failure-success.362b7nbwmj.webp)
 
 **【Paper】** 在 targeted failure removal 中，每轮收集 600 条轨迹，迭代两轮后成功率达到 97%，即使不使用额外 demonstration 或 intervention，也能消除基线常把领口朝下的错误。
 

@@ -44,7 +44,7 @@ import { Aside } from '@/components/user'
 
 **官方代码**：[google-deepmind/open_x_embodiment](https://github.com/google-deepmind/open_x_embodiment)
 
-![Open X-Embodiment 数据与机器人多样性总览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-open-x-embodiment/oxe-overview.7sny9zvf5j.webp)
+![Open X-Embodiment 数据与机器人多样性总览（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-open-x-embodiment/oxe-overview.7sny9zvf5j.webp)
 
 ### 一句话总结
 
@@ -92,7 +92,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![RT-1-X 与 RT-2-X 架构及离散动作输出（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-open-x-embodiment/rtx-architecture.86ue0v3qzc.webp)
+![RT-1-X 与 RT-2-X 架构及离散动作输出（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-open-x-embodiment/rtx-architecture.86ue0v3qzc.webp)
 
 **【Paper】** 两个模型共享“图像 + 语言 → 离散 end-effector action”的接口：RT-1-X 使用 FiLM-conditioned EfficientNet 与 decoder-only Transformer；RT-2-X 则把动作序列写成文本 token，与 Web-scale vision-language 数据 co-fine-tune。
 
@@ -179,13 +179,13 @@ $$
 
 ### 5.1 Experimental Setup
 
-![OXE 数据集构成：数据集、embodiment、轨迹、技能与对象多样性（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-open-x-embodiment/oxe-overview.7sny9zvf5j.webp)
+![OXE 数据集构成：数据集、embodiment、轨迹、技能与对象多样性（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-open-x-embodiment/oxe-overview.7sny9zvf5j.webp)
 
 **【Paper】** 论文共进行 3,600 次试验，覆盖 6 个真实机器人。小数据域包括 Kitchen Manipulation、Cable Routing、NYU Door Opening、AUTOLab UR5 和 Robot Play；大数据域包括 Bridge 与 RT-1 paper data。比较对象是各数据集原作者方法、单数据集 RT-1，以及 RT-X。
 
 ### 5.2 Main Results
 
-![RT-1-X 在五个小数据域及均值上的成功率比较（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-open-x-embodiment/rt1x-results.pg2udq06r.webp)
+![RT-1-X 在五个小数据域及均值上的成功率比较（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-open-x-embodiment/rt1x-results.pg2udq06r.webp)
 
 **【Paper】** 在 5 个小数据域中，RT-1-X 有 4 个超过 Original Method；图中均值约为 Original Method 的 1.5 倍，提升主要来自数据稀缺域的正迁移。
 
@@ -193,7 +193,7 @@ $$
 
 ### 5.3 Ablation Study
 
-![RT-2-X 跨 embodiment emergent skills 任务示例（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-open-x-embodiment/rt2x-emergent.58i3xcvhff.webp)
+![RT-2-X 跨 embodiment emergent skills 任务示例（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-open-x-embodiment/rt2x-emergent.58i3xcvhff.webp)
 
 | 设置 | Emergent skills | RT-2 generalization |
 | --- | ---: | ---: |

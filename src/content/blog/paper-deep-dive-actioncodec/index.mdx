@@ -52,7 +52,7 @@ import { Aside } from '@/components/user'
 **代码链接**：[ZibinDong/actioncodec](https://github.com/ZibinDong/actioncodec)  
 **模型**：[ActionCodec-Base](https://huggingface.co/ZibinDong/ActionCodec-Base)
 
-![ActionCodec 总览与 LIBERO 训练曲线（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-actioncodec/figure1.8dxlulzblh.webp)
+![ActionCodec 总览与 LIBERO 训练曲线（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-actioncodec/figure1.8dxlulzblh.webp)
 
 ### 一句话总结
 
@@ -98,7 +98,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![ActionCodec 的 Perceiver-like VQ tokenizer 架构（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-actioncodec/arch.45ieks92x9.webp)
+![ActionCodec 的 Perceiver-like VQ tokenizer 架构（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-actioncodec/arch.45ieks92x9.webp)
 
 **【Paper】** 数据流是 `action chunk → Perceiver encoder → vector quantization → discrete action tokens → Perceiver decoder → reconstructed action`；VLA 只把量化 token 当作监督目标，训练与推理流程分别见 4.4 和 4.5。
 
@@ -121,7 +121,7 @@ $$
 
 **【Paper】** Time Contrastive Learning（TCL）拉近相邻动作 chunk 的 latent，CLIP loss 让 token 与语言描述对齐；每个 embodiment 还有独立 learnable soft prompt，配合 Fourier timestamp encoding 表达控制频率和机械约束。
 
-![视觉语言对齐与 latent 结构（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-actioncodec/vl_align.5mojmjd7ov.webp)
+![视觉语言对齐与 latent 结构（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-actioncodec/vl_align.5mojmjd7ov.webp)
 
 ### 4.3 关键公式
 
@@ -209,7 +209,7 @@ $$
 
 ### 5.1 Experimental Setup
 
-![ActionCodec 的仿真与真实机器人评测任务（论文 Figure 7）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-actioncodec/benchmarks.7p4calbt0n.webp)
+![ActionCodec 的仿真与真实机器人评测任务（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-actioncodec/benchmarks.7p4calbt0n.webp)
 
 **【Paper】** 评测覆盖 LIBERO 四个 suite、SimplerWidowX、SO100-ShapeSorter 和 xArm-PickVeg。LIBERO 使用 50 个预定义初始状态，每个任务 50 次 trial；SO100 使用两台 480×640 RGB 相机、30 Hz、每个数字 50 条示教；xArm 每种蔬菜 30 条示教。
 
@@ -228,11 +228,11 @@ $$
 
 ### 5.3 Ablation Study
 
-![独立 token、Self-Attention 与 Causal 架构的误差传播实验（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-actioncodec/grammar.8okfnrek4k.webp)
+![独立 token、Self-Attention 与 Causal 架构的误差传播实验（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-actioncodec/grammar.8okfnrek4k.webp)
 
 **【Paper】** 70% overlap rate 在 500 steps 达到 33.4% success，而 vanilla VQ-VAE 只有 8.2%、FAST 只有 2%。固定 overlap 后，$n=16$、$S=2048$ 是容量和过拟合之间的实用折中。独立 tokenization 比 SA 和 causal-SA 更抗 token 扰动；soft prompt、RVQ post-training 和 co-training 分别贡献跨 embodiment 迁移、重建精度和恢复行为。
 
-![RVQ post-training：冻结主 codebook 后增加 residual codebook（论文 Appendix Figure）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-actioncodec/RVQft.5c1ptdxzvu.webp)
+![RVQ post-training：冻结主 codebook 后增加 residual codebook（论文 Appendix Figure）](https://pic.hana0721.top/blog/paper-deep-dive-actioncodec/RVQft.5c1ptdxzvu.webp)
 
 ### 5.4 Generalization
 

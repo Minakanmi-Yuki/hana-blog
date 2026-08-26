@@ -52,7 +52,7 @@ import { Aside } from '@/components/user'
 **项目主页**：[RDT Robotics](https://rdt-robotics.github.io/rdt-robotics/)
 
 <img
-  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rdt-1b/head-crop.6f1f47imtc.webp'
+  src='https://pic.hana0721.top/blog/paper-deep-dive-rdt-1b/head-crop.6f1f47imtc.webp'
   alt='RDT-1B 双臂操作总览（论文 Figure 1）'
   class='zoomable'
   width='2423'
@@ -107,7 +107,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![RDT framework：多机器人动作映射到统一空间，并由图像、语言和低维状态条件化（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rdt-1b/framework-crop.99u39zxsqs.webp)
+![RDT framework：多机器人动作映射到统一空间，并由图像、语言和低维状态条件化（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-rdt-1b/framework-crop.99u39zxsqs.webp)
 
 **【Paper】** 数据流可以压缩成一句话：状态与带噪动作先组成主序列，图像和语言分别编码为条件 token，RDT block 交替做 language/image cross-attention，最后只保留动作 token 并解码为去噪后的动作 chunk。训练与推理的逐步过程分别放在 4.4 和 4.5。
 
@@ -234,7 +234,7 @@ $$
 
 ### 5.1 Experimental Setup
 
-![RDT 微调数据集：多视角图像、双臂状态和多任务示教（论文 Appendix Figure）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rdt-1b/ft_dataset-crop.1zizyy67ux.webp)
+![RDT 微调数据集：多视角图像、双臂状态和多任务示教（论文 Appendix Figure）](https://pic.hana0721.top/blog/paper-deep-dive-rdt-1b/ft_dataset-crop.1zizyy67ux.webp)
 
 **【Paper】** 微调数据来自 Mobile ALOHA，覆盖 300+ challenging tasks、100+ objects、15+ rooms 和 6K+ trajectories。论文将测试维度拆为未见物体、未见场景、指令跟随、few-shot learning 与 dexterity，并与 ACT、OpenVLA、Octo 以及 RDT scratch 比较。
 
@@ -257,7 +257,7 @@ $$
 
 ### 5.3 Ablation Study
 
-![RDT 消融：去掉 diffusion、模型规模或预训练后的成功率变化（论文消融图）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rdt-1b/ablation-crop.2h91nj7l6v.webp)
+![RDT 消融：去掉 diffusion、模型规模或预训练后的成功率变化（论文消融图）](https://pic.hana0721.top/blog/paper-deep-dive-rdt-1b/ablation-crop.2h91nj7l6v.webp)
 
 **【Paper】** 消融包含四个版本：
 

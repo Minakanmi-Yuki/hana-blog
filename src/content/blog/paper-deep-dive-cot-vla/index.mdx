@@ -58,7 +58,7 @@ import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
 
 **论文 / 项目 / 基座代码**：[arXiv](https://arxiv.org/abs/2503.22020) · [Project Page](https://cot-vla.github.io/) · [VILA](https://github.com/NVlabs/VILA)
 
-![CoT-VLA 与 vanilla VLA 的对比：先生成 goal image，再生成 action chunk（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-cot-vla/teaser.6t7uuztgyt.webp)
+![CoT-VLA 与 vanilla VLA 的对比：先生成 goal image，再生成 action chunk（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-cot-vla/teaser.6t7uuztgyt.webp)
 
 ### 一句话总结
 
@@ -125,7 +125,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![CoT-VLA 总体架构：VILA-U 先生成视觉子目标，再并行生成动作并闭环执行（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-cot-vla/method.5q85k3xnaw.webp)
+![CoT-VLA 总体架构：VILA-U 先生成视觉子目标，再并行生成动作并闭环执行（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-cot-vla/method.5q85k3xnaw.webp)
 
 **【Paper】** CoT-VLA 建立在 VILA-U 7B 上。模型接收当前 observation image 和 text instruction，先以 causal attention 自回归生成 subgoal image 的 visual tokens；随后把当前观测、指令和生成的 subgoal image 一起作为动作条件，以 full attention 预测一段 action tokens。机器人执行这段动作后重新捕获观测，形成 closed-loop control。
 
@@ -165,7 +165,7 @@ action chunk ──执行──> 新观测 ──循环──┘
 
 #### Hybrid attention
 
-![CoT-VLA 的 hybrid attention：图像与文本用 causal attention，动作 token 用 full attention（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-cot-vla/attention.1e9cckec0n.webp)
+![CoT-VLA 的 hybrid attention：图像与文本用 causal attention，动作 token 用 full attention（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-cot-vla/attention.1e9cckec0n.webp)
 
 **【Paper】** 图像和文本生成仍保持 causal attention，因为它们需要自回归地预测下一个 token；动作序列则使用 full attention，让一个 action chunk 内的所有 action dimensions 和时间位置相互可见。图中 $[x]$、$[\theta]$、$[g]$ 分别表示平移、旋转和夹爪相关的 action token。
 
@@ -261,7 +261,7 @@ $$
 
 基线包括从零训练的 Diffusion Policy、OpenX 预训练的 OpenVLA、Octo，以及 Bridge-V2 上的 SUSIE。LIBERO 每个 suite 使用 3 个随机种子、500 个 episodes 报告均值和标准误；Bridge-V2 每类任务测试 10 次。
 
-![CoT-VLA 在 LIBERO、Bridge-V2 和 Franka-Tabletop 上的执行示例（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-cot-vla/rollout.9ddp7mtgmr.webp)
+![CoT-VLA 在 LIBERO、Bridge-V2 和 Franka-Tabletop 上的执行示例（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-cot-vla/rollout.9ddp7mtgmr.webp)
 
 ### 5.2 Main Results
 
@@ -276,7 +276,7 @@ $$
 
 CoT-VLA 的平均成功率相对 OpenVLA 高 4.63 个百分点，提升最大的是 LIBERO-Long：69.0% 对 53.7%，高出 15.3 个百分点。论文同时报告，CoT-VLA 在 Object suite 不是最高，Diffusion Policy 达到 92.5%；因此本文的优势并非所有任务都由 visual CoT 单独决定，而是更集中体现在语言条件、长时序和目标理解上。
 
-![Franka-Tabletop 六个操作任务的对比结果（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-cot-vla/franka.lwgutxs48.webp)
+![Franka-Tabletop 六个操作任务的对比结果（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-cot-vla/franka.lwgutxs48.webp)
 
 **【Paper】** 在 Franka-Tabletop 上，作者报告 CoT-VLA 的六任务平均表现最高。Diffusion Policy 在单指令窄域任务上有竞争力，但在包含多种物体和复杂语言的 multi-instruction 任务上下降明显；预训练过 OpenX 的 Octo、OpenVLA 和 CoT-VLA 更能利用语言 grounding。
 
@@ -293,7 +293,7 @@ CoT-VLA 在 motion 和 semantic 泛化上最好，但在 visual 与 language 两
 
 ### 5.3 Ablation Study
 
-![Action Chunking、Hybrid Attention、Visual CoT 与预训练的消融结果（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-cot-vla/ablation.8s41lbz1mj.webp)
+![Action Chunking、Hybrid Attention、Visual CoT 与预训练的消融结果（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-cot-vla/ablation.8s41lbz1mj.webp)
 
 **【Paper】** 作者在 LIBERO-Spatial 和 LIBERO-Goal 逐步加入三个组件：action chunking、hybrid attention、visual CoT。结果如下：
 

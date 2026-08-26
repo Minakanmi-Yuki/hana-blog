@@ -57,7 +57,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** RLinf-VLA 不是一个新的 VLA backbone，而是一套面向 VLA 强化学习（RL）的系统与算法实践：它统一了模型、环境和 RL 算法接口，再通过可配置的 GPU allocation 与 rollout pipeline，让“生成动作—模拟器执行—策略更新”这条闭环更容易扩展和复现。
 
-![RLinf-VLA 系统总览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rlinf-vla/overview.2h91ozhq5l.webp)
+![RLinf-VLA 系统总览（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-rlinf-vla/overview.2h91ozhq5l.webp)
 
 ### 核心贡献
 
@@ -99,7 +99,7 @@ Observation → Generation(VLA) → Action/Chunk → Simulator → Reward/next O
        └────────────────────── Training(PPO/GRPO) ─────────────┘
 ```
 
-![VLA 强化学习 rollout pipeline（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rlinf-vla/rollout.1sfs4yu7e7.webp)
+![VLA 强化学习 rollout pipeline（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-rlinf-vla/rollout.1sfs4yu7e7.webp)
 
 ## 4. 方法
 
@@ -115,7 +115,7 @@ RLinf-VLA 将一次 RL epoch 拆成三个组件：**Generation** 负责按 obser
 | Disaggregated | 每个组件使用互不重叠的 GPU 分区 | 组件间互不干扰 | rollout 等待 Training 时会有整块 GPU 空闲 |
 | Hybrid | Generation/Simulator 分区，Training 可覆盖全部 GPU | 兼顾隔离和利用率 | 需要 placement 与 pipeline 调参 |
 
-![Hybrid allocation with fine-grained pipeline（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rlinf-vla/hybrid-pipeline.szorsrfr3.webp)
+![Hybrid allocation with fine-grained pipeline（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-rlinf-vla/hybrid-pipeline.szorsrfr3.webp)
 
 ### 4.2 核心模块
 
@@ -241,7 +241,7 @@ $$
 | LIBERO | 一个模型联合训练 5 个 task group，共 130 个任务；每任务 50 episode、3 个 seeds | 大规模 multitask 与 GRPO 泛化 |
 | RoboTwin | 6 个任务，每任务 1000 个固定训练 scene seeds | 128 个未见 seeds 的 OOD success |
 
-![LIBERO-130 训练曲线（论文 Figure 7）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rlinf-vla/libero.3d5j4frei7.webp)
+![LIBERO-130 训练曲线（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-rlinf-vla/libero.3d5j4frei7.webp)
 
 ### 5.2 Main Results
 
@@ -252,13 +252,13 @@ $$
 - **RoboTwin**：6 个任务平均 **84.63%**，平均提升超过 60%；在 Bottles、Can、Hand 等困难任务上超过 SimpleVLA-RL。
 - **真实 drawer-closing 初步实验**：SFT-only 与 sim-RL 模型均为 8/10 success，但 RL 模型执行更直接；这只是小规模 transfer 证据，不是大规模 real-world benchmark。
 
-![不同 GPU allocation 与 pipeline 的吞吐比较（论文 Figure 9）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rlinf-vla/efficiency.2yz3dkj359.webp)
+![不同 GPU allocation 与 pipeline 的吞吐比较（论文 Figure 9）](https://pic.hana0721.top/blog/paper-deep-dive-rlinf-vla/efficiency.2yz3dkj359.webp)
 
 系统效率方面，ManiSkill 上 OpenVLA 的 hybrid `pipe=2` 相比 disaggregated baseline 最高 **1.88×**，常见设置保持 **1.61×–1.69×** 优势；LIBERO/RoboTwin 的 collocated 设置相较 SimpleVLA-RL 最高达到 **2.27×** 加速。**【Paper】** 最优模式依赖 simulator 是否 GPU-parallelized、模型是否输出 action chunk，以及 Generation/Simulator 的耗时比例。
 
 ### 5.3 Ablation Study
 
-![PPO 中 action-level 与 chunk-level value 的消融（论文 Figure 11）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rlinf-vla/ablation-value.4g58fbn7uw.webp)
+![PPO 中 action-level 与 chunk-level value 的消融（论文 Figure 11）](https://pic.hana0721.top/blog/paper-deep-dive-rlinf-vla/ablation-value.4g58fbn7uw.webp)
 
 **【Paper】** 消融给出几条可复用的经验：
 

@@ -45,7 +45,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** 这篇论文的核心问题是：一个已经在多种机器人数据上预训练的 Vision-Language-Action（VLA）模型，为什么仍然无法直接控制一台从未见过的机器人？作者的答案不是继续扩大 embodiment 覆盖，而是重新设计动作监督信号：把“向前移动 5 cm、逆时针旋转 20°”这类低层动作写成自然语言（language-action）。
 
-![LAP 的总体目标与 LAP-3B 概览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lap/overview-crop.1764h932r4.webp)
+![LAP 的总体目标与 LAP-3B 概览（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-lap/overview-crop.1764h932r4.webp)
 
 ### 一句话总结
 
@@ -84,7 +84,7 @@ import { Aside } from '@/components/user'
 
 ### 4.1 Overall Architecture
 
-![LAP-3B 的语言动作监督、Mixture-of-Transformers 与 flow action expert（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lap/method-crop.szoqdur73.webp)
+![LAP-3B 的语言动作监督、Mixture-of-Transformers 与 flow action expert（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-lap/method-crop.szoqdur73.webp)
 
 **【Paper】** 图像、状态和指令进入 PaliGemma VLM；VLM 以语言 token 形式预测动作描述，轻量 action expert 通过 cross-attention 读取 VLM 表示并以 flow matching 生成连续动作。两条分支共享输入，但 action expert 的梯度被阻断，不让低层控制损坏 VLM 的语言视觉知识。
 
@@ -197,7 +197,7 @@ $$
 
 ### 5.1 Experimental Setup
 
-![LAP-3B 的零样本跨 embodiment 评测设置（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lap/zeroshot-crop.8dxlul1lgm.webp)
+![LAP-3B 的零样本跨 embodiment 评测设置（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-lap/zeroshot-crop.8dxlul1lgm.webp)
 
 **【Paper】** 评测覆盖 DROID（seen）、Custom Franka、YAM、Kinova（三个 unseen），任务包括 pick-and-place、sort、tissue、put towel 和 pour。每个 embodiment 的两个任务各运行 20 次，成功必须完成整个任务；置信区间采用有限样本有效的 95% binomial interval。论文总计进行了 1300 多次真实机器人试验。
 
@@ -211,13 +211,13 @@ $$
 | Unseen Franka / YAM / Kinova | 平均成功率 >50%                                                         | 语义意图与低层 embodiment 解耦               |
 | 复制基线                     | $\pi_{0.5}$-replicated、$\pi_0$-replicated 明显落后；VLA-0 常输出小动作 | 任意 token 或纯 action expert 监督更易过拟合 |
 
-![LAP-3B 在 LIBERO 与真实任务上的 fine-tuning 效率（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lap/finetune-crop.67y78t9vg1.webp)
+![LAP-3B 在 LIBERO 与真实任务上的 fine-tuning 效率（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-lap/finetune-crop.67y78t9vg1.webp)
 
 **【Paper】** 在 LIBERO 上，LAP-3B 一个 epoch 已达 78% 成功率，六个 epoch 达 96.8%；真实 Hang Tape on Rack 任务达到约 50% progress 时只需 20 条示教，约比 baseline 少 2.5 倍数据。
 
 ### 5.3 Ablation Study
 
-![LAP-3B 的表示、unseen action error 与 VQA co-training 分析（论文 Figure 5/8）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lap/analysis-crop.7q14308xf.webp)
+![LAP-3B 的表示、unseen action error 与 VQA co-training 分析（论文 Figure 5/8）](https://pic.hana0721.top/blog/paper-deep-dive-lap/analysis-crop.7q14308xf.webp)
 
 **【Paper】**
 
@@ -226,7 +226,7 @@ $$
 - motion-prediction VQA co-training 提升 Custom Franka/YAM 成功率，并在 LIBERO 将平均成绩从 96.8% 提升到 97.2%。
 - 在 Gemma3 4B、12B、27B scaling 实验中，LAP 的 token 与 action validation loss 随模型规模单调改善，而 $\pi_{0.5}$-replicated 更早饱和甚至退化。
 
-![Motion-prediction VQA co-training 的成功率对比（论文 Figure 8）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lap/cotrain-crop.6wrgstxefa.webp)
+![Motion-prediction VQA co-training 的成功率对比（论文 Figure 8）](https://pic.hana0721.top/blog/paper-deep-dive-lap/cotrain-crop.6wrgstxefa.webp)
 
 ### 5.4 Generalization
 

@@ -40,7 +40,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】**《DexUMI: Using Human Hand as the Universal Manipulation Interface for Dexterous Manipulation》把 embodiment gap 拆成 action/kinematic gap 与 visual gap，分别用硬件和软件适配处理：外骨骼约束人手运动并记录编码器、腕姿态、视觉和触觉；离线流水线再把人手区域替换成目标机器人手。
 
-![DexUMI 从人类示教到不同机器人手执行的总览（论文 Teaser）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dexumi/teaser.webp)
+![DexUMI 从人类示教到不同机器人手执行的总览（论文 Teaser）](https://pic.hana0721.top/blog/paper-deep-dive-dexumi/teaser.webp)
 
 ### 一句话总结
 
@@ -72,7 +72,7 @@ import { Aside } from '@/components/user'
 
 ### 4.1 Overall Architecture
 
-![DexUMI 的硬件适配架构（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dexumi/hardware-method.webp)
+![DexUMI 的硬件适配架构（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-dexumi/hardware-method.webp)
 
 **【Paper】** 数据流为“外骨骼示教 → 时间对齐与动作映射 → 机器人手回放 → 人手分割/背景修复/机器人手合成 → DINO-V2 + tactile 的 Diffusion Policy”。部署时只保留机器人侧传感器。
 
@@ -82,7 +82,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** 外骨骼参数 (mathbf p) 包括关节位置和连杆长度。目标是匹配指尖在 (SE(3)) 中的运动映射，并以参数边界保证佩戴性和拇指避碰。XHand 可从 URDF 初始化；Inspire 的闭环连杆先用动捕指尖轨迹，再用等 DoF 四连杆拟合。
 
-![外骨骼与传感器设计（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dexumi/hardware-method.webp)
+![外骨骼与传感器设计（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-dexumi/hardware-method.webp)
 
 #### 传感器与动作映射
 
@@ -91,7 +91,7 @@ import { Aside } from '@/components/user'
 
 #### 软件适配
 
-![视觉适配流水线：分割、背景修复与机器人手合成（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dexumi/software-method.webp)
+![视觉适配流水线：分割、背景修复与机器人手合成（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-dexumi/software-method.webp)
 
 **【Paper】** (1) SAM2 分割人手/外骨骼；(2) ProPainter 修复被删背景；(3) 回放同一组动作录制机器人手视频并再次分割；(4) 用两种 mask 的交集进行遮挡感知合成。
 
@@ -155,13 +155,13 @@ $$
 
 ### 5.1 Experimental Setup
 
-![Cube、Egg Carton、Tea 与 Kitchen 四类任务（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dexumi/experiment.webp)
+![Cube、Egg Carton、Tea 与 Kitchen 四类任务（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-dexumi/experiment.webp)
 
 **【Paper】** 每任务评估 20 个 episode，并复用各方法的初始物体配置。Cube 测试精确抓取；Egg Carton 测试多指协同；Tea 要求用镊子夹茶叶；Kitchen 包含关火旋钮、搬锅、抓盐和撒盐。
 
 ### 5.2 Main Results
 
-![相对/绝对手动作与触觉对比（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dexumi/comparison.webp)
+![相对/绝对手动作与触觉对比（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-dexumi/comparison.webp)
 
 **【Paper】** 完整系统在 Inspire 的 Cube/Carton/Tea(tool、leaf) 上为 1.00/0.85/1.00/0.85；XHand Tea 为 1.00/0.85，Kitchen 的 knob/pan/salt 为 0.95/0.95/0.75。摘要报告平均成功率约 86%。
 
@@ -171,7 +171,7 @@ $$
 
 ### 5.4 Generalization
 
-![DexUMI 的数据采集效率对比（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dexumi/efficiency.webp)
+![DexUMI 的数据采集效率对比（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-dexumi/efficiency.webp)
 
 **【Paper】** 15 分钟采集实验显示，DexUMI 虽比裸手慢，但 collection throughput 是 teleoperation 的 3.2 倍；两种手型都能完成精细、接触丰富和长时序任务。
 

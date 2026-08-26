@@ -58,7 +58,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】**本文的目标不是提出一个新的视觉策略，而是解决“策略缺数据”的上游瓶颈：把人类第一视角示教转换成带有精确末端轨迹、夹爪开合和同步视频的机器人数据，并且尽量不绑定某一种机械臂或夹爪。FastUMI 在 UMI 的基础上重做机械结构，以 RealSense T265 直接提供跟踪位姿，配套 ROS 采集和 HDF5/Zarr 转换工具，并公开超过 10,000 条、覆盖 22 个日常任务的示教轨迹。
 
-![FastUMI 手持设备与机器人端设备总览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-fastumi/fastumi-overview.webp)
+![FastUMI 手持设备与机器人端设备总览（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-fastumi/fastumi-overview.webp)
 
 ### 一句话总结
 
@@ -115,7 +115,7 @@ FastUMI 可以看作三层：硬件层负责一致视角与位姿，采集层负
 
 **【Paper】**先将 T265 位姿加上相机到夹爪的偏移，得到基座坐标系下的绝对 TCP；相邻绝对 TCP 相减得到 relative TCP；最后用 URDF 和连续初值求 IK 得到 absolute joint。
 
-![T265 到 TCP、基座坐标与偏移的变换示意（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-fastumi/fastumi-transformation.webp)
+![T265 到 TCP、基座坐标与偏移的变换示意（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-fastumi/fastumi-transformation.webp)
 
 **【Code】**代码中的 `base_position`、`base_orientation`、`offset` 和 `flange_to_tcp` 全部放在 `config/config.json`。IK 使用 `ikpy.chain.Chain.from_urdf_file`，上一帧关节解作为下一帧初值，减少时间序列中的跳变。
 
@@ -203,9 +203,9 @@ PoseACT 将 action 改成绝对或相对 TCP pose，推理时再通过机器人�
 
 **【Paper】**数据集包含 22 个日常任务；策略评测选取 12 个任务：4 个 hinged、6 个 pick-place、1 个 pick-push 和 1 个 button press。每个任务训练 200 条示教，每次测试 15 次。T265 与 RoboBaton MINI 的位姿误差在 Pick Cup、Open Container、Rearrange Coke 等任务上用 MoCap 参考进行比较。
 
-![FastUMI 数据集任务与示教数量分布（论文 Figure 8）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-fastumi/fastumi-dataset.webp)
+![FastUMI 数据集任务与示教数量分布（论文 Figure 8）](https://pic.hana0721.top/blog/paper-deep-dive-fastumi/fastumi-dataset.webp)
 
-![12 个真实机器人评测任务（论文 Figure 9）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-fastumi/fastumi-tasks.webp)
+![12 个真实机器人评测任务（论文 Figure 9）](https://pic.hana0721.top/blog/paper-deep-dive-fastumi/fastumi-tasks.webp)
 
 ### 5.2 Main Results
 
@@ -240,7 +240,7 @@ PoseACT 将 action 改成绝对或相对 TCP pose，推理时再通过机器人�
 | Pick Bear | 20.00 | 60.00 | 80.00 | 73.33 |
 | Sweep Trash | 6.67 | 26.67 | 53.33 | 60.00 |
 
-![Depth-Enhanced DP 的深度映射过程（论文 Figure 7）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-fastumi/fastumi-depth.webp)
+![Depth-Enhanced DP 的深度映射过程（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-fastumi/fastumi-depth.webp)
 
 **【Paper】**深度输入对需要垂直对齐或按压的任务提升明显；GRU 平滑减少非法关节跳变；relative TCP 对长轨迹更好，但会牺牲部分绝对高度信息。
 

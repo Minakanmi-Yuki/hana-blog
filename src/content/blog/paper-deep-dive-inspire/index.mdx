@@ -44,7 +44,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】**《InSpire: Vision-Language-Action Models with Intrinsic Spatial Reasoning》关注一个很具体、但经常被 VLA 忽略的问题：模型可能记住背景、物体颜色或场景布局与动作之间的偶然共现，而没有真正理解“语言指令中的哪个物体在机器人的哪个方向”。一旦测试分布改变，这种 shortcut learning 就会失效。
 
-![InSpire 论文 Figure 1：直接观测到动作映射与空间推理桥接的对比](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-inspire/mtv-icra.13mijdy38b.webp)
+![InSpire 论文 Figure 1：直接观测到动作映射与空间推理桥接的对比](https://pic.hana0721.top/blog/paper-deep-dive-inspire/mtv-icra.13mijdy38b.webp)
 
 ### 一句话总结
 
@@ -110,7 +110,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![InSpire 论文 Figure 2：在 VLA 中插入空间 VQA 的整体架构](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-inspire/method.5c1pt7oby4.webp)
+![InSpire 论文 Figure 2：在 VLA 中插入空间 VQA 的整体架构](https://pic.hana0721.top/blog/paper-deep-dive-inspire/method.5c1pt7oby4.webp)
 
 **【Paper】** 图像与语言指令进入 VLA 后，模型先回答目标物体相对机器人的方向，再将问题和答案作为文本上下文，输出最终 action token；同一次观测可以对指令中识别出的多个目标物体重复这个过程。
 
@@ -124,7 +124,7 @@ $$
 
 #### 2. 规则空间标签
 
-![InSpire 论文 Figure 3：由末端与目标位置生成方向标签](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-inspire/labels2.70b2qeem3x.webp)
+![InSpire 论文 Figure 3：由末端与目标位置生成方向标签](https://pic.hana0721.top/blog/paper-deep-dive-inspire/labels2.70b2qeem3x.webp)
 
 **【Paper】** 对每个 waypoint，记录机器人 gripper 与目标物体的 3D 位置。若末端位置为 $[x_i,y_i,z_i]$、物体位置为 $[x_0,y_0,z_0]$，则
 
@@ -222,7 +222,7 @@ $$
 
 ### 5.1 Experimental Setup
 
-![InSpire 论文 Figure 4：真实任务、成功率与额外推理时间](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-inspire/realresults.1zizyu7rqv.webp)
+![InSpire 论文 Figure 4：真实任务、成功率与额外推理时间](https://pic.hana0721.top/blog/paper-deep-dive-inspire/realresults.1zizyu7rqv.webp)
 
 **【Paper】** 仿真部分使用 LIBERO 与 CALVIN。LIBERO 在 LIBERO-90 上训练，并在 Spatial、Object、Goal、Long 等 seen/unseen 任务上评估；CALVIN 采用 ABC→D 协议，在环境 D 上测试五个连续子任务。真实实验使用 AGILEX PiPER 6DOF：10 个 seen task，每个任务 10 条训练轨迹，另设计 5 个 unseen task，每个任务测试 10 次。
 
@@ -253,7 +253,7 @@ $$
 
 #### CALVIN
 
-![InSpire 论文 Figure 5：CALVIN ABC→D 长时域连续任务结果](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-inspire/calvin.1hsya96dxp.webp)
+![InSpire 论文 Figure 5：CALVIN ABC→D 长时域连续任务结果](https://pic.hana0721.top/blog/paper-deep-dive-inspire/calvin.1hsya96dxp.webp)
 
 **【Paper】** 在 500 条、每条包含 5 个子任务的序列上，加入 InSpire 后，miniVLA 与 miniVLA-VQ 在连续完成 1、2、3、4、5 个任务的统计上都优于对应基线，平均连续完成长度也更高。这个结果支持“每一步重新回答空间关系有助于纠错”的解释。
 
@@ -263,7 +263,7 @@ $$
 
 ### 5.3 Ablation Study
 
-![InSpire 论文 Figure 6：空间 VQA token 插入位置的消融](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-inspire/vqaposi.5mojmd5s2o.webp)
+![InSpire 论文 Figure 6：空间 VQA token 插入位置的消融](https://pic.hana0721.top/blog/paper-deep-dive-inspire/vqaposi.5mojmd5s2o.webp)
 
 论文还比较了不同空间 VQA 的形式（miniVLA-VQ，seen / unseen）：
 
@@ -280,7 +280,7 @@ $$
 
 ### 5.4 Generalization
 
-![InSpire 论文 Figure 7：基线与 InSpire 的动作序列和注意力图](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-inspire/vis.8dxlufpoea.webp)
+![InSpire 论文 Figure 7：基线与 InSpire 的动作序列和注意力图](https://pic.hana0721.top/blog/paper-deep-dive-inspire/vis.8dxlufpoea.webp)
 
 **【Paper】** 定性结果展示三类变化：基线因看到训练中常见的 drawer 而直接走向错误目标；在有多个 distractor 的场景中找错对象；发生错误后继续沿错误轨迹执行。加入 InSpire 后，注意力更集中于目标物体和机器人，且每一帧重新做空间问答可以帮助策略修正执行状态。
 

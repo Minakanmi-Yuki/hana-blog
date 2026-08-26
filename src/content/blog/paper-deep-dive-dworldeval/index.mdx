@@ -98,7 +98,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![dWorldEval 统一离散扩散架构、稀疏关键帧记忆与 Progress-as-Text（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dworldeval/model-crop.3k8qzt7bgs.webp)
+![dWorldEval 统一离散扩散架构、稀疏关键帧记忆与 Progress-as-Text（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-dworldeval/model-crop.3k8qzt7bgs.webp)
 
 **【Paper】** 低分辨率历史、当前多视角图像、instruction 和 action chunk 分别 tokenized 并串为 context；未来图像与进度构成被 mask 的 target suffix。Transformer 以 iterative parallel denoising 补全 target，之后 visual/text detokenizer 分别恢复下一步观测和数值 score。
 
@@ -200,7 +200,7 @@ $$
 
 ### 5.1 Experimental Setup
 
-![真实 AgileX 双臂平台与生成 rollout 可视化（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dworldeval/setup-crop.77eanc342j.webp)
+![真实 AgileX 双臂平台与生成 rollout 可视化（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-dworldeval/setup-crop.77eanc342j.webp)
 
 **【Paper】** 评测横跨三种 domain：
 
@@ -214,17 +214,17 @@ $$
 
 ### 5.2 Main Results
 
-![dWorldEval 对 suboptimal action 的可控生成，以及无 memory 时的长时域漂移（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dworldeval/consistency-crop.5q85lkyzf3.webp)
+![dWorldEval 对 suboptimal action 的可控生成，以及无 memory 时的长时域漂移（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-dworldeval/consistency-crop.5q85lkyzf3.webp)
 
 **【Paper】** LIBERO 上，dWorldEval 的 LPIPS 为 **0.215**；$\Delta$LPIPS 在 expert/failure 子集为 **0.315 / 0.352**。WorldEval 为 **0.262 / 0.423 / 0.701**，WorldGym 为 **0.218 / 0.347 / 0.650**，Ctrl-World 为 **0.220 / 0.334 / 0.416**。failure 集的优势是论文的关键证据：一个 evaluator 必须正确生成失败，而不是把它视觉上补成成功。
 
 **【Paper】** 在 policy evaluation，论文报告 real-vs-imagined Pearson correlation：LIBERO multi-view **0.910**、RoboTwin **0.927**、真实任务 **0.918**。单视角 LIBERO 的 dWorldEval rank violation 为 **MMRV=0.013**，基线最高到 **0.039**。这些数字只描述论文使用的 policy 集、数据与平台，不能外推为任意策略分布都具有 $r\approx0.9$。
 
-![真实成功率与 world-model 估计成功率的相关性，以及无记忆消融（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dworldeval/corr-crop.7w7k7cqnav.webp)
+![真实成功率与 world-model 估计成功率的相关性，以及无记忆消融（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-dworldeval/corr-crop.7w7k7cqnav.webp)
 
 **【Paper】** 作者还比较多个 $\pi_0$ checkpoint，发现终点 progress token 的 Auto estimate 与人工基于生成图像的判断都接近真实执行曲线，并能追随个别 checkpoint 的非单调波动。这支持“共同生成的 score 可作 intrinsic metric”，但不是对任意任务 VLM progress 标签皆正确的证明。
 
-![联合生成未来观测与 progress token，并自动评估多组 policy checkpoint（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dworldeval/score_curve-crop.1lck9h1tjs.webp)
+![联合生成未来观测与 progress token，并自动评估多组 policy checkpoint（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-dworldeval/score_curve-crop.1lck9h1tjs.webp)
 
 ### 5.3 Ablation Study
 
