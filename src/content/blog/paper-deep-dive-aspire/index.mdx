@@ -1,0 +1,254 @@
+---
+title: 'ASPIRE 论文精读：让机器人像软件工程师一样积累技能'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 ASPIRE：用闭环执行追踪、可持续技能库与进化式程序搜索，让 code-as-policy 机器人跨任务、跨场景持续变强。'
+heroImage:
+  { src: 'https://pic.hana0721.top/139063757_p0_master1200.2yyzxgr9fg.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '139063757'
+tags:
+  - 'paper deep dive'
+  - 'robotics'
+  - 'code-as-policy'
+  - 'continual learning'
+paper:
+  arxivId: '2607.00272'
+  title: 'ASPIRE: Agentic /Skills Discovery for Robotics'
+  authors:
+    - 'Runyu Lu'
+    - 'Yubo Wu'
+    - 'Ethan Kou'
+    - 'Letian Fu'
+    - 'Wenli Xiao'
+    - 'Ajay Mandlekar'
+    - 'Yinzhen Xu'
+    - 'Guanya Shi'
+    - 'Ken Goldberg'
+    - 'Ang Chen'
+    - 'Mosharaf Chowdhury'
+    - 'Yuke Zhu'
+    - 'Linxi "Jim" Fan'
+    - 'Guanzhi Wang'
+  venue: 'arXiv'
+  year: 2026
+  code: 'https://github.com/NVlabs/ASPIRE'
+  project: 'https://research.nvidia.com/labs/gear/aspire/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2607.00272'
+  tldr='ASPIRE 把机器人控制程序当作可调试的软件：从细粒度多模态 trace 定位失败，用进化搜索生成修复，并把跨任务验证过的修复沉淀为可迁移技能。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**【Paper】** ASPIRE（Agentic Skill Programming through Iterative Robot Exploration）研究一个很具体但常被忽略的问题：机器人程序失败后，coding agent 究竟能看到什么、如何知道是哪一个 primitive 出错、修复能否被下一个任务复用。论文把“训练”重新定义成持续的程序调试与技能积累，而不是梯度下降。
+
+![ASPIRE system overview from paper Figure 1](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-aspire/system_design.1hsybyslpl.webp)
+
+### 一句话总结
+
+**【Analysis】** ASPIRE 的关键闭环是：让 agent 看见每次感知、规划、抓取和控制调用的证据，针对失败写出可执行修复，在多个配置上验证后把“失败特征—适用条件—修复策略”写进技能库，再用这些技能和进化式候选搜索解决后续任务。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出闭环 Robot Execution Engine，以 per-primitive multimodal traces 取代只有任务成功/失败的粗反馈。
+2. 提出持续增长的 Skill Library；只有通过 debug 配置验证的修复才会被提炼成可复用、可跨 embodiment 的 in-context skill。
+3. 提出在可执行机器人程序空间上的 Evolutionary Search，保留多个候选策略，避免单轨迹修复陷入局部循环。
+4. 在 LIBERO-Pro、Robosuite、BEHAVIOR-1K 和 YAM 双臂真实机器人上验证，展示跨任务、长时程和 sim-to-real 的收益。
+
+## 2. 背景与相关工作
+
+**【Paper】** 传统 code-as-policy 方法让大模型组合 perception、planning API 和低层控制 primitive，但常见执行接口只返回一段 rollout 的结果。机器人失败可能来自目标定位、碰撞约束、抓取姿态、接触动力学或长时程恢复；只有“任务失败”无法告诉 agent 下一步该检查哪一层。
+
+**【Analysis】** 这与软件工程 agent 的差距很像：编译器错误、单元测试和 stack trace 让程序员能定位问题，而机器人 coding agent 若只拿到最终视频，就只能反复猜测。另一个缺口是经验不积累：现有方法通常在每个 episode 结束后丢弃修复，解决第 100 个任务的 agent 和第 1 个任务一样“没有记忆”。
+
+## 3. 问题定义
+
+**【Paper】** 给定任务描述 $\tau$、允许调用的机器人 API 和初始程序 $P^0$，系统要在有限的执行预算内找到在 held-out 环境配置上成功的程序 $P^\star$，并从验证过的修复中提取技能集合 $\mathcal G$。
+
+- **Observation**：API 调用前后的 RGB keyframe、深度、SAM3 overlay、物体位姿、grasp candidates、motion-planning 结果、参数、返回值和错误状态。
+- **Action representation**：Python code-as-policy 程序；程序调用感知、几何、抓取、导航和控制 API，而不是直接输出固定维度 action vector。
+- **Embodiment**：MuJoCo Playground 上的 Franka/LIBERO、Robosuite 单臂与双臂、BEHAVIOR-1K 移动操作，以及 YAM 双臂真实工作站。
+- **学习目标**：debug split 上提高成功率，并让修复模式在 validation split、未见任务或另一种 API 上复用。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+**【Paper】** Coordinator 为每个任务派生 Actor coding agent。Actor 在执行引擎中写程序、运行、查看 trace、诊断并修复；Coordinator 审核结构化发现，把可复用修复写入共享技能库。Evolutionary Search 同时维护多个候选程序，下一代以高分程序和残余失败 trace 为条件。
+
+数据流可概括为：`task + skills → actor 生成程序 → execution engine 记录 trace → agent 修复/验证 → coordinator 提炼 skill → 下一任务检索`。
+
+### 4.2 核心模块
+
+#### Robot Execution Engine
+
+**【Paper】** 每次 primitive 调用都会记录 API 名称、输入、输出、耗时、返回状态，以及调用前后的关键帧和相关数组。引擎不把整段视频塞给模型，而是围绕调用缓冲证据，让 agent 逐层缩小失败范围。
+
+例如 BEHAVIOR-1K 的 radio pickup 中，感知成功返回 radio 位姿，但 `navigate_to_pose` 连续返回 `PLANNING_ERROR`；trace 显示目标落在桌边约 20 cm 的碰撞缓冲区内。修复因此是从多个角度采样导航目标，而不是修改感知 prompt。
+
+![Trace-guided debugging example from paper Figure 4](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-aspire/coding_dojo.7sny9uhfpt.webp)
+
+#### Continual Skill Library
+
+**【Paper】** 技能不是完整任务脚本，而是异质的修复知识：定位消歧、导航恢复、抓取约束、motion primitive、场景推理和调试工作流。每条技能包含 failure signature、when-to-apply guard、repair strategy 和可选代码草图。
+
+**【Code】** `aspire/sim/cap/skills/library.py` 用 JSON 持久化 `Skill(name, code, docstring, occurrences, source_tasks, promoted)`。`extract_from_code()` 从成功 trial 的顶层函数中提取技能；`get_promoted_skills(min_occurrences=2)` 自动把跨多次出现的函数标为 promoted，并可注入执行 namespace。`trial.py` 只有在 `task_completed` 且配置开启 `evolve_skill_library` 时才提取并保存。
+
+#### Evolutionary Search
+
+**【Paper】** 搜索对象是可执行程序本身。每轮由 agent 根据 Top-3 历史候选、技能库和失败 trace 产生 $K$ 个候选，全部在 debug 配置执行，保留最高分者及其 trace，直到达到阈值或耗尽轮数。搜索结束后，只有在 validation 配置上通过的模式才进入技能库。
+
+### 4.3 关键公式
+
+**【Paper】** 令历史候选集合为 $\mathcal H$，第 $i$ 轮候选为 $\{P_i^k\}_{k=1}^K$，执行函数返回任务分数 $r$ 与 trace bundle $Z$：
+
+$$
+(r_i^k, Z_i^k) = \operatorname{Execute}(P_i^k, S_{\rm dbg}),\qquad
+k^\star = \arg\max_k r_i^k
+$$
+
+若 $r_i^{k^\star} > r^\star$，则更新当前最优程序 $P^\star$。达到 $r^\star \ge \theta$ 后，在独立验证集执行：
+
+$$
+(r_{\rm val}, Z_{\rm val}) = \operatorname{Execute}(P^\star, S_{\rm val}),\qquad
+\mathcal G = \operatorname{ExtractValidatedPatterns}(\mathcal H, P^\star, r_{\rm val}, Z_{\rm val})
+$$
+
+其中 $S_{\rm dbg}$ 是用于产生修复的 seed，$S_{\rm val}$ 是 held-out seed，$K$ 是每轮候选数，$T$ 是最大轮数，$\theta$ 是成功阈值。**【Analysis】** 这里的“参数更新”不是神经网络权重更新，而是程序文本、候选排序和外部技能库状态的更新。
+
+### 4.4 Training
+
+**【Paper】** ASPIRE 没有传统意义上的 optimizer、batch 或 checkpoint。仿真 coding agent 固定为 Claude Code + Claude Opus 4.6（1M context），写 CaP-X Python 程序；真实机器人实验使用 Codex GPT-5.5 reasoning-xhigh。学习数据是任务环境的 debug seeds 和执行 trace，训练信号是程序在环境中的成功/失败与诊断证据。
+
+<Algorithm number={1} title='ASPIRE Continual Skill Acquisition' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>任务 $\tau$、初始程序 $P^0$、debug 配置 $S_{\rm dbg}$、技能库 $\mathcal L$</div>
+  <div slot='output'>验证程序 $P^\star$ 与新技能集合 $\mathcal G$</div>
+  <AlgorithmStep keyword='Given'>任务描述、API 约束、技能库和执行预算</AlgorithmStep>
+  <AlgorithmStep>Actor 生成或读取初始 code-as-policy 程序 $P^0$</AlgorithmStep>
+  <AlgorithmStep>在 debug seeds 执行，保存 per-primitive trace、关键帧和结果</AlgorithmStep>
+  <AlgorithmStep keyword='while'>未达成功阈值且仍有预算</AlgorithmStep>
+  <AlgorithmStep indent={1}>读取相关 trace，定位失败 primitive 并提出修复</AlgorithmStep>
+  <AlgorithmStep indent={1}>执行修复程序；对成功且可复用的模式做结构化报告</AlgorithmStep>
+  <AlgorithmStep keyword='end while' />
+  <AlgorithmStep>在 held-out 配置验证，提取并审核可迁移技能</AlgorithmStep>
+  <AlgorithmStep keyword='return'>$P^\star, \mathcal G$</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 推理阶段不是固定 policy forward pass，而是“程序执行—观察—再生成”的闭环。LIBERO-Pro/Robosuite 为每个任务生成一个程序并跨 held-out seeds 执行；BEHAVIOR-1K 使用 incremental block execution，根据当前 multimodal trace 生成下一段代码。真实机器人仍使用自己的 perception、标定和控制 API，技能只作为 in-context guidance。
+
+<Algorithm number={2} title='Trace-Guided Program Inference' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>任务 $\tau$、候选程序集合、技能库 $\mathcal L$、环境 $S$</div>
+  <div slot='output'>执行结果与可选修复技能</div>
+  <AlgorithmStep>从 $\mathcal L$ 检索与任务/失败签名匹配的技能</AlgorithmStep>
+  <AlgorithmStep>运行当前程序并收集 trace bundle $Z$</AlgorithmStep>
+  <AlgorithmStep keyword='if'>任务失败</AlgorithmStep>
+  <AlgorithmStep indent={1}>将失败 primitive、返回码和关键帧交给 coding agent</AlgorithmStep>
+  <AlgorithmStep indent={1}>生成修复或多个进化候选并重新执行</AlgorithmStep>
+  <AlgorithmStep keyword='else'>任务成功</AlgorithmStep>
+  <AlgorithmStep indent={1}>在验证配置确认泛化，并把修复模式提交给 Coordinator</AlgorithmStep>
+  <AlgorithmStep keyword='end if' />
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** 官方仓库的关键落点如下：
+
+| 论文概念         | 代码位置                                      | 实际行为                                                                                                        |
+| ---------------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Trace logger     | `aspire/sim/cap/integrations/trace_logger.py` | `TracedApiMixin` 包装 API 函数，记录参数、返回摘要、耗时、异常，并在 trial 结束时写 `trace.json` 与 keyframes。 |
+| Skill Library    | `aspire/sim/cap/skills/library.py`            | JSON 持久化技能，按出现次数自动 promotion，并可注入 namespace。                                                 |
+| Skill extraction | `aspire/sim/cap/skills/extractor.py`          | 正则提取成功代码中的顶层函数及 docstring。                                                                      |
+| Trial hook       | `aspire/sim/cap/envs/trial.py`                | 仅在 `evolve_skill_library=true` 且 task completed 时提取技能。                                                 |
+| 实验入口         | `aspire/sim/.claude/*/fix-loop`、`evosearch`  | 通过 runbook 管理 debug/eval seed、重放和候选搜索，而不是一个端到端训练脚本。                                   |
+
+**【Analysis】** 论文中的“技能验证”比最小 `SkillLibrary` 类更严格：论文要求跨 debug 配置、遵守 API policy 并由 coordinator 审核；代码提供持久化和 promotion 机制，具体审核流程主要由 `.claude` runbook 和 agent 协议承担。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+**【Paper】** LIBERO-Pro 使用每任务 15 个 debug seeds、50 个 held-out eval seeds；Robosuite 使用 25 个 debug seeds、100 个 eval trials；BEHAVIOR-1K 使用 26–35 学习、1–25 评估，并报告 navigation 与 task success。对比 CaP-Agent0、OpenVLA、$\pi_0$ 和 $\pi_{0.5}$。
+
+![LIBERO-Pro main results from paper](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-aspire/fig-main-libero-pro.4xva4229e7.webp)
+
+### 5.2 Main Results
+
+**【Paper】**
+
+| Benchmark          |        ASPIRE 结果 | 对比观察                                                                                           |
+| ------------------ | -----------------: | -------------------------------------------------------------------------------------------------- |
+| LIBERO-Pro overall |                72% | CaP-Agent0 18%，ASPIRE 在 Object/Goal/Spatial 的 Pos+Task 平均增益分别达 77、41.5、42.5 个百分点。 |
+| Robosuite mean     |                81% | CaP-Agent0 68%；双臂 handover 从 20% 提升到 92%。                                                  |
+| BEHAVIOR-1K soda   |  Nav 92%，Task 88% | 超过 Human 的 80%/72% 与 CaP-Agent0 的 84%/72%。                                                   |
+| BEHAVIOR-1K radio  | Nav 100%，Task 88% | CaP-Agent0 task success 为 56%，ASPIRE 提升 32 个百分点。                                          |
+
+![BEHAVIOR-1K results from paper](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-aspire/fig-main-b1k.2oc9kkhiyp.webp)
+
+### 5.3 Ablation Study
+
+**【Paper】** LIBERO-Pro 消融中，不含执行引擎和进化搜索的 base system 宏平均成功率为 14%；加入 Robot Execution Engine 后升至 62%；再加入 Evolutionary Search 达到 72%。随着搜索轮数增加，前几轮收益最大，之后仍有提升但出现 diminishing returns。
+
+![Execution engine ablation from paper](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-aspire/fig_evo_ablation_pos.6f1f5t6e7y.webp)
+
+### 5.4 Generalization
+
+**【Paper】** 用 LIBERO-90 累积的技能库零样本迁移到 LIBERO-Pro Long：$N=90$ 时 Pos 22.6%、Task 38.3%、Overall 30.5%，而 CaP-Agent0 Overall 仅 3.8%。库规模从 $N=0$、25、50 增大到 90 时，平均成功率整体上升，说明短任务修复可组合到更长任务。
+
+![Skill-library scaling on LIBERO-Pro Long](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-aspire/fig_transfer_library_scaling.wjapny63w.webp)
+
+**【Paper】** 真实 YAM 双臂迁移中，仿真技能包括 soda-can pickup、bowl-on-plate placement 和 drawer push/pull。加入技能后，soda-can 成功率从 13/20 提升到 19/20，总 token 从 61.94M 降至 6.58M；drawer 从 0/20 提升到 11/20，总 token 从 334.917M 降至 81.67M；bowl placement 两组均为 20/20，但 token 从 8.65M 降至 5.11M。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** 第一，trace 把“不可观测的失败”变成可定位的局部事件，减少盲目改 prompt。第二，程序空间天然可读、可编辑，修复可直接变成函数级技能。第三，候选群体保留了不同策略，能绕开单一修复路径的局部最优。最后，技能库让跨任务的边际成本下降，形成经验复利。
+
+### 6.2 核心创新
+
+**【Analysis】** 真正的创新不是单独提出日志、RAG 或 evolutionary search，而是把三者组织成“执行证据 → 程序修复 → 验证晋升 → 未来检索”的持续闭环，并把学习产物从权重换成可审计的 sensorimotor code。
+
+### 6.3 与已有方法的本质区别
+
+**【Paper】** CaP-Agent0 主要依赖视觉差分、预定义技能和每 episode 的 test-time retry；ASPIRE 让技能由 agent 从成功修复中发现，并在任务之间持久化。与端到端 VLA 相比，ASPIRE 不学习固定 action token policy，而是搜索可解释、可执行、可迁移的程序。
+
+### 6.4 关键假设
+
+**【Analysis】** 方法依赖四个假设：API 足够表达任务；trace 能暴露根因而非只记录表象；语言模型能把证据转成合法修复；不同任务/embodiment 之间存在可抽象的失败模式。任一假设失效，技能检索可能变成噪声或错误代码复用。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 论文将系统定位为初步的 continual learning 证据，尤其是 sim-to-real 只评估了三个技能和一个 YAM 平台；真实机器人仍需 agent 适配新的 perception、calibration 和 control API，而非直接部署仿真程序。长时程任务的搜索和 token 成本也仍然很高。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+- 代码技能抽取目前以顶层函数和出现次数为核心，函数名相同不代表语义相同，跨任务 promotion 可能误合并。
+- 论文结果依赖强大的闭源 coding agent、1M context 和大量执行预算；换模型后的收益尚未系统报告。
+- 进化搜索需要多次真实/仿真 rollout，安全性、并发资源和 wall-clock 成本会限制开放世界部署。
+- 失败 trace 仍由预先实现的 logger 采集；未被 API 暴露的接触力、遮挡或硬件故障无法自动诊断。
+
+## 8. 启发与研究思考
+
+**【Analysis】** ASPIRE 给 embodied AI 的启发是：下一代“模型规模”可能表现为可验证经验的规模，而不是参数量。值得继续追问：能否用类型系统或单元测试约束技能库，避免错误 promotion？能否把 trace 压缩成结构化世界模型，降低 token 和视频存储？能否让技能检索感知 embodiment 差异，并在执行前自动生成 API adapter？如果这些问题得到解决，robot policy 的持续学习就可能从“重新训练一个 checkpoint”转变为“维护一个会成长的机器人代码仓库”。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。
+</Aside>
