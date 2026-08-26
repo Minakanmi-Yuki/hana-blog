@@ -106,10 +106,10 @@ import { Aside } from '@/components/user'
 外骨骼优化目标为：
 
 $$
-\max_{\mathbf p}\;\mathcal S(\mathcal W_{\mathrm{exo}}^{\mathrm{tip}}(\mathbf p),\n+\mathcal W_{\mathrm{robot}}^{\mathrm{tip}})
+\max_{\mathbf p}\;\mathcal S(\mathcal W_{\mathrm{exo}}^{\mathrm{tip}}(\mathbf p),\mathcal W_{\mathrm{robot}}^{\mathrm{tip}})
 $$
 
-其中 (mathcal W^{\mathrm{tip}}) 是指尖位姿集合，(mathbf p) 是外骨骼参数。实现时两侧 workspace 采样并计算最近邻距离；一项鼓励覆盖机器人空间，另一项抑制不可达姿态。**【Analysis】** 这可看作带边界约束的对称 Chamfer-like workspace 距离。
+其中指尖 workspace 是所有指尖位姿的集合，外骨骼参数包含关节位置和连杆长度。实现时两侧 workspace 采样并计算最近邻距离；一项鼓励覆盖机器人空间，另一项抑制不可达姿态。**【Analysis】** 这可看作带边界约束的对称 Chamfer-like workspace 距离。
 
 扩散训练脚本对动作 (a) 加噪并预测噪声：
 
@@ -117,7 +117,7 @@ $$
 \mathcal L=\mathbb E_{s,\epsilon}[\lVert\epsilon-\epsilon_\theta(a_s,s,o_t,f_t)\rVert_2^2]
 $$
 
-其中 (a_s) 为第 (s) 步的 noisy action，(o_t) 为视觉与本体输入，(f_t) 为触觉。**【Code】** `train_diffusion_policy.py` 明确生成 `timesteps`、`noisy_actions` 并调用模型计算 loss。
+其中 noisy action 是第 (s) 步的加噪动作，视觉与本体输入在 (o_t)，触觉输入为 (f_t)。**【Code】** `train_diffusion_policy.py` 明确生成 `timesteps`、`noisy_actions` 并调用模型计算 loss。
 
 ### 4.4 Training
 
