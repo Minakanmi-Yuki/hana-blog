@@ -1,0 +1,270 @@
+---
+title: 'FTP-1 论文精读：把异构触觉做成可迁移的基础策略'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: 'FTP-1 用形态感知触觉 Token 空间和共享触觉专家，将 21 种传感器、26 个数据源的触觉经验迁移到接触密集操作。'
+heroImage:
+  { src: 'https://pic.hana0721.top/70977889_p0_master1200.9gx5x526gc.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '70977889'
+tags:
+  - 'paper deep dive'
+  - 'tactile policy'
+  - 'robot manipulation'
+  - 'foundation model'
+paper:
+  arxivId: '2606.13102'
+  title: 'FTP-1: A Generalist Foundation Tactile Policy Across Tactile Sensors for Contact-Rich Manipulation'
+  authors:
+    - 'Chengbo Yuan'
+    - 'Zicheng Zhang'
+    - 'Mingjie Zhou'
+    - 'Wendi Chen'
+    - 'Yi Wang'
+    - 'Zhuoyang Liu'
+    - 'Dantong Niu'
+    - 'Shuo Wang'
+    - 'Hui Zhang'
+    - 'Wenkang Zhang'
+    - 'Yingdong Hu'
+    - 'Yuanqing Gong'
+    - 'Wanli Xing'
+    - 'Chuan Wen'
+    - 'Cewu Lu'
+    - 'Kaifeng Zhang'
+    - 'Yang Gao'
+  venue: 'arXiv'
+  year: 2026
+  code: 'https://github.com/michaelyuancb/ftp1-policy'
+  project: 'https://ftp1-policy.github.io/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2606.13102'
+  tldr='FTP-1 将不同硬件的触觉信号先对齐为有功能语义的 Token，再让共享触觉专家学习可迁移的接触操作能力。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+### 一句话总结
+
+【Paper】FTP-1 将图像式、阵列式与状态式触觉映射到 **Morphology-Aware Tactile Token Space（MTTS）**，再由一个跨传感器共享的 Tactile Transformer Expert 建模；它在约 3,000 小时、26 个来源、21 种触觉传感器的聚合数据上预训练，目标不是为某个夹爪或皮肤做一个更好的策略，而是提供触觉操作的共同初始化点。
+
+![FTP-1 overview from paper Figure 1](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ftp-1/ftp1-overview.96ahdrnvw4.webp)
+
+### 核心贡献
+
+1. 【Paper】提出首个面向多种传感器和具身形态的 generalist foundation tactile policy：不是将触觉当作 VLA 的一个临时 adapter 输入，而是显式设置一个可复用的触觉专家。
+2. 【Paper】以 MTTS 把不同传感器的读数按手指、腕部力矩或夹爪两侧等「功能区域」对齐；每个区域对应一个 Token，并共享 functional-area embedding。
+3. 【Paper】聚合 26 个数据源，覆盖 7 类图像式、5 类阵列式与 9 类状态式传感器；重采样后人手、灵巧手和夹爪数据比例约为 20% / 30% / 50%。
+4. 【Paper】在已见和未见传感器设置上都报告增益。特别是未见的 Xense 与 Contactile 设置中，FTP-1 的平均成功率为 46.6%，相对 FTP-$\pi_{0.5}$ 的 15.0% 高 31.6 个百分点。
+
+## 2. 背景与相关工作
+
+【Paper】视觉基础策略已经可以依靠大规模异构数据迁移到新任务与新机器人，但触觉策略常被传感器的观测格式锁死：GelSight 是图像，Contactile 是阵列，腕部力/力矩又是一段低维状态；它们还在分辨率、安装位置和接触响应上不同。把它们简单拼接，模型很难判断「两个数值/像素块是否都在描述拇指接触」。
+
+现有触觉表征预训练能够提升感知，VTLA（Vision-Tactile-Language-Action）模型也会把触觉注入视觉语言模型；但【Paper】认为两者通常仍绑定于有限硬件配置。FTP-1 的问题更严格：**一个策略能否从异构触觉经验中提取可在新传感器上复用的操作知识？**
+
+【Analysis】这使工作重点从「给 VLA 加触觉」转为「定义触觉的跨硬件接口」。若接口没有语义，扩大数据集只会扩大输入分布；若接口有功能语义，才可能让预训练专家在下游保留有价值的参数。
+
+## 3. 问题定义
+
+【Paper】在时刻 $t$，策略接收语言指令 $\ell$、单/多视角 RGB 观测 $\mathcal{I}_t$、本体感觉 $\mathbf{s}_t$ 和触觉观测 $\mathcal{X}_t$，预测长度为 $H$ 的连续动作块：
+
+$$
+\hat{\mathbf{A}}_{t:t+H-1}=\pi_\theta(\ell, \mathcal{I}_t, \mathbf{s}_t, \mathcal{X}_t),
+\qquad \hat{\mathbf{A}}_{t:t+H-1}\in\mathbb{R}^{H\times D}.
+$$
+
+其中 $D$ 是 Unified Action Space（UAS）的固定维度。不同机器人只填充自己支持的动作槽位；训练时对不存在或不支持的维度使用掩码，因此多种具身可以共享动作布局。【Paper】UAS 中还以 Function–Actuator–Aligned Space（FAAS）对齐不同灵巧手的功能相近关节。
+
+真正困难不在于输出维度固定，而是 $\mathcal{X}_t$ 没有统一原始形状。FTP-1 的解决方案是先把它变成固定数量、带区域含义的触觉 Token 序列。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![FTP-1 architecture from paper Figure 2](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ftp-1/ftp1-architecture.szoru0hen.webp)
+
+【Paper】数据流可概括为：异构触觉 $\rightarrow$ 传感器专属 encoder 与 MTTS Token $\rightarrow$ 共享 Tactile Expert，随后由 Action Expert 联合视觉、语言、本体状态与触觉信息生成连续动作块。
+
+结构包含三位「专家」：预训练 vision-language expert 编码图像与语言；300M 参数的共享 tactile Transformer 编码触觉 Token；flow-matching action expert 读取前两者并产生动作。【Paper】Action Expert 可以 attend 到 Tactile Expert，但反方向不发生，避免触觉分支扰动已有视觉语言知识；本体状态通过 adaptive RMSNorm 注入动作分支。
+
+### 4.2 核心模块
+
+#### MTTS：以功能区域而非硬件编号对齐触觉
+
+【Paper】MTTS 固定定义 24 个 functional areas。槽位 0–14 表示手的不同功能区域，15–20 表示腕部/手指的力矩区域；平行夹爪的两侧则映射到拇指尖（0）和食指尖（1），21–23 预留。每个实际传感器先被标注到这些区域，再加上左右手可区分的、跨传感器共享的区域 embedding。
+
+这种对齐是「形态感知」的关键：同样位于抓取接触点的两种硬件输出，被分配到相同语义槽位；模型仍可通过 encoder 保留传感器差异，而不必把两者强行当成相同像素或数值。
+
+#### Heterogeneous tactile encoders：保留各模态的物理结构
+
+【Paper】FTP-1 不用一个 encoder 处理所有触觉格式：
+
+| 输入类型                | 编码路径                                                      | 输出                   |
+| ----------------------- | ------------------------------------------------------------- | ---------------------- |
+| 图像式（如 GelSight）   | 轻量、传感器专属 ViT，再接跨传感器共享的预训练 T3 Transformer | 最后一层 `[CLS]` Token |
+| 阵列式（如 Contactile） | CNN 提取空间结构                                              | 每个功能区域一个 Token |
+| 状态式（如力/力矩）     | Fourier feature encoding，再接轻量 MLP                        | 每个功能区域一个 Token |
+
+【Paper】同一传感器中形状相同的多个功能区域共享相应 encoder，以减少传感器专属参数并促进一致的触觉动态建模。到未见传感器时，下游需要从头训练该传感器 encoder，但保留共享 tactile expert、MTTS 和区域 embedding。
+
+### 4.3 关键公式
+
+【Paper】将第 $i$ 个功能区域的原始信号记为 $x_i$，其传感器/模态对应 encoder 为 $f_{s(i)}$，区域 embedding 为 $e_{a(i)}$。MTTS 的 Token 化可以写为：
+
+$$
+z_i = f_{s(i)}(x_i) + e_{a(i)},
+\qquad i\in\{1,\ldots,24\}.
+$$
+
+$z_i$ 是输入给触觉专家的统一 Token；$a(i)$ 是它的功能区域，$s(i)$ 决定选 ViT、CNN 或 MLP 路径。这个式子是对论文模块描述的紧凑表达：论文强调固定 Token 槽和加法式的 shared functional-area embedding，但未将其单列为公式。
+
+【Paper】对 UAS 中各具身不具备的动作维度，论文使用动作掩码 $\mathbf{M}\in\{0,1\}^{D}$ 排除训练损失。可把这一约束抽象为：
+
+$$
+\mathcal{L}_{\text{valid}}=\mathcal{L}\bigl(\mathbf{M}\odot\hat{\mathbf{A}},\;\mathbf{M}\odot\mathbf{A}\bigr).
+$$
+
+这里 $\mathbf{A}$ 为目标动作，$\odot$ 表示逐维相乘；$\mathcal{L}$ 的具体 flow-matching 形式在论文中未明确给出，因此上式只说明掩码的作用，不把它误作论文公布的完整训练目标。
+
+### 4.4 Training
+
+【Paper】预训练数据涵盖人手、灵巧手和夹爪操作，并按来源重采样来缓解规模不平衡。所有触觉标注先进入 MTTS，异构具身的动作则进入 UAS；由此共享模块可以跨域累积梯度，而专属 encoder 只处理各自的输入形状。
+
+<Algorithm number={1} title='FTP-1 预训练与下游微调' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>
+    带语言、RGB、本体、触觉和动作标注的多域轨迹；MTTS 区域映射与 UAS 动作映射。
+  </div>
+  <div slot='output'>可用于已见或未见传感器下游任务的 FTP-1 checkpoint。</div>
+  <AlgorithmStep>
+    按数据源重采样，并把每条轨迹的触觉按功能区域整理为 MTTS 输入、动作整理为 UAS。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    按输入类型用 ViT+T3、CNN 或 Fourier+MLP 编码各区域，并加入共享的 functional-area embedding。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    将触觉 Token 输入共享 Tactile Expert；将视觉和语言输入 VL Expert，并在 Action Expert
+    中融合本体状态。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    根据有效动作槽位的掩码优化策略；下游任务以预训练 checkpoint 初始化并继续微调。
+  </AlgorithmStep>
+</Algorithm>
+
+【Code】公开的 UniVTAC 示例启动脚本位于 `scripts_exp_zarr/univtac/train_univtac_example.sh`：使用 4 GPU、global batch size 64、20,000 steps、500 step warmup、峰值学习率 $5\times10^{-5}$，并显式开启 `model.use_tactile_input`、`gemma_small` tactile expert 与 EMA（0.99）。这些是示例微调配置，不应视为论文全部预训练超参数。
+
+### 4.5 Inference
+
+【Paper】运行时策略以当前多模态观测预测一段长度 $H$ 的动作 chunk，并在执行后根据新观测重新决策。
+
+<Algorithm number={2} title='FTP-1 在线触觉控制' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>
+    当前 RGB、语言指令、本体状态、按 MTTS 区域组织的触觉读数与已训练 checkpoint。
+  </div>
+  <div slot='output'>反归一化后的连续动作 chunk；执行首步或短前缀后进入下一轮。</div>
+  <AlgorithmStep>以与训练时一致的传感器名称、功能区域和归一化统计量编码当前观测。</AlgorithmStep>
+  <AlgorithmStep>通过 VL Expert、Tactile Expert 与 Action Expert 采样动作 chunk。</AlgorithmStep>
+  <AlgorithmStep>执行 chunk 的首个动作或短前缀，读取新的视觉、状态和触觉反馈。</AlgorithmStep>
+  <AlgorithmStep>重复推理，使接触变化能够影响下一次控制决策。</AlgorithmStep>
+</Algorithm>
+
+【Code】`FTP1InferenceWrapper` 是官方推荐入口，负责 checkpoint 加载、输入归一化与动作反归一化；其 `infer(...)` 接收 `tactiles`、`tactile_function_areas` 和 `tactile_sensors`。README 说明当前包装器通常使用 $T=1$ 的当前状态，默认 FTP-1 action horizon 为 32，`num_inference_steps` 示例为 10。
+
+### 4.6 代码实现对照
+
+| 论文概念                | 官方实现                                                                       | 读代码时应注意                                                                   |
+| ----------------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
+| 下游 Zarr 数据入口      | `scripts_exp_zarr/univtac/dataset_univtac.json`、`data_processing/`            | 公开例子需要用户提供已处理的 Zarr 路径。                                         |
+| 训练与 checkpoint 载入  | `scripts/zarr_train_ftp1_pytorch.py`                                           | DataLoader 的 action horizon 来自模型配置；恢复权重时还会载入 `hpt_tokenizer/`。 |
+| 传感器专属 tokenization | `src/openpi/models_pytorch/` 中的 FTP-1 模型与 `hpt_tokenizer` checkpoint 目录 | 【Code】训练时会把 dataset 提供的 tactile input config 写入 model config。       |
+| 部署推理                | `src/openpi/policies/ftp1_inference_wrapper.py`                                | 【Code】封装了归一化、反归一化与 tactile 输入的结构约束。                        |
+
+【Code】仓库还提供 `scripts_exp_zarr/pretrain_small/` 作为轻量预训练示例。多域联合训练时，README 描述其会将格式相同的 domain sample 分配到各 GPU；domain-specific 模块独立更新，而 shared modules 的梯度在联合更新前合并。这是工程上使「异构输入 + 共享专家」可规模化的关键配套，而不仅是一张架构图。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![FTP-1 dataset overview from paper Figure 4](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ftp-1/ftp1-dataset.4joud2pcsi.webp)
+
+【Paper】作者把预训练 checkpoint 分发给 5 个硬件设置，覆盖 14 个接触密集任务。已见传感器评测包括 UniVTAC 仿真（GelSight-Mini）与两套真实机器人设置：Sharpa North 的长时程灵巧操作、Sharpa&Dexmate 的按压/力控操作；未见传感器评测包括 FlexivXense（Xense 图像触觉）和 TactileUMI（Contactile 阵列触觉）。
+
+![Seen-sensor fine-tuning setups from paper Figure 5](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ftp-1/ftp1-seen-setup.7i14gkxmhe.webp)
+
+【Paper】仿真每个任务评测 100 次 rollout，真实机器人每个任务 20 次。比较对象分别隔离了触觉输入、融合结构和预训练的贡献：无触觉的 $\pi_{0.5}$、将触觉注入 VLM 的 Tactile-VLA、未作 FTP-1 预训练的同架构 FTP-$\pi_{0.5}$，以及 FTP-1。
+
+### 5.2 Main Results
+
+【Paper】在 UniVTAC 的 6 个任务上，FTP-1 平均成功率为 66.66%，高于 $\pi_{0.5}$（49.16%）、Tactile-VLA（41.83%）和 FTP-$\pi_{0.5}$（45.16%）；去掉两个 lift 任务后平均为 59.5%。在真实的已见传感器设置上，论文报告 FTP-1 的平均成功率为 62.5%，相比最强基线提升约 17.2 个百分点。
+
+【Paper】更关键的未见设置中，FTP-1 在 Insert Hanoi / Insert USB / Wipe Board 上分别为 55 / 30 / 55%，平均 46.6%；FTP-$\pi_{0.5}$ 为 5 / 10 / 30%，平均 15.0%。这说明「新 encoder 从头学、共享触觉知识复用」至少在两种新硬件上成立。
+
+【Analysis】结果不应被解读为完全零样本传感器迁移：未见 Xense 每项仍用 100 条微调 demonstrations，Contactile 的 Wipe Board 用 50 条。贡献是更好的**微调起点**，不是拿到陌生传感器即刻控制。
+
+### 5.3 Ablation Study
+
+![Pretrained tactile knowledge ablation from paper Figure 7](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ftp-1/ftp1-pretraining-ablation.2yz3dls5yy.webp)
+
+【Paper】作者用 NTP-1 区分「数据分布更接近下游」和「触觉分支学到可迁移知识」两种解释：NTP-1 使用与 FTP-1 相同的数据和优化设置预训练，但预训练阶段删除触觉输入与触觉架构；微调时再添加同一触觉架构。
+
+在 UniVTAC，NTP-1 的平均成功率为 50.00%，优于无触觉预训练的 FTP-$\pi_{0.5}$（45.16%），表明数据分布相近可能确有帮助；但仍远低于 FTP-1 的 66.66%。【Paper】在 FlexivXense 上 FTP-1 比 NTP-1 高 37.5 个百分点，因此作者将主要增益归因于预训练得到的 tactile knowledge，而非仅仅看过相似数据。
+
+### 5.4 Generalization
+
+【Paper】未见设置中仅从头训练 sensor-specific encoder，同时复用 Tactile Expert、图像式触觉的共享 Transformer 模块和 functional-area embedding。这是本文最有信息量的泛化实验：它要求模型把「接触是否对齐、插入应否放慢、擦拭压力是否稳定」之类的动态知识，与一个没有见过的输入外观重新连接。
+
+【Analysis】两个未见传感器恰好分别属于图像式和阵列式，并非对所有传感器类别的完备覆盖；仍然，它比「同一 GelSight 换一个任务」更能检验 MTTS 的跨硬件主张。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+【Analysis】FTP-1 的有效性来自三层解耦：专属 encoder 负责把硬件特征读对；MTTS 负责把读数放到正确的功能语义位置；共享 expert 负责从大量轨迹中学习接触动态。若只共享 encoder，会因输入形状不同而失败；若只共享 expert 却没有 MTTS，Token 的位置缺乏稳定含义。
+
+### 6.2 核心创新
+
+【Analysis】创新不只是「多模态」或「更多数据」，而是把**形态语义写入 Token interface**。相同的 tactile expert 因此看到的是「拇指尖接触」「夹爪一侧接触」「腕部力矩」等功能化槽位，具备跨传感器复用的条件；UAS/FAAS 则在动作端做出对应对齐。
+
+### 6.3 与已有方法的本质区别
+
+| 路线            | 触觉的角色                                  | 跨传感器迁移的瓶颈                                 |
+| --------------- | ------------------------------------------- | -------------------------------------------------- |
+| 单任务触觉策略  | 某硬件专属观测                              | encoder、数据和策略通常一起绑定                    |
+| adapter 式 VTLA | 作为附加 Token 注入 VLM                     | 触觉模块难独立积累、复用知识                       |
+| FTP-1           | 独立的共享 Tactile Expert，输入受 MTTS 约束 | 仍须为新硬件学习专属 encoder，但可复用其余触觉模块 |
+
+### 6.4 关键假设
+
+【Analysis】MTTS 假设不同硬件之间存在可靠的功能区域映射；例如平行夹爪两侧可对应拇指和食指尖。这对常见抓取很自然，但对全身皮肤、柔性连续皮肤或形态功能不等价的末端执行器，映射未必成立。第二个假设是区域语义足以桥接物理差异；若不同传感器的接触响应差异过大，shared expert 仍可能需要更多适配。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+【Paper】作者将 FTP-1 定位为初步探索：目前主要处理 general tactile perception，尚未直接解决 tactile-/force-based servoing 与低层控制；预训练数据的规模和多样性也仍有限。论文提出未来可扩展到未来触觉预测和基于预测的低层控制。
+
+### 7.2 自己分析得到的局限
+
+1. 【Analysis】MTTS 的人工功能区域定义是知识注入也是维护成本。新硬件接入前需要明确标注区域，映射错误会把错误的语义送入共享专家。
+2. 【Analysis】未见传感器结果依赖下游微调和一定数量 demonstrations，尚未证明跨传感器的 zero-shot control。
+3. 【Analysis】论文的未见实验覆盖两种传感器类型、三个任务；对更极端的分辨率变化、时延、漂移与复杂接触（如软体、多点滑移）的稳健性还需更系统的评估。
+4. 【Analysis】共享 Token 空间提供对齐，但不自动保证因果接触理解；若训练数据的视觉线索已足够预测动作，触觉分支是否真正被使用仍应配合干预式评测。
+
+## 8. 启发与研究思考
+
+【Analysis】FTP-1 给触觉基础模型一个很实用的设计范式：先把「什么地方在接触、该怎样控制」变成跨硬件稳定的接口，再谈用多少数据和多大的 Transformer。其 MTTS 与 UAS/FAAS 共同暗示，通用机器人策略的规模化不只是堆数据，也需要在观测端和动作端同时建立可组合的语义坐标系。
+
+下一步值得验证三个问题：能否自动学习而非人工指定 MTTS 映射；能否用预测式世界模型把触觉从反应信号提升为可前瞻的控制状态；以及当新硬件只给极少数据时，究竟是 encoder、区域 embedding 还是 tactile expert 决定迁移样本效率。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。
+</Aside>
