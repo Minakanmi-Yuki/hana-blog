@@ -1,0 +1,312 @@
+---
+title: 'LaWAM 论文精读：用潜空间世界模型预测机器人动作的视觉子目标'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 LaWAM：把 Latent Action Model 的前向解码器复用为 Latent World Model，在 DINOv3 特征空间预测动作相关的未来视觉子目标，兼顾动力学预见与低延迟控制。'
+heroImage:
+  { src: 'https://pic.hana0721.top/90399055_p0_master1200.4g535npbv6.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '90399055'
+tags:
+  - 'paper deep dive'
+  - 'world action model'
+  - 'latent action'
+  - 'robot manipulation'
+paper:
+  arxivId: '2606.15768'
+  title: 'LaWAM: Latent World Action Models for Efficient Dynamics-Aware Robot Policies'
+  authors:
+    - 'Jialei Chen'
+    - 'Kai Wang'
+    - 'Kang Chen'
+    - 'Shuaihang Chen'
+    - 'Feng Gao'
+    - 'Wenhao Tang'
+    - 'Zhiyuan Li'
+    - 'Weilin Liu'
+    - 'Zhuyu Yao'
+    - 'Boxun Li'
+    - 'Yuanbo Xu'
+    - 'Chao Yu'
+  venue: 'arXiv'
+  year: 2026
+  code: ''
+  project: ''
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2606.15768'
+  tldr='LaWAM 将 latent action 通过一个单次前向的 Latent World Model 展开成未来视觉子目标，再让 VLA action expert 依据该子目标生成动作 chunk。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《LaWAM: Latent World Action Models for Efficient Dynamics-Aware Robot Policies》  
+**作者**：Jialei Chen 等 12 位作者  
+**时间**：arXiv 预印本，2026 年 6 月  
+**论文链接**：[arXiv](https://arxiv.org/abs/2606.15768)
+
+![LaWAM 两阶段训练与推理总览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lawam/lawam-overview.4920k1cypw.webp)
+
+### 一句话总结
+
+**【Paper】** LaWAM 不生成未来像素视频，而是在冻结的 DINOv3 特征空间中，把策略预测的 latent action 解码成与当前场景和机器人 embodiment 对齐的 latent visual subgoal，再用这个子目标指导动作 chunk 生成。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出 Latent World Model（LaWM）：把 Latent Action Model 的 forward decoder 保留下来，直接预测未来 observation feature。
+2. 提出 Latent World Action Model（LaWAM）：将预测的 latent visual subgoal 接入 VLA 的 Alternate-DiT action expert。
+3. 用 latent-action distillation 训练策略先验，并用 Knowledge Insulation 防止动作专家破坏已经学到的动力学。
+4. 在 LIBERO、RoboTwin 和真实机器人任务上同时取得高成功率与低延迟：LIBERO 平均成功率 98.6%，单个 action chunk 预测约 187 ms。
+
+**【Analysis】** 论文的真正转折点不是“再加一个 world model”，而是改变了 policy-facing future 的接口：未来只保留对下一个动作 chunk 有用的结构化特征，不承担像素重建的负担。
+
+## 2. 背景与相关工作
+
+**【Paper】** 传统 VLA 主要学习 $p(a_{1:T}\mid o,l)$：根据当前 observation $o$ 和语言指令 $l$ 直接输出动作序列。它能利用大规模 vision-language pretraining 理解“要做什么”，但没有显式建模“执行动作之后场景会怎样变化”。
+
+World-Action Model（WAM）通过预测未来 observation 或 video，让 policy 在动作生成时获得动力学预见。问题在于：
+
+- 像素空间视频包含大量与控制无关的纹理和外观冗余；
+- 迭代式视频生成带来很高的推理延迟，论文对比的 LingBot-VA 为 4482 ms，而普通 VLA $\pi_{0.5}$ 为 220 ms；
+- manipulation 往往只需要“下一段动作会把机械臂和物体带到哪里”的紧凑描述。
+
+**【Paper】** 既有 Latent Action Model 通常用 inverse dynamics 从视觉转移中抽取 embodiment-agnostic 的 latent action，但预训练后会丢弃 forward decoder。LaWAM 的观察是：这个 decoder 本身已经是一个 action-conditioned world model，只是过去没有被当作 policy 的输入接口。
+
+## 3. 问题定义
+
+**【Paper】** 给定当前观测 $o$、指令 $l$ 和固定物理时间跨度 $\tau$ 内的动作 chunk $a_{1:T}$，标准 VLA 直接建模：
+
+$$
+p(a_{1:T}\mid o,l)
+$$
+
+LaWAM 先用冻结视觉编码器 $f_{\psi}$ 得到当前和未来特征：$u=f_{\psi}(o)$、$u_T=f_{\psi}(o_T)$。第一阶段学习 posterior $q_{\phi}(z\mid u,u_T)$ 和 forward decoder；部署时未来特征不可见，因此策略要从 $(o,l)$ 预测 latent action $\hat z$，再得到未来子目标 $\hat u_T$。
+
+- **输入**：RGB observation、自然语言任务指令；论文实验使用 256×256 RGB 图像，不输入 proprioception。
+- **输出**：固定物理时间跨度对应的 end-effector action chunk。
+- **中间变量**：latent action $z$、当前 latent feature $u$、预测子目标 $\hat u_T$。
+- **数据**：约 3000 小时机器人视频和 1500 小时 egocentric human 视频用于 LaWM；第二阶段 policy integration 只使用带语言指令的机器人轨迹。
+- **机器人**：LIBERO、RoboTwin，以及 Franka Emika Panda 和 Quanta X1 双臂平台。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+**【Paper】** LaWAM 有两个阶段。Stage 1 从视觉转移中训练 latent action posterior 与 forward decoder，并将 decoder 命名为 LaWM；Stage 2 让 VLA 从当前 observation 和指令预测 latent action，经 LaWM 得到 latent visual subgoal，最后由 Alternate-DiT action expert 生成动作 chunk。
+
+数据流可概括为：`(o, l) → policy prior → ẑ → LaWM(u, ẑ) → ûT → action expert → a1:T`。
+
+### 4.2 核心模块
+
+#### 冻结视觉编码器与 latent action posterior
+
+- **输入**：当前特征 $u$ 与物理时间间隔 $\tau$ 后的未来特征 $u_T$。
+- **输出**：连续 latent action $z$ 的后验分布 $q_{\phi}(z\mid u,u_T)$。
+- **模块**：DINOv3 ViT-B/16 提供空间结构化 dense feature；24 层 Transformer inverse-dynamics encoder 联合处理当前和 horizon observation。
+- **作用**：将“从当前状态到未来状态的变化”压缩成低维、可跨 embodiment 迁移的动作变量。
+
+**【Analysis】** $z$ 不是最终要执行的关节动作，而是“需要发生哪类转移”的中间坐标。它本身缺少当前场景的空间落点，所以不能直接替代视觉子目标。
+
+#### LaWM forward decoder
+
+- **输入**：当前 latent feature $u$ 和 latent action $z$。
+- **输出**：未来特征预测 $\tilde u_T=\mathrm{LaWM}_{\omega}(u,z)$。
+- **实现**：24 层 Transformer decoder，通过 adaptive layer normalization 注入 $z$；论文指出这种方式比 additive token injection 在 cross-embodiment 训练中更稳定。
+- **辅助信号**：轻量 MLP 以当前 end-effector state $s$ 与 $z$ 预测 $s_T$，鼓励 $z$ 编码真实运动而非纯外观变化；预训练后丢弃该 head。
+
+#### Policy prior 与 Alternate-DiT action expert
+
+策略先验 $p_{\theta}(\hat z\mid o,l)$ 从当前视觉和指令预测部署时的 latent action。LaWM 将其展开为 $\hat u_T$。动作专家采用 Alternate-DiT：一条流承载 VLM 的语义上下文，另一条流承载 $(u,\hat u_T)$ 的动力学上下文，两条流交替交互后对 action chunk 做 flow matching 去噪。
+
+**【Code】** 论文没有给出可核验的官方代码仓库或项目页面，因此这里不推断具体文件、DataLoader 或 checkpoint 行为；本节只记录论文明确的架构。
+
+![一个 action chunk 内的 latent subgoal 引导执行（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lawam/libero-chunk.64elcnpejx.webp)
+
+### 4.3 关键公式
+
+#### LaWM 接口
+
+$$
+z\sim q_{\phi}(z\mid u,u_T),\qquad
+\tilde u_T=\mathrm{LaWM}_{\omega}(u,z)
+$$
+
+$q_{\phi}$ 是只在训练阶段可用的 latent inverse-dynamics posterior；$\tilde u_T$ 是 decoder 重建的 horizon feature。$u_T$ 与 $s_T$ 都对应固定物理时间 $\tau$，因此子目标表示的是一致的实际运动时长，而不是某个数据集的固定帧偏移。
+
+#### LaWAM 分解
+
+$$
+p(a_{1:T},\hat u_T,\hat z\mid o,l)
+=p_{\theta}(\hat z\mid o,l)
+p_{\omega}(\hat u_T\mid u,\hat z)
+p_{\eta}(a_{1:T}\mid o,l,u,\hat u_T)
+$$
+
+- $p_{\theta}$：policy prior，预测 latent action；
+- $p_{\omega}$：LaWM，单次前向得到 latent visual subgoal；
+- $p_{\eta}$：action expert，在语义和动力学上下文下生成 action chunk。
+
+#### 两阶段损失
+
+第一阶段：
+
+$$
+\mathcal L_{\mathrm{LAM}}
+=\underbrace{\lVert\tilde u_T-u_T\rVert_2^2}_{\mathcal L_{\mathrm{wm}}}
++\underbrace{\lVert g(s,z)-s_T\rVert_2^2}_{\mathcal L_{\mathrm{aux}}}
++\beta D_{\mathrm{KL}}(q_{\phi}(z\mid u,u_T)\|\mathcal N(0,I))
+$$
+
+第二阶段：
+
+$$
+\mathcal L_{\mathrm{LaWAM}}
+=\lambda_{\mathrm{distill}}\mathbb E[\lVert\hat z-z\rVert_2^2]
++\lambda_{\mathrm{wm}}\lVert\hat u_T-u_T\rVert_2^2
++\mathcal L_{\mathrm{act}}
+$$
+
+$\mathcal L_{\mathrm{act}}$ 是以 $(o,l,u,\hat u_T)$ 为条件的 action flow-matching loss；论文在所有实验中设置 $\lambda_{\mathrm{distill}}=\lambda_{\mathrm{wm}}=0.1$。
+
+### 4.4 Training
+
+**【Paper】** LaWM 训练使用连续 latent action、AdamW、16 张 H100、100k steps、全局 batch size 1024、学习率 $3\times10^{-4}$、weight decay $10^{-2}$，KL 权重 $\beta=10^{-5}$。机器人 teleoperation 的物理 horizon 为 1.2 s，egocentric human 视频为 0.4 s。第二阶段在 64 张 H100 上进行 200k steps 的 policy-integration pretraining，action expert 学习率 $10^{-4}$，其他模块为 $3\times10^{-5}$。
+
+混合控制频率数据不按 token index 粗暴对齐，而是固定物理时间 $\tau$。频率为 $h_b$ 的分支使用：
+
+$$H_b=\mathrm{round}(\tau h_b),\qquad t_{b,i}=i/h_b$$
+
+并把正弦时间编码 $\phi(t_{b,i})$ 加到 action-query embedding，使 5/10/20 Hz 的同一物理时刻拥有一致坐标。
+
+<Algorithm number={1} title='LaWAM 两阶段训练' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>带时间间隔配对的观测 (o, oT)、机器人状态、语言指令和动作 chunk</div>
+  <div slot='output'>冻结的 LaWM、策略 latent-action prior 与 action expert</div>
+  <AlgorithmStep>用冻结 DINOv3 编码 o 和 oT，得到 (u, uT)。</AlgorithmStep>
+  <AlgorithmStep>
+    由 inverse-dynamics encoder 采样 z，训练 LaWM 重建 uT，并用 sT 辅助约束 z。
+  </AlgorithmStep>
+  <AlgorithmStep>丢弃辅助 state head，保留 forward decoder 作为 LaWM。</AlgorithmStep>
+  <AlgorithmStep>
+    用 robot-language trajectory 训练 policy prior 预测 ẑ，并加入 latent-action distillation。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    用 LaWM 产生 ûT，训练 Alternate-DiT action expert；Knowledge Insulation 保护 LaWM 动力学。
+  </AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+推理时不再使用需要未来帧的 posterior encoder。LaWAM 只需一次 LaWM forward，就可以把策略的 latent action 变成视觉子目标；action expert 在 10 个 denoising steps 下输出一段 end-effector action chunk，执行后重新观测并滚动闭环。
+
+<Algorithm number={2} title='LaWAM 推理' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前 RGB observation o 与语言指令 l</div>
+  <div slot='output'>执行一个物理时间跨度内的 end-effector action chunk</div>
+  <AlgorithmStep>用 VLM backbone 编码 observation 和指令，policy prior 预测 ẑ。</AlgorithmStep>
+  <AlgorithmStep>编码当前视觉特征 u，并计算 ûT = LaWM(u, ẑ)。</AlgorithmStep>
+  <AlgorithmStep>将语义流和 (u, ûT) 动力学流交替送入 action expert。</AlgorithmStep>
+  <AlgorithmStep>
+    执行生成的 action chunk，到达 chunk 末端后获取新 observation 并重复。
+  </AlgorithmStep>
+</Algorithm>
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+**【Paper】** 实验覆盖四个 LIBERO suite、RoboTwin 2.0 的 50 个双臂任务，以及真实世界的 pick-and-place、drawer opening 和 towel folding。LIBERO 报告 40 个任务、每任务 50 次试验；RoboTwin 每任务 100 次；真实任务各 30 次。延迟在 A100 上重复 1000 次 action-chunk prediction 后取平均。
+
+![真实机器人任务：抓取放置、打开抽屉和折叠毛巾（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lawam/real-world.5xbdh83954.webp)
+
+### 5.2 Main Results
+
+**【Paper】** LIBERO 的 LaWAM 平均成功率为 **98.6%**，Long / Goal / Object / Spatial 分别为 97.0 / 98.4 / 99.6 / 99.4；模型规模 2.3B，单 chunk 延迟 187 ms。相比像素空间 WAM，LaWAM 的 world-modeling 模块仅 230M 参数，论文称比 5B WAN backbone 少约 95%，墙钟延迟最高可降低 24×。
+
+| 方法          | 模型规模 |       延迟 | LIBERO 平均 |
+| ------------- | -------: | ---------: | ----------: |
+| π0.5          |     3.5B |     220 ms |       96.9% |
+| Cosmos-Policy |     2.1B |    1413 ms |       98.5% |
+| LingBot-VA    |     5.5B |    4482 ms |       98.5% |
+| Fast-WAM      |       6B |     486 ms |       97.6% |
+| **LaWAM**     | **2.3B** | **187 ms** |   **98.6%** |
+
+RoboTwin 的 clean-scene / randomized-scene 平均成功率为 92.64% / 89.80%，两者平均为 91.22%。真实世界 LaWAM 在 pick-and-place、drawer opening、towel folding 上分别达到 93.3%、86.7%、90.0%，平均 90.0%，高于对比方法的平均 83.3%（π0.5）。
+
+![LIBERO 上的延迟—成功率权衡（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lawam/libero-latency.102wndphfb.webp)
+
+### 5.3 Ablation Study
+
+![LaWAM 组件消融：预训练、distillation、Knowledge Insulation 与 LaWM（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lawam/ablation.2yz3dpuzpg.webp)
+
+**【Paper】** LIBERO 消融显示，移除 LaWM 的性能下降最大，尤其是 LIBERO-Long；移除 latent-action distillation 也会明显变差；同时移除 KI 与 distillation 进一步退化。说明最终收益来自一条完整接口：策略要能稳定驱动 LaWM，且动作专家不能反向改写其动力学。
+
+混合频率实验还表明，不加 physical-time encoding 时联合训练 5/10/20 Hz 数据会明显下降；加入时间编码后，性能大幅恢复到 20 Hz reference 附近。
+
+![混合控制频率训练与 physical-time encoding（论文 Appendix Figure）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lawam/mixed-frequency.3d5j4l3aol.webp)
+
+### 5.4 Generalization
+
+**【Paper】** LaWM 的 open-loop rollout 在未见环境和未见 embodiment 上使用同一 latent-action trajectory 时，仍产生上下文相关且连贯的 latent 变化。真实测试还包含超出部分示教空间的物体、碗和抽屉初始位置；LaWAM 在这些配置下保持较高成功率。
+
+![500 条 LIBERO 轨迹上的 LaWM rollout 特征相似度（论文 Appendix Figure）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-lawam/lawm-rollout.99u3bljtl5.webp)
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** LaWAM 同时解决了两个互补问题：latent action 提供“要发生哪种变化”的抽象，当前 DINOv3 feature 提供“变化应该落在当前场景哪里”的空间锚点。LaWM 把两者组合成 embodiment-grounded subgoal，action expert 因而不必从零猜测中间状态。
+
+此外，预测一个 feature map 比生成多帧 RGB 视频更接近控制所需的信息瓶颈；单次 forward 又避免了视频扩散的迭代延迟。
+
+### 6.2 核心创新
+
+1. **接口创新**：将 LAM decoder 从训练辅助组件变成 policy-facing world model。
+2. **表示创新**：未来由 action-conditioned latent visual subgoal 表示，而不是单个 latent token 或像素视频。
+3. **训练创新**：latent-action distillation 让 policy prior 学会驱动 LaWM，KI 保持动力学模块稳定。
+4. **时间创新**：用 physical-time encoding 对齐不同控制频率的 action chunk。
+
+### 6.3 与已有方法的本质区别
+
+| 路线              | 未来表示                                 | 推理方式            | 主要代价                     |
+| ----------------- | ---------------------------------------- | ------------------- | ---------------------------- |
+| 普通 VLA          | 无显式未来                               | 直接生成动作        | 缺少动力学预见               |
+| 像素空间 WAM      | 未来图像 / 视频                          | 迭代生成            | 延迟和像素冗余高             |
+| Latent Action VLA | latent action                            | 直接用 action token | 空间落点不显式               |
+| **LaWAM**         | action-conditioned latent visual subgoal | 单次 latent forward | 依赖视觉 latent 的动力学质量 |
+
+### 6.4 关键假设
+
+**【Analysis】** 方法隐含三个假设：DINOv3 特征保留了对控制有用的空间结构；固定物理时间 $\tau$ 足以定义稳定的 chunk-level subgoal；连续 latent action 可以被当前 observation 与 language 预测。若相机剧烈运动、特征空间对细粒度接触不敏感，或任务需要比一个 chunk 更长的多步规划，这些假设都会变弱。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** LaWAM 目前更适合相机相对稳定的 manipulation。当 egocentric 视频存在剧烈抖动或大幅视角变化时，latent action space 可能无法学习一致转移，因此对 humanoid 或 mobile robot 的自运动场景仍有限制。另一个问题是训练混合数据中细粒度 deformable-object dynamics 较少，细微布料形变仍难以可靠建模。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】** 论文把未来压缩到单个 horizon feature，效率很高，但也牺牲了多模态未来的显式表达：同一 $(u,z)$ 只给出一个确定性子目标。对于需要分支规划、碰撞规避或长时域反事实比较的任务，单次解码可能不足。其次，DINOv3 feature 的语义和空间相似度并不等同于接触力、摩擦和可执行性；高成功率主要在当前 benchmark 与任务分布内得到验证。
+
+## 8. 启发与研究思考
+
+**【Analysis】** LaWAM 给出的更一般结论是：world model 不一定要成为“可观看的视频生成器”，也可以成为连接 semantic policy 与 low-level control 的中间接口。值得继续追问：
+
+1. 能否让 LaWM 预测一组多模态 subgoals，再由 action expert 或 value model 选择？
+2. 能否把 contact state、力觉或几何约束加入 latent feature，使子目标不仅“看起来正确”，还更可执行？
+3. 对移动机器人和 humanoid，是否需要把 camera ego-motion 单独因子化，而不是让 latent action 同时解释物体运动和相机运动？
+4. 物理时间对齐或许可以推广到 variable-horizon policy，把动作 chunk 的长度也作为可学习接口。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】`
+  表示官方代码实现；由于论文未提供可核验的官方代码仓库，本文没有虚构代码路径，`【Analysis】`
+  表示基于论文的分析推断。
+</Aside>
