@@ -1,0 +1,273 @@
+---
+title: 'Training-Time Action Conditioning 论文精读'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 Training-Time Action Conditioning：用训练时模拟推理延迟和 action prefix 条件化，去掉 RTC 的推理时 inpainting 开销。'
+heroImage:
+  { src: 'https://pic.hana0721.top/91341540_p0_master1200.7pw5duffp.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '91341540'
+tags:
+  - 'paper deep dive'
+  - 'real-time chunking'
+  - 'VLA'
+  - 'flow matching'
+paper:
+  arxivId: '2512.05964'
+  title: 'Training-Time Action Conditioning for Efficient Real-Time Chunking'
+  authors:
+    - 'Kevin Black'
+    - 'Allen Z. Ren'
+    - 'Michael Equi'
+    - 'Sergey Levine'
+  venue: 'arXiv'
+  year: 2025
+  code: ''
+  project: ''
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2512.05964'
+  tldr='Training-Time RTC 把推理时 action-prefix inpainting 改成训练时的 prefix 条件化，在不改机器人运行时的情况下消除额外反向传播开销。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《Training-Time Action Conditioning for Efficient Real-Time Chunking》  
+**作者**：Kevin Black、Allen Z. Ren、Michael Equi、Sergey Levine  
+**机构**：Physical Intelligence  
+**论文链接**：[arXiv](https://arxiv.org/abs/2512.05964)  
+**代码状态**：论文没有给出独立代码仓库；本文的 `【Code】` 对照来自论文附录 Algorithm 1 的 JAX 参考实现。
+
+### 一句话总结
+
+**【Paper】** Real-Time Chunking（RTC）为了让异步 action chunk 连续，会在每次 denoising 时用 pseudoinverse guidance 做 inference-time inpainting；本文改为在训练阶段随机模拟 inference delay，让模型直接学习 `action prefix → action postfix`，因此推理时只需普通 action generation。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 将推理延迟 $d$ 显式加入训练过程，用真实 action prefix 条件化 postfix。
+2. 只需三处轻量修改：每个 action token 使用独立 flow-matching timestep、prefix 设为 clean action、loss 只计算 postfix。
+3. 不改模型主干和机器人 runtime，训练好的策略与 inference-time RTC 使用相同接口。
+4. 在动态 Kinetix 仿真中，$d\ge 2$ 时训练时方法优于 inference-time RTC；在 $π_{0.6}$ 的 box building 与 espresso making 中，保持相近成功率并缩短推理延迟。
+
+## 2. 背景与相关工作
+
+VLA 的动作 chunk 通常比控制周期长。模型还在生成下一段动作时，机器人必须继续执行上一段，否则每个 chunk 之间会出现停顿。RTC 的做法是异步生成下一段，并把上一段与当前段重叠的动作作为 prefix，通过 inference-time inpainting 固定 prefix、生成剩余 postfix。
+
+**【Paper】** 这个设计有两个代价：第一，inpainting 每个 denoising step 都需要 vector-Jacobian product（等价于额外反向传播），增加 latency；第二，prefix 越长，基于模型 Jacobian 的线性化越难保持整个 postfix 的一致性。
+
+**【Paper】** 与 SmolVLA 的异步执行相比，RTC 专门处理了 chunk discontinuity；与 A2C2、VLASH 相比，本文不添加 correction head，也不只看一个未来动作，而是条件化完整 hard prefix。它与更小的 VLA 或层级式 VLA 正交：那些方法减少模型计算，本文则减少实时控制路径上的额外计算。
+
+## 3. 问题定义
+
+**【Paper】** 设策略在观测 $\mathbf{o}_t$ 下生成长度为 $H$ 的动作 chunk：
+
+$$
+\mathbf{A}_t=[\mathbf{a}_t,\mathbf{a}_{t+1},\ldots,\mathbf{a}_{t+H-1}]\sim p(\mathbf{A}_t\mid\mathbf{o}_t).
+$$
+
+- **Prediction horizon $H$**：一次预测的动作步数。
+- **Execution horizon $s$**：一段 chunk 实际执行的步数，满足 $s\le H$。
+- **Inference delay $d$**：从 $t$ 开始推理，结果在 $t+d$ 才可用的控制步数。
+- **Action prefix**：当前 chunk 的前 $d$ 步，它们在等待模型时由上一 chunk 提供。
+- **Action postfix**：从 $t+d$ 开始、真正需要模型生成的部分。
+
+有效 prefix 要满足 $d\le H-s$。训练时学习的条件分布从原来的
+$p(\mathbf{A}_t\mid\mathbf{o}_t)$ 变为：
+
+$$
+p(\mathbf{A}_{t+d:H}\mid\mathbf{o}_t,\mathbf{A}_{t:t+d}).
+$$
+
+![Overlapping action chunks and action prefix from paper Figure 1](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-training-time-action-conditioning/diagram.99u3bluu18.webp)
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![Training-time action conditioning architecture from paper Figure 2](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-training-time-action-conditioning/architecture.13mil3tkb6.webp)
+
+**【Paper】** 输入是观测、带噪 action chunk 和逐 token 的 flow-matching timestep；prefix token 输入 ground-truth action 且 timestep 固定为 `1.0`，postfix token 仍按普通 flow matching 加噪并预测。数据流可以概括为：`observation + clean prefix + noisy postfix → action expert / DiT → postfix velocity`。
+
+### 4.2 核心模块
+
+#### Action Prefix Conditioning
+
+- **输入**：当前观测、长度为 $d$ 的真实 prefix、延迟 $d$。
+- **输出**：长度为 $H-d$ 的 postfix action chunk。
+- **作用**：把“上一段已经承诺的动作”变成模型可直接读取的条件，而不是在每个采样步用梯度把输出拉回 prefix。
+- **为什么需要**：异步 chunk 的连续性是实时控制的硬约束；直接条件化比推理时纠偏更便宜。
+
+#### Per-token Flow-matching Time
+
+**【Paper】** 普通 flow matching 给整个 chunk 一个 timestep $\tau$。本文让 prefix token 使用 $\tau=1$，postfix token 使用采样得到的 $\tau\in[0,1]$。对采用 adaLN-zero 的 diffusion transformer，这只需要让 scale、shift、gate 沿 token 维变化，不增加可学习参数。
+
+#### Postfix-only Loss Mask
+
+prefix 是条件，不是预测目标。因此训练 loss 只在 postfix token 上计算；否则模型会被迫重建已经给定的 prefix，浪费监督并削弱对延迟的适配。
+
+### 4.3 关键公式
+
+本文沿用 conditional flow matching。对动作 chunk 加入高斯噪声：
+
+$$
+\mathbf{A}_t^\tau=\tau\mathbf{A}_t+(1-\tau)\boldsymbol{\epsilon},\qquad
+\boldsymbol{\epsilon}\sim\mathcal{N}(\mathbf{0},\mathbf{I}).
+$$
+
+模型 $\mathbf{v}_\theta$ 预测从噪声流向数据的 velocity，标准目标为：
+
+$$
+\mathcal{L}_{\mathrm{FM}}=
+\mathbb{E}\left\|\mathbf{v}_\theta(\mathbf{A}_t^\tau,\mathbf{o}_t,\tau)-
+(\boldsymbol{\epsilon}-\mathbf{A}_t)\right\|_2^2.
+$$
+
+训练时把 timestep 改成向量 $\boldsymbol{\tau}$：
+
+$$
+\tau_i=\begin{cases}
+1,&i<d\\
+\tau,&i\ge d
+\end{cases},
+\qquad
+\mathcal{L}_{\mathrm{post}}=
+\frac{\sum_{i=d}^{H-1}\ell_i}{H-d}.
+$$
+
+这里 $i$ 是 action token 索引，$d$ 是 prefix 长度，$\ell_i$ 是第 $i$ 步的 flow-matching 误差。$\tau_i=1$ 使 prefix 保持 clean；postfix 才参与 denoising 与梯度更新。
+
+### 4.4 Training
+
+**【Paper】** 每个 batch 随机采样 delay $d$，而不是为每种 latency 单独训练一个 checkpoint。仿真中先以普通 action chunking 训练 32 epochs，再从第 24 epoch 继续 fine-tune 8 epochs；delay 从 $\{0,1,2,3,4\}$ 中按指数衰减分布采样。真实实验从基础模型 fine-tune 8,000 steps，batch size 为 512，delay 在 $[0,10]$ 均匀采样，覆盖 50 Hz 控制器上的最多约 200 ms 延迟。
+
+<Algorithm number={1} title='Training-time RTC loss' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>
+    观测 $\mathbf{o}$、ground-truth action chunk $\mathbf{A}$、最大 delay。
+  </div>
+  <div slot='output'>只对 postfix 计算的 flow-matching loss。</div>
+  <AlgorithmStep>采样噪声、flow timestep 和 delay $d$。</AlgorithmStep>
+  <AlgorithmStep>构造 prefix mask，将 prefix 的 timestep 设为 $1.0$。</AlgorithmStep>
+  <AlgorithmStep>prefix 保持 clean，postfix 按 timestep 加噪并送入 action expert。</AlgorithmStep>
+  <AlgorithmStep>用 postfix mask 屏蔽 prefix 误差，再对剩余 token 求平均。</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 推理接口与 inference-time RTC 相同：输入当前观测、padding 后的 prefix 和 delay，输出 postfix。区别在于采样过程中不再计算 pseudoinverse guidance 或 vector-Jacobian product；每一步只需普通模型前向和 prefix 覆盖。
+
+<Algorithm
+  number={2}
+  title='Training-time RTC action generation'
+  inputLabel='输入'
+  outputLabel='输出'
+>
+  <div slot='input'>观测、长度为 $d$ 的 action prefix、采样步数。</div>
+  <div slot='output'>与 prefix 拼接后的完整 action chunk。</div>
+  <AlgorithmStep>从高斯噪声初始化整个 action chunk。</AlgorithmStep>
+  <AlgorithmStep>
+    在每个 flow step，将 prefix token 覆盖回真实动作，并把其 timestep 设为 $1.0$。
+  </AlgorithmStep>
+  <AlgorithmStep>仅对 postfix 调用 action expert，沿 velocity 场积分更新。</AlgorithmStep>
+  <AlgorithmStep>返回 prefix 与生成 postfix，异步交给机器人执行。</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** 论文附录 Algorithm 1 给出了 JAX 参考实现：`compute_loss` 中新增 `delay`、`prefix_mask` 和 `postfix_mask` 三段逻辑；`sample_actions` 中每个积分步都用 `jnp.where` 把 prefix 写回 `x_t`，并给 prefix 使用 timestep `1.0`。这说明方法并不要求重写 action expert，只需要让模型接受形状为 `(batch, horizon)` 的 timestep。
+
+**【Code】** 论文没有提供独立 GitHub 仓库、训练配置或 checkpoint，因此无法进一步核对数据加载、优化器和部署脚本。上面的代码对照仅覆盖附录中明确展示的 loss 与 sampling 行为。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+**【Paper】** 仿真使用 dynamic Kinetix，预测 horizon $H=8$、4-layer MLP-Mixer、32 epochs，2048 次 rollout 统计每个点的 binary solve rate，测试 $d=0\ldots4$。对比项为 naive async、inference-time RTC 和 training-time RTC。
+
+真实实验使用 $\pi_{0.6}$ VLA，在 box building 与 espresso making 两个任务上 fine-tune；机器人控制频率为 50 Hz，远程 H100 上使用 5 个 denoising steps。训练时 RTC 平均端到端延迟为 108 ms（约 $d=5$），inference-time RTC 为 135 ms（约 $d=7$）。
+
+![Real-world evaluation tasks from paper Figure 4](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-training-time-action-conditioning/box.2a5ttpih0b.webp)
+
+![Espresso evaluation task from paper Figure 4](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-training-time-action-conditioning/coffee.51ew1s4l5m.webp)
+
+### 5.2 Main Results
+
+![Simulated solve rate versus inference delay from paper Figure 3](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-training-time-action-conditioning/plots-sim.2a5ttpih85.webp)
+
+**【Paper】** 仿真曲线显示：在 $d=0$ 与 $d=1$，training-time RTC 与 inference-time RTC 接近，前者略低；从 $d=2$ 起，training-time RTC 超过 inference-time RTC，且延迟越高差距越明显。naive async 随 delay 增长下降最快。
+
+![Real-world success rate and duration from paper Figure 5](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-training-time-action-conditioning/real-results.7w7k7kjs3n.webp)
+
+**【Paper】** 在两个真实任务上，training-time 与 inference-time RTC 的成功率和执行时长相近，但都比 synchronous inference 更快。论文的关键结论不是“训练时方法一定更准”，而是用少量额外训练换掉了实时路径中的额外计算。
+
+### 5.3 Ablation Study
+
+论文没有单独的组件 ablation 表，而是用不同 delay 的横向比较验证设计目标：当 prefix 变长、inference-time inpainting 需要修正的 token 增多时，training-time RTC 的优势扩大。
+
+**【Analysis】** 这同时暴露了一个 trade-off：$d=0/1$ 时 postfix 更长，普通模型得到更多直接监督，因此专门训练 prefix 的 checkpoint 不一定占优；延迟较大时，条件化带来的分布匹配收益才超过监督被 mask 掉的损失。
+
+### 5.4 Generalization
+
+**【Paper】** 真实实验表明，基础模型并未预训练 action-prefix conditioning，仍可通过目标任务上的 8,000 steps fine-tuning 加入该能力。训练时均匀采样 $d\in[0,10]$，因此同一个 checkpoint 能覆盖一段延迟范围，而不是只适配单一 latency。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** inference-time inpainting 把“已承诺的 prefix”当作采样过程中的软约束，需要在每个 denoising step 通过模型 Jacobian 修正 postfix；training-time conditioning 则直接改变学习目标，让模型参数化的就是 $p(\text{postfix}\mid\text{observation},\text{prefix})$。前者是在推理时补救，后者是在训练时消除分布错配。
+
+### 6.2 核心创新
+
+**【Analysis】** 创新点不在新的 backbone，而在把系统 latency 变成数据生成变量：`delay distribution → prefix length → per-token flow time → masked loss`。这种改法保留了 RTC 的异步 runtime，却把计算预算从每次 rollout 转移到一次性的 fine-tuning。
+
+### 6.3 与已有方法的本质区别
+
+| 方法               | 连续性来源                                | 额外运行时计算 | 延迟适配方式                  |
+| ------------------ | ----------------------------------------- | -------------- | ----------------------------- |
+| Naive async        | 无显式 prefix 约束                        | 低             | 不适配，chunk 间可能出现 jerk |
+| Inference-time RTC | denoising 时 pseudoinverse / soft masking | 高             | 推理时可灵活改变              |
+| Training-time RTC  | 训练好的 hard prefix 条件化               | 接近普通采样   | 训练时采样 delay 分布         |
+
+**【Analysis】** 因此两种 RTC 不是简单的“训练版”和“推理版”实现细节，而是把连续性约束放在不同时间尺度：一个放在每次 action generation，一个放在策略学习阶段。
+
+### 6.4 关键假设
+
+**【Paper】** 方法依赖三个假设：实际 prefix 来自与训练数据一致的 action chunk；延迟可以用有限分布 $d$ 近似；模型架构能够为不同 action token 提供不同 flow timestep。若执行中出现训练分布之外的延迟或 prefix 被低层控制器严重修改，论文没有给出保证。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** training-time RTC 只能处理与 delay 对应的 hard prefix，不能像 inference-time RTC 那样对 prefix 之后的重叠动作做 soft conditioning；此外，delay 的训练分布需要根据预期推理延迟认真选择。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+1. prefix loss 被完全 mask 后，低 delay 下早期动作获得的监督减少，解释了仿真中 $d=0/1$ 的轻微退化。
+2. 训练时使用 ground-truth prefix，部署时 prefix 来自模型历史输出，存在 teacher-forcing 与 closed-loop 分布差异。
+3. 一个 checkpoint 覆盖宽 delay 区间更方便，但可能不如按硬件和网络状态分别训练的 checkpoint；论文也提到为每个 delay 单独投入训练计算可能更好。
+4. 论文只在 Kinetix、两个真实任务和 $\pi_{0.6}$ 上验证，尚不足以说明在不同 action expert、不同控制频率或大规模多任务 VLA 上同样成立。
+
+## 8. 启发与研究思考
+
+**【Analysis】** 这篇工作给实时机器人系统一个很实用的设计原则：当 runtime 为了满足约束而反复做梯度修正时，可以先问“这个约束能否被搬到训练分布里”。如果答案是肯定的，最有价值的优化可能不是再造一个更小的模型，而是让模型在训练时看到真实的延迟、缓存和 prefix。
+
+对后续研究，我认为有三条路线值得尝试：
+
+- 用在线测得的 latency 分布替代手工设定的 delay sampler，并在训练中动态重加权。
+- 让 hard prefix 与 soft prefix 共存：短 prefix 使用训练时条件化，较远的重叠动作使用轻量 correction，而不是完整 pseudoinverse guidance。
+- 将 prefix 的可信度、低层跟踪误差和通信抖动一并作为条件，学习真正面向 deployment 的 action continuation policy。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示论文附录中的 JAX 参考实现，`【Analysis】`
+  表示基于论文和代码的分析推断。论文未提供独立代码仓库，因此没有把未经验证的第三方实现当作官方代码。
+</Aside>
