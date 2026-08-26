@@ -1,0 +1,261 @@
+---
+title: 'ThinkAct 论文精读：用视觉潜变量让 VLA 先思考再行动'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 ThinkAct：用动作对齐的视觉奖励通过 GRPO 训练 embodied reasoning，再以视觉计划 latent 条件化 DiT Action Model，实现长时规划、少样本适应与自纠错。'
+heroImage:
+  { src: 'https://pic.hana0721.top/95619535_p0_master1200.8okafg4jti.webp', color: '#6D7A86' }
+category: 'research'
+pixivLink: '95619535'
+tags:
+  - 'paper deep dive'
+  - 'ThinkAct'
+  - 'vision-language-action'
+  - 'embodied reasoning'
+  - 'reinforcement learning'
+paper:
+  arxivId: '2507.16815'
+  title: 'ThinkAct: Vision-Language-Action Reasoning via Reinforced Visual Latent Planning'
+  authors:
+    - 'Chi-Pin Huang'
+    - 'Yueh-Hua Wu'
+    - 'Min-Hung Chen'
+    - 'Yu-Chiang Frank Wang'
+    - 'Fu-En Yang'
+  venue: 'NeurIPS 2025 / arXiv'
+  year: 2025
+  code: ''
+  project: 'https://jasper0314-huang.github.io/thinkact-vla/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2507.16815'
+  tldr='ThinkAct 用动作对齐的视觉奖励训练推理 MLLM，把长链思考压缩为视觉轨迹 latent，再异步条件化 DiT 策略，从而获得长时规划、少样本适应和失败自纠错。'
+  rank={5}
+/>
+
+## 1. 论文概述
+
+**【Paper】** ThinkAct 关注一个常见但棘手的 VLA 缺口：模型可以把当前图像和指令映射到动作，却不一定知道“接下来要完成哪些子目标”。论文提出双系统（dual-system）框架：Reasoning MLLM $\mathcal{F}_\theta$ 负责慢速思考，DiT Action Model $\pi_\phi$ 负责快速控制；两者通过视觉计划 latent $c_t$ 连接。
+
+![ThinkAct architecture overview from paper Figure 2](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-thinkact/overview.4n8gap3tkg.webp)
+
+### 一句话总结
+
+**【Analysis】** ThinkAct 的真正改动不是给 VLA 加一段文字 CoT，而是把思考结果压缩成可对齐到场景的 2D 轨迹，再把这段视觉计划交给动作扩散模型执行。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 用目标完成（goal completion）与轨迹一致性（trajectory alignment）组成 action-aligned visual reward，并以 GRPO 强化 MLLM 的 embodied reasoning。
+2. 从推理输出中抽取 $K$ 个 2D gripper keypoints，形成紧凑的 visual plan latent，而不是依赖昂贵的逐步语言标注。
+3. 以 latent projector 将计划接入 DiT Action Model，支持 MLLM 慢速思考、策略高速控制的异步执行。
+4. 在 SimplerEnv、LIBERO、EgoPlan-Bench2、RoboVQA 和 OpenEQA 上验证长时规划、少样本适应与自纠错能力。
+
+## 2. 背景与相关工作
+
+**【Paper】** OpenVLA、TraceVLA 等端到端 VLA 直接预测低层动作，短技能有效，但对长指令、跨场景变化和中途失败不够稳健。ECoT、RAD 和 CoT-VLA 引入中间推理或视觉子目标，却依赖人工/模型生成的 CoT 监督，扩展成本高；通用 VLM 的 GRPO 工作则通常用 QA 正确率，无法约束计划是否真的对应可执行运动。
+
+**【Analysis】** ThinkAct 把“推理是否正确”改写成一个可由视觉轨迹验证的问题：终点要接近演示终点，整条轨迹要像真实的 gripper motion。这样奖励不再只问答案对不对，而是问计划是否能落到场景中。
+
+## 3. 问题定义
+
+**【Paper】** 在时间步 $t$，模型接收视觉观测 $o_t$ 与语言指令 $l$，输出动作 $a_t$。动作可以是文本命令，也可以是 7-DoF 控制向量 $[\Delta x,\Delta\theta,\Delta Grip]$。ThinkAct 将问题拆成：
+
+$$
+c_t=\mathcal{F}_\theta(o_t,l),\qquad [a_t,\ldots,a_{t+N}]=\pi_\phi(c_t,o_t,l).
+$$
+
+其中 $c_t\in\mathbb{R}^{|c_t|\times d}$ 是视觉计划 latent；它解码为 $K$ 个归一化 2D 点 $\tau=[p_k]_{k=1}^{K}$，$p_1$ 与 $p_K$ 分别表示 gripper 的起点和目标终点。$N$ 是一次思考覆盖的环境交互步数，允许思考频率低于动作频率。
+
+| 要素 | ThinkAct 定义 |
+| --- | --- |
+| Observation | 单帧 RGB；自纠错实验扩展为短视频片段 |
+| Language | 任务指令 $l$ |
+| Reasoning model | Qwen2.5-VL 7B 初始化的 MLLM |
+| Action model | 432M 参数、DiT-based diffusion policy |
+| Action | 文本命令或 7-DoF 控制向量 |
+| Plan latent | $K=8$ 个 2D gripper keypoints 的视觉轨迹 |
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+**【Paper】** 训练阶段先让 MLLM 生成 `<think>...</think>` 与 `<answer>...</answer>`，并在答案中产生轨迹 $\tau$；轨迹由视觉检测器得到的参考轨迹 $\hat\tau$ 监督。随后冻结 MLLM，把 $c_t$ 经 latent projector 注入状态编码器和动作模型。推理时 MLLM 每 $N$ 步更新一次计划，$\pi_\phi$ 每一步输出动作。
+
+**【Analysis】** 这是一种“慢思考、快执行”的时钟解耦：计划 latent 是跨多个动作步复用的高层意图，而不是每个控制周期都重新生成语言解释。
+
+### 4.2 核心模块
+
+#### Action-aligned visual reward
+
+给定预测轨迹 $\tau$ 和检测器得到的参考轨迹 $\hat\tau$，目标奖励比较首尾点：
+
+$$
+r_{goal}=\frac{1}{2}\bigl(f(p_1,\hat p_1)+f(p_K,\hat p_K)\bigr),\quad
+f(p,p')=\max(0,1-\lVert p-p'\rVert_2^2).
+$$
+
+轨迹奖励使用 Dynamic Time Warping（DTW）：
+
+$$
+r_{traj}=\max(0,1-d_{DTW}(\tau,\hat\tau)).
+$$
+
+**【Paper】** 最终奖励为
+
+$$
+r=0.9r_{visual}+0.1r_{format},\qquad
+r_{visual}=0.5r_{goal}+0.5r_{traj}.
+$$
+
+**【Analysis】** $r_{goal}$ 防止“轨迹形状像，但终点错了”，$r_{traj}$ 防止“只猜对起点和终点，中间运动不物理”。二者组合把长时目标与运动过程同时纳入奖励。
+
+#### Visual plan latent 与动作模型
+
+**【Paper】** MLLM 自回归地产生 reasoning embeddings $v_t$ 和 plan embeddings $c_t$。$c_t$ 可解码为 2D 轨迹，但接入动作模型时保留其 latent 形式，经 Q-Former latent projector 映射到 Action Model 的输入空间。Action Model 还接收视觉状态与语言条件，输出一段连续动作。
+
+**【Analysis】** latent 而不是完整文本的好处是接口稳定、长度紧凑，并且允许动作模型学习“计划到控制”的映射，而无需理解自然语言 CoT 的全部措辞。
+
+### 4.3 关键公式
+
+#### GRPO 目标
+
+对同一输入 $(o_t,l)$ 从旧策略采样 $M$ 个回答 $z_i$，按奖励计算组内优势：
+
+$$
+A_i=\frac{r_i-\operatorname{mean}(r_1,\ldots,r_M)}{\operatorname{std}(r_1,\ldots,r_M)}.
+$$
+
+论文优化目标为：
+
+$$
+\mathcal{J}_{GRPO}(\theta)=\frac{1}{M}\sum_{i=1}^{M}
+\left[\frac{\mathcal{F}_\theta(z_i|o_t,l)}{\mathcal{F}_{\theta_{old}}(z_i|o_t,l)}A_i
+-\beta D_{KL}(\mathcal{F}_\theta\Vert\mathcal{F}_{\theta_{old}})\right].
+$$
+
+$A_i$ 只表达同组相对质量，$\beta$ 用 KL 项限制模型偏离冷启动策略过远。
+
+#### 动作适配损失
+
+冻结 $\mathcal{F}_\theta$ 后，使用动作示范更新状态编码器、latent projector 和动作模型：
+
+$$
+\mathcal{L}_{IL}(\phi)=\mathbb{E}_{(o_i,l,a_i)}
+\left[\ell\bigl(\pi_\phi(c_t,o_i,l),a_i\bigr)\right].
+$$
+
+### 4.4 Training
+
+**【Paper】** 训练是三阶段：
+
+1. **MLLM cold-start SFT**：使用 OXE 轨迹及 RoboVQA、EgoPlan-IT、Video-R1-CoT 等 QA 数据，学习正确的输出格式、轨迹表达和基础 embodied understanding。
+2. **GRPO reinforced fine-tuning**：对 OXE 与 Something-Something v2 轨迹计算视觉奖励；QA 数据继续提供 accuracy / ROUGE 奖励。训练 6K iterations，rollout size 为 5。
+3. **Reasoning-enhanced action adaptation**：冻结 MLLM，将缓存的 $c_t$ 接入 DiT policy；在 100K OXE 样本上训练，再对 LIBERO 任务微调。
+
+<Algorithm number={1} title='ThinkAct 训练' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>轨迹视频、语言指令、动作示范与 QA 数据</div>
+  <div slot='output'>推理 MLLM $\mathcal{F}_\theta$ 与动作策略 $\pi_\phi$</div>
+  <AlgorithmStep>用监督数据冷启动 $\mathcal{F}_\theta$，使其生成 reasoning、answer 与 $K$ 个轨迹点。</AlgorithmStep>
+  <AlgorithmStep>从视频检测参考轨迹 $\hat\tau$，计算 $r_{goal}$、$r_{traj}$ 与格式奖励。</AlgorithmStep>
+  <AlgorithmStep>对每个输入采样一组回答，用 GRPO 更新 MLLM，并以 KL 项保持训练稳定。</AlgorithmStep>
+  <AlgorithmStep>冻结 MLLM，缓存 $c_t$；用动作示范更新状态编码器、Q-Former projector 与 DiT policy。</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 输入单帧观测时，MLLM 生成当前计划 latent；Action Model 基于该 latent、观测和指令预测一段动作。执行 $N$ 步后重新观察并重新思考。自纠错设置将输入扩展为 $o_{t-N:t}$，让 MLLM 能发现物体掉落等失败并重规划。
+
+<Algorithm number={2} title='ThinkAct 推理' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前图像（或短视频）$o_t$ 与语言指令 $l$</div>
+  <div slot='output'>已执行的动作序列与必要时的修正计划</div>
+  <AlgorithmStep>计算 $c_t=\mathcal{F}_\theta(o_t,l)$，得到高层视觉计划。</AlgorithmStep>
+  <AlgorithmStep>将 $c_t$ 经 latent projector 与状态编码共同送入 $\pi_\phi$。</AlgorithmStep>
+  <AlgorithmStep>执行动作模型输出的 $N$ 步动作；期间策略可持续高速控制。</AlgorithmStep>
+  <AlgorithmStep>每 $N$ 步更新观测；若检测到失败，重新生成计划并继续执行。</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** 截至论文项目页（页面标注 `Code (⏳)`），作者尚未公开官方代码仓库，因此无法核对模型定义、DataLoader、checkpoint 或实际推理细节。本文中带有 `【Code】` 的段落仅表示项目页提供的链接状态；所有实现级结论均以“论文未明确说明”处理。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+**【Paper】** MLLM 初始化为 Qwen2.5-VL 7B。冷启动 20K iterations、batch size 32、学习率 $10^{-5}$；GRPO 6K iterations、batch size 64、学习率 $10^{-6}$、rollout size 5。动作模型是 432M 参数 DiT policy，状态编码器由 DINOv2 图像编码器和 CLIP 文本编码器组成；Q-Former 使用 32 个 queries。实验使用 16 张 80GB A100。
+
+训练数据包括 OXE 的 fractal20220817 与 bridge 子集、Something-Something v2、RoboVQA、EgoPlan-IT、Reflect 与 LLaVA-Video-178K。评测覆盖 SimplerEnv、LIBERO、EgoPlan-Bench2、RoboVQA 和 OpenEQA。
+
+![ThinkAct qualitative manipulation reasoning from paper Figure 3](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-thinkact/visualize_manipulation.lwgwazqhi.webp)
+
+### 5.2 Main Results
+
+**【Paper】** 机器人操作成功率如下：
+
+| Benchmark | ThinkAct | 对比结论 |
+| --- | ---: | --- |
+| Simpler-Google Visual Matching | 71.5% | 高于 DiT-Policy 56.0% |
+| Simpler-Google Variant Aggregation | 65.1% | 高于 DiT-Policy 48.2% |
+| Simpler-Bridge Visual Matching | 43.8% | 高于 DiT-Policy 32.4% |
+| LIBERO Overall | 84.4% | 高于 CoT-VLA 83.9% |
+
+在 embodied reasoning 上，ThinkAct 在 EgoPlan-Bench2 达到 48.2，RoboVQA Overall 达到 59.8，OpenEQA Overall 达到 56.2。论文报告其相较第二名在 EgoPlan-Bench2 提升 2.5 个百分点、RoboVQA 提升 4.1 BLEU。
+
+![ThinkAct embodied reasoning comparisons from paper Figure 4](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-thinkact/visualize_comparisons.46f7pyd3q.webp)
+
+### 5.3 Ablation Study
+
+![ThinkAct few-shot adaptation results from paper Figure 5](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-thinkact/fewshot.1vze2mhs58.webp)
+
+**【Paper】** 去掉 $r_{traj}$ 后 SimplerEnv / EgoPlan / RoboVQA 为 59.2 / 47.9 / 58.5；去掉 $r_{goal}$ 后为 59.1 / 47.6 / 58.9；同时去掉两者仅剩 56.9 / 47.2 / 58.3，接近 SFT cold-start 的 56.4 / 46.4 / 57.9。说明 QA 奖励单独不足以诱导结构化长时计划，轨迹和终点视觉反馈缺一不可。
+
+### 5.4 Generalization
+
+**【Paper】** 少样本 LIBERO 实验每个任务只用 10 条示范、评测 100 次。ThinkAct 在 Spatial、Object、Goal、Average 上分别达到 52%、39.1%、36.2%、34.7%，相对 Magma 在 Spatial 和 Goal 上分别高 9.5 和 7.3 个百分点。论文还展示了失败后重抓物体的自纠错案例。
+
+![ThinkAct self-reflection and correction from paper Figure 6](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-thinkact/visualize_reflection.8adzy7zopz.webp)
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** 端到端策略最容易学到“当前画面对应的局部动作”，却难以表示多个子目标之间的顺序。ThinkAct 用轨迹 latent 提供了一个低带宽、可视觉验证的中间状态：它告诉动作模型先去哪、终点在哪，同时保留局部控制的自由度。$r_{goal}$ 提供任务方向，$r_{traj}$ 提供运动形状，二者共同降低计划漂移。
+
+### 6.2 核心创新
+
+**【Analysis】** 核心创新是 reward/interface 的组合，而非单独使用 GRPO 或 Diffusion Policy：用视觉轨迹把 RL 奖励从 QA 正确率扩展到可执行性；用 latent 而非语言 CoT 连接 reasoning 与 action；让 reasoning 与 control 异步运行，在不牺牲控制频率的情况下增加思考深度。
+
+### 6.3 与已有方法的本质区别
+
+**【Paper】** ECoT/RAD 依赖显式 CoT 监督，CoT-VLA 依赖生成的视觉子目标；ThinkAct 通过 RL 从奖励中探索推理轨迹，不要求每一步都有人工文字标签。与只在动作空间施加 RL 的方法相比，它先在视觉空间约束 plan，再由动作模型负责连续控制。
+
+### 6.4 关键假设
+
+**【Analysis】** 方法依赖四个假设：2D gripper 轨迹足以表达任务关键意图；离线检测器得到的 $\hat\tau$ 能代表正确行为；一个计划 latent 可以复用 $N$ 步；MLLM 生成的 reasoning 与 latent 轨迹语义一致。遮挡、深度、多臂协同和快速变化环境都可能违反这些假设。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** ThinkAct 继承预训练 MLLM 的视觉与空间幻觉：模型可能引用不存在的物体属性或错误关系，导致下游计划和动作失败。作者建议 grounding-aware training 与 hallucination suppression；安全关键场景还需要更强的人类意图对齐与 safeguards。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】** 论文主要在仿真和离线视频上证明收益，真实世界部署的延迟、相机标定、检测器失败率和安全边界没有系统量化。7B MLLM 的 rollout 也可能带来显著 GPU 成本；轨迹奖励偏向末端执行器运动，对双臂协同、工具使用和非抓取操作未必充分。
+
+## 8. 启发与研究思考
+
+**【Analysis】** ThinkAct 提供了一个可迁移的设计模板：先寻找能被视觉验证的中间计划，再用 RL 让基础模型探索这些计划，最后用独立控制器把计划落地。后续可以把 2D 点扩展到带接触、深度和对象身份的 scene graph latent，用真实失败构造反事实视觉奖励，并让不确定性估计决定何时重新思考，而不是固定 $N$。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码状态，`【Analysis】`
+  表示基于论文和公开项目页的分析推断。项目页截至本文发布时仍标注代码即将公开。
+</Aside>
