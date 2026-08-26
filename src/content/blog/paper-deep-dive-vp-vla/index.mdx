@@ -1,0 +1,324 @@
+---
+title: 'VP-VLA 论文精读'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 VP-VLA：以 crosshair 和 bounding box 作为 System 2 规划与 System 1 控制之间的原生视觉接口，提升 VLA 的空间 grounding 与 OOD 操作鲁棒性。'
+heroImage:
+  { src: 'https://pic.hana0721.top/142350190_p0_master1200.2yyy3wl757.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '142350190'
+tags:
+  - 'paper deep dive'
+  - 'VLA'
+  - 'visual prompting'
+  - 'robot manipulation'
+paper:
+  arxivId: '2603.22003'
+  title: 'VP-VLA: Visual Prompting as an Interface for Vision-Language-Action Models'
+  authors:
+    - 'Zixuan Wang'
+    - 'Yuxin Chen'
+    - 'Yuqi Liu'
+    - 'Jinhui Ye'
+    - 'Pengguang Chen'
+    - 'Changsheng Lu'
+    - 'Shu Liu'
+    - 'Bei Yu'
+    - 'Jiaya Jia'
+  venue: 'arXiv'
+  year: 2026
+  code: 'https://github.com/JIA-Lab-research/VP-VLA'
+  project: 'https://visualprompt-vla.github.io/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2603.22003'
+  tldr='VP-VLA 让 VLM 把语言子任务变成叠加在 RGB 图像上的 crosshair 与 bounding box，再由 VLA 跟踪这些空间锚点；在 RoboCasa 和 SimplerEnv 上分别比 QwenOFT 高 5.0 与 8.3 个百分点。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**【Paper】** VP-VLA（Visual Prompting as an Interface for Vision-Language-Action Models）将一个端到端 VLA 拆为两个频率不同的系统：高层 **System 2 Planner** 负责理解指令、判断当前子任务并找出目标物与目标位置；低层 **System 1 Controller** 负责把这些结果转化为动作。两者不通过额外 token、dense mask 或新模态通信，而是通过叠加在原始 RGB 图像上的视觉提示（visual prompt）通信：抓取时画 crosshair，放置时画 bounding box。
+
+![VP-VLA generalization motivation from paper Figure 1](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-vp-vla/vp-vla-fig1-teaser.webp)
+
+### 一句话总结
+
+**【Analysis】** VP-VLA 的关键不是让低层 action policy 额外学习一种抽象的 affordance 表示，而是把高层已完成的“看哪里、放到哪里”判断，画成 VLA 原本就会处理的 RGB 证据；低层于是从“同时理解意图、定位与控制”变成“跟踪明确空间锚点”。
+
+### 核心贡献
+
+1. **【Paper】** 提出双系统 VLA：事件驱动的 System 2 只在任务阶段切换时重规划，System 1 高频执行视觉—动作控制。
+2. **【Paper】** 提出 native visual prompting interface：用目标掩码的中心 crosshair 表示交互锚点，用目标区域的 bounding box 表示放置约束，均直接覆盖到 RGB 观察上。
+3. **【Paper】** 加入 visual grounding auxiliary objective，使 VLA backbone 显式预测提示的离散坐标，避免把叠加符号当作无关噪声。
+4. **【Paper】** 在 RoboCasa-GR1-Tabletop、SimplerEnv 与真实 Franka 任务上报告稳定收益，尤其改善 novel object、未见位置与 clutter 场景下的空间 grounding。
+
+## 2. 背景与相关工作
+
+**【Paper】** 标准 VLA 把语言 $l$ 与多相机观测 $o_t$ 直接映射为 action chunk。单个网络必须在一次或少数几次 forward 中完成指令解析、目标实例识别、空间关系推理、接触点选择和低层控制。论文认为这种 monolithic bottleneck 会使模型在训练场景分布之外依赖图像捷径，而非真正根据语言定位对象。
+
+已有方法也会在 VLA 前插入中间表示，例如 goal image、轨迹、关键姿态、affordance map 或 dense segmentation mask。**【Paper】** 作者指出：训练自由的 VLM grounding 通常不够精确；dense mask 与 VLM 的自然 RGB 输入分布不同，常要另加 encoder 或复杂 fusion；只在第一帧标点的静态提示又无法随多阶段操作更新。
+
+**【Analysis】** 这里的取舍非常具体：信息量太少的纯文本不能约束落点，信息量太大的 mask 则改变了下游模型的感知分布。crosshair 与 box 用极少像素表达“交互中心”和“可放置区域”，同时保留场景原貌，是一种刻意追求兼容性的中间接口。
+
+## 3. 问题定义
+
+**【Paper】** 常规策略为
+
+$$
+a_t = \pi_\theta(l,o_t), \qquad
+o_t=\{o_t^1,\ldots,o_t^m\},
+$$
+
+其中 $m$ 是相机数，$a_t=\{a_t^1,\ldots,a_t^n\}$ 是用来掩盖推理延迟、保持运动平滑的 action chunk。VP-VLA 额外构造视觉接口图像 $I_{vp}^t$，得到
+
+$$
+a_t=\pi_\theta(l,o_t,I_{vp}^t)
+=h_\psi\!\left(f_\omega(l,o_t,I_{vp}^t)\right).
+$$
+
+$f_\omega$ 是 VLM backbone，$h_\psi$ 是连续 action decoder，$\theta=\{\omega,\psi\}$。区别不在于额外输入一张“处理过的图片”本身，而在于 $I_{vp}^t$ 来自显式的子任务与实体 grounding，因此其符号与当前阶段一一对应。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![VP-VLA dual-system architecture from paper Figure 2](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-vp-vla/vp-vla-fig2-pipeline.webp)
+
+**【Paper】** 数据流为：`instruction + observation + robot state → System 2 → text-conditioned segmentation → RGB visual prompt → System 1 → action chunk`。训练时，System 1 还从关键帧的提示中学习坐标 grounding；部署时，System 2 不需要每个控制步都调用。
+
+### 4.2 核心模块
+
+#### System 2 Planner：按事件更新的高层推理
+
+**【Paper】** 规划器先把全局指令分解为有序子任务，再在当前观测、指令和机器人状态下识别当前子任务 $s_k$、目标物 $e_{obj}$ 与目标位置 $e_{loc}$：
+
+$$
+\{s_k,e_{obj},e_{loc}\}=
+\operatorname{VLM}_{\text{planner}}(l,o_t,S_t).
+$$
+
+不是每帧都运行该 VLM。作者以夹爪状态作为物理阶段代理：夹爪由开变闭或由闭变开时，认为抓取/释放等语义阶段可能已经改变，才触发重评估。这样“拿起杯子”完成后，提示才会从杯子转向桌面或容器。
+
+#### 视觉提示生成：SAM3 把名字变成空间约束
+
+**【Paper】** 给定实体名称，text-conditioned segmentation model $\mathcal{G}$ 在图像上产生提示：
+
+$$
+\psi_t=\mathcal{G}(o_t,e_{obj},e_{loc}), \qquad
+\psi_t=\{C,B\}.
+$$
+
+$C\in\mathbb{R}^2$ 是目标物 mask 重心处的 crosshair，适合 pick；$B\in\mathbb{R}^4$ 是目标放置区域的 box，适合 place。两者叠加到 overhead RGB 观察，形成 $I_{vp}^t$。对于开门、关门等非抓取原语，论文同样以对象的交互位置作为提示对象。
+
+**【Analysis】** crosshair 和 box 分别编码“在哪里接触”与“哪里可满足约束”，但不强迫低层策略复制一个像素级 mask。这让 action policy 仍能使用背景、遮挡、夹爪姿态等原始视觉线索来决定具体轨迹。
+
+#### System 1 Controller：带提示的连续动作策略
+
+**【Paper】** System 1 同时接收语言、原始图像与 visual-prompt 图像，由 VLM 提取多模态表征、action decoder 输出连续控制信号。论文的实现细节使用 QwenOFT：将 OpenVLA-OFT 的 Prismatic VLM 替换成 Qwen3-VL-4B-Instruct；action decoder 预测 action chunk。
+
+#### 关键帧 visual grounding
+
+**【Paper】** 作者只在 episode 第一帧和事件帧附加 grounding supervision。图像坐标被划分为 $N=1000$ 个离散 bin：对于 crosshair，模型输出 $(x,y)$；对于 box，输出 $[x_1,y_1,x_2,y_2]$ 的结构化 JSON。目标是让 VLM 内部表征与画出的提示建立可读的空间对应。
+
+### 4.3 关键公式
+
+#### 事件触发条件
+
+$$
+E_t=\mathbb{1}\!\left(\left|\phi(S_t)-\phi(S_{t-1})\right|>\epsilon\right).
+$$
+
+**【Paper】** $S_t$ 是机器人物理状态，$\phi$ 是状态映射，$\epsilon$ 是阈值。在桌面实验中，$\phi$ 被实例化为 gripper status：开闭状态改变时 $E_t=1$，System 2 重做阶段判断。这个定义是启发式 event detector，不等同于从视觉直接证明子任务成功。
+
+#### 联合训练目标
+
+$$
+\mathcal{L}_{\text{total}}
+=\mathcal{L}_{\text{action}}(\theta)
++\lambda\,\mathbb{1}_{\text{event}}\mathcal{L}_{\text{grounding}}(\omega).
+$$
+
+**【Paper】** $\mathcal{L}_{\text{action}}$ 是 action prediction 的 L1 loss；$\mathcal{L}_{\text{grounding}}$ 是离散位置 token 的 cross-entropy；$\lambda$ 权衡二者，实验设为 $0.1$。grounding loss 仅对 VLM 参数 $\omega$ 反传，而 action loss 更新包含 VLM 与 action decoder 的策略参数。
+
+**【Analysis】** 指示函数把 auxiliary loss 放在信息发生变化的时刻：若每一帧都反复要求同一坐标，监督信号可能大量重复；若完全不要求位置输出，VLM 也可能把彩色符号视作无意义的 augmentation。
+
+### 4.4 Training
+
+**【Paper】** 数据准备首先以规则将任务拆成子任务列表；关键帧上由 VLM 选择当前子任务、对象与位置名称；随后用 text-conditioned segmentation 在到下一关键帧前的全部帧上生成 mask 与 box，并转成 overlays。OXE 实验沿用 starVLA 的设置，丢弃 visual prompt 为空的 episode，且该过滤同时用于方法与 baseline。
+
+**【Paper】** 训练基于 starVLA，在 8 张 GPU 上完成；System 1 使用 Qwen3-VL-4B-Instruct，AdamW 对 VLM 的学习率为 $10^{-5}$、对 action model 为 $10^{-4}$，$\lambda=0.1$。
+
+<Algorithm number={1} title='VP-VLA 训练' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>机器人 episode、全局 instruction、视频帧、动作与 gripper state</div>
+  <div slot='output'>System 1 policy $\pi_\theta$；预计算的 per-frame visual prompts</div>
+  <AlgorithmStep>以规则得到子任务列表；在第一帧及 gripper event 帧，让 VLM 确定当前子任务和实体名称。</AlgorithmStep>
+  <AlgorithmStep>以 SAM3 对对象/位置做文本条件分割，将 object centroid 画为 crosshair、location 画为 box。</AlgorithmStep>
+  <AlgorithmStep>把原始 RGB 与 overlay 图像、instruction 和 action chunk 输入 System 1，计算 L1 action loss。</AlgorithmStep>
+  <AlgorithmStep>从关键帧构造坐标问答，预测离散化 crosshair 或 box 坐标，计算 CE grounding loss。</AlgorithmStep>
+  <AlgorithmStep>按 $\mathcal{L}_{\text{total}}$ 更新；grounding 分支只更新 VLM backbone。</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 初始帧和每次 event 时，System 2 将当前阶段翻译为实体名称；SAM3 在最新 observation 生成 overlay；System 1 在控制循环中根据该 overlay 预测并执行 action chunk。没有 event 时沿用当前提示，避免高层 VLM 成为每一步控制的延迟瓶颈。
+
+<Algorithm number={2} title='VP-VLA 事件驱动闭环推理' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>全局指令 $l$、连续观测 $o_t$、机器人状态 $S_t$</div>
+  <div slot='output'>完成任务的连续动作序列</div>
+  <AlgorithmStep>
+    在第一帧分解任务并定位当前子任务的对象与位置；用 SAM3 绘制 $I_{vp}^t$。
+  </AlgorithmStep>
+  <AlgorithmStep>System 1 读取 $l,o_t,I_{vp}^t$，预测并执行当前 action chunk。</AlgorithmStep>
+  <AlgorithmStep>
+    从已执行动作获得夹爪开闭状态；若 $E_t=1$，调用 System 2 比较参考帧与当前帧并决定 continue 或
+    proceed。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    若切换子任务则更新实体名称和 overlay；否则保持当前提示并回到控制步骤。
+  </AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+| 论文组件                | 官方代码位置                                                     | 可核对的实现行为                                                                                                                            |
+| ----------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| 数据预处理              | `data_preparation/{Robocasa_tabletop,SimplerEnv}/`               | 多进程启动 VLM 与 SAM3 server，将每个 episode 的 overlay、mask、box 和 subtask 记录保存为 `.npz`。                                          |
+| 训练数据                | `starVLA/dataloader/visual_prompt_datasets.py`                   | primary view 根据当前帧 mask/box 绘制提示；可配置 `feed_both_images` 同时给原图和 overlay，wrist view 保持原图。                            |
+| action + grounding 训练 | `starVLA/training/train_starvla_visual_prompt.py`                | trainer 先运行 policy 的 action forward/backward，再用 visual-prompt 坐标问答运行 `qwen_vl_interface`，以 `visual_prompt` loss scale 加权。 |
+| prompt 绘制             | `visual_prompt_utils.py`、`visual_prompt_utility/sam3_client.py` | object prompt 设为 `crosshair`，location prompt 设为 `box`；server 取最高分目标。                                                           |
+| 运行时阶段切换          | `examples/*/eval_files/model2*_interface*_visual_prompt.py`      | 首帧和 gripper state change 触发 VLM query；其输出决定是否推进 subtask，再请求 SAM3 重新覆盖图像。                                          |
+| 评测服务                | `README.md`、`examples/*/eval_files/run_eval.sh`                 | 同时需要 policy server、SAM3 server、VLM server 与对应模拟环境。                                                                            |
+
+**【Code】** 仓库公开的示例配置与论文正文并非完全一致：论文的 implementation details 写 Qwen3-VL-4B-Instruct + QwenOFT，`examples/*/train_files/*visual_prompt.yaml` 当前列出 Qwen2.5-VL-3B-Instruct + `QwenGR00T`。README 则将 VP-VLA 描述为基于 Qwen3-VL-4B-Instruct。读者复现时应以具体 checkpoint、config 和 release 版本为准，不能把示例 YAML 直接当作论文唯一配置。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![VP-VLA real-world robot setup and task suites from paper Figure 3](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-vp-vla/vp-vla-fig3-real-setup.webp)
+
+**【Paper】** RoboCasa-GR1-Tabletop 包含 24 个桌面厨房任务、共 24,000 条视频；作者跟随 GR00T-X-Embodiment-Sim 的 Humanoid Robot Tabletop Manipulation subset，每个任务独立运行 50 次。SimplerEnv 使用 OXE 的 BridgeDataV2 与 Fractal 子集，训练 70k steps，8 GPU、每卡 batch size 32，并在四个官方任务上评测。
+
+**【Paper】** 真实实验使用桌面固定的 Franka Research 3 七自由度机械臂，输入为固定第三人称和末端第一人称两张 RGB 图，均 resize 到 224×224；total batch size 为 256，action chunk size 为 16。任务包括 cluttered waste sorting、按颜色抓 egg、以及 egg carton 中的空间放置。
+
+### 5.2 Main Results
+
+![VP-VLA real-world quantitative results from paper Figure 4](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-vp-vla/vp-vla-fig4-real-results.webp)
+
+**【Paper】** 在 RoboCasa-GR1-Tabletop 上，VP-VLA 的平均成功率为 **53.8%**，相对主要 baseline QwenOFT 的 **48.8%** 增加 **5.0** 个百分点；在多阶段 `PnP * to * Close` 上为 54.3% 对 43.7%。在 `Placemat → Plate` 的 novel split，论文报告 70.0% 对 52.0%；在 `Tray → Plate`，为 66.0% 对 56.0%。
+
+| Robocasa 方法        |   Average | PnP _ to _ Close |
+| -------------------- | --------: | ---------------: |
+| Isaac-GR00T N1.5     |     48.2% |            45.3% |
+| Isaac-GR00T N1.6     |     47.6% |            24.2% |
+| QwenGR00T + Qwen3VL  |     47.8% |            50.3% |
+| QwenPI + Qwen3VL     |     43.9% |            42.3% |
+| QwenOFT + Qwen3VL    |     48.8% |            43.7% |
+| **VP-VLA + Qwen3VL** | **53.8%** |        **54.3%** |
+
+**【Paper】** 在 SimplerEnv，VP-VLA 平均 **58.3%**，QwenOFT 为 50.0%，绝对提升 **8.3** 个百分点；`Put Eggplant in Yellow Basket` 从 70.8% 提升到 95.8%。论文表中 $\pi_{0.5}$ 与 Isaac-GR00T-N1.6-Bridge 的平均分均为 57.1%。
+
+| SimplerEnv 任务                   |   QwenOFT |    VP-VLA |
+| --------------------------------- | --------: | --------: |
+| Put Spoon on Towel                |     58.3% | **66.7%** |
+| Put Carrot on Plate               | **50.0%** | **50.0%** |
+| Stack Green Block on Yellow Block | **20.8%** | **20.8%** |
+| Put Eggplant in Yellow Basket     |     70.8% | **95.8%** |
+| Average                           |     50.0% | **58.3%** |
+
+**【Paper】** 真实 waste-sorting 中，VP-VLA / QwenOFT 的 ID 成功率为 87.5% / 80.0%，OOD 为 85.0% / 63.3%。颜色 egg 任务中，ID、OOD-color、OOD-position 分别为 77.1%、75.0%、75.0%，baseline 为 58.3%、29.2%、54.2%。
+
+### 5.3 Ablation Study
+
+**【Paper】** RoboCasa 的组件消融结果如下。完整模型 53.8%，移除 grounding loss 降到 49.4%；把 grounding 扩展到所有帧为 49.5%；把 crosshair 换成单个 point 为 47.3%；将提示直接叠加在主要 RGB 而不是采用论文的分离视觉输入设计，为 50.8%。
+
+| 变体                   |   Average |
+| ---------------------- | --------: |
+| w/o grounding          |     49.4% |
+| w/ all-frame grounding |     49.5% |
+| w/ point               |     47.3% |
+| w/ direct overlay      |     50.8% |
+| **Full VP-VLA**        | **53.8%** |
+
+**【Paper】** SimplerEnv 的 decomposition 消融显示，若同时画 object crosshair 和 location box、而不按阶段切换，平均为 57.3%；使用任务分解的设置为 58.3%。两个数字接近，但论文强调前者不具备应对长多阶段任务的明确状态机。
+
+**【Analysis】** point 的退化说明“有目标”不足以解释收益，提示的几何形状也很重要：crosshair 既指向中心又提供局部结构；而关键帧优于全帧 supervision 则支持该方法的核心立场——提示应在决策点承载语义，不应变成每帧重复的视觉水印。
+
+### 5.4 Generalization
+
+**【Paper】** VP-VLA 的提升主要出现在需要重新定位与精确放置的 OOD 设置：新物体、随机初始位置、变化的外观、干扰物与新容器。真实结果中，waste sorting 的 ID→OOD 落差只有 2.5 个百分点，QwenOFT 的落差为 16.7；新颜色 egg 的 77.1%→75.0% 也优于 baseline 的 58.3%→29.2%。
+
+**【Analysis】** 这不是对“所有 OOD”都成立的保证。视觉提示的泛化依赖两个上游条件：planner 必须说对对象名，SAM3 必须在新场景中分割对该对象。实验说明该链路在所测 shift 上有效，但也让误差源从一个黑盒 VLA 变成可单独观察的 planner 与 segmenter。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** VP-VLA 同时降低了三类不确定性：
+
+1. **语义不确定性**：System 2 将长 instruction 缩减为当前一个原子子任务，低层不用在每步重新判断全局阶段。
+2. **空间搜索不确定性**：crosshair 将抓取的候选区域从整张图缩到目标局部；box 提供放置的可接受区域，而不是单点终点。
+3. **时间不确定性**：夹爪 event 将昂贵的推理与低延迟控制解耦，提示只在语义可能变化时更新。
+
+grounding loss 使第一、二项真的进入 policy 的表示空间；否则“叠加图像”有可能只是一种未被模型利用的 augmentation。
+
+### 6.2 核心创新
+
+- **【Paper】** 将 System 2 的符号级结果投影回原生 RGB，而非向 VLA 注入一种额外 dense modality。
+- **【Paper】** 以 object anchor 与 placement constraint 区分抓取和放置阶段的空间需求。
+- **【Paper】** 以 event-driven planner 支持动态、多阶段提示，而不是给整段任务一次静态目标。
+- **【Analysis】** 把高层的错误、分割的错误、低层控制的错误显式分开；可解释性在这里是工程上的可诊断性，不只是可视化效果。
+
+### 6.3 与已有方法的本质区别
+
+| 路线                              | 接口                    | 主要风险                           | VP-VLA 的不同点                          |
+| --------------------------------- | ----------------------- | ---------------------------------- | ---------------------------------------- |
+| 端到端 VLA                        | language + RGB → action | 单个模型承担全部推理与控制         | 将阶段理解/grounding 与控制显式解耦。    |
+| 纯文本 hierarchical policy        | 子任务文本              | 文本难精确给出像素级接触与放置约束 | 用 crosshair/box 给出可消费的空间提示。  |
+| dense mask / affordance interface | RGB + dense 新模态      | 分布不匹配、额外 encoder/fusion    | 只画轻量 RGB overlay，保持输入模态一致。 |
+| 静态 point prompt                 | 第一帧点位              | 物体移动、子任务切换后提示过时     | 用 gripper event 动态重规划与重绘。      |
+
+### 6.4 关键假设
+
+- **【Paper】** 抓取或释放等 gripper 状态变化足以作为多数子任务阶段切换的代理。
+- **【Paper】** 目标物中心与目标区域 box 是对低层控制足够的信息密度，而不必传递 dense mask。
+- **【Paper】** 预训练 VLM 能可靠输出当前实体名称，SAM3 能将文字正确 ground 到当前图像。
+- **【Analysis】** 相机视角、对象可见性和标注的子任务边界需与部署时相近；若目标被严重遮挡或动作不是由夹爪开闭分段，event heuristic 可能不再合适。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 论文没有单列“Limitations”章节。正文中可直接确认的边界包括：真实视觉提示除 egg carton placement 的目标位置由用户指定外，均依赖自动预测；baseline 数值部分来自原论文或同行评审文献；并且 System 2 的阶段切换在实验中使用 gripper status 这个特定物理代理。论文未明确量化 VLM 或 SAM3 出错时的失败率。
+
+### 7.2 自己分析得到的局限
+
+1. **【Analysis】** 误差会级联：VLM 若把实例名称说错，SAM3 即使分割很准也是在标错物体；System 1 会忠实执行错误目标。
+2. **【Analysis】** event 不是完成验证：夹爪闭合可能是空抓，夹爪打开也可能是意外释放。仅依靠开闭变化触发 phase switch，在接触丰富或非抓取任务上可能造成过早推进。
+3. **【Analysis】** box 只表达图像平面的放置约束，无法直接表示高度、可达性、碰撞和接触力；像素内的“正确位置”不必然是机器人可执行的 3D 位置。
+4. **【Analysis】** 官方代码需要 policy、SAM3、VLM 和多个 conda 环境同时运行。分系统提升了可诊断性，但也提高部署资源、同步与延迟管理的复杂度。
+5. **【Analysis】** 公开 YAML 与论文 backbone/framework 的不一致使复现实验配置存在歧义，需要作者提供准确 release tag 或 checkpoint manifest。
+
+## 8. 启发与研究思考
+
+**【Analysis】** VP-VLA 最值得借鉴的不是具体的红色 crosshair 或黄色 box，而是“让中间表示迁就下游模型的既有感知能力”。如果接口必须让 VLA 新学一个模态，接口本身可能成为新的瓶颈；若接口能在 RGB 中清楚表达并由辅助目标校准，层级分工才真正成立。
+
+接下来值得检验的方向包括：
+
+1. 用视觉成功判别器、力觉或 3D state 共同触发阶段切换，替代单一 gripper event。
+2. 让 planner 输出多个带置信度的对象/位置候选，由 controller 结合可达性筛选，减少单次 grounding 错误的灾难性影响。
+3. 把 box 扩展为带深度与接触姿态的 3D constraint，同时仍用 RGB-compatible rendering 保持 VLA 输入分布一致。
+4. 在更长时程、非抓取、柔性物体和遮挡交互中比较：究竟是 interface 本身泛化，还是上游 VLM/SAM3 的先验在贡献收益。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。论文图取自 arXiv LaTeX 源文件并裁切；图床域名若尚未刷新，使用 GitHub
+  Raw fallback 以保证文章发布时可访问。
+</Aside>
