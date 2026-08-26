@@ -1,0 +1,347 @@
+---
+title: 'μ₀：A Scalable 3D Interaction-Trace World Model 论文精读'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 μ₀ 如何用 TraceExtract 从视频构建事件级 3D 交互轨迹，再以 B-spline 与 Flow Matching 预训练可跨形态复用的世界模型。'
+heroImage:
+  { src: 'https://pic.hana0721.top/104724685_p0_master1200.7p472bcti3.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '104724685'
+tags:
+  - 'paper deep dive'
+  - 'world model'
+  - '3D interaction trace'
+  - 'cross-embodiment manipulation'
+paper:
+  arxivId: '2606.13769'
+  title: '$\\mu_0$: A Scalable 3D Interaction-Trace World Model'
+  authors:
+    - 'Seungjae Lee'
+    - 'Yoonkyo Jung'
+    - 'Jusuk Lee'
+    - 'Jonghun Shin'
+    - 'Amir Hossein Shahidzadeh'
+    - 'Yao-Chih Lee'
+    - 'H. Jin Kim'
+    - 'Jia-Bin Huang'
+    - 'Furong Huang'
+  venue: 'arXiv'
+  year: 2026
+  code: 'https://github.com/Yoonkyo/mu0'
+  project: 'https://mu0-wm.github.io/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2606.13769'
+  tldr='μ₀ 不生成像素或机器人动作，而是从视频学习语义交互点的未来 3D 轨迹，并将冻结的轨迹特征迁移给不同机器人形态的 Action Expert。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《μ₀: A Scalable 3D Interaction-Trace World Model》  
+**作者**：Seungjae Lee、Yoonkyo Jung、Jusuk Lee、Jonghun Shin、Amir Hossein Shahidzadeh、Yao-Chih Lee、H. Jin Kim、Jia-Bin Huang、Furong Huang  
+**机构**：University of Maryland, College Park；Seoul National University  
+**发表形式**：arXiv 预印本（2026）  
+**论文链接**：[arXiv:2606.13769](https://arxiv.org/abs/2606.13769)  
+**代码**：[Yoonkyo/mu0](https://github.com/Yoonkyo/mu0)  
+**项目主页**：[mu0-wm.github.io](https://mu0-wm.github.io/)
+
+![μ₀ 从视频到可复用动作先验的总览（论文 teaser）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-mu0/teaser.1sfs501zw0.webp)
+
+### 一句话总结
+
+**【Paper】** μ₀ 把世界模型的预测目标放在像素与动作之间：对对象、工具、手和接触区域等语义交互点，预测未来平滑的 3D interaction traces。TraceExtract 将异构人类 / 机器人视频转成带事件语言的 3D 轨迹监督；预训练后的 μ₀ 被冻结，再由目标机器人自己的 Action Expert 将轨迹特征变成动作块。
+
+### 核心贡献
+
+**【Paper】** 论文的贡献可以拆成三个层次：
+
+1. **TraceExtract 数据引擎**：用 DINOv2 entity clusters 选取任务相关 keypoints，用全局—局部 3D 重建得到跨相机一致的轨迹，再按运动事件生成层级语言描述。
+2. **μ₀ 世界模型**：以 SmolVLM2 作为语义前缀，加入 permutation-equivariant Trace Expert；每个 query 用 cubic B-spline 控制点表示，并以 semantic Flow Matching 生成多模态未来。
+3. **跨形态动作适配**：冻结 μ₀，只训练 Action Expert。后者读取一次 partial denoising 的 trace features，同时接收 gripper-camera、proprioception 和语言，输出目标机器人的连续 action chunks。
+
+**【Analysis】** 这条路线的核心赌注是：对“物体应该怎样移动”的建模比对“某个机器人每个关节该怎样动”的建模更容易跨 embodiment 复用；但真正闭环控制仍必须在目标机器人数据上学习。
+
+## 2. 背景与相关工作
+
+**【Paper】** 机器人学习存在明显的数据悖论：视频数量多、包含丰富的物理行为，但缺少控制所需的 action labels；机器人动作数据昂贵、硬件相关，也难以跨平台合并。像素空间 Video World Model 虽然可从视频训练，却把大量容量花在背景和外观重建上，未必能保留接触与 metric geometry。VLA 直接输出动作，则受到 embodiment-specific labels 的限制。
+
+已有 motion-centric 方法使用 2D flow、3D flow、对象轨迹或视频生成后再抽轨迹。**【Paper】** 论文认为它们普遍存在三类问题：固定网格会漏掉工具尖端和接触小区域；局部 / 2D 坐标会把相机运动和物体运动混在一起；长 demonstration 只配 episode-level caption，无法把局部轨迹绑定到 reach、grasp、move、release 等子目标。最接近的 TraceGen 使用 fixed-grid 3D traces、episode caption，并在推理时依赖 depth；μ₀ 针对这三点重新设计数据和模型。
+
+## 3. 问题定义
+
+**【Paper】** 对每个视频时间点，TraceExtract 构造一个训练样本：
+
+- **Observation**：当前 RGB 图像，可选 metric depth 图像。
+- **Language**：事件级 caption 或滑动合并后的 task summary。
+- **Query set**：$N$ 个语义 keypoints，来自 objects、tools、hands 和 contact regions；$N$ 可变且无序。
+- **History**：每个 query 最近 $h=8$ 帧的 3D reference-frame 轨迹。
+- **Target**：未来 $H=32$ 帧的 3D 轨迹，坐标为 reference camera 下的 $(x,y,z)$，其中 $x,y$ 与图像平面对齐，$z$ 为 metric depth。
+
+模型学习映射：
+
+$$
+\mu_0: (I_t, l_c, Q_t, T_{\mathrm{ref}}^{t-h:t})
+\mapsto \hat T_{\mathrm{ref}}^{t:t+H}.
+$$
+
+**【Analysis】** query 是“测量目标”，不是固定的动作 waypoint。这样同一物体运动可以作为不同机械臂的中间接口，但动作执行端仍要解决可达性、抓取姿态和动力学约束。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![μ₀ 与 Action Expert 接口的整体架构（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-mu0/architecture.9rk502h4dr.webp)
+
+**【Paper】** 数据流可以压缩成一句话：RGB / optional depth / language 先进入 VLM context，query 的 history 与 noisy spline controls 进入 Trace Expert，4-step denoising 后渲染出未来 traces；下游 Action Expert 读取一次中间 trace features，再结合机器人观测输出 action chunk。
+
+### 4.2 核心模块
+
+#### TraceExtract：从视频得到可训练的 3D 监督
+
+![TraceExtract 数据管线（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-mu0/pipeline.7zr655xr31.webp)
+
+**【Paper】** TraceExtract 包含三个阶段：
+
+1. **Semantic keypoint sampling**：抽取 DINOv2 patch features 并聚类为 entity groups，在高可见度帧上为每个实体分配固定 keypoint budget，再用空间多样性采样；movement filter 排除静止或背景主导的点。
+2. **Global–local 3D reconstruction**：稀疏 anchor frames 先建立共享 global frame，再对局部 chunk 做密集重建并对齐回全局；跨 chunk 用最后一个有效的 world-space 位置传播身份。随后重投影到 reference camera，既消除相机运动又保留图像对齐。
+3. **Event-centric captioning**：对 trace acceleration 做 Savitzky–Golay 平滑，在峰值处找 action anchors，在谷值处切 chunk；VLM 使用 start / middle / end 三帧生成局部 caption，文本 LLM 再在滑动窗口内合并出更粗粒度的 task summary。
+
+**【Code】** 官方仓库把样本保存成 `traj_history.npy`、`traj_future.npy`、`valid_steps_history.npy`、`valid_steps_future.npy`、`current_kp.npy` 和可选的 `depth.npy`；`src/lerobot/datasets/trace_dataset.py` 负责读取、padding 和 mask，`bspline_basis.py` 负责轨迹参数化。代码还支持用 Depth-Anything-V2 和 Grounded-SAM-2 在图像推理时合成 depth 与 keypoints。
+
+#### VLM-conditioned backbone
+
+**【Paper】** SmolVLM2-2.2B 的前缀保留全局语义与语言上下文，Trace Expert 通过 cross-attention 读取 VLM key-value cache，同时维护独立的 motion stream。Depth 不直接伪装成 RGB：它先经过独立可训练 patch stem，再与 RGB 共享更深的 SigLIP 层。
+
+**【Code】** `src/lerobot/policies/mu0/modeling_smolvla.py` 中的 `prepare_images` 和 `embed_prefix` 处理 RGB / depth mask；训练配置默认对 depth 施加 0.7 dropout、RGB ColorJitter strength 0.3、depth meter-domain noise 标准差 0.01 m。`configuration_smolvla.py` 中公开默认值是 `num_vlm_layers=16`、`expert_width_multiplier=0.75`，而论文附录描述的是 20 层、0.5× width；这说明 release 配置可能通过训练脚本覆盖默认值，不能把两者混为同一个固定实现。
+
+#### Permutation-equivariant Trace Expert
+
+**【Paper】** 每个 keypoint 都走共享处理栈，因此交换 query 顺序不会改变对应预测。输入 token 同时包含：history segment、future noisy control-point segment、当前像素位置的 Fourier embedding，以及从 frozen DINO feature map 双线性采样的局部语义特征。
+
+**【Code】** `embed_suffix_trace` 将 history 与 future suffix 拼接，并通过 `key_pad_mask`、causal suffix mask 保持每个 query 的有效性和注意力约束；DINO 特征在 `_compute_dino_per_kp` 中按当前 $(u,v)$ 采样后注入每个 query token。
+
+#### B-spline trace representation
+
+**【Paper】** 不直接回归 32 个未来点，而是用 $D=10$ 个 cubic B-spline control points 表示一条轨迹。这样可以压缩维度、平滑 tracker jitter，并让 Flow Matching 在低维控制点空间中工作。训练目标是 anchor-relative、按轴缩放的未来轨迹；推理时用固定 basis 一次矩阵乘法恢复 32 步轨迹。
+
+#### Semantic Flow Matching、validity 与 rigidity
+
+**【Paper】** 对控制点目标 $P^\star$ 注入高斯噪声，Trace Expert 预测从噪声到干净控制点的 velocity。validity head 预测每个 query 的未来每一步是否仍有效，用于处理遮挡 / track loss；rigidity loss 则要求同一 DINO cluster 内的 keypoints 在控制点序列中保持相对距离。
+
+#### Trace-conditioned Action Expert
+
+**【Paper】** μ₀ 预训练完成后被冻结。动作端从纯噪声控制点开始，只执行 4-step Euler solver 中的一次 partial denoising，并取该步 Trace Expert hidden states 作为 motion descriptor。一个 zero-initialized gated cross-attention 将其注入 VLM 最后一层特征；随后 action denoiser 还接收 gripper-camera 的 DINOv2 token、proprioception MLP token 和 language token，生成连续动作块。
+
+**【Code】** `src/lerobot/policies/mu0/mu0_policy.py` 的 `_run_trace_model_partial_guidance` 正是这一流程：`MOTION_GUIDANCE_STEPS` 次部分去噪后，通过 `_bspline_render_basis` 渲染 traces；`GatedMotionMixer` 将 `expert_final` 注入 VLM；`_sample_actions` 使用固定的 Euler action-flow solver 产生 `chunk_size` 个动作。
+
+### 4.3 关键公式
+
+#### B-spline 拟合
+
+$$
+P_n^\star = \arg\min_P
+\left\|M_n\odot\left(BP-[0;\tilde T_n^1]\right)\right\|_F^2
+ + \lambda_{\mathrm{bsp}}^2\|\Gamma P\|_F^2.
+$$
+
+**【Paper】** $B\in\mathbb{R}^{(H+1)\times D}$ 是固定 cubic B-spline basis，首行把曲线钉在当前 anchor；$M_n$ 屏蔽无效 future steps；$\Gamma$ 是相邻控制点的一阶差分算子；$\lambda_{\mathrm{bsp}}=0.2$ 抑制控制点间距剧烈变化。代码 `build_bspline_basis` 支持 $D\in\{4,7,10\}$，release 使用 10。
+
+#### Flow Matching
+
+$$
+P^\tau = \tau\epsilon + (1-\tau)P^\star,
+\qquad
+\mathcal L_{\mathrm{flow}}=
+\mathbb E\left\|v_\theta(P^\tau,\tau,F_{\mathrm{cond}})-(\epsilon-P^\star)\right\|_2^2.
+$$
+
+**【Paper】** $\tau\in[0,1]$ 是 flow time，$\epsilon\sim\mathcal N(0,I)$，$F_{\mathrm{cond}}$ 汇总 VLM、query 和局部 DINO 条件。adaLN-Zero 将 $\tau$ 注入每个 Trace Expert block；推理沿 $\tau:1\rightarrow0$ 做 4-step Euler。
+
+#### 完整训练目标
+
+$$
+\mathcal L=\mathcal L_{\mathrm{flow}}
+ +\lambda_{\mathrm{done}}\mathcal L_{\mathrm{done}}
+ +\lambda_{\mathrm{rig}}\mathcal L_{\mathrm{rig}}.
+$$
+
+**【Paper】** $\mathcal L_{\mathrm{done}}$ 是逐步 validity 的 BCE；$\mathcal L_{\mathrm{rig}}$ 对同一语义 cluster 内两点的控制点间距离计算方差。前者让轨迹能在遮挡处停止并冻结，后者把 DINO 聚类当作无需人工 segmentation 的弱结构先验。
+
+### 4.4 Training
+
+**【Paper】** Trace 预训练使用 $h=8$ 的历史、$H=32$ 的未来，训练时随机采样 $N\in[1,256]$ 个 keypoints。VLM / RGB SigLIP 保持冻结，Trace Expert、投影层、depth stem 和 adaLN-Zero head 更新；优化器为 AdamW，base learning rate $10^{-4}$、weight decay $10^{-10}$、effective batch size 24。训练还以 0.2 概率整批丢弃 history、以 0.3 概率逐 keypoint 丢弃 history，并以 0.7 概率丢弃 depth。
+
+**【Code】** `docs/release/TRAINING.md` 给出的 release recipe 显式设置 `history_len=8`、`future_len=32`、`trace_bspline_n_ctrl=10`、`trace_done_head=true`、`done_loss_weight=0.5`、`rigidity_regularization_weight=5`、`trace_bspline_reg_lambda=0.2` 和 `trace_bspline_ctrl_clip=1.5`。代码的配置默认值允许关闭 rigidity / done head，因此复现实验时应以 release 命令为准，而不是只看 dataclass 默认值。
+
+<Algorithm number={1} title='μ₀ Trace Pretraining' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>TraceExtract 样本 $(I_t,l_c,Q_t,T_{ref}^{t-h:t+H})$、B-spline basis $B$</div>
+  <div slot='output'>预训练的 μ₀ trace world model</div>
+  <AlgorithmStep keyword='Given'>读取 RGB、可选 depth、语言、query history、future traces、validity 与 cluster ids</AlgorithmStep>
+  <AlgorithmStep>用 VLM 编码全局视觉—语言 context；用 DINO 在每个 query 的当前像素位置采样局部特征</AlgorithmStep>
+  <AlgorithmStep>把有效 future 拟合成 anchor-relative 的 $D=10$ 个 B-spline control points，并采样 $\tau$ 与高斯噪声 $\epsilon$</AlgorithmStep>
+  <AlgorithmStep>构造 $P^\tau=\tau\epsilon+(1-\tau)P^\star$，由 Trace Expert 预测 velocity、done logits</AlgorithmStep>
+  <AlgorithmStep>计算 masked flow loss、validity BCE 和 cluster 内 rigidity loss，使用 AdamW 更新可训练模块</AlgorithmStep>
+  <AlgorithmStep keyword='return'>冻结后的 μ₀，供下游 Action Expert 读取 motion features</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 推理输入是当前 RGB（可选 depth）、语言、query 当前点与短 history。Trace Expert 从高斯控制点开始沿 $1\rightarrow0$ 做 4-step Euler，B-spline basis 将控制点解码为未来轨迹；done head 的 stop index 会截断并冻结轨迹尾部。
+
+**【Code】** 在图像-only 模式，`lerobot_predict_trace_mu0_image_only.py` 可从数据集读取 keypoints，也可调用 Grounded-SAM-2 合成 keypoints；depth 可来自数据、Depth-Anything-V2 或完全省略。动作策略只保留一次 partial guidance，避免每个控制周期完整 rollout μ₀。
+
+<Algorithm
+  number={2}
+  title='μ₀ Trace-conditioned Action Inference'
+  inputLabel='输入'
+  outputLabel='输出'
+>
+  <div slot='input'>
+    冻结的 μ₀、RGB / depth、语言、query history、gripper-camera、proprioception
+  </div>
+  <div slot='output'>目标机器人当前时刻的连续 action chunk</div>
+  <AlgorithmStep>VLM 编码图像与语言，初始化 query control points 为高斯噪声</AlgorithmStep>
+  <AlgorithmStep>
+    执行一次 partial trace denoising，取得 Trace Expert hidden states 和 done probabilities
+  </AlgorithmStep>
+  <AlgorithmStep>用 gated cross-attention 将 motion features 注入 VLM features</AlgorithmStep>
+  <AlgorithmStep>
+    Action Expert 将视觉、语言、本体感和 guided features 作为条件，对 noisy action chunk 做 Euler
+    flow denoising
+  </AlgorithmStep>
+  <AlgorithmStep>执行当前动作；下一控制周期重新读取观测并重复上述步骤</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+| 论文模块             | 官方代码位置                                                  | 实际行为                                                                                        |
+| -------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Trace dataset        | `src/lerobot/datasets/trace_dataset.py`                       | 读取 history / future / validity / keypoint mask，并可加载 depth、cluster ids、B-spline targets |
+| B-spline             | `src/lerobot/datasets/bspline_basis.py`                       | 预计算 $D=4,7,10$ 的 cubic basis；推理用矩阵乘法渲染轨迹                                        |
+| Trace model          | `src/lerobot/policies/mu0/modeling_smolvla.py`                | VLM prefix + suffix Trace Expert，包含 DINO、depth、adaLN-Zero、done / rigidity 分支            |
+| Trace training       | `src/lerobot/scripts/lerobot_train_trace_mu0.py`              | 以 masked control-point Flow Matching 为主损失，按配置加入 done / rigidity                      |
+| Action adaptation    | `src/lerobot/policies/mu0/mu0_policy.py`                      | 冻结 trace policy，partial guidance 后由 Gemma-style Action Expert 预测 action chunks           |
+| Image-only inference | `src/lerobot/scripts/lerobot_predict_trace_mu0_image_only.py` | 支持 dataset keypoints、Depth-Anything-V2、Grounded-SAM-2 三种输入组合                          |
+
+**【Analysis】** 论文把 μ₀ 描述成“冻结、可复用的 motion prior”，而代码接口更具体：下游策略并不消费完整 32-step trace，而消费一次 partial denoising 的 hidden states。这是计算效率和信息完整度之间的关键工程折中。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![真实机器人平台与任务（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-mu0/setup.232ly5h8qa.webp)
+
+**【Paper】** 轨迹预测在 2D / 3D 设置下比较 Gemini、GPT-5.5、Track2Act、Hamster、3DFlowAction、Dream2Flow 和 TraceGen，预测 horizon 为 $T\in\{8,16,32\}$，只在 moving points 上计算 ADE、FDE、DTW。下游动作实验包括：
+
+- **RoboCasa365**：8 个随机化厨房任务；比较 Diffusion Policy、action-labeled 的 $\pi_0$ / $\pi_{0.5}$、video-only TraceGen 和 μ₀ + Action Expert。
+- **真实 UR3**：Pick object into Sink、Pour Almonds into object、Unfold Towel；分别收集 90、80、50 条 demonstrations，每项评估 20 次 rollout。机器人使用双指夹爪、第三人称与腕部 RGB 相机，proprioception 是 6D end-effector pose 加 gripper，共 7D。
+
+### 5.2 Main Results
+
+**【Paper】** 轨迹预测结果最值得注意的不是单一 Top-1 数字，而是多样本质量和速度：
+
+| 设置         | μ₀ 代表性结果                      | 对比                                  |
+| ------------ | ---------------------------------- | ------------------------------------- |
+| 2D Top-5 ADE | $T=8/16/32$: 0.124 / 0.188 / 0.227 | 三个 horizon 均为最佳                 |
+| 2D Top-5 FDE | 0.186 / 0.261 / 0.284              | 三个 horizon 均为最佳                 |
+| 3D Top-1 ADE | 0.209 / 0.288 / 0.325              | 三个 horizon 均为最佳                 |
+| 3D Top-5 DTW | 0.127 / 0.187 / 0.223              | 三个 horizon 均为最佳                 |
+| 推理延迟     | 0.29 s / image                     | 比次快的 Track2Act（0.85 s）快约 2.9× |
+
+**【Paper】** 在 RoboCasa365 上，μ₀ 平均成功率为 **30.25%**，比 TraceGen 高 7.25 个百分点，比 $\pi_0$ 高 5 个百分点，但低于使用大规模 action-labeled pretraining 的 $\pi_{0.5}$（42%）。这不是 data-matched 比较：μ₀ 的预训练只使用视频监督。
+
+![真实 UR3 任务的成功率（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-mu0/real-results.8z79ic0j07.webp)
+
+**【Paper】** 真实任务中 μ₀ + Action Expert 的平均成功率为 **91.7%**，比去掉 Trace Expert 的 VLM + Action Expert 高 18.4 个百分点，比 $\pi_0$ 和 $\pi_{0.5}$ 分别高 20.0 和 11.7 个百分点，也比 TraceGen 高 10.0 个百分点。这里的结果支持“冻结轨迹特征不仅是可解释中间表示，也能提供有用的运动引导”。
+
+### 5.3 Ablation Study
+
+![μ₀ 轨迹预测的定性比较（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-mu0/qualitative.4n8gash79t.webp)
+
+**【Paper】** Top-5 DTW 消融如下：
+
+| 变体                      |     $T=8$ |    $T=16$ |    $T=32$ |
+| ------------------------- | --------: | --------: | --------: |
+| Full μ₀                   | **0.127** | **0.187** | **0.223** |
+| w/o B-spline（raw trace） |     0.156 |     0.222 |     0.258 |
+| w/o DINOv2 features       |     0.139 |     0.193 |     0.230 |
+| w/o Rigidity Loss         |     0.138 |     0.193 |     0.227 |
+| w/o Depth                 |     0.112 |     0.168 |     0.207 |
+| w/o Trace history         |     0.126 |     0.183 |     0.224 |
+| w/o Depth & history       |     0.127 |     0.187 |     0.223 |
+
+**【Analysis】** B-spline 去掉后的退化最大，说明平滑且低维的 target parameterization 是主收益来源之一。DINO 和 rigidity 的影响较小但一致为正，表明它们更像稳定性与局部结构的增益，而不是单独决定性能的模块。值得注意的是，消融表中“无 depth”并未崩溃，符合论文希望模型在 RGB-only 条件下可用的目标。
+
+### 5.4 Generalization
+
+**【Paper】** 模型与数据规模都能带来改进：2.59B 模型在 $T=8/16/32$ 的 Top-5 DTW 为 0.127 / 0.187 / 0.223；342M 模型为 0.143 / 0.205 / 0.240。使用全部数据优于 5% 或 20% 子集。动作端在 200M 与 400M head 上都受益于 trace conditioning，说明 motion prior 的价值并不依赖某一个超大 action decoder。
+
+**【Analysis】** 论文展示的是“跨数据源、跨动作标签稀缺程度”的泛化，而不是大规模跨 embodiment 真实部署：真实实验仍集中在 UR3 桌面任务，cross-embodiment 的主要证据来自冻结接口和 RoboCasa 上的 action adaptation。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** μ₀ 同时做了三个对齐：
+
+1. **测量对齐**：semantic keypoints 把计算预算放到真正会动、会接触的部位。
+2. **坐标对齐**：global 3D reconstruction + reference camera 让轨迹不再把 camera motion 当成 object motion，同时保留视觉 backbone 需要的像素对应关系。
+3. **语言对齐**：motion-centric chunking 把 caption 的时间范围绑定到局部子目标，降低长 episode caption 的语义稀释。
+
+B-spline 使目标更平滑，Flow Matching 保留“一条指令对应多种合理路径”的可能性；DINO 局部特征与 rigidity 又为 query 提供实体级和部件级先验。最终 Action Expert 读到的是已经被语义和几何约束过的 motion tokens，而非从 RGB 直接猜动作。
+
+### 6.2 核心创新
+
+**【Paper】** 真正的新意不是单独提出某个 denoiser，而是把 **数据测量对象（semantic 3D traces）—模型参数化（B-spline + permutation equivariance）—下游接口（frozen partial-denoising features）** 串成一条可复用链路。TraceExtract 还把过去昂贵的固定网格 trace curation 扩展到约 8× 的规模。
+
+### 6.3 与已有方法的本质区别
+
+| 路线              | 学习目标                    | 主要代价                            | μ₀ 的差异                                                                 |
+| ----------------- | --------------------------- | ----------------------------------- | ------------------------------------------------------------------------- |
+| Pixel world model | 未来像素                    | 重建背景与外观，几何 / 接触信号稀释 | 只预测交互点的 3D motion                                                  |
+| VLA               | embodiment-specific actions | 需要昂贵动作标注                    | 预训练阶段完全 action-free                                                |
+| 固定网格 trace    | 网格点轨迹                  | 背景占预算，漏小物体 / 接触点       | query-conditioned semantic points                                         |
+| TraceGen          | fixed-grid 3D trace         | episode caption、推理依赖 depth     | entity sampling、global alignment、event captioning，并支持 depth dropout |
+
+### 6.4 关键假设
+
+**【Analysis】** 方法依赖四个隐含假设：
+
+- 物体和接触局部的 3D 运动足以传递大部分 manipulation intent；
+- DINO cluster 能近似“同一实体 / 部件”，rigidity 约束才不会误伤不同物体；
+- 视觉轨迹到机器人动作之间存在可由少量 target-embodiment 数据学习的映射；
+- 4-step partial denoising 的 hidden state 已包含足够的未来信息，不必完整解码整条 trace。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** μ₀ 会继承 perception stack 的错误：semantic clustering、3D reconstruction、tracking 或 captioning 任一环节失败，都会产生噪声监督。3D trace 只描述几何和运动，没有显式建模 force、tactile feedback 或 contact mode。动作实验主要覆盖 tabletop manipulation、有限 embodiment 与任务族，移动操作臂、灵巧手和更长时序任务仍待验证。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】** 首先，trace 的 embodiment-agnostic 性并不等于 action-agnostic：不同夹爪的可达性、接触姿态与动力学差异仍由 Action Expert 承担。其次，reference-camera 轨迹虽然去除了相机运动，却仍可能受深度尺度、遮挡和跨 chunk 对齐误差影响。再次，rigidity 只约束 cluster 内距离，无法表达铰链、柔性物体或接触后形变。最后，论文主要报告平均成功率与轨迹距离，尚未给出长时域失败恢复、闭环 replanning 频率和真实部署算力预算的系统分析。
+
+## 8. 启发与研究思考
+
+**【Analysis】** μ₀ 给出的研究方向不是“所有机器人都共享同一个策略”，而是把共享部分放到更稳定的中间层：
+
+1. **从 action token 转向 motion token**：未来可以研究可组合的 trace vocabulary，把 reach / grasp / place 等局部几何模式做成可检索先验。
+2. **把接触模式补回 3D trace**：在轨迹旁边预测接触概率、法向或力的离散状态，可能比单纯增加像素生成能力更直接地提升精细操作。
+3. **在线修正 TraceExtract**：用执行失败反向定位 keypoint、深度或 caption 错误，形成 perception—world model—policy 的闭环数据引擎。
+4. **更强的跨 embodiment 验证**：在同一物体任务上替换 UR3、移动机械臂和 dexterous hand，只微调 Action Expert，才能真正测量 motion prior 的可迁移边界。
+5. **研究 partial denoising 的信息瓶颈**：代码只消费一次中间 hidden state，这是很有吸引力的效率设计；但不同任务所需的 denoising 深度可能不同，动态选择 guidance step 也许是下一步。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码或 release
+  文档确认的行为，`【Analysis】`
+  表示基于论文和代码的分析推断。图床自定义域名尚在缓存更新，本文暂用已验证 HTTP 200 的 GitHub Raw
+  图像地址。
+</Aside>
