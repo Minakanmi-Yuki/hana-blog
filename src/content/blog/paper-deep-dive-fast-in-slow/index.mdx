@@ -1,0 +1,288 @@
+---
+title: 'Fast-in-Slow 论文精读：把高速执行嵌入慢速推理的统一 VLA'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 Fast-in-Slow（FiS-VLA）：通过共享 VLM 末端 Transformer、异步双系统、3D 点云与双感知协同训练，同时获得高频控制和语义推理能力。'
+heroImage:
+  { src: 'https://pic.hana0721.top/56422576_p0_master1200.7i0z6ufn65.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '56422576'
+tags:
+  - 'paper deep dive'
+  - 'VLA'
+  - 'robot manipulation'
+  - 'dual-system'
+paper:
+  arxivId: '2506.01953'
+  title: 'Fast-in-Slow: A Dual-System Foundation Model Unifying Fast Manipulation within Slow Reasoning'
+  authors:
+    - 'Hao Chen'
+    - 'Jiaming Liu'
+    - 'Chenyang Gu'
+    - 'Zhuoyang Liu'
+    - 'Renrui Zhang'
+    - 'Xiaoqi Li'
+    - 'Xiao He'
+    - 'Yandong Guo'
+    - 'Chi-Wing Fu'
+    - 'Shanghang Zhang'
+    - 'Pheng-Ann Heng'
+  venue: 'NeurIPS 2025（arXiv 预印本）'
+  year: 2025
+  code: 'https://github.com/CHEN-H01/Fast-in-Slow'
+  project: 'https://fast-in-slow.github.io/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2506.01953'
+  tldr='FiS-VLA 将 VLM 的末端 Transformer block 重用为 System 1，在同一模型中实现慢速语义推理、异步高速扩散动作和 3D 几何感知。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《Fast-in-Slow: A Dual-System Foundation Model Unifying Fast Manipulation within Slow Reasoning》
+
+**作者**：Hao Chen、Jiaming Liu、Chenyang Gu、Zhuoyang Liu、Renrui Zhang、Xiaoqi Li、Xiao He、Yandong Guo、Chi-Wing Fu、Shanghang Zhang、Pheng-Ann Heng
+
+**机构**：香港中文大学、北京大学、AI²Robotics、BAAI
+
+**会议 / 期刊**：NeurIPS 2025（论文页面标注为 arXiv 预印本）
+
+**论文链接**：[arXiv](https://arxiv.org/abs/2506.01953) · **代码**：[CHEN-H01/Fast-in-Slow](https://github.com/CHEN-H01/Fast-in-Slow) · **项目主页**：[fast-in-slow.github.io](https://fast-in-slow.github.io/)
+
+![FiS-VLA 总览与速度—成功率对比（论文 teaser figure）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-fast-in-slow/teaser_fig.szoru3fz5.webp)
+
+### 一句话总结
+
+**【Paper】** FiS-VLA 不再给慢速 VLM 旁边外挂一个独立的 System 1，而是把 VLM 最后的若干 Transformer block 重新解释为快速执行模块；System 2 以低频率进行图文推理，System 1 以高频率融合当前图像、点云和机器人状态，通过 diffusion policy 输出连续动作。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出统一的 Fast-in-Slow 双系统 VLA：完整 VLM 保留 System 2 推理，末端 block 复用为 System 1，两个系统共享预训练知识和中间表示。
+2. 设计异步频率与异构输入：System 2 使用低频 2D 图像与语言，System 1 使用高频 2D、3D point cloud 和 proprioception；实验证明 1:4 频率比最合适。
+3. 提出 dual-aware co-training，把 System 1 的 diffusion denoising loss 与 System 2 的 autoregressive next-token loss 相加，避免只训练动作头造成推理能力遗忘。
+4. 在 RLBench 十项仿真任务和两种双臂机器人八项真实任务上取得 SOTA，同时在 action chunk=8 时达到 117.7 Hz 控制频率。
+
+## 2. 背景与相关工作
+
+**【Paper】** 传统 VLA 直接让十亿级 VLM 自回归生成动作 token，具有较好的常识和语言泛化，却受限于低执行频率；一个 7B 模型在闭环控制中每次生成动作都要重新跑完整序列，难以及时响应接触和遮挡变化。
+
+双系统路线借鉴 Kahneman 的认知模型：System 2 负责慢速、逻辑、上下文推理，System 1 负责快速、直觉式执行。CogACT、$pi_0$、GR00T 等方法通常将二者实现成“VLM + 独立 policy head”，有些还采用异步调度。**【Analysis】** 这类解耦的代价是：System 1 只看到 System 2 输出的压缩特征，自己没有互联网规模 VLM 的参数和知识，且两者之间需要额外的接口对齐。
+
+FiS-VLA 的关键问题是：能否让 System 1 直接继承 System 2 的预训练表示，同时只计算少量末端 block，从结构上解决知识断裂和频率瓶颈？
+
+## 3. 问题定义
+
+**【Paper】** 给定异构示教数据集 $\mathcal D$，策略学习未来 $H$ 步动作序列：
+
+$$
+\max_\theta\;\mathbb E_{(a_{t:t+H},o_{t-1},l)\sim\mathcal D}\left[\log\pi_\theta(a_{t:t+H}\mid o_{t-1},l)\right].
+$$
+
+- **Observation**：System 2 接收语言指令和低频 RGB；System 1 接收高频 RGB、可选的单视角深度生成的 3D 点云，以及机器人状态。
+- **Action**：Franka Panda 仿真为 7 DoF（$\Delta x,\Delta y,\Delta z$、Euler 旋转 3 维、夹爪 1 维）；AgileX 双臂为 14 DoF 末端位姿；AlphaBot 双臂为 16 DoF 关节位置。
+- **Embodiment / Dataset**：RLBench 十项任务，每项 100 条轨迹；大规模预训练混合 37 个数据集，共约 86 万轨迹、3600 万帧；真实实验每个平台每任务 100 条 teleoperation 示教。
+- **控制目标**：在保持语义理解的同时，以较高频率输出连续、几何一致的动作 chunk。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![FiS-VLA 的统一双系统架构（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-fast-in-slow/method_fig.67y7a9il7k.webp)
+
+**【Paper】** 输入先经过 SigLIP 与 DINOv2 视觉编码器；轻量 3D tokenizer 将点云变成 token 后复用视觉编码器。完整 32 层 LLaMA2-7B 形成 System 2，最后若干层从其中“切出” System 1；System 2 的中间 latent 周期性地条件化 System 1，System 1 则在每个控制周期用新观测生成动作。
+
+### 4.2 核心模块
+
+#### 双视觉编码器与 3D tokenizer
+
+- **输入 / 输出**：224×224 RGB 分别经过 SigLIP（1024 维 token）和 DINOv2（1152 维 token），沿通道拼接；点云 $\mathcal P=\{\mathbf p_i\in\mathbb R^3\}$ 先经三段 farthest-point sampling + kNN 局部聚合 + learnable linear layer，得到可送入共享视觉编码器的 token。
+- **作用**：SigLIP 提供语义对齐，DINOv2 保留局部空间细节；3D token 提供深度几何，帮助判断物体间距离和接触方向。
+- **【Code】** `models/vlms/pointcloud_processor/lift3d_dino.py` 实现 Lift3D 风格处理；`prismatic.py` 中 `pointcloud_pos` 控制点云 token 放在 slow 或 fast 分支。代码默认实验将点云放到 fast 分支，避免低频 System 2 重复编码。
+
+#### 共享 LLaMA2 backbone
+
+- **输入 / 输出**：语言与视觉 embedding 进入 32 层 decoder-only LLaMA2；System 2 输出中间层 hidden states，System 1 只运行末端 $N$ 个 block 并预测噪声。
+- **为什么需要共享**：System 1 不再是随机初始化的小头，而是直接继承 VLM 的语义和视觉—语言对齐。消融显示只共享 2 个 block 已接近最佳，继续增加到 8 个收益趋于饱和。
+- **【Code】** `llm_middle_layer` 指定切分位置；`prismatic.py::_handle_cache_forward` 先运行 $0\ldots L_m$ 层得到 slow cache，再运行 $L_m\ldots32$ 层完成 fast 推理。
+
+#### 条件扩散动作头
+
+- **输入**：System 2 latent、高频图像/点云/状态、扩散时间步 $\tau$、加噪动作 $x_\tau$。
+- **输出**：与动作序列同形状的噪声预测，经过反向扩散得到连续 action chunk。
+- **辅助投影器**：vision-language projector、proprioception MLP、timestep embedder、noised-action embedder 与 final layer 都是轻量 MLP；因此高频路径只需运行末端 Transformer 和动作头。
+
+### 4.3 关键公式
+
+#### 逆扩散训练目标
+
+**【Paper】** 给真实动作序列 $\tilde a$ 加入 $\eta\sim\mathcal N(0,I)$，随机采样 $\tau\in\{1,\ldots,100\}$：
+
+$$
+\tilde a_\tau=\sqrt{\beta_\tau}\tilde a+\sqrt{1-\beta_\tau}\eta,
+$$
+
+$$
+\mathcal L_{fast}=\mathbb E\left[\left\|\eta-\pi_{\theta_f}(\tilde a_\tau,c,\tau)\right\|_2^2\right].
+$$
+
+这里 $c$ 是 System 2 的低频 latent 与 System 1 的高频多模态条件，$\beta_\tau$ 是噪声日程，$\theta_f$ 是 fast 路径参数。
+
+#### 双感知协同损失
+
+$$
+\mathcal L_{slow}=-\sum_{i=1}^{D_t}\log P(\hat a_i\mid context,\theta),\qquad
+\mathcal L_{FiS}=\mathcal L_{fast}+\mathcal L_{slow}.
+$$
+
+**【Analysis】** 第一项塑造连续控制能力，第二项把完整 LLM 拉回离散动作或语言计划的 next-token 任务；两者共同更新共享参数，形成“动作执行不牺牲推理”的正则化。
+
+### 4.4 Training
+
+**【Paper】** 先从 Prismatic VLM 初始化，再用 37 个开放机器人数据集进行约 86 万轨迹、五 epoch 的预训练（预训练阶段仅使用单视角 RGB）；下游再在 RLBench 或自采集真实数据上微调。仿真微调使用 AdamW、8 张 A800、300 epoch；扩散步数 $T=100$。
+
+**【Code】** `train.sh` 展示了 async 模式、`llm_middle_layer=30`、`slow_fast_ratio=1:4`、`pointcloud_pos=fast`、`action_chunk=1`、`repeated_diffusion_steps=4` 和 `lang_subgoals_exist=true` 的配置。`models/vlas/fisvla.py::forward` 对 batch 重复采样噪声和时间步，调用 VLM 得到 `noise_pred`，以均方误差计算 fast loss；AR loss 通过同一 VLM 的生成路径保留。
+
+<Algorithm number={1} title='FiS-VLA Dual-aware Co-training' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>示教样本 $(o,l,a_{t:t+H})$、扩散步数 $T=100$、频率比 $r$</div>
+  <div slot='output'>同时具备 System 1 执行与 System 2 推理能力的 FiS-VLA</div>
+  <AlgorithmStep keyword='Given'>从 Prismatic VLM 初始化完整 LLaMA2、视觉编码器与投影器</AlgorithmStep>
+  <AlgorithmStep>为 System 2 构造语言 + 低频 RGB（可选点云）输入，获得中间 latent</AlgorithmStep>
+  <AlgorithmStep>为 System 1 注入高频 RGB、点云、proprioception，并随机采样 $\tau$ 与高斯噪声</AlgorithmStep>
+  <AlgorithmStep>计算 $\mathcal L_{fast}$ 的噪声回归损失，同时计算 $\mathcal L_{slow}$ 的 next-token 交叉熵</AlgorithmStep>
+  <AlgorithmStep>最小化 $\mathcal L_{fast}+\mathcal L_{slow}$，更新共享 block 与动作头</AlgorithmStep>
+  <AlgorithmStep keyword='return'>保存验证集最佳 checkpoint，用于异步闭环推理</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** System 2 每 $r$ 个控制周期运行一次，缓存中间 latent；System 1 在每个周期读取最新 RGB、点云和状态，以缓存 latent 为条件做扩散采样并输出 action chunk。论文在 action chunk=8、1:4 频率比下报告 117.7 Hz；仿真表格中的 chunk=1 频率为 21.9 Hz。
+
+**【Code】** `scripts/sim.py` 用 `slow_cnt % slow_fast_ratio == 0` 触发 `slow_system_forward`，其余周期调用 `fast_system_forward`。`predict_action` 支持 DDPM 或 4/6/8 步 DDIM，随后按数据集统计量反归一化，并把夹爪维度离散化为开 / 闭。
+
+<Algorithm number={2} title='Asynchronous FiS-VLA Inference' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前图像、点云、机器人状态、语言指令、频率比 $r$</div>
+  <div slot='output'>执行到机器人上的连续动作 chunk</div>
+  <AlgorithmStep keyword='for'>每个控制时刻 $t$</AlgorithmStep>
+  <AlgorithmStep indent={1}>若 $t\bmod r=0$，运行完整 System 2，更新 latent 与 KV cache</AlgorithmStep>
+  <AlgorithmStep indent={1}>将最新高频观测送入 System 1 的末端 Transformer block</AlgorithmStep>
+  <AlgorithmStep indent={1}>从高斯噪声开始执行反向扩散，得到 $a_{t:t+H}$</AlgorithmStep>
+  <AlgorithmStep indent={1}>反归一化并执行当前动作；下一周期继续复用剩余 chunk</AlgorithmStep>
+  <AlgorithmStep keyword='end for' />
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** 官方仓库的实现入口和论文模块基本对应：
+
+| 论文概念 | 代码位置 | 实际行为 |
+| --- | --- | --- |
+| FiS-VLA 封装 | `models/vlas/fisvla.py` | 负责 checkpoint、扩散训练、动作反归一化与推理模式切换 |
+| 双系统 VLM | `models/vlms/prismatic.py` | `_prepare_multimodal_inputs` 组织 slow/fast token，`llm_middle_layer` 切分层数 |
+| 扩散头 | `models/diffusion/*` | `x_embedder`、`t_embedder`、`final_layer` 预测噪声 |
+| 异步调度 | `scripts/sim.py` | `slow-fast-ratio` 控制 System 2 重算周期 |
+| 训练配置 | `train.sh`, `conf/vla.py` | async、点云位置、AR loss、action chunk 等超参数 |
+
+**【Analysis】** 论文把 System 1 描述为“最后几层”，而代码通过 `llm_middle_layer` 精确指定切分点；因此共享 block 数并非固定架构常数，而是可在实验中调节的工程旋钮。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![RLBench、AgileX 与 AlphaBot 的实验示例（论文 real-world figure）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-fast-in-slow/realworld_fig.26m7vvehxy.webp)
+
+**【Paper】** 仿真在 CoppeliaSim 的 RLBench 上测试 10 项任务，每项 100 条轨迹，输入单视角 RGB 与 1024 点点云；真实实验使用 AgileX 和 AlphaBot 两种双臂平台，每项任务采集 100 条三视角 teleoperation 示教。评估均为 20 次 rollout，仿真重复三次并报告均值和方差。
+
+### 5.2 Main Results
+
+仿真结果（10 任务平均成功率 / chunk=1 频率）：
+
+| 方法 | 平均成功率 | 推理频率 |
+| --- | ---: | ---: |
+| ManipLLM | 38% | 2.2 Hz |
+| OpenVLA | 40% | 6.3 Hz |
+| $\pi_0$ | 55% | 13.8 Hz |
+| CogACT | 61% | 9.8 Hz |
+| **FiS-VLA** | **69% ± 3%** | **21.9 Hz** |
+
+**【Paper】** FiS-VLA 比 CogACT 高 8 个百分点，比 $\pi_0$ 高 14 个百分点，并在 10 项任务中的 8 项取得最高或并列最高成功率。真实世界中，AgileX 平均 68%（$\pi_0$ 为 59%），AlphaBot 平均 74%（$\pi_0$ 为 61%）。
+
+### 5.3 Ablation Study
+
+![FiS-VLA 的共享 block、输入模态和异步比例消融（论文 ablation figure）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-fast-in-slow/ablation_fig.6m4n14qw03.webp)
+
+**【Paper】**
+
+- **共享 block 数**：从 1 增至 8 时性能提升，但约 2 个 block 后趋于饱和，说明少量末端层即可承载有效执行能力。
+- **System 1 输入**：仅 latent 最弱；加入 proprioception、2D 图像、3D 点云后逐步提升，点云对空间关系尤其关键。
+- **频率比**：在 1:1 到 1:8 中，1:4 达到最佳折中；过快更新 System 1 会缺乏语义指导，过慢则浪费高频观测。
+- **训练目标**：去掉 $\mathcal L_{slow}$ 后成功率从 69% 降到 62%，验证 AR 保留项对协同至关重要。
+
+### 5.4 Generalization
+
+![未见物体、复杂背景与光照变化下的泛化设置（论文 generalization figure）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-fast-in-slow/generalization_fig.5xbdh43d17.webp)
+
+**【Paper】** 在“换物体、复杂背景、光照扰动”三种测试中，FiS-VLA 的下降幅度均小于 $\pi_0$。例如 AlphaBot 的未见物体任务成功率从 80% 降至 65%（下降 19%），$\pi_0$ 从 65% 降至 40%（下降 38%）；复杂背景下 FiS-VLA 下降 25%，光照变化下仍保持 55%。
+
+**【Analysis】** 这组结果把收益拆成两部分：System 2 用 VLM 的语义先验抑制背景干扰，System 1 用点云和即时 RGB 对局部几何做闭环修正；单独依赖任一系统都难以同时获得这两种鲁棒性。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** FiS-VLA 的效率不是简单“减少层数”，而是利用时间尺度分工：昂贵的语义计算被缓存，廉价的末端层在每个周期读取新观测。由于末端层与 System 2 共享权重，latent 的语义坐标系不需要重新学习；点云和状态则补上 VLM 在精确控制上的几何与本体感缺口。
+
+### 6.2 核心创新
+
+1. **参数级嵌套**：System 1 是完整 VLM 的子路径，而不是外接 policy head。
+2. **时间异步 + 模态异构**：慢系统负责“任务是什么”，快系统负责“此刻怎么动”。
+3. **双感知协同训练**：扩散回归与自回归语言 / 动作预测共同约束同一套 backbone。
+4. **轻量 3D 注入**：点云先 token 化再复用视觉编码器，控制参数与延迟增长。
+
+### 6.3 与已有方法的本质区别
+
+同步双系统（如 CogACT、$\pi_0$）仍需在每个动作周期运行 VLM；异步外挂 policy（如 HIRt、Helix）虽能提速，却让 System 1 与 VLM 知识隔离。FiS-VLA 把“共享知识”和“异步执行”放在同一参数图中，因而同时改变了接口、调度和训练目标。
+
+### 6.4 关键假设
+
+- System 2 的中间 latent 在 $r$ 个时间步内足以描述任务意图。
+- LLM 末端 block 具有可迁移到动作生成的局部表示，而不必重写全部网络。
+- 高频 RGB、点云和状态的采样延迟低于 System 2 重算周期。
+- 扩散动作和 AR 监督在共享参数上不会产生不可调和的梯度冲突。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 共享 block 的数量和 System 1:System 2 协作频率目前是静态设定的；作者认为未来应根据任务难度和环境复杂度动态调整这两个因素。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+1. 论文主要报告单 GPU 上的串行异步推理；若部署在不同 GPU 或边缘硬件，KV cache、同步和通信开销可能改变最佳 1:4 比例。
+2. 3D 点云由单视角深度图构造，遮挡严重或深度噪声较大时，fast 分支的几何优势可能下降。
+3. 真实实验以每任务 100 条示教、20 次 rollout 为主，尚不足以覆盖长时程任务、动态障碍和安全约束；论文未报告系统性 sim-to-real 误差分析。
+4. 训练中扩散与 AR loss 使用等权相加；不同数据集或 embodiment 下是否需要自适应损失权重，论文未明确说明。
+
+## 8. 启发与研究思考
+
+**【Analysis】** FiS-VLA 给 VLA 设计提供了一个有价值的结构视角：高频控制不一定要另起炉灶，可能只需在已有 foundation model 的表示层中寻找“可复用的局部路径”。下一步值得研究：
+
+- 用不确定性或接触事件触发动态频率，而不是固定 1:4；
+- 根据点云质量、动作阶段动态选择 fast 输入模态；
+- 用梯度投影或 loss weighting 缓解 diffusion 与 AR 目标的冲突；
+- 在多 GPU、低功耗端侧和更长时程任务上重新测量共享层数与缓存策略。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。
+</Aside>
