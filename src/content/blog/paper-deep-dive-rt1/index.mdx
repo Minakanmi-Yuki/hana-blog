@@ -1,0 +1,239 @@
+---
+title: 'RT-1：Robotics Transformer 论文精读'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 RT-1 的实时多任务机器人策略。'
+heroImage: { src: 'https://pic.hana0721.top/75863098_p0_master1200.8aduokw8y2.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '75863098'
+tags:
+  - 'paper deep dive'
+  - 'RT-1'
+  - 'VLA'
+paper:
+  arxivId: '2212.06817'
+  title: 'RT-1: Robotics Transformer for Real-World Control at Scale'
+  authors:
+    - 'Anthony Brohan'
+    - 'Noah Brown'
+    - 'Chelsea Finn'
+    - 'Karol Hausman'
+    - 'Sergey Levine'
+    - 'Ted Xiao'
+    - 'Fei Xia'
+  venue: 'ICLR 2023'
+  year: 2023
+  code: 'https://github.com/google-research/robotics_transformer'
+  project: 'https://robotics-transformer1.github.io/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating id='2212.06817' tldr='RT-1 用语言条件视觉 token 和离散 action token 训练 35M 参数策略，在 3 Hz 闭环控制下覆盖 744 条指令。' rank={5} />
+
+## 1. 论文概述
+
+**论文名称**：《RT-1: Robotics Transformer for Real-World Control at Scale》  
+**作者**：Anthony Brohan、Noah Brown、Chelsea Finn、Karol Hausman、Sergey Levine、Ted Xiao、Fei Xia 等  
+**会议**：ICLR 2023  
+**论文链接**：[arXiv](https://arxiv.org/abs/2212.06817)  
+**项目主页**：[Robotics Transformer 1](https://robotics-transformer1.github.io/)  
+**代码**：[google-research/robotics_transformer](https://github.com/google-research/robotics_transformer)
+
+<img src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rt1/rt1-teaser-model-crop.webp' alt='RT-1 概览（论文 Figure 1）' class='zoomable' width='1796' height='1117' loading='lazy' decoding='async' style='max-width:100%; height:auto;' />
+
+### 一句话总结
+
+**【Paper】** RT-1 把“图像 + 自然语言指令 $\rightarrow$ 机器人动作”视为 sequence modeling：FiLM-EfficientNet 提取语言条件视觉 token，TokenLearner 压缩 token，decoder-only Transformer 预测离散动作。模型约 35M 参数，在 13 台机器人、17 个月、约 130k 条演示上学习 744 条指令，并以 3 Hz 闭环执行。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出实时约束下的 Robotics Transformer 架构。
+2. 建立约 130k episodes、13 台机器人、744 条指令的数据集。
+3. 系统验证 model size、data quantity、data diversity、simulation 和 multi-robot data。
+4. 在超过 3000 次真实试验中达到 97% seen、76% unseen、83% distractor、59% background 成功率。
+
+**【Analysis】** RT-1 的关键不是单纯堆 Transformer，而是语言早期融合、视觉 token 压缩、非自回归动作头与高多样性数据的组合。
+
+## 2. 背景与相关工作
+
+**【Paper】** 机器人 imitation learning 的数据采集昂贵，论文借鉴视觉和 NLP 的大模型范式，问一个 backbone 能否吸收开放式多任务数据并重组已见 skill 与 object。
+
+- **语言条件策略**：通常由 CNN/MLP 做动作回归，容量有限。
+- **Transformer policy**：Gato、Behavior Transformer 序列化轨迹，但没有同时解决语言融合与实时延迟。
+- **高层规划 + 低层控制**：SayCan 先规划技能，再调用单技能 controller；RT-1 试图把多技能 controller 做成 backbone。
+
+**【Analysis】** RT-1 主要做已见 verb 与 noun 的组合泛化，并不等于开放词汇机器人。
+
+## 3. 问题定义
+
+**【Paper】** 策略接收语言指令和最近 6 帧 $300\times300$ RGB 图像，输出 arm、base、mode 动作，直到 terminate 或达到时间上限。
+
+| 项目 | 定义 |
+| --- | --- |
+| Embodiment | 7DoF arm、两指夹爪、移动底座 |
+| Arm action | 位移、旋转和 gripper opening，共 7 维 |
+| Base action | $x,y,yaw$，共 3 维 |
+| Mode | arm / base / terminate |
+| Action | 连续维度均匀分为 256 bins |
+| Training | 成功 tele-operation demonstration 上的 behavioral cloning |
+| Runtime | 约 3 Hz，模型预算小于 100 ms |
+
+**【Code】** RT1ActionTokenizer 将浮点 action 映射到 vocab_size=256 个桶；int32 action 是 one-hot 类别，时间窗口默认 6。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![RT-1 完整架构：USE、FiLM-EfficientNet、TokenLearner 与 Transformer（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rt1/rt1-full-model-crop.webp)
+
+**【Paper】** 6 帧图像经过 ImageNet-pretrained EfficientNet-B3，USE 指令 embedding 通过 identity-initialized FiLM 注入；81 个视觉 token 经 TokenLearner 压成 8 个，6 帧形成 48 个上下文 token，输入 8 层 decoder-only Transformer。
+
+**【Analysis】** FiLM 早期提取 task-relevant 特征，TokenLearner 将注意力长度从 $6\times81$ 降到 $6\times8$，共同满足实时闭环。
+
+### 4.2 核心模块
+
+**【Paper】** EfficientNet 输出 $9\times9\times512$ feature map，即 81 个视觉 token；FiLM 使用零初始化的 $\gamma,\beta$，保持预训练网络初始为 identity；TokenLearner 输出每帧 8 个 learned token；Transformer 使用 8 层 self-attention、约 19M 参数。
+
+**【Code】** film_conditioning_layer.py 实现 $(1+\gamma(c))\odot h+\beta(c)$；configs/transformer_mixin.gin 默认 8 layers、8 heads、layer size 128、feed-forward size 512、dropout 0.1、vocab size 256。
+
+对连续维度 $a_j\in[a_j^{\min},a_j^{\max}]$：
+
+$$b_j=\left\lfloor\frac{a_j-a_j^{\min}}{a_j^{\max}-a_j^{\min}}(256-1)\right\rfloor.$$
+
+**【Code】** tokenize 先 clip、归一化、取整；detokenize 反变换，非法离散 index 置为 0。
+
+### 4.3 关键公式
+
+$$
+\mathcal L_{\mathrm{BC}}
+=-\frac{1}{TK}\sum_{t=1}^{T}\sum_{k=1}^{K}
+\log\operatorname{softmax}(z_{t,k})[b_{t,k}].
+$$
+
+其中 $T=6$ 为窗口时间步，$K$ 为动作 token 数，$b_{t,k}$ 为离散标签。**【Code】** transformer_network.py 用 SparseCategoricalCrossentropy 计算 action loss，SequenceAgent 对 last step 做 mask 并用 Adam 更新。
+
+### 4.4 Training
+
+**【Paper】** 训练数据是成功的人类 VR demonstration，系统随机采样指令并随机化背景、物体位置。最大数据集约 130k episodes、744 条语言指令。**【Code】** 公开仓库提供 TensorFlow/TFAgents 网络、Adam learning rate $10^{-4}$ 与 checkpoint 读取，但不含内部数据采集 pipeline。
+
+<Algorithm number={1} title='RT-1 行为克隆训练' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>6 帧图像、USE embedding、动作标签。</div>
+  <div slot='output'>训练后的 RT-1 policy。</div>
+  <AlgorithmStep>将连续动作按 256 bins 离散化。</AlgorithmStep>
+  <AlgorithmStep>FiLM-EfficientNet 编码图像，TokenLearner 将 81 个 token 压缩成 8 个。</AlgorithmStep>
+  <AlgorithmStep>拼接 6 个时间步并施加 causal mask。</AlgorithmStep>
+  <AlgorithmStep>对 action token 计算 cross-entropy，用 Adam 更新。</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** RT-1 约以 3 Hz 闭环执行；TokenLearner 和重用重叠窗口 token 分别带来约 2.4 倍和 1.7 倍加速。**【Code】** 推理时逐维取 argmax 并写回 state，窗口满 6 步后左移；动作槽位不使用前一动作 token embedding，因此不是完整 autoregressive decoding。
+
+<Algorithm number={2} title='RT-1 闭环推理' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前 observation、语言指令、6 步网络状态。</div>
+  <div slot='output'>一个 detokenized robot action。</div>
+  <AlgorithmStep>裁剪归一化图像，生成当前 image-language tokens 并复用历史 token。</AlgorithmStep>
+  <AlgorithmStep>逐维读取 256-way logits，取 argmax 得到 action token。</AlgorithmStep>
+  <AlgorithmStep>反离散化为 arm/base/mode 动作并写回 state。</AlgorithmStep>
+  <AlgorithmStep>执行动作并等待控制周期；terminate 时结束。</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+| 概念 | 代码位置 | 行为 |
+| --- | --- | --- |
+| FiLM-EfficientNet | film_efficientnet/ | 512 维 context 产生逐通道 $\gamma,\beta$，零初始化 |
+| Image tokenizer | tokenizers/image_tokenizer.py | 81 个 token；可选 TokenLearner 输出 8 个 |
+| Action tokenizer | tokenizers/action_tokenizer.py | 连续 action 映射 256 bins |
+| Transformer | transformer.py、configs/transformer_mixin.gin | 8 层 self-attention、causal mask |
+| Loss / state | transformer_network.py、sequence_agent.py | sparse CE、Adam、6-step state window |
+
+**【Analysis】** 公开代码适合核对 tokenizer、网络结构和 stateful inference，不能逐行复现论文内部数据采集与真实厨房评估。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![RT-1 的训练教室、真实厨房和移动机械臂（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rt1/robot-setup-crop.webp)
+
+**【Paper】** 数据来自 13 台 Everyday Robots，收集 17 个月；测试使用 classroom、Kitchen1、Kitchen2，覆盖 seen/unseen instructions、distractor/background robustness 与长时序指令。baseline 与 RT-1 使用同一份大规模数据。
+
+### 5.2 Main Results
+
+![RT-1 与 Gato、BC-Z 的成功率（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rt1/main-baselines-crop.webp)
+
+| 模型 | Seen | Unseen | Distractors | Backgrounds |
+| --- | ---: | ---: | ---: | ---: |
+| Gato | 65 | 52 | 43 | 35 |
+| BC-Z | 72 | 19 | 47 | 41 |
+| BC-Z XL | 56 | 43 | 23 | 35 |
+| **RT-1** | **97** | **76** | **83** | **59** |
+
+**【Paper】** RT-1 在超过 700 条训练指令上达到 97% seen success；unseen 76%；distractor/background 为 83%/59%。SayCan 长时序实验中，Kitchen1、Kitchen2 execution success 都为 67%。
+
+### 5.3 Ablation Study
+
+![数据量与数据多样性消融（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rt1/data-ablation-crop.webp)
+
+**【Paper】** 完整数据的 seen/unseen/distractor/background 为 97/76/83/59。将每任务样本上限降到 200、100、50（保留约 51%、37%、22% 数据）时泛化逐步下降；只保留 75% 任务、仍保留 97% 数据时，四项为 86/67/42/53。
+
+**【Analysis】** 覆盖哪些 skill-object 组合比单个组合重复多少次更关键。
+
+### 5.4 Generalization
+
+![RT-1 在模拟物体和跨机器人数据上的迁移结果（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rt1/sim-delta-crop.webp)
+
+**【Paper】** 加入 simulation data 后，模拟中见过的物体从 23% 提升到 87%，unseen skill 从 7% 到 33%，real-object performance 基本不降。加入 209k 条 Kuka 数据后，classroom 仅降 2 个百分点，EDR bin-picking 从 22% 到 39%；单独 Kuka 数据训练控制 EDR 为 0%。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** 早期语言融合聚焦视觉，TokenLearner 节省注意力预算，离散 action token 统一回归接口，大而多样的数据提供组合泛化。
+
+### 6.2 核心创新
+
+- FiLM-EfficientNet → TokenLearner → Transformer 的紧凑接口。
+- 数据采集、背景随机化、simulation model selection 与真实评估形成 scaling loop。
+- 分别测量 data quantity、data diversity、heterogeneous source 和 long-horizon。
+
+### 6.3 与已有方法的本质区别
+
+**【Paper】** Gato 缺少语言条件化 image tokenizer 和 TokenLearner；BC-Z 是无历史的 continuous-action policy。RT-1 在 encoder 内融合语言，保留 6 帧历史并用离散 token 建模。
+
+**【Analysis】** RT-1 的 action head 仍是专门的 robot Transformer；RT-2 才把 action token 放回大型 VLM 词表。
+
+### 6.4 关键假设
+
+- 训练与部署的 action spec、相机视角和机器人动力学足够接近。
+- 新指令主要是已见 skill 与 object 的新组合。
+- 6 帧历史足以处理短期上下文。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** RT-1 是 imitation learning，难以超过 demonstrator；新指令泛化受限于已见概念组合，不能可靠产生训练中从未出现的新 motion；任务仍以不太灵巧的厨房 manipulation 为主。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+1. 256-bin 均匀量化可能引入控制误差，并依赖部署方正确提供 min/max spec。
+2. 非自回归 action slots 牺牲动作维度之间显式的条件依赖。
+3. 公开代码没有数据采集和训练 pipeline，难以复现完整 scaling 曲线。
+4. 跨 Kuka/EDR 依赖混合训练，不能推出任意 embodiment 的零样本迁移。
+
+## 8. 启发与研究思考
+
+**【Analysis】** 先设计高效 observation/action token 接口，再考虑把 backbone 做大；评估数据规模必须同时报告 diversity；simulation 与其他机器人数据应作为能力增量，并在目标 embodiment 上保留锚点数据。RT-1 把路线从单任务 controller 推进到了可规模化的 robot policy backbone。
+
+<Aside type='note' title='阅读提示'>
+  本精读中【Paper】表示论文明确内容，【Code】表示官方代码实现，【Analysis】表示基于论文和代码的分析推断。
+</Aside>
