@@ -1,0 +1,275 @@
+---
+title: 'RLinf-USER：真机在线策略学习系统 论文精读'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 RLinf-USER：将机器人作为一等硬件资源，以异步流水线、云边通信和持久回放缓冲区支撑长时程真机在线策略学习。'
+heroImage:
+  { src: 'https://pic.hana0721.top/66119164_p0_master1200.3d5duqih46.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '66119164'
+tags:
+  - 'paper deep dive'
+  - 'real-world reinforcement learning'
+  - 'robot learning system'
+  - 'asynchronous training'
+  - 'VLA'
+paper:
+  arxivId: '2602.07837'
+  title: 'RLinf-USER: A Unified and Extensible System for Real-World Online Policy Learning in Embodied AI'
+  authors:
+    - 'Hongzhi Zang'
+    - "Shu'ang Yu"
+    - 'Hao Lin'
+    - 'Tianxing Zhou'
+    - 'Zefang Huang'
+    - 'Zhen Guo'
+    - 'Xin Xu'
+    - 'Jiakai Zhou'
+    - 'Yuze Sheng'
+    - 'Shizhe Zhang'
+    - 'Feng Gao'
+    - 'Wenhao Tang'
+    - 'Yufeng Yue'
+    - 'Quanlu Zhang'
+    - 'Xinlei Chen'
+    - 'Chao Yu'
+    - 'Yu Wang'
+  venue: 'arXiv / RSS 2026'
+  year: 2026
+  code: 'https://github.com/RLinf/RLinf'
+  project: 'https://rlinf.readthedocs.io/en/latest/rst_source/resources/publications/rlinf_user.html'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2602.07837'
+  tldr='USER 把真机、GPU 和网络放入同一套可调度的异步学习系统，让采集、训练与权重同步不再互相阻塞。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+### 一句话总结
+
+**【Paper】** RLinf-USER（下文简称 USER）并不提出新的 robot policy，而是提出一套面向真机 online policy learning 的系统：将机器人与 GPU 同等抽象为可发现、可调度的硬件资源，再用云边通信、异步数据流和持久化 replay buffer 把长时间学习闭环组织起来。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 将 GPU、物理机器人及其相机、SpaceMouse 等外设纳入统一 Hardware Abstraction Layer（HAL），支持异构机器人发现、健康检查和按 rank 的资源绑定。
+2. 用 UDP tunnel、按 key 分片的 distributed data channel，以及限制 NCCL CTA 数的 SM-aware weight synchronization 解决云边环境中的连通性与 GPU 争用。
+3. 将 rollout、真机交互、传输、训练和权重同步解耦为 fully asynchronous pipeline，并以 persistent-cache-aware buffer 支撑跨天、跨策略版本的数据复用与恢复。
+4. 通过 CNN/MLP、flow policy 和 $\pi_0$，以及 SAC、SAC-Flow、RLPD、HG-DAgger 等组合，在仿真和 Franka/ARX 真机任务上验证系统的可扩展性。
+
+**【Analysis】** 这篇论文的关键贡献是改变“真机 RL 的默认执行模型”。它把机器人看作稀缺、慢速、可能断连的生产资源，因此首要目标是让机器人尽量持续产出安全交互数据，而不是让每一步都等待一次同步优化。
+
+## 2. 背景与相关工作
+
+**【Paper】** 模拟器可以加速、并行和重置，因而许多分布式 RL 系统以同步或 GPU 中心的流水线为前提；真机却受制于交互时长、人工 reset、网络边界和高维视觉轨迹存储。训练较慢、网络抖动或 checkpoint 更新若阻塞控制，都会直接减少最昂贵的资源——机器人交互时间。
+
+**【Paper】** ROS2、Zenoh 提供机器人通信能力，但并不直接覆盖学习工作负载的调度；SERL、QT-Opt 等系统主要面对单机器人或较小模型。Reverb、Flashbax 等 memory-centric buffer 采样快，但难以保存长周期视觉轨迹并在重启后恢复。
+
+**【Analysis】** USER 的定位不是替代 ROS 或 Ray：机器人控制仍由具体环境和驱动承担，Ray 负责 cluster membership/worker placement。论文新增的是把“物理资源 + 分布式学习 + 数据生命周期”连接成可复用闭环的一层系统语义。
+
+## 3. 问题定义
+
+**【Paper】** 论文将真实世界任务建模为部分可观测 MDP：
+
+$$
+(\mathcal{S},\mathcal{O},\mathcal{A},P,r,\gamma),
+$$
+
+其中 $s_t$ 是隐状态、$o_t$ 为观测、$a_t$ 为动作、$P$ 为状态转移、$r$ 为奖励、$\gamma\in(0,1)$ 为折扣因子。策略只根据观测给出 $\pi_\theta(a_t\mid o_t)$。
+
+**【Paper】** 与常规 RL 的区别在于，数据 $(o_t,a_t,r_t,o_{t+1})$ 不是由大量同质 simulator 自动产生，而是来自异构真机、不同网络域、不同 policy version 和可能有人介入的长时程执行。系统因此必须同时满足以下约束：不中断 rollout、可追溯存储、可安全更新权重、并允许多种 policy/algorithm/reward 接入。
+
+**【Analysis】** 这意味着 USER 优化的不是单个 $J(\pi)$ 的数值，而是完成该优化所需的端到端吞吐、恢复性和可控性；只比较单步 actor loss 或 GPU utilization 无法说明系统是否适合真机学习。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![USER 的系统架构（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rlinf-user/architecture-crop.5c1purygs9.webp)
+
+**【Paper】** 数据从 edge 上的 Env Worker/Robot Node 经 distributed channel 流向 Rollout Worker 与 Train Worker；HAL 决定进程实际绑定的机器人或 GPU，通信平面承担 tunnel、数据通道与权重同步。
+
+### 4.2 核心模块
+
+#### 统一硬件抽象层
+
+**【Paper】** 一个 node 输出若干 hardware unit；每个 unit 可以是一张 GPU，也可以是一台机器人及其所需外设。HAL checker 定义设备类型、发现方法和实例 metadata；启动时 hardware probe 汇总 inventory。GPU、相机等 PCIe/USB 设备可自动发现，IP 绑定的机器人则由配置驱动，并可检查网络可达性和传感器状态。
+
+**【Code】** 当前官方仓库将这层实现放在 `rlinf/scheduler/hardware/`：`Hardware` 基类用注册表组织枚举策略，`robots/franka.py`、`robots/xsquare.py` 等提供机器人类型；`examples/embodiment/config/realworld_sac_flow_image.yaml` 直接在 `cluster.node_groups[*].hardware` 中声明 Franka 的 `robot_ip` 和 `node_rank`。
+
+#### 自适应通信平面
+
+![USER 学习框架与跨节点数据流（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rlinf-user/communication-pipeline-crop.9ddp962k7w.webp)
+
+**【Paper】** tunnel 将 NAT、校园网或工厂 VLAN 彼此隔离的节点放入扁平 TCP/IP 视图。`Channel` 是可异步 `put/get` 的具名 FIFO；它按 robot ID 等 key 分片到多个轻量服务，尽量让同一 edge 域内的 observation/action 不必绕行云端。GPU 间 NCCL 同步会消耗 streaming multiprocessor（SM），因此 USER 通过可调的 NCCL CTA 上限避免同步抢占 rollout。
+
+**【Code】** `rlinf/scheduler/channel/` 包含 `channel.py`、`channel_worker.py`，cluster 的 placement/config 位于 `rlinf/scheduler/cluster/` 和 `rlinf/scheduler/placement/`。仓库说明也将 `actor`、`rollout`、`env` 分别放到可配置的 node group，而非固定同机部署。
+
+#### 异步流水线与持久缓冲区
+
+![Persistent-Cache-Aware Buffer：内存缓存保存最近轨迹，磁盘保存持久历史（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rlinf-user/buffer-crop.8z79iau9g1.webp)
+
+**【Paper】** Env/Rollout 持续产生 trajectory；训练从 autonomous replay buffer 与 demonstration buffer 异步采样，reward 可以在 rollout 时或离线后处理；新权重再按周期推给 rollout。buffer 将数据异步写入磁盘，在内存只保留带 FIFO replacement 的有界 cache；索引携带 policy version、timestamp 和 episode ID，已逐出的数据仍可按需从磁盘载入。
+
+**【Code】** `rlinf/data/storage/replay/buffer.py` 中的 `TrajectoryCache` 是按 trajectory ID 管理的 FIFO tensor cache：新条目覆盖最旧 slot，缓存外的轨迹仍由持久存储层索引。示例配置将 `replay_buffer.enable_cache`、`cache_size`、`sample_window_size` 与独立的 `demo_buffer` 显式暴露出来。
+
+### 4.3 关键公式
+
+**【Paper】** USER 是 system framework，算法目标取决于接入的 learner。以论文的 SAC 为例，最大熵目标为：
+
+$$
+J(\pi)=\sum_{t=0}^{T}\mathbb{E}_{(o_t,a_t)\sim\rho_\pi}
+\left[r(o_t,a_t)+\alpha\mathcal{H}(\pi(\cdot\mid o_t))\right].
+$$
+
+其中 $\rho_\pi$ 是策略诱导的采样分布，$\mathcal{H}$ 鼓励探索，温度 $\alpha$ 调节 reward 与熵的权衡。buffer 提供的 batch 让 critic 最小化 soft Bellman residual：
+
+$$
+\mathcal{L}_Q(\psi)=\mathbb{E}_{(o,a,r,o')\sim\mathcal{B}}
+\left[Q_\psi(o,a)-\left(r+\gamma\mathbb{E}_{a'\sim\pi_\theta}
+[Q_{\bar\psi}(o',a')-\alpha\log\pi_\theta(a'\mid o')]\right)\right]^2.
+$$
+
+这里 $\mathcal{B}$ 是 replay buffer，$Q_\psi$ 与 $Q_{\bar\psi}$ 分别为 critic 和 EMA target critic，$a'$ 为下一观测的策略动作。**【Analysis】** USER 不改变这一定义；它改变的是如何在不停机、跨节点和可恢复的数据条件下持续填充、采样和版本化 $\mathcal{B}$。
+
+### 4.4 Training
+
+**【Paper】** 训练 worker 可替换地支持 SAC、SAC-Flow、RLPD 与 HG-DAgger。RLPD 以固定比例混合 online replay 与 demonstration；HG-DAgger 在人工干预激活时执行人类动作并把介入数据加入 demonstration buffer。论文的 SAC/RLPD 设定使用 ResNet10+MLP、buffer size 20,000、batch size 256、$\gamma=0.96$、$3\times10^{-4}$ 学习率；SAC-Flow 使用 4 个 denoising steps。
+
+<Algorithm number={1} title='USER 的异步在线训练' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>已分配的机器人/GPU、初始 policy、replay/demo buffer、算法与奖励配置</div>
+  <div slot='output'>持续更新的 policy checkpoint 与持久化轨迹索引</div>
+  <AlgorithmStep>
+    HAL 发现硬件并按 node group/rank 启动 Env、Rollout、Train 与 Reward Workers
+  </AlgorithmStep>
+  <AlgorithmStep keyword='parallel'>
+    Env/Rollout 执行当前 policy；若人工介入则记录 expert correction
+  </AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    将 trajectory、奖励和 policy version 异步写入 buffer 的 cache 与持久存储
+  </AlgorithmStep>
+  <AlgorithmStep keyword='parallel'>
+    Train Worker 从 online 与 demo 数据采样，按 SAC、RLPD、SAC-Flow 或 HG-DAgger 更新参数
+  </AlgorithmStep>
+  <AlgorithmStep>以设定频率执行受控 weight synchronization，而不暂停真机交互</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** rollout node 上的 policy inference 与 robot node 的 action execution 可以分离：前者通常持有 GPU，后者可在 edge CPU 机器上控制机器人。异步并不表示动作可无序执行；它只让数据生成、训练和同步不互相等待，单条 robot control loop 仍需按实时性和安全约束顺序闭环。
+
+<Algorithm number={2} title='真机闭环 rollout 与安全更新' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前 observation、rollout policy、robot endpoint、最近可用权重版本</div>
+  <div slot='output'>已执行 action、trajectory 与状态/奖励记录</div>
+  <AlgorithmStep>Robot Node 获取传感器 observation，经 Channel 发送到 Rollout Worker</AlgorithmStep>
+  <AlgorithmStep>
+    Rollout Worker 用当前稳定权重推理 action；Human-gated 模式下允许专家动作覆盖
+  </AlgorithmStep>
+  <AlgorithmStep>
+    Robot Node 顺序执行 action，采集下一观测并将 transition 流式写入 Channel
+  </AlgorithmStep>
+  <AlgorithmStep>仅在配置的同步边界接受新权重，避免频繁的 episode 内 policy 漂移</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** 官方仓库已经超出论文 v3 的最初实验快照，包含更多模型、simulator 和算法；因此下表将论文组件映射到当前公开实现，而非把仓库新增功能误写为论文结论。
+
+| 论文概念       | 官方代码中的对应入口                                             | 含义                                               |
+| -------------- | ---------------------------------------------------------------- | -------------------------------------------------- |
+| HAL / 异构资源 | `rlinf/scheduler/hardware/`、`rlinf/scheduler/cluster/config.py` | 注册硬件类型、解析 `node_groups` 和资源 placement  |
+| 异步传输       | `rlinf/scheduler/channel/`                                       | Worker 间 channel 与服务端实现                     |
+| 真机环境       | `rlinf/envs/realworld/`                                          | Franka、XSquare、GIM 等机器人及相机/遥操作 wrapper |
+| 数据存储       | `rlinf/data/storage/replay/buffer.py`                            | trajectory cache 与 replay 存储逻辑                |
+| 真机 recipe    | `examples/embodiment/config/realworld_*.yaml`                    | policy、algorithm、buffer、机器人绑定与训练参数    |
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+**【Paper】** 论文以 Franka 完成 Peg Insertion、Charger Plugging、Cap Tightening、Pick-and-Place 和 Table Clean-up 五项真机操作任务；小型 CNN/flow policy 在 RTX 4090（24 GB）训练，大型 $\pi_0$ 在 4×A100（80 GB）服务器训练。任务组合覆盖规则 dense/sparse reward、人工二元奖励和 learned reward model。
+
+**【Paper】** 同时测试双 Franka 并行采集，以及 7-DoF Franka 与 6-DoF 低成本 ARX 的异构联合训练；通信实验将 City A 的训练节点与 City B 的 rollout/robot 节点通过 tunnel 连接。
+
+### 5.2 Main Results
+
+**【Paper】** 系统并非只支持一种 policy：Peg Insertion 与 Charger 上的 SAC、RLPD 和 SAC-Flow 都能在约 2,000 s 内接近满成功率。对于 foundation VLA，$\pi_0$ 经 HG-DAgger online training 后，Pick-and-Place 从 $39/60$ 提升至 $58/60$，Table Clean-up 从 $9/20$ 提升至 $16/20$；前者约用 30 分钟和约 200 条 online samples 达到 96% 成功率。
+
+**【Paper】** 双 Franka 的不同任务并行训练约在 2,500 s 内收敛，与单臂基线相当。Franka+ARX 的一套 CNN policy 在不同 DoF、末端形态与相机参数下约两小时收敛，说明 HAL 至少可以承载这种 cross-embodiment 联合数据采集。
+
+**【Analysis】** 这些数字验证的是“同一系统能够跑通多种组合”，不是 CNN、flow、$\pi_0$ 之间的控制变量性能排名；它们训练预算、奖励和任务难度本来就不同。
+
+### 5.3 Ablation Study
+
+![Peg Insertion 上 asynchronous 与 synchronous pipeline 的收敛对比（论文 Figure 10a）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-rlinf-user/async-sync-ablation.7ehiitx22z.webp)
+
+**【Paper】** 异步化的收益来自 stage overlap，而不是每个单独 stage 变快。对 $\pi_0$ + HG-DAgger，episode generation period 从 45.068 s 降至 37.538 s（1.20×），training period 从 45.011 s 降至 7.903 s（5.70×）；对 CNN + SAC，分别从 20.291 s 降至 13.108 s（1.55×）和从 0.643 s 降至 0.135 s（4.61×）。Peg Insertion 的曲线中，异步方案约 1,500 s 收敛，同步方案超过 8,000 s。
+
+**【Paper】** 权重同步 interval 也被消融：interval 为 1 或 8 时，episode 内频繁更新会带来 policy non-stationarity，导致收敛较慢甚至失败；更大的 interval 更稳定。这是“异步”不可忽略的控制面设计，而非只把所有 RPC 放到后台即可。
+
+### 5.4 Generalization
+
+**【Paper】** distributed channel 在跨城云边实验中把单 episode generation time 从 69.265 s 降至 21.979 s，约 3×；相同网络域中则从 18.696 s 降至 17.304 s。结果表明按 key 本地化 edge 间 observation/action 流量，比把全部数据先送云端再转发更有效。
+
+**【Paper】** buffer profiling 显示：增大 cache ratio 会提高采样吞吐；纯内存最快但受容量限制，纯磁盘容量大但吞吐不足一半，persistent + cache 方案在两者间折中。**【Analysis】** 这类泛化主要指部署、网络和数据规模的泛化；不应将其直接解读为 policy 在新物体或新任务上的泛化能力。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** USER 针对三个真实系统瓶颈逐一解除耦合：
+
+1. **采集慢**：生成和训练分离，优化慢时机器人仍可继续执行。
+2. **网络不对称**：channel 分片让高频的 edge 内控制流停留在 edge，tunnel 只解决域间可达性。
+3. **轨迹长且易中断**：持久索引保留历史，内存 cache 处理热点采样，重启不会将已付出代价的真机数据归零。
+
+### 6.2 核心创新
+
+**【Analysis】** HAL 中“机器人是一等硬件资源”是最有生产价值的抽象。它让 scheduler 不再只安排 GPU rank，而能把一个 rollout process 明确绑定到某台机器人及其传感器；这使多臂、异构和 cloud-edge placement 不必在每个 algorithm script 中手写。
+
+### 6.3 与已有方法的本质区别
+
+| 维度         | 单机/同步真机 RL               | USER                                         |
+| ------------ | ------------------------------ | -------------------------------------------- |
+| 资源单位     | 通常把机器人视作环境或外部服务 | 机器人、GPU 与外设都是可调度 hardware unit   |
+| 执行模型     | rollout 常等待训练/同步        | 生成、训练、传输、同步并行推进               |
+| 数据生命周期 | 内存 replay 为主               | 索引化磁盘持久化 + 有界内存 cache            |
+| 云边通信     | 常见中心转发                   | tunnel + 按 key 分片的 localizing channel    |
+| 扩展点       | script 与环境耦合              | policy、algorithm、reward、hardware 分别抽象 |
+
+### 6.4 关键假设
+
+**【Paper】** 系统依赖网络 tunnel 可建立、设备健康检查能识别不可用资源、以及策略可容忍周期性的非即时权重更新。**【Analysis】** 它还隐含假设：任务可以安全地以当前版本连续执行，且 buffer 中不同 policy version 的离策略数据适合所选算法；对高风险接触任务，额外的 safety shield、动作约束与人工监控仍不可省略。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 论文强调真实机器人不能任意加速、廉价 reset 或大规模复制，并把这视为系统设计动机。实验主要在两类机械臂和五类桌面操作任务上进行；buffer、通信与异步设计的收益也在给定网络、硬件和任务配置下测量，论文未声称已覆盖所有机器人或所有真实世界故障模式。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】** 第一，异步提高 throughput 也扩大了数据 staleness：训练参数、rollout 参数和缓冲区内 policy version 会不同步，论文只用同步 interval 消融触及这项算法—系统耦合。第二，HAL 能发现设备不等于能保证动作安全；网络短断、相机漂移、力控异常和人为介入仍需要 robot-specific fail-safe。第三，论文的“约 3×”通信收益来自特定跨城拓扑，不能直接外推到带宽、NAT 或 robot control frequency 完全不同的现场。
+
+## 8. 启发与研究思考
+
+**【Analysis】** 对真机 embodied learning 而言，算法进步应与系统预算共同报告：每小时可获得多少有效轨迹、恢复一次需损失多少数据、权重延迟有多大、以及发生异常时是否可安全降级。接下来的自然方向包括：
+
+1. **version-aware off-policy correction**：利用 buffer 已保存的 policy version 显式估计或限制 stale data 的影响。
+2. **安全优先的异步控制面**：将 shield、故障检测和人工接管纳入 scheduler 的一等状态，而不是环境 wrapper 的附属逻辑。
+3. **VLA 的云边协同**：让大模型训练留在云端、低延迟 action head 位于 edge，并量化 accuracy、动作延迟与通信成本的 Pareto frontier。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方 `RLinf/RLinf` 仓库实现，`【Analysis】`
+  表示基于论文与代码的分析推断。论文图床 CDN 上传后暂时返回 404，本文采用已验证 HTTP 200 的 GitHub
+  Raw fallback。
+</Aside>
