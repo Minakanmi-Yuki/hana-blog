@@ -1,0 +1,321 @@
+---
+title: 'SLIM-0.5B 论文精读：用 action-grounded predictive latents 做紧凑机器人策略'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 SLIM：以逆/前向动力学联合预训练 MoT latent，再以 flow matching 输出连续动作，在不做具身预训练下兼顾鲁棒性与低延迟。'
+heroImage:
+  { src: 'https://pic.hana0721.top/67997247_p0_master1200.6po3p2g2e0.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '67997247'
+tags:
+  - 'paper deep dive'
+  - 'SLIM'
+  - 'VLA'
+  - 'robot manipulation'
+  - 'flow matching'
+paper:
+  arxivId: '2608.09771'
+  title: 'SLIM-0.5B: Learning Action-Grounded Predictive Latents for Robot Manipulation'
+  authors:
+    - 'Jingkai Wang'
+    - 'Zihan Tang'
+    - 'Gu Zhang'
+    - 'Mingyu Cao'
+    - 'Jiapeng Chen'
+    - 'Jingjiao Zhao'
+    - 'Xiansheng Chen'
+    - 'Pengwei Wang'
+    - 'Lemao Liu'
+    - 'Dejing Dou'
+  venue: 'arXiv'
+  year: 2026
+  code: 'https://github.com/kzz1031/SLIM'
+  project: 'https://kzz1031.github.io/slim-project-page/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2608.09771'
+  tldr='SLIM 不生成未来像素，而用同一紧凑 MoT 同时学习「动作解释状态变化」与「动作预测未来 latent」，再以 flow matching 输出连续动作。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《SLIM-0.5B: Learning Action-Grounded Predictive Latents for Robot Manipulation》
+
+**作者 / 机构**：Jingkai Wang、Zihan Tang 等，复旦大学、北京智源人工智能研究院、清华大学、中国人民大学。
+
+**论文与代码**：[arXiv](https://arxiv.org/abs/2608.09771) · [Project Page](https://kzz1031.github.io/slim-project-page/) · [官方代码](https://github.com/kzz1031/SLIM)
+
+<img
+  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-slim/teaser.7q15njif8.webp'
+  alt='SLIM 总览与参数、延迟、真实世界评测对比（论文 Figure 1）'
+  class='zoomable'
+  width='2800'
+  height='1418'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+### 一句话总结
+
+**【Paper】** SLIM（Self-supervised Latent Interaction Model）用 0.47B 参数的两流
+Mixture-of-Transformers（MoT）替代大 VLM 或像素级 world model：先在轨迹中用互补的
+inverse dynamics（IDM）与 forward dynamics（FDM）学习 action-grounded predictive latents，
+再以 flow matching 根据当前观测、语言和本体状态生成动作 chunk；部署时不生成未来图像。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 将控制主体放在 observation latent 与连续 action token 的交互上，而不是每步运行大型 VLM，得到 0.47B 的紧凑策略。
+2. 提出 masked trajectory prediction：IDM 从当前/未来 latent 还原动作，FDM 从当前 latent 与动作预测未来 latent，使表征同时满足两个方向的动力学约束。
+3. 在原始 LIBERO 训练、不接触 LIBERO-Plus 数据的前提下，报告 97.5% 的 LIBERO 成功率与 77.45% 的零样本 LIBERO-Plus 成功率；CALVIN ABC→D 的平均成功序列长度为 4.556。
+4. 真实五任务、多任务混合训练中，SLIM 的平均 progress score 为 67.8，并在论文控制的 H100 测试里以 60.6 ms/chunk、4.26 GiB 增量显存运行。
+
+## 2. 背景与相关工作
+
+**【Paper】** 大型 Vision-Language-Action（VLA）策略把视觉、语言与动作放入同一多模态骨干，能利用广泛语义先验，但动作引起的状态变化通常只由动作监督隐式学得。另一端，world action model（WAM）直接预测未来图像或视频—动作轨迹，动力学建模更显式，却要拟合纹理、光照等控制无关细节；若推理阶段还 rollout future，会增加闭环延迟。
+
+**【Paper】** SLIM 的切入点是 latent-space prediction：未来不是额外要生成的视觉输出，而是训练时塑造控制表征的目标。它与 JEPA 一样预测 embedding 而非像素，但额外要求 latent 对机器人动作“可解释、可预测”。
+
+**【Analysis】** 这并非简单缩小 VLA。关键取舍是把语言从 joint attention 序列中拆出，作为两个 stream 的 cross-attention 条件；主计算预算留给“当前状态—候选动作”的交互，因此更贴近 manipulation 的局部闭环需求。
+
+## 3. 问题定义
+
+**【Paper】** 在时刻 $t$，策略接收语言指令 $y$、多视角 RGB 观测 $o_t$ 与 proprioceptive state $q_t$。T5-small 将语言编码为 $\ell=g_{\mathrm{lang}}(y)$，DINOv2 视觉编码器将观测编码为 $N_z$ 个 latent：
+
+$$
+Z_t=g_\psi(o_t)\in\mathbb{R}^{N_z\times d_z}.
+$$
+
+策略输出长度为 $H$ 的连续动作 chunk：
+
+$$
+A_t=(a_t,\ldots,a_{t+H-1}).
+$$
+
+**【Paper】** 动作不做离散 tokenization；MoT 直接处理连续动作向量嵌入。训练第一阶段还可访问 $o_{t+H}$，得到 online latent $Z_{t+H}$ 与 EMA target $\bar Z_{t+H}$；第二阶段和部署阶段均不输入未来观测。
+
+| 要素                  | SLIM 的具体选择                              |
+| --------------------- | -------------------------------------------- |
+| Vision encoder        | DINOv2-B/14                                  |
+| Language encoder      | T5-small                                     |
+| 控制状态              | 多视角视觉 patch latents + 7D proprioception |
+| Action representation | 连续 7D action、chunk prediction             |
+| Policy                | 16 层、hidden dim 768 的 two-stream MoT      |
+| 训练目标              | Stage 1：IDM + FDM；Stage 2：flow matching   |
+
+**【Code】** 默认 LIBERO 配置使用两路图像、224px 输入、`dense_patch` 视觉条件、$H=8$、4 个推理采样步；语言最大长度为 32 token，代码位于 `configs/libero/stage1_idm0125_fdm1_h8.yaml` 与 `stage2_policy_h8_40ep.yaml`。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![SLIM 的 MoT 双流骨干：observation/action joint attention，分别对语言做 cross-attention（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-slim/architecture.9ddp9bfzqo.webp)
+
+**【Paper】** 视觉 latent 与一个状态 token 组成 observation stream；带 flow timestep 的连续动作嵌入组成 action stream；两流在每层共享 joint attention，再各自对语言做 cross-attention 和 FFN。future-slot embeddings $M_z$ 占据未来 latent 的位置，供 FDM 与策略阶段使用。
+
+**【Paper】** 数据流只需概括为：当前 observation latent、状态、语言和 action variable 进入 MoT，MoT 输出动作速度场或未来 latent；训练/部署的完整流程分别见 4.4、4.5。
+
+### 4.2 核心模块
+
+#### 两流 MoT：让动作有机会读取状态，而不让语言主导控制
+
+**【Paper】** observation 与 action token 分别具有独立的 $Q,K,V$ 投影、AdaLN 和 FFN，但在同一个 attention 中交互。语言不混入该 attention，而是每个 stream 单独 cross-attend 到语言 token。动作 flow sampling 时，观测/语言保持固定，反复更新的是 action stream。
+
+**【Code】** `slim/model/slim_transformer.py` 的 `SLIMBlock` 正是该分工：`forward_action_only()` 缓存状态和语言的 K/V，仅在每个采样步更新 action token。这解释了论文低延迟的一个工程来源，而不仅是参数量更小。
+
+#### IDM：由状态变化反推动作
+
+**【Paper】** 将干净动作 $A_t$ 与高斯噪声 $\epsilon$ 插值为带噪动作 $\tilde A_t^\tau$。MoT 观察 $Z_t,Z_{t+H},q_t,\ell$ 与带噪动作，预测其 velocity。因为未来 latent 是可见条件，模型要回答“什么动作造成了这次变化”。
+
+#### FDM：由当前状态和动作预测未来 latent
+
+**【Paper】** FDM 用 learnable mask slots $M_z$ 替换未来位置，只给出 $Z_t,A_t,q_t,\ell$，预测 $\hat Z_{t+H}$；目标来自 stop-gradient 的 EMA encoder。它迫使未来表示保留可被当前状态与动作预测的成分，而不是重建所有像素细节。
+
+![IDM、FDM 与目标专用 attention mask（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-slim/idm-fdm.39lx6vdbfy.webp)
+
+**【Analysis】** 两个目标构成一个有用的“夹逼”：只做 IDM 可能学习与数据集动作相关、却不稳定的捷径；只做 FDM 又可能把动作忽略为平均未来。两者共享 MoT，才要求同一个空间既能区分动作，也能保留动作可预测的变化。
+
+### 4.3 关键公式
+
+#### Flow matching 的插值与目标速度
+
+**【Paper】** 对 $\epsilon\sim\mathcal N(0,I)$ 和 $\tau\sim U(0,1)$：
+
+$$
+\tilde A_t^\tau=(1-\tau)\epsilon+\tau A_t,\qquad V_t^*=A_t-\epsilon.
+$$
+
+$\tilde A_t^\tau$ 是时刻 $\tau$ 的带噪 action chunk，$V_t^*$ 是从噪声端流向数据端的目标速度。$v_\theta$ 不是直接回归动作，而是回归该速度，推理时积分得到动作。
+
+#### Stage 1 的双向动力学损失
+
+$$
+\mathcal L_{\mathrm{IDM}}=
+\mathbb E\left[\left\|v_\theta(\tilde A_t^\tau,\tau\mid Z_t,Z_{t+H},q_t,\ell)-V_t^*\right\|_2^2\right],
+$$
+
+$$
+\hat Z_{t+H}=p_\theta(M_z\mid Z_t,A_t,q_t,\ell),\qquad
+\mathcal L_{\mathrm{FDM}}=
+\left\|\operatorname{LN}(\hat Z_{t+H})-
+\operatorname{LN}(\operatorname{sg}(\bar Z_{t+H}))\right\|_1,
+$$
+
+$$
+\mathcal L_{\mathrm{stage1}}=\lambda_{\mathrm{IDM}}\mathcal L_{\mathrm{IDM}}
++\lambda_{\mathrm{FDM}}\mathcal L_{\mathrm{FDM}}.
+$$
+
+**【Paper】** $\operatorname{sg}$ 阻断 EMA target 的梯度，LN 令目标与预测在归一化空间比较。论文最佳联合权重为 IDM:FDM = 0.125:1。
+
+#### 部署一致的策略目标
+
+$$
+\mathcal L_{\mathrm{stage2}}=\mathcal L_{\mathrm{FM}}=
+\mathbb E\left[\left\|v_\theta(\tilde A_t^\tau,\tau\mid Z_t,M_z,q_t,\ell)-V_t^*\right\|_2^2\right].
+$$
+
+**【Paper】** Stage 2 中真实 $Z_{t+H}$ 不再出现；它被 Stage 1 学得的 predictive slots $M_z$ 取代。因此“预测未来”只作为训练归纳偏置，不成为推理时的额外生成任务。
+
+### 4.4 Training
+
+**【Paper】** 阶段一从机器人轨迹自监督学习：IDM 可见当前和未来观测、FDM 可见当前观测和干净动作；阶段二由阶段一权重初始化，仅使用当前观测、状态、语言和示教动作训练可部署的 flow policy。
+
+<Algorithm number={1} title='SLIM 两阶段训练' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>轨迹 $(o_t,q_t,y,A_t,o_{t+H})$，online DINOv2 encoder，EMA target encoder。</div>
+  <div slot='output'>只依赖当前观测的 flow-matching policy $v_\theta$。</div>
+  <AlgorithmStep>编码 $o_t,o_{t+H}$，采样 $\epsilon,\tau$ 并构造 $\tilde A_t^\tau$。</AlgorithmStep>
+  <AlgorithmStep>以 $(Z_t,Z_{t+H},\tilde A_t^\tau)$ 计算 IDM velocity loss；以 $(Z_t,A_t,M_z)$ 预测 EMA future latent，计算 FDM loss。</AlgorithmStep>
+  <AlgorithmStep>最小化 $\lambda_{\mathrm{IDM}}\mathcal L_{\mathrm{IDM}}+\lambda_{\mathrm{FDM}}\mathcal L_{\mathrm{FDM}}$，并以 EMA 更新 target encoder。</AlgorithmStep>
+  <AlgorithmStep>移除真实 future-latent 条件，最小化 $\mathcal L_{\mathrm{FM}}$，得到 Stage 2 策略。</AlgorithmStep>
+</Algorithm>
+
+**【Code】** 默认 Stage 1 训练 3 epochs，EMA momentum 为 0.999，global batch size 为 128（8 GPU × 每卡 16）；Stage 2 训练 40 epochs。两阶段均采用 AdamW、cosine schedule、action model LR $10^{-4}$、vision encoder LR $10^{-5}$，并把 bias/norm 参数排除在 weight decay 之外。训练入口分别是 `slim/training/stage1.py`、`slim/training/stage2.py`。
+
+### 4.5 Inference
+
+**【Paper】** 部署只需当前多视角观测、proprioception 和语言。future slots 是学习到的常量 token，不需要相机看到未来，也不生成未来帧。
+
+<Algorithm number={2} title='SLIM 在线动作采样' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前 $(o_t,q_t,y)$，训练后的策略 $v_\theta$，future slots $M_z$。</div>
+  <div slot='output'>连续动作 chunk $A_t$，按控制器的执行步长送往机器人。</div>
+  <AlgorithmStep>
+    用 DINOv2、T5 编码 $o_t,y$；将 $Z_t,q_t,M_z$ 作为固定 observation context。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    从高斯噪声初始化 action chunk，并在多个 $\tau$ 上调用 $v_\theta$ 估计 velocity。
+  </AlgorithmStep>
+  <AlgorithmStep>数值积分更新 action chunk；返回反归一化后的连续动作。</AlgorithmStep>
+</Algorithm>
+
+**【Code】** `SLIMModel.predict_action()` 仅编码当前 `image`、`state` 和语言，然后调用 `action_model.predict_action()`；默认配置为 4 个 inference steps。`SLIMBlock.forward_action_only()` 复用 context K/V，避免每个采样步重算状态与语言分支。
+
+### 4.6 代码实现对照
+
+| 论文概念                    | 官方实现                               | 可核对的行为                                                                                        |
+| --------------------------- | -------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| DINOv2 online / EMA encoder | `slim/model/slim_model.py`             | online encoder 可反传；EMA encoder 不接收梯度，Stage 1 后每个优化步更新                             |
+| MoT 双流及语言注入          | `slim/model/slim_transformer.py`       | state/action 各自 QKV、FFN、cross-attention，共享 joint attention                                   |
+| 两阶段数据差异              | `slim/training/stage1.py`、`stage2.py` | Stage 1 的 DataLoader 要求 `future_image`；Stage 2 显式 `include_future_image=False`                |
+| 连续动作与归一化            | `slim/data/dataset.py`、LIBERO 配置    | 7D action、$H=8$，默认分位数 `q01_q99` 归一化                                                       |
+| 可复现实验检查点            | `README.md`                            | 发布了 LIBERO epoch 40 与 CALVIN epoch 15 checkpoint，并要求保留 `config.yaml`、`action_stats.json` |
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![SLIM 的真实世界、LIBERO/LIBERO-Plus 与 CALVIN ABC→D 评测设置（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-slim/experiment-settings.6po8yymyq4.webp)
+
+**【Paper】** LIBERO 包含 Long、Spatial、Object、Goal 四个 suite；LIBERO-Plus 在其上加入相机、初始机器人状态、语言、光照、背景、噪声、布局七类扰动，SLIM 只以原始 LIBERO 数据训练并零样本测试。CALVIN 在 A/B/C 训练环境中训练、在未见的 D 环境中进行最多五条指令的长程组合评测。
+
+**【Paper】** 真实世界为五种任务：胡萝卜入碗、叠三盘、把吐司从烤面包机取出放盘、叠积木、擦白板。每项 150 条示教，共 750 条，多任务混合训练；每个任务—条件组合测试 10 次，并考察 nominal、distractor、lighting、background 四种条件。
+
+### 5.2 Main Results
+
+**【Paper】** 主要数字应按评测协议解读：LIBERO 是成功率，LIBERO-Plus 是对同一 checkpoint 的零样本鲁棒性成功率，而 CALVIN 主指标是平均连续成功指令数，不能与前两者直接相减比较。
+
+| Benchmark / 指标              |               SLIM |                                               论文列出的强对照 |
+| ----------------------------- | -----------------: | -------------------------------------------------------------: |
+| LIBERO overall success        |              97.5% |                              Fast-WAM 97.6%，OpenVLA-OFT 97.1% |
+| LIBERO-Plus zero-shot overall |             77.45% |                              VLA-JEPA 79.5%，OpenVLA-OFT 69.6% |
+| CALVIN ABC→D Avg. Length      |          4.556 / 5 |                                   FLOWER 4.53，UnifiedVLA 4.41 |
+| 真实世界平均 progress         |               67.8 |                                $\pi_{0.5}$ 56.8，Fast-WAM 40.0 |
+| H100 latency / VRAM           | 60.6 ms / 4.26 GiB | $\pi_{0.5}$ 193.1 ms / 7.94 GiB；Fast-WAM 360.6 ms / 13.63 GiB |
+
+**【Analysis】** SLIM 在 LIBERO-Plus 并非所有扰动均最好：例如 robot initial-state shift 为 36.90%，低于表中 VLA-JEPA 的 67.7%。更准确的结论是其整体鲁棒性强且计算效率突出，而不是在每种 OOD 偏移上全面领先。
+
+![真实世界各条件下的平均 progress score（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-slim/realworld-bars.7lkqeewndo.webp)
+
+### 5.3 Ablation Study
+
+![Stage 1、IDM:FDM 权重和 EMA target 的消融（论文 Figure 7）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-slim/ablation.73uoptv9rr.webp)
+
+**【Paper】** 加上 Stage 1 后，LIBERO-Plus 从约 68.2% 升至 77.45%，CALVIN 从约 4.43 升至约 4.52；IDM:FDM = 0.125:1 给出最好的联合结果，极端权重更差。
+
+**【Paper】** EMA target 是必要的稳定器：没有 EMA 时，LIBERO-Plus 从 77.45% 降至 66.82%，CALVIN 从 4.556 降至 4.382。表征有效秩从 61.28 降至 13.95，而 token cosine similarity 从 0.071 升到 0.352；虽然 future-latent MSE 反而更低（0.245→0.166），论文将其解释为低秩坍塌下更容易拟合的退化 target。
+
+### 5.4 Generalization
+
+**【Paper】** 泛化证据有三层：LIBERO-Plus 的七类零样本扰动、CALVIN 的未见环境 D 及长程指令组合、真实环境中背景/光照/干扰物变化。它们说明预测 latent 的收益没有仅停留在原始 LIBERO 分布内。
+
+**【Analysis】** 这些证据仍集中于桌面操作和单一模型尺度；它们支持“latent interaction 对这些分布有用”，但尚不足以证明跨机器人形态、开放词汇指令或大规模跨具身数据下仍有相同的 scaling 优势。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** SLIM 将“动作是否合理”转写成两个可学习问题：它是否解释当前到未来的变化（IDM），以及该变化是否能由状态和动作预测（FDM）。这比只从 $o_t$ 做行为克隆提供更密集的结构约束，又不像像素预测那样要求模型分配容量给纹理重建。
+
+**【Analysis】** EMA target 防止 encoder 与 predictor 共同快速漂移到常量或低秩表示；消融中的有效秩和性能同时下降，是这个机制必要性的直接支持。
+
+### 6.2 核心创新
+
+**【Paper】** 创新不是“使用 flow matching”本身，也不是单独使用 future latent，而是将 inverse/forward masked prediction 放入部署时同一 MoT，并让 Stage 2 用 future slots 替代真实未来 latent。由此，训练时显式注入 dynamics，推理时仍保持当前观测到动作的短路径。
+
+### 6.3 与已有方法的本质区别
+
+| 路线         | 主要表征 / 推理负担                                 | SLIM 的差异                                                         |
+| ------------ | --------------------------------------------------- | ------------------------------------------------------------------- |
+| 大型 VLA     | 大 VLM 主导每步控制                                 | 将主干换成紧凑 observation-action interaction，语言为条件而非主序列 |
+| 像素级 WAM   | 预测 future frame/video，可能 test-time imagination | 仅训练期预测 latent；部署不生成未来视觉                             |
+| JEPA 式预测  | embedding prediction                                | 加入 action reconstruction，使 future latent 对动作因果地可辨识     |
+| 分离 IDM/FDM | 两个模块或表征空间                                  | 两个目标共享同一个 MoT policy backbone                              |
+
+### 6.4 关键假设
+
+**【Analysis】** 方法假设 DINOv2 latent 中已含有足够的可控视觉因素，且“$H$ 步后的 latent”是一个合适的预测粒度。若关键接触状态难以从 RGB latent 识别，或动作后果高度随机，FDM 目标可能不再是好的控制表征监督。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 实验只覆盖一个紧凑模型规模，尚未建立该范式如何随模型容量、预训练数据规模和 embodiment diversity 扩展。作者将跨具身轨迹上的 scaling 视为后续方向。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+1. FDM 只预测固定 horizon 的 latent，无法显式提供长期规划所需的多步分支或不确定性；长程能力主要仍依赖闭环反复执行。
+2. 论文将低延迟与小显存放在单张 H100、PyTorch eager、各模型原生 horizon/sampling schedule 下比较，适合展示部署开销，但不等价于严格统一计算预算的基准。
+3. 使用 DINOv2 与 T5-small 仍带有外部预训练先验；“无 additional embodied pretraining”不应被误读为“从头学视觉与语言”。
+4. Stage 1 需要同一轨迹的 future observation；这在离线示教数据中自然成立，但并不能直接解决在线环境下的因果探索与数据覆盖问题。
+
+## 8. 启发与研究思考
+
+**【Analysis】** SLIM 说明 world-model 思想不必等同于“在推理时生成世界”。对控制而言，更关键的是将动作后果写入 policy 的内部表征。一个值得继续验证的方向是：将 FDM target 从单一未来时刻扩展为多尺度、带不确定性的 predictive slots，再用规划或 value learning 选择 action chunk。
+
+**【Analysis】** 另一个研究问题是动作可辨识性：如果多个动作导致视觉上相似的未来，IDM 会遭遇天然多模态。可在 future latent 外引入力觉、末端位姿或接触事件，并让模型显式预测分布而非点目标；这可能比一味放大 VLM 更直接改善精细操作。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。
+</Aside>
