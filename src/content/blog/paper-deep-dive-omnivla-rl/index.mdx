@@ -1,0 +1,299 @@
+---
+title: 'OmniVLA-RL 论文精读：空间理解与在线强化学习统一的 VLA'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 OmniVLA-RL：用 MoT 三专家与 Block-wise Causal Attention 融合空间、语义和动作，并以 Flow-GSPO 稳定优化 Flow Matching 策略。'
+heroImage:
+  { src: 'https://pic.hana0721.top/99749488_p0_master1200.83an1pr7.webp', color: '#7A8791' }
+category: 'research'
+pixivLink: '99749488'
+tags:
+  - 'paper deep dive'
+  - 'VLA'
+  - 'spatial intelligence'
+  - 'reinforcement learning'
+paper:
+  arxivId: '2604.17706'
+  title: 'OmniVLA-RL: A Vision-Language-Action Model with Spatial Understanding and Online RL'
+  authors:
+    - 'Haoxiang Jie'
+    - 'Yaoyuan Yan'
+    - 'Xiangyu Wei'
+    - 'Kailin Wang'
+    - 'Hongjie Yan'
+    - 'Zhiyou Heng'
+    - 'Daocheng Chen'
+  venue: 'arXiv'
+  year: 2026
+  code: ''
+  project: ''
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2604.17706'
+  tldr='OmniVLA-RL 用 MoT 三专家把语义、3D 空间和动作放进同一 Transformer，再用带随机流匹配的 GSPO 做 action-block 级在线 RL。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**【Paper】**《OmniVLA-RL: A Vision-Language-Action Model with Spatial Understanding and Online RL》针对 VLA 的两个瓶颈：VLM 的 3D 空间精度不足，以及把连续动作接入在线 RL 时训练不稳定。作者提出两个相互配套的组件：
+
+1. **OmniVLA**：基于 Mixture-of-Transformers（MoT）的 Reasoning、Spatial、Action 三专家架构。三者共享 Transformer 层，允许语言、视觉语义、3D 几何和动作表征在大模型内部双向交互。
+2. **Flow-GSPO**：把原本确定性的 Flow Matching ODE 改写成带噪声的 SDE，再用 Group Segmented Policy Optimization（GSPO）按完整 action block 计算似然比和优势，避免 token 级更新的偏差与崩溃。
+
+**【Paper】** 在 LIBERO 上报告平均 97.6% 成功率，在 LIBERO-Plus 上 Flow-GSPO 达到 80.3%，高于 PPO 的 78.7% 和 GRPO 的 65.7%。这些结果来自论文表格与曲线；论文没有提供公开代码仓库链接。
+
+**论文链接**：[arXiv:2604.17706](https://arxiv.org/abs/2604.17706)
+
+![OmniVLA-RL overall architecture from paper Figure 1](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-omnivla-rl/figure_01.67y7a6ybjb.webp)
+
+### 一句话总结
+
+**【Analysis】** OmniVLA-RL 的关键取舍是：先让空间表征进入 VLM 的核心层，再把一个 action chunk 看作 RL 的最小决策单元；前者解决“看得不准”，后者解决“学得不稳”。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 用 MoT 统一 Reasoning Expert、Spatial Expert 和 Action Expert，突破仅在视觉编码器（early fusion）或动作头（late fusion）注入空间信息的做法。
+2. 提出 **Block-wise Causal Attention**：空间与语义 token 构成彼此全可见的 prefix，action suffix 只能访问 prefix 和过去的 action block。
+3. 提出 **Flow-GSPO**：通过 Fokker–Planck 将 Flow Matching 的 ODE 变成 SDE，并以 action-block 级 GSPO 做稳定探索。
+4. 在 LIBERO 与 LIBERO-Plus 上验证架构和在线 RL 的收益。
+
+## 2. 背景与相关工作
+
+**【Paper】** 传统 VLA 通常以预训练 VLM 为骨干，再接一个轻量 Action Head。语言和场景语义很强，但从单目或多视角 RGB 恢复物体位置、尺寸、朝向等 3D 信息并不可靠；抓取、避障和插入任务却恰恰依赖这些细节。
+
+空间信息的注入大致分为两类：Evo-0、SpatialVLA 等在 VLM 之前融合空间特征（early fusion）；FALCON 等在 VLM 之后与 action token 交叉注意（late fusion）。**【Analysis】** 两者都把核心大模型当成黑盒，导致语言、语义视觉和几何特征无法在同一组 Transformer 层中充分对齐。
+
+另一方面，PPO 需要额外的 value model，GRPO 虽然省去 value model，却按 token 计算重要性比。对连续机器人轨迹而言，一个 token 的高概率并不代表整段 action chunk 合理，单 token 更新还可能破坏动作的时间连续性。Flow Matching 生成动作时又通常沿确定性 ODE 去噪，缺少在线 RL 所需的随机探索。
+
+## 3. 问题定义
+
+**【Paper】** 机器人任务被建模为 MDP：
+
+$$
+M=(\mathcal S,\mathcal A,\mathcal P,\mathcal R,\rho_0)
+$$
+
+- **Observation**：多视角 RGB 图像 $I_t$、语言指令 $L$ 与本体状态 $s_{\mathrm{prop}}$。
+- **Action**：长度为 $H$ 的连续 action block $A_t=[a_{t,0},\ldots,a_{t,H-1}]$。
+- **Policy**：$a_t\sim\pi_\theta(\cdot\mid s_t)$，其中 $s_t$ 包含视觉、语言和本体信息。
+- **Embodiment / Dataset**：实验在 LIBERO 与 LIBERO-Plus 仿真基准上进行；动作预训练使用 DROID，空间预训练使用大规模 3D 数据集。
+
+论文给出的在线 RL 配置是 $H=16$、每个 action block 使用 $K=10$ 个去噪步，组大小 $G=8$。论文未明确说明真实机器人部署结果。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+**【Paper】** Reasoning Expert 用 SigLIP 和预训练 VLM 编码多视角图像、语言；Spatial Expert 用 VGGT 提取细粒度 3D 特征；Action Expert 将融合后的表示映射为 action trajectory。三者共享 MoT Transformer，并由 Block-wise Causal Attention 控制信息可见性。
+
+数据流可以概括为：多视角 RGB + 指令 → 语义/空间 token 融合 → 条件 Flow Matching → 长度为 $H$ 的动作块。
+
+### 4.2 核心模块
+
+#### Reasoning Expert
+
+**【Paper】** 输入是多视角观测 $\mathcal O=\{O_i\}_{i=1}^M$ 和语言 token $z_{lang}$。SigLIP 产生语义视觉 token $z_{sem}\in\mathbb R^{n\times d}$，再与语言 token 一起送入 decoder-only Transformer，建模 $p(z_{lang}\mid z_{sem})$。输出是可供空间和动作分支使用的全局语义上下文。
+
+#### Spatial Expert
+
+**【Paper】** VGGT 从多视角图像提取空间特征 $z_{spatial}$，并在共享 Transformer 内与语义 token 做 attention。训练时在最终 hidden state $h_i\in\mathbb R^{C\times d}$ 上接轻量 Transformer Spatial Decoder，重建 point cloud、camera 参数和 surface normal。这个 auxiliary head 只负责几何监督，推理时不参与动作生成。
+
+#### Action Expert
+
+**【Paper】** 动作序列先经线性 projector 映射到 Transformer latent space，再由 Conditional Flow Matching（CFM）建模：
+
+$$
+a_t\sim p(a\mid z_{spatial},z_{sem},z_{lang})
+$$
+
+输出是可执行的连续 action chunk，而不是相互独立的单步动作。**【Analysis】** action chunking 让模型直接学习一段轨迹的内部相关性，也让 RL 的信用分配单位与控制语义更一致。
+
+#### Block-wise Causal Attention
+
+**【Paper】** Spatial 与 Reasoning token 组成 omni-visible prefix，彼此完全可见；action token 构成 causal suffix，每个 action block 可以看完整 prefix 和自己之前的 action token，但不能看未来 action token。prefix 被禁止访问后续 latent noise，避免 Flow Matching 的随机噪声污染场景理解。
+
+![Block-wise Causal Attention mask from paper Figure 2](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-omnivla-rl/attention_map.6wrgu7luip.webp)
+
+### 4.3 关键公式
+
+#### 从 Flow Matching ODE 到随机 SDE
+
+**【Paper】** 原始 Flow Matching 沿速度场 $v_\theta$ 积分：
+
+$$
+\frac{\mathrm d A_t^\tau}{\mathrm d\tau}=v_\theta(A_t^\tau,s_t)
+$$
+
+为引入探索，作者构造 SDE：
+
+$$
+\mathrm dA_t^\tau=\left[v_\theta+\frac{\sigma_\tau^2}{2}\left(A_t^\tau+(1-\tau)v_\theta\right)\right]\mathrm d\tau+\sigma_\tau\mathrm dw_\tau
+$$
+
+$\tau$ 是去噪时间，$\sigma_\tau$ 是噪声日程，$w_\tau$ 是 Wiener 过程。Euler–Maruyama 离散化后：
+
+$$
+A_t^{\tau+\delta}=A_t^\tau+\left[v_\theta+\frac{\sigma_\tau^2}{2}(A_t^\tau+(1-\tau)v_\theta)\right]\delta+\sigma_\tau\sqrt\delta\,\epsilon
+$$
+
+因此转移概率是 $p(A_t^{\tau+\delta}\mid A_t^\tau,s_t)=\mathcal N(\mu_\tau,\Sigma_\tau)$，其中 $\Sigma_\tau=\sigma_\tau^2\delta I$。这一步把每个去噪步变成可计算 log-likelihood 的高斯转移。
+
+#### Action-block 级重要性比
+
+**【Paper】** 一个 action block 的策略概率是所有 $K$ 个高斯转移的乘积：
+
+$$
+\pi_\theta(A_{t,i}\mid s_t)=\prod_{\tau=0}^{K-1}p_\theta(A_{t,i}^{\tau+\delta}\mid A_{t,i}^\tau,s_t)
+$$
+
+为避免长序列造成数值尺度随长度增长，定义归一化重要性比：
+
+$$
+s_{i,t}(\theta)=\exp\left(\frac{1}{|A_{i,t}|}\sum_{\tau=0}^{K-1}\log\frac{p_\theta(A_{t,i}^{\tau+\delta}\mid A_{t,i}^\tau,s_t)}{p_{\theta_{old}}(A_{t,i}^{\tau+\delta}\mid A_{t,i}^\tau,s_t)}\right)
+$$
+
+其中 $|A_{i,t}|=H\times K$。同一状态采样 $G$ 个 action block，以任务回报归一化得到优势 $\hat A_{i,t}$，再使用 clipped GSPO 目标并减去 action-block 级 KL 惩罚：
+
+$$
+\mathcal J_{Flow\text{-}GSPO}=\mathbb E\left[\frac1G\sum_i\min(s_{i,t}\hat A_{i,t},\operatorname{clip}(s_{i,t},1-\varepsilon,1+\varepsilon)\hat A_{i,t})-\beta D_{KL}(\pi_\theta\Vert\pi_{old})\right]
+$$
+
+### 4.4 Training
+
+**【Paper】** 训练采用三阶段渐进式流程：
+
+1. **Stage I：空间预训练**。初始化 PaLiGemma；冻结 Action Expert，联合训练 Reasoning 与 Spatial Expert。损失为 point cloud、camera、normal 三项重建损失之和。
+2. **Stage II：动作预训练**。解冻 Action Expert，关闭 Spatial Head，在 DROID 上用 CFM loss 学习动作生成：$\mathcal L_{CFM}=\mathbb E\|v_t(x_t,t;c)-(x_1-x_0)\|_2^2$。
+3. **Stage III：在线 RL**。从 Stage II checkpoint 出发，全模型解冻；每个状态采样 $G=8$ 个 action block，执行后用任务完成奖励与 gripper 对齐奖励更新 Flow-GSPO。
+
+![Three-stage training paradigm from paper Figure 3](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-omnivla-rl/train_stage_omni.1ow677suql.webp)
+
+论文报告的关键超参数为 $\varepsilon=0.2$、$\beta=0.01$、$\sigma_\tau=0.1(1-\tau)$、$K=10$、$H=16$；优化器是 AdamW，学习率 $10^{-5}$、weight decay $0.01$，进行 200 次 RL update，每 10 步刷新 rollout buffer。
+
+<Algorithm number={1} title='Flow-GSPO Training' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>预训练策略、环境、组大小 $G$、去噪步数 $K$</div>
+  <div slot='output'>在线 RL 更新后的策略 $\pi_\theta$</div>
+  <AlgorithmStep keyword='for'>从当前策略旧版本为每个状态采样 $G$ 个 action block</AlgorithmStep>
+  <AlgorithmStep indent={1}>用 Euler–Maruyama SDE 完成 $K$ 步随机去噪并执行动作块</AlgorithmStep>
+  <AlgorithmStep indent={1}>收集任务完成与 gripper 对齐奖励，按组归一化为 $\hat A_{i,t}$</AlgorithmStep>
+  <AlgorithmStep indent={1}>计算 action-block 级 log-likelihood ratio、clipping 与 KL 惩罚</AlgorithmStep>
+  <AlgorithmStep indent={1}>用 AdamW 最大化 Flow-GSPO 目标，更新全部模型参数</AlgorithmStep>
+  <AlgorithmStep keyword='end for' />
+  <AlgorithmStep keyword='return'>更新后的 OmniVLA-RL policy</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 推理时给定当前多视角观测和语言指令，从高斯噪声初始化 action block，沿 Flow Matching 轨迹迭代 $K$ 步，得到长度 $H$ 的连续动作并交给机器人控制器执行。与 RL 训练不同，推理阶段不需要计算优势或反向传播；论文未明确说明是否沿用 RL 阶段的噪声强度。
+
+<Algorithm number={2} title='OmniVLA-RL Inference' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>多视角 RGB、本体状态、语言指令、策略 $\pi_\theta$</div>
+  <div slot='output'>可执行 action block $A_t$</div>
+  <AlgorithmStep>Reasoning Expert 编码语义视觉与语言 token</AlgorithmStep>
+  <AlgorithmStep>Spatial Expert 编码多视角 3D 特征，并与 prefix token 交互</AlgorithmStep>
+  <AlgorithmStep>
+    以高斯噪声初始化 action block，按 causal suffix 逐步进行 $K$ 次 Flow Matching 去噪
+  </AlgorithmStep>
+  <AlgorithmStep>输出长度 $H$ 的动作序列并执行，获得下一时刻观测</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** 截至本文写作，arXiv 论文、源文件 `00README.json` 与论文正文均未给出官方 GitHub、配置文件或可运行代码链接，因此无法核对模型类、DataLoader、loss 实现和 checkpoint 命名。上文“代码”层面的结论只能写为：**没有可分析的官方代码**；方法细节均来自论文。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+**【Paper】** LIBERO 包含 Spatial、Object、Goal、Long 四个任务套件；LIBERO-Plus 增加组合式长时序任务，对多阶段操作、遮挡和精确定位提出更高要求。论文将 Flow-GSPO 与 PPO、GRPO 比较，并在 LIBERO 上与 Diffusion Policy、Octo、OpenVLA、SpatialVLA、CoT-VLA、$\pi_0$、$\pi_{0.5}$ 和 $F_1$ 比较。
+
+### 5.2 Main Results
+
+**【Paper】** OmniVLA-RL 在 LIBERO 四个套件都排名第一：Spatial 99.2%、Object 99.2%、Goal 98.5%、Long 93.5%，平均 97.6%。相对 $\pi_0$ 的平均成功率 94.2%，绝对提升 3.4 个百分点；相对 OpenVLA 的 76.5%，提升 21.1 个百分点。Long 套件的 93.5% 说明 action block 和空间特征对误差累积敏感的长时序任务尤其重要。
+
+![LIBERO-Plus success-rate curves from paper Figure 4](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-omnivla-rl/libero_plus_final_vector.3d5j4ej4tb.webp)
+
+### 5.3 Ablation Study
+
+**【Paper】** LIBERO-Plus 消融结果如下：
+
+| 配置                   |    成功率 | 相对 SFT-only |
+| ---------------------- | --------: | ------------: |
+| OmniVLA-RL（SFT only） |     41.2% |             — |
+| + PPO                  |     78.7% |         +37.5 |
+| + GRPO                 |     65.7% |         +24.5 |
+| + **Flow-GSPO**        | **80.3%** |     **+39.1** |
+| 去掉 Spatial Expert    |     32.9% |          −8.3 |
+
+Flow-GSPO 比 PPO 高 1.6 个百分点、比 GRPO 高 14.6 个百分点；去掉 Spatial Expert 后下降 8.3 个百分点，是架构消融中最大的损失。**【Analysis】** 这同时支持两个判断：action-block 级 RL 更适合连续轨迹，而几何特征不是可有可无的附加输入。
+
+### 5.4 Generalization
+
+**【Paper】** 论文展示了从标准 LIBERO 到更长、更组合化的 LIBERO-Plus 的迁移，但没有报告真实机器人、未见物体类别或跨 embodiment 实验。因此对开放世界泛化的结论仍有限。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** OmniVLA-RL 的收益来自三层对齐：
+
+1. Spatial Expert 提供局部几何锚点，减少“知道物体是什么但不知道在哪里”的歧义。
+2. Block-wise mask 让空间/语义理解不被 action noise 反向污染，同时保留 action 对完整 prefix 的访问。
+3. Flow-GSPO 把整段动作的概率和回报绑定，降低单 token 高方差梯度，并用 KL 抑制策略跳变。
+
+### 6.2 核心创新
+
+**【Analysis】** 真正的创新不是简单堆叠 VGGT、VLM 和 Flow Matching，而是改变它们的耦合位置：几何表征进入共享 Transformer；随机性进入生成过程的转移概率；RL 的优化单位则与 action chunk 对齐。
+
+### 6.3 与已有方法的本质区别
+
+| 维度         | 常见 VLA / GRPO         | OmniVLA-RL                          |
+| ------------ | ----------------------- | ----------------------------------- |
+| 空间融合位置 | 编码器前或动作头后      | 共享 Transformer 内部               |
+| 注意力结构   | 单一 causal mask        | omni-visible prefix + causal suffix |
+| 生成过程     | 确定性 FM 或 token 采样 | SDE 随机 Flow Matching              |
+| RL 单位      | token / 单步            | action block                        |
+| 稳定性约束   | PPO clip 或 token KL    | block-level ratio + block-level KL  |
+
+### 6.4 关键假设
+
+**【Paper】** 方法隐含假设包括：多视角观测足以由 VGGT 提供稳定几何特征，DROID 的动作分布能迁移到 LIBERO，且每个 action block 的累计奖励能够代表其内部动作质量。
+
+**【Analysis】** 最后一个假设尤其关键：若奖励只在 block 末端稀疏出现，block 内部的信用分配仍可能粗糙；论文没有给出更细粒度 reward shaping 的消融。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 作者承认当前验证主要在高保真仿真中完成，sim-to-real gap 尚未充分研究；同时模型没有专门的 world model 来做结构化长时序规划。未来工作包括真实机器人部署、加入生成式 world model，以及处理更开放的多模态操作任务。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+- 论文没有公开代码、训练日志或算力细节，结果难以复现和审计。
+- LIBERO 的 97.6% 与 LIBERO-Plus 的 80.3% 来自单一仿真设置，尚不能证明跨相机、跨机器人或真实接触动力学的稳健性。
+- 三专家共享大部分 Transformer 层可能带来显存和训练耦合成本；论文没有报告与独立 backbone 的参数量、吞吐和延迟对比。
+- SDE 噪声日程、$G$、$K$、$H$ 对探索和控制平滑度的敏感性没有系统网格实验。
+
+## 8. 启发与研究思考
+
+**【Analysis】** 这篇工作给后续 VLA-RL 三点启发：
+
+1. **把表示对齐和策略优化放在同一粒度上。** 如果控制器执行的是 action chunk，训练目标也应优先描述 chunk 的概率与回报。
+2. **随机生成模型可以直接提供 RL 的 transition likelihood。** Flow Matching 不必被当作只能做监督学习的动作头，加入可控噪声后即可接入 policy-gradient 框架。
+3. **空间理解应进入 backbone，而不是只做外挂特征。** 更进一步的方向是让空间 token、语言计划和动作 chunk 共享可解释的中间状态，并由 world model 预测长时序后果。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文的分析推断。本文核对了 arXiv v2 源码；论文未提供可供分析的官方代码仓库。
+</Aside>
