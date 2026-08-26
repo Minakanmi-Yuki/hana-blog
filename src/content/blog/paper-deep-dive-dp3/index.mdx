@@ -1,0 +1,247 @@
+---
+title: '3D Diffusion Policy（DP3）论文精读：用稀疏点云提升少样本视觉运动泛化'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 RSS 2024 的 3D Diffusion Policy：从单目深度构建稀疏点云，用轻量 DP3 Encoder 条件化 Diffusion Policy，在 72 个仿真任务和 4 个真实任务中实现高效、可泛化的模仿学习。'
+heroImage:
+  { src: 'https://pic.hana0721.top/139369087_p0_master1200.9gx5x7w6ei.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '139369087'
+tags:
+  - 'paper deep dive'
+  - '3D representation'
+  - 'Diffusion Policy'
+  - 'visuomotor policy'
+  - 'imitation learning'
+paper:
+  arxivId: '2403.03954'
+  title: '3D Diffusion Policy: Generalizable Visuomotor Policy Learning via Simple 3D Representations'
+  authors:
+    - 'Yanjie Ze'
+    - 'Gu Zhang'
+    - 'Kangning Zhang'
+    - 'Chenyuan Hu'
+    - 'Muhan Wang'
+    - 'Huazhe Xu'
+  venue: 'Robotics: Science and Systems (RSS) 2024'
+  year: 2024
+  code: 'https://github.com/YanjieZe/3D-Diffusion-Policy'
+  project: 'https://3d-diffusion-policy.github.io/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2403.03954'
+  tldr='DP3 将单目深度转成裁剪、FPS 下采样的稀疏点云，用 64 维轻量 PointNet 编码器作为 Diffusion Policy 的条件，在少量示教下获得更强的 3D 空间与外观泛化。'
+  rank={5}
+/>
+
+## 1. 论文概述
+
+### 一句话总结
+
+**【Paper】** 3D Diffusion Policy（DP3）不再把视觉输入当作二维纹理，而是从单个深度相机恢复稀疏 3D 点云，再用很小的 PointNet 风格编码器提取 64 维几何特征，条件化动作扩散模型。论文的关键判断是：在机器人控制中，正确的 3D 几何归纳偏置比更大的视觉 backbone 更重要。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出把稀疏点云与 Diffusion Policy 结合的 DP3，统一覆盖高维灵巧手和低维平行夹爪控制。
+2. 设计仅含三层 MLP、max-pooling、projection head 和 LayerNorm 的 DP3 Encoder，输出 64 维紧凑表示。
+3. 只用单视角深度、bounding-box crop 与 farthest point sampling（FPS），在 72 个仿真任务上平均成功率 74.4%，比图像 Diffusion Policy 相对提升 24.2%。
+4. 在 4 个真实任务中每个任务仅用 40 条示教，平均成功率达到 85%，并在空间、视角、外观和实例变化下保持泛化。
+5. 真实部署中 DP3 的安全违规率为 0%，而图像和深度 baseline 分别为 32.5% 和 25.0%；作者同时强调这一安全观察主要是定性评估。
+
+![DP3 teaser from paper](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dp3/teaser.8s41n2v1d9.webp)
+
+## 2. 背景与相关工作
+
+**【Paper】** 视觉模仿学习通常从 RGB 图像回归动作，但少样本机器人控制有两个冲突：RGB 保留了丰富外观，却让模型容易记住训练视角和颜色；深度包含几何，却常以二维图像或体素形式输入，空间关系仍需网络自行推断。已有 Diffusion Policy 能表达多模态、时间相关的连续动作分布，但其视觉条件仍主要来自图像编码器。
+
+**【Analysis】** DP3 的问题切入点并不是提出新的 diffusion sampler，而是改变 condition 的坐标系：让网络直接看到与动作执行相同的 3D 空间。这样，训练分布外的目标位置或轻微视角变化更像点云中的平移/局部几何变化，而不是完全不同的像素模式。
+
+## 3. 问题定义
+
+**【Paper】** 给定少量专家轨迹，学习视觉运动策略 $\pi: \mathcal{O}\mapsto\mathcal{A}$。每个时间步的观测包含单视角深度生成的点云 $P_t$ 与机器人位姿/关节状态 $q_t$，策略输出未来 $H$ 步连续动作序列 $A_t=(a_t,\ldots,a_{t+H-1})$，只执行其中前 $N_{act}$ 步后重新规划。
+
+- **Observation**：$84\times84$ 深度图经相机内外参转为点云；裁剪工作空间后 FPS 到 512 或 1024 点。默认不使用 RGB 颜色。
+- **Action representation**：仿真任务沿用各环境连续控制；真实任务使用 Franka 末端相对位置控制与 Allegro 手指相对关节角控制，动作维度为 22。
+- **Embodiment**：Adroit、Bi-DexHands、DexArt、DexDeform、DexMV、HORA、MetaWorld，以及 Allegro hand 和 Franka gripper。
+- **Objective**：学习条件分布 $p(A_t\mid P_{t-To+1:t},q_{t-To+1:t})$，而非单峰的动作均值。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![DP3 architecture from paper](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dp3/architecture.41ysoo3d87.webp)
+
+**【Paper】** 数据流是“深度图 → 相机坐标系点云 → crop/FPS → DP3 Encoder → 3D feature，与 robot state 拼接 → Conditional U-Net Diffusion Policy → 动作序列”。训练和推理的逐步过程分别见 4.4 与 4.5。
+
+### 4.2 核心模块
+
+#### 稀疏点云预处理
+
+- **输入**：单帧深度和相机内外参。
+- **中间步骤**：去除桌面、地面等冗余点；在固定 bounding box 内保留工作空间；用 FPS 选择 512/1024 个点。
+- **输出**：$P\in\mathbb{R}^{N\times3}$（可选 RGB 时为 6 通道）。
+- **为什么需要**：crop 降低背景干扰，FPS 比均匀采样更稳定地覆盖 3D 空间，也减少 PointNet 的计算量。
+
+#### DP3 Encoder
+
+**【Paper】** 每个点经过三层 MLP，随后用 permutation-invariant max-pooling 聚合所有点，再通过 projection head 得到 64 维几何向量 $v$；LayerNorm 交错在 MLP 中以稳定训练。机器人状态通过独立的小型 MLP 编码后与 $v$ 拼接。
+
+**【Code】** `model/vision/pointnet_extractor.py` 中的 `DP3Encoder` 默认只取 `point_cloud[..., :3]`，`PointNetEncoderXYZ` 输出 64 维，状态 MLP 默认输出 64 维，最终 observation feature 为两者拼接。代码支持把 imagined robot 点云拼到输入中，但默认配置未启用。
+
+#### Conditional Diffusion Policy
+
+**【Paper】** 决策模块从高斯噪声动作序列开始，使用 1D Conditional U-Net 进行反向去噪。视觉特征和最近 `To=2` 步状态作为 global condition；动作序列长度默认 `H=16`，每次执行 `N_act=8` 步。
+
+**【Code】** `policy/dp3.py` 在训练时将归一化动作加入噪声，在随机 diffusion timestep 上预测目标；推理时从 `torch.randn` 初始化轨迹，调用 scheduler 的 10 步 DDIM 反向过程，再反归一化并切出 `[To-1:To-1+N_act]` 的动作窗口。
+
+### 4.3 关键公式
+
+#### 前向加噪与训练目标
+
+$$
+\tilde A^k=\bar\alpha_k A^0+\bar\beta_k\epsilon^k,\qquad
+\mathcal L=\operatorname{MSE}\bigl(A^0,\epsilon_\theta(\tilde A^k,k,v,q)\bigr)
+$$
+
+这里 $A^0$ 是示教动作序列，$\epsilon^k\sim\mathcal N(0,I)$，$k$ 是随机采样的训练时间步，$\bar\alpha_k,\bar\beta_k$ 由 noise schedule 决定。论文和默认配置使用 `prediction_type: sample`，因此网络目标是恢复干净动作样本；若切换为 epsilon prediction，目标才是噪声本身。
+
+#### 反向采样
+
+$$
+A^{k-1}=\alpha_k\left(A^k-\gamma_k\epsilon_\theta(A^k,k,v,q)\right)+\sigma_k z,\quad z\sim\mathcal N(0,I)
+$$
+
+其中 $\alpha_k,\gamma_k,\sigma_k$ 由 DDIM scheduler 给出。DP3 的创新不在这些系数，而在 condition $v$ 的 3D 几何质量。
+
+### 4.4 Training
+
+**【Code】** 官方 `dp3.yaml` 使用 AdamW（learning rate $10^{-4}$，weight decay $10^{-6}$）、batch size 128、cosine schedule、500 步 warm-up、EMA；MetaWorld 训练 1000 epochs，其他仿真和真实任务 3000 epochs。训练 timestep 为 100，默认 DDIM 在推理时取 10 步。
+
+<Algorithm number={1} title='DP3 training' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>专家轨迹中的点云、机器人状态与动作序列</div>
+  <div slot='output'>训练好的 DP3 policy</div>
+  <AlgorithmStep>从深度和相机参数生成点云，裁剪工作空间并用 FPS 下采样。</AlgorithmStep>
+  <AlgorithmStep>归一化动作与状态，编码最近 To 帧点云和状态得到条件特征。</AlgorithmStep>
+  <AlgorithmStep>随机采样 diffusion timestep k，并对动作序列执行前向加噪。</AlgorithmStep>
+  <AlgorithmStep>
+    用 Conditional U-Net 预测 clean sample，计算未被 condition mask 覆盖位置的 MSE。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    反向传播更新 encoder 与 diffusion model，并按 EMA 更新滑动平均权重。
+  </AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 策略采用 receding-horizon：每次根据最新观测生成一段动作，只执行前几步，再重新感知。这样既保留动作序列的时间一致性，也能在执行过程中纠正误差。
+
+<Algorithm number={2} title='DP3 inference' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>最近 To 帧点云与机器人状态</div>
+  <div slot='output'>接下来 N_act 步连续动作</div>
+  <AlgorithmStep>归一化观测并用 DP3 Encoder 得到 3D feature 与 state feature。</AlgorithmStep>
+  <AlgorithmStep>从高斯噪声初始化长度 H 的动作轨迹。</AlgorithmStep>
+  <AlgorithmStep>运行 10 步 DDIM reverse process，逐步得到去噪动作序列。</AlgorithmStep>
+  <AlgorithmStep>反归一化，取从最后一帧观测对应位置开始的 N_act 个动作并执行。</AlgorithmStep>
+  <AlgorithmStep>获取新观测并重复上述过程，直到任务结束。</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** 官方仓库把实现拆为 `policy/dp3.py`、`model/vision/pointnet_extractor.py`、`model/diffusion/conditional_unet1d.py`、`dataset/*_dataset.py` 和 `config/{dp3,simple_dp3}.yaml`。数据集返回形状为 `obs: (T, …)`、`action: (T, Da)` 的字典；`compute_loss` 对每个 batch 随机采样 timestep 并屏蔽条件位置。`simple_dp3.yaml` 是简化版本，README 报告其推理速度可达 25 FPS，精度损失不大。
+
+**【Analysis】** 论文强调 512/1024 点足够；README 还建议在自己的任务上尝试更长的 horizon/action horizon，并优先使用 global position action。它们是工程建议，不是论文主实验的固定结论。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![Real robot benchmark from paper](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dp3/real-tasks.13mil5v4tt.webp)
+
+**【Paper】** 仿真覆盖 7 个 domain、72 个任务，包含灵巧手、双手、可变形物体、铰接物体和 MetaWorld 平行夹爪；每个 seed 在训练中每 200 epochs 评估 20 episodes，报告 3 个 seed 的均值和标准差。真实实验使用单个 RealSense L515，4 个任务各 40 条人类 teleoperation 示教：Allegro hand 的 Roll-Up、Dumpling、Drill，以及 gripper 的 Pour。
+
+### 5.2 Main Results
+
+| 设置                                 |      DP3 |          Diffusion Policy |   相对变化 |
+| ------------------------------------ | -------: | ------------------------: | ---------: |
+| 72 个仿真任务平均成功率              | **74.4** |                      59.8 | **+24.2%** |
+| 真实任务平均成功率（10 trials/task） | **85.0** | 35.0（RGB）/20.0（Depth） |   明显提升 |
+
+**【Paper】** 仿真中 DP3 在 Adroit、Bi-DexHands、DexArt、DexMV、HORA 和各难度 MetaWorld 上均优于图像 baseline，仅 DexDeform 与图像 policy 的差距方向相反（87.8 vs 90.5）。DP3 通常约 500 epochs 即收敛，而图像 policy 更慢或停在次优解。
+
+真实任务逐项成功率为 Roll-Up 90%、Dumpling 70%、Drill 80%、Pour 100%。这说明 3D 表示同时适用于高维 Allegro hand 和低维 gripper。
+
+![Learning efficiency from paper](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dp3/learning-efficiency.45iemdwgib.webp)
+
+### 5.3 Ablation Study
+
+**【Paper】** 在 6 个任务上，完整 DP3 平均成功率为 78.3。去掉点云 crop 后降到 45.3；去掉 LayerNorm 为 73.0；使用 epsilon prediction 为 67.0；加入颜色为 72.0；将 DDIM 换成 DPM-solver++ 为 48.3。去掉 projection head 几乎不影响精度（77.7），但会增加计算量。
+
+| 点云表示/编码器                                       |             平均成功率 |
+| ----------------------------------------------------- | ---------------------: |
+| Point cloud + DP3 Encoder                             |               **78.3** |
+| Oracle state                                          |                   76.8 |
+| RGB image                                             |                   40.7 |
+| Depth image                                           |                   32.0 |
+| Voxel                                                 |                   32.3 |
+| PointNet / PointNet++ / PointNeXt / Point Transformer | 15.7 / 2.2 / 2.3 / 1.0 |
+
+**【Analysis】** 结果同时支持两点：深度信息只有在合适的 3D 表示中才真正有用；轻量编码器的归纳偏置比“更大、更通用”的预训练点云模型更适合少样本控制。
+
+![Demonstration scaling from paper](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dp3/demo-scaling.et9157l28.webp)
+
+### 5.4 Generalization
+
+**【Paper】** 真实实验中，DP3 在 Pour 的 5 个未见空间位置成功 4 次；在 Drill 中仅用绿色方块训练，却对 5 种颜色全部成功；把方块替换为 mouse、Espeon、cup、mug、hand 等日常物体时 5/5 成功；Roll-Up 的 3 个轻微相机视角变化也全部成功。相比之下，RGB/Depth baseline 在这些设置中大多失败。
+
+![Different 3D modalities from paper](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dp3/modalities.2dpfrhd3w5.webp)
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** 点云把“目标在图像右上角”转换成“目标位于机器人坐标系中的某个 3D 区域”，动作与观测共享坐标系；FPS 又让稀疏输入覆盖物体轮廓。于是 diffusion model 主要学习几何到动作的映射，而不是记忆颜色、纹理和相机像素布局。紧凑的 64 维 feature 还降低了 condition 维度，使少量示教足以约束动作分布。
+
+### 6.2 核心创新
+
+**【Analysis】** 真正的创新是“表示选择 + 简化工程”的组合：单视角点云、crop/FPS、无颜色输入、轻量 PointNet、sample prediction 和 receding-horizon。每个组件都朴素，但共同减少了 domain nuisance，使 Diffusion Policy 在真实机器人上变得可用。
+
+### 6.3 与已有方法的本质区别
+
+DP3 与图像 Diffusion Policy 的主要差异是 condition modality，而非 diffusion backbone；与 voxel/implicit 3D 方法相比，它不构造稠密空间网格或昂贵的预训练 3D 表征，而是直接在点集上做 permutation-invariant 聚合。与“堆大 encoder”的路线相反，DP3 证明控制任务更需要任务对齐的几何偏置。
+
+### 6.4 关键假设
+
+1. 相机内外参和机器人工作空间可标定，点云能转换到稳定坐标系。
+2. 单个视角能看到完成任务所需的关键几何；严重遮挡时论文没有给出保证。
+3. 任务动作主要由局部几何和机器人状态决定，颜色不是必要信息。
+4. 训练与部署的点云质量相近；README 特别提醒低质量 D435 点云可能导致失败。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 视角泛化实验只覆盖轻微变化，较大的相机位姿变化可能难以处理；安全性结论主要是定性观察，作者没有给出理论解释。论文也未声称 DP3 解决了严重遮挡、多视角融合或任意机器人形态迁移。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】** 固定 bounding box 需要为每个机器人/场景重新标定；裁剪过严会丢失接触前的上下文，过松又会引入背景。点云只保留 XYZ 时，对材质、可见性和语义类别缺少区分；而真实任务的 40 条示教仍依赖昂贵 teleoperation。最后，10 步 DDIM 采样虽已实用，但长 horizon 或高维双臂动作仍可能带来延迟和误差累积。
+
+## 8. 启发与研究思考
+
+1. **先选坐标系，再选 backbone。** 如果观测和动作天然在 3D 空间中，先把表示变换到该空间，往往比换更大的视觉模型更有效。
+2. **少样本控制应优先消除 nuisance。** 去掉颜色不是信息损失，而是主动让策略对外观不敏感；crop/FPS 也是数据质量控制，而非单纯压缩。
+3. **DP3 是很好的 VLA/Policy 基线。** 后续工作可以把语言 embedding、触觉或历史 latent 作为额外 condition，同时保留点云几何通道。
+4. **值得研究的方向**：SE(3)-equivariant 点云 encoder、自适应 crop、多相机遮挡补全、flow matching 加速，以及对安全违规率的可验证约束。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。
+</Aside>
