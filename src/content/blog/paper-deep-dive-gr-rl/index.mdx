@@ -1,0 +1,263 @@
+---
+title: 'GR-RL：面向长时域灵巧精密操作的强化学习专精化'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 ByteDance Seed 的 GR-RL：用分布式 critic 学习任务进度、过滤次优示范，再通过形态对称增强和 latent-space online RL，让 VLA 学会多眼孔鞋带穿线。'
+heroImage:
+  { src: 'https://pic.hana0721.top/134041716_p0_master1200.5q80bz7b6v.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '134041716'
+tags:
+  - 'paper deep dive'
+  - 'GR-RL'
+  - 'vision-language-action model'
+  - 'robot reinforcement learning'
+  - 'dexterous manipulation'
+paper:
+  arxivId: '2512.01801'
+  title: 'GR-RL: Going Dexterous and Precise for Long-Horizon Robotic Manipulation'
+  authors:
+    - 'Yunfei Li'
+    - 'Xiao Ma'
+    - 'Jiafeng Xu'
+    - 'Yu Cui'
+    - 'Zhongren Cui'
+    - 'Zhigang Han'
+    - 'Liqun Huang'
+    - 'Tao Kong'
+    - 'Yuxiao Liu'
+    - 'Hao Niu'
+    - 'Wanli Peng'
+    - 'Jingchao Qiao'
+    - 'Zeyu Ren'
+    - 'Haixin Shi'
+    - 'Zhi Su'
+    - 'Jiawen Tian'
+    - 'Yuyang Xiao'
+    - 'Shenyu Zhang'
+    - 'Liwei Zheng'
+    - 'Hang Li'
+    - 'Yonghui Wu'
+  venue: 'arXiv'
+  year: 2025
+  code: ''
+  project: 'https://seed.bytedance.com/gr_rl'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2512.01801'
+  tldr='GR-RL 把通用 VLA 专精化为长时域灵巧策略：用分布式 Q 值估计任务进度并过滤示范，做左右形态对称增强，再在动作扩散器的 latent noise 空间进行在线 RL，对齐训练与部署行为。'
+  rank={5}
+/>
+
+## 1. 论文概述
+
+### 一句话总结
+
+**【Paper】** GR-RL 从 GR-3 这一通用 VLA 出发，不再假设人类遥操作轨迹都是最优的，而是用 sparse-reward offline RL 学到一个有界的任务进度函数，删除会让进度下降的动作片段；随后利用双臂机器人的左右形态对称扩充数据，最后在 flow-policy 的初始噪声空间做 online RL。最终 ByteMini-v2 在多眼孔鞋带穿线任务上达到 83.3% 成功率。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出三阶段 reinforcement-augmented recipe：filtered behavior cloning、morphological symmetry augmentation、online steering RL。
+2. 证明 sparse reward 下的 distributional critic 可以作为视觉-语言条件的 task progress evaluator，并用于自动数据清洗。
+3. 将探索从末端位姿/关节空间移到 action diffusion 的 latent noise 空间，减小毫米级任务中“加一点噪声就彻底失败”的问题。
+4. 在真实双臂移动操作机器人上完成鞋带穿过多个 eyelet，并展示掉落重抓、错位重试、重定向鞋子等恢复行为。
+
+![GR-RL 鞋带任务与三阶段训练流程（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-gr-rl/gr_rl_main.4joud0b2bb.webp)
+
+## 2. 背景与相关工作
+
+**【Paper】** 现有 VLA 在开放场景泛化方面很强，但在 deformable object 的毫米级控制和长时域错误恢复上仍不可靠。鞋带穿线同时要求双臂协调、柔性物体接触、精确插入和多步规划。经典方法依赖预定义动作 primitive，难以覆盖未见构型；直接对全部人类示范做 behavior cloning（BC）则会把犹豫、误插和失败尝试一起学进去。
+
+论文指出还有第二个隐患：训练时模仿的是固定长度的 raw action chunk，部署时却会做 temporal ensembling、receding-horizon 和 jerk/continuity trajectory optimization。于是模型优化的动作分布与机器人真正执行的动作分布不同。GR-RL 的基本观点是，专精化不仅要清洗数据，还要让策略在部署闭环中继续适应。
+
+**【Analysis】** 这使 GR-RL 更像一个“通用策略编译器”：保留基础 VLA 的语义能力，把任务相关的精度、恢复和控制稳定性交给 RL 阶段逐步塑形。
+
+## 3. 问题定义
+
+**【Paper】** 在时间步 $t$，策略接收语言指令 $l$、三路 RGB 观测 $\mathbf{o}_t$ 和 proprioception 状态 $\mathbf{s}_t$，输出长度为 $k$ 的双臂动作 chunk：
+
+$$
+\mathbf{a}_t = \pi_\theta(l,\mathbf{o}_t,\mathbf{s}_t),\qquad \mathbf{a}_t=a_{t:t+k}.
+$$
+
+训练奖励是 episode 末端的 binary sparse reward：只有鞋带穿入正确 eyelet 并完全放到桌面上时才得到 1。**【Paper】** 机器人是 7-DoF 双臂、带移动底盘的 ByteMini-v2；其肘部峰值扭矩从 17 Nm 提升到 35 Nm，单臂峰值负载从 1.4 kg 提升到 3.15 kg，底盘投影面积缩小到 450 mm × 650 mm。
+
+**Embodied AI checklist**
+
+| 项目 | 论文设定 |
+| --- | --- |
+| Vision / Language | Qwen2.5-VL-3B-Instruct 作为 VLM backbone；仅使用后半层 KV cache 加速推理 |
+| Policy | Flow-matching action DiT 生成动作 chunk |
+| Critic | causal transformer，采用 Q-chunking 与 distributional RL |
+| Action representation | 双臂动作 chunk（论文未给出完整维度表） |
+| Reward | 末端 binary sparse reward |
+| Embodiment | ByteMini-v2，7-DoF 双臂 + 移动底盘 |
+| Deployment | 轨迹优化约束 jerk 和时间连续性 |
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+GR-RL 由 VLA policy $\pi_\theta$ 和 multi-task critic $Q_\phi$ 组成，总参数量约 5B。VLA 读取视觉、语言和机器人状态，flow-matching DiT 输出动作 chunk；critic 对同一条件下的每个动作评估一段 Q 值。训练先用 critic 计算进度并筛选数据，再 BC 和镜像增强，最后冻结大部分 VLA、只在 latent noise 上做在线探索。
+
+![GR-RL 的 Mixture-of-Transformer 架构：VLA、Action Diffusion Transformer 与 Critic（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-gr-rl/model_arch.70b2rxhzol.webp)
+
+### 4.2 核心模块
+
+#### Distributional task-progress evaluator
+
+- **输入**：$(\mathbf{o}_t,l,\mathbf{s}_t,\mathbf{a}_t)$。
+- **输出**：每个动作的有界 categorical Q-value 分布及其均值进度 $\rho_t$。
+- **做什么**：TD3+BC 在成功轨迹和失败轨迹上训练 critic。对成功轨迹中标记的 retry keyframe 截断，可构造 hindsight 失败轨迹，使 critic 同时看到“最终成功”和“在这里失败”。
+- **为什么需要**：人工逐帧标注错误片段主观且昂贵；Q 值的突然下降可以自动定位误插、松手等负贡献动作。
+
+**【Paper】** distributional critic 将值限制在 $[0,1]$，相比无界回归更能抵抗长时域 sparse reward 的过估计。
+
+![成功轨迹上的学习到的任务进度示例（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-gr-rl/progress_main.5q85lm01a1.webp)
+
+#### Filtered behavior cloning
+
+对每个 chunk 计算 $\rho_{t:t+k}$。若序列中的下降超过阈值 $\delta$，就把样本视为 suboptimal 并从 BC 数据集中剔除；剩余高质量 transitions 用来初始化策略。这里的关键不是重新设计 BC loss，而是改变 BC 看到的示范分布。
+
+#### Morphological symmetry augmentation
+
+对图像做水平翻转，并交换左右腕部相机；将状态和动作在 world frame 做镜像变换，再转换回各自 wrist frame；同时把语言中的空间词（如 “left hole”）改成 “right hole”。**【Analysis】** 这是几乎不增加采集成本的等变性先验，尤其适合双臂鞋带这种左右结构近似对称、但动作细节高度敏感的任务。
+
+#### Latent-space online steering
+
+直接在腕部位姿上加噪声几乎无法完成毫米级插入。GR-RL 在共享 VLM backbone 后增加 51.5M 参数的 noise predictor $\pi_{\theta'}$，预测 action DiT 的初始噪声 $\epsilon_t$，让探索沿着原 flow policy 的可行动作流形进行。另训练 noise-space critic $Q_{\phi'}$，避免优化时反向穿过完整 flow model。
+
+### 4.3 关键公式
+
+**Sparse reward（【Paper】）**
+
+$$
+r_t=\begin{cases}
+\gamma^{T-t}\mathbb{I}(\tau), & t>T-k,\\
+0, & t\le T-k.
+\end{cases}
+$$
+
+$T$ 是轨迹长度，$k$ 是动作 chunk 长度，$\mathbb{I}(\tau)$ 表示该 episode 是否成功，$\gamma$ 是折扣因子。奖励只在末端出现，因此 critic 的中间值可以被解释为“从当前状态继续执行的成功概率/进度”。
+
+**Progress（【Paper】）**
+
+$$
+\rho_t=\operatorname{mean}\big(Q_\phi(\mathbf{o}_t,l,\mathbf{s}_t,\mathbf{a}_t)\big).
+$$
+
+均值把 categorical value distribution 压成一个可排序的标量；阈值 $\delta$ 决定哪些下降足以判定动作有害。
+
+**Noise predictor objective（【Paper】）**
+
+$$
+\mathcal{L}(\pi_{\theta'})=\mathbb{E}\left[-Q_{\phi'}(\mathbf{o}_t,l,\mathbf{s}_t,\epsilon_t)+c\max\left(\tfrac12\|\epsilon_t\|^2-\beta,0\right)\right].
+$$
+
+第一项鼓励高回报噪声，第二项在噪声范数超过阈值 $\beta$ 时惩罚偏离标准正态分布；$c$ 控制约束强度。
+
+### 4.4 Training
+
+**【Paper】** 离线阶段使用成功轨迹和 hindsight 失败轨迹训练 distributional critic，再按进度下降过滤 transitions，并用镜像数据做 BC。在线阶段先用离线 checkpoint 采集 673 条 rollout 校准 critic，之后每收集 12 个新 episode 优化 50 步；on-policy buffer 只保留最近两个 checkpoint 生成的数据，其余转入 off-policy buffer，且不混入遥操作轨迹，以避免动力学分布错配。
+
+<Algorithm number={1} title='GR-RL training recipe' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>成功/失败遥操作轨迹、语言指令、视觉观测与机器人状态</div>
+  <div slot='output'>对齐部署行为的专精化 VLA policy</div>
+  <AlgorithmStep>用 TD3+BC 和 sparse reward 训练 distributional critic。</AlgorithmStep>
+  <AlgorithmStep>从成功轨迹的 retry keyframe 截断出 hindsight 失败轨迹。</AlgorithmStep>
+  <AlgorithmStep>计算每个 action chunk 的进度，删除下降超过 $\delta$ 的 transitions。</AlgorithmStep>
+  <AlgorithmStep>对图像、左右腕部、状态、动作和空间语言做 morphological mirror augmentation。</AlgorithmStep>
+  <AlgorithmStep>用过滤后的原始/镜像数据做 behavior cloning，得到离线初始策略。</AlgorithmStep>
+  <AlgorithmStep>用离线策略 rollout 预热 replay buffer，训练 noise predictor 与两个 critic，进行 online RL。</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+部署时 VLA 产生固定长度 action chunk，随后通过 trajectory optimization 约束 jerk 和时间连续性，再由双臂控制器执行。online RL 学到的不是一套脱离基础模型的新动作，而是对 flow policy 初始噪声的 steering，因此保留了离线策略的动作先验。
+
+<Algorithm number={2} title='Latent-space inference' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>语言指令 $l$、三路 RGB 观测 $\mathbf{o}_t$、状态 $\mathbf{s}_t$</div>
+  <div slot='output'>经过平滑优化并执行的动作 chunk</div>
+  <AlgorithmStep>VLA 编码视觉、语言和状态，noise predictor 采样初始噪声 $\epsilon_t$。</AlgorithmStep>
+  <AlgorithmStep>将 $\epsilon_t$ 输入 flow-matching action DiT，逐步去噪得到 $k$ 步动作。</AlgorithmStep>
+  <AlgorithmStep>用 jerk 与 temporal-continuity 约束优化动作轨迹。</AlgorithmStep>
+  <AlgorithmStep>执行当前动作并滚动观察，遇到掉落或错位时在闭环中重新规划。</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** 论文提供项目主页 [seed.bytedance.com/gr_rl](https://seed.bytedance.com/gr_rl)，截至本文撰写时未发现可公开访问的官方 GitHub 训练代码、配置或 checkpoint。因而无法对模型类、DataLoader、优化器实现和实际超参数逐文件核验；上文“代码实现”部分仅报告论文公开的系统行为，不把推测写成代码事实。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+**【Paper】** 任务是将鞋带依次穿过多个 eyelet，再把鞋带放回桌面。观测包含三路 RGB、proprioception 和自然语言指令；奖励为只有成功时为 1 的 binary sparse signal。实验使用 ByteMini-v2 双臂移动机器人。
+
+![ByteMini-v2：7-DoF 双臂移动操作机器人（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-gr-rl/bm_v2.b9n36l10r.webp)
+
+### 5.2 Main Results
+
+**【Paper】** 多阶段消融的成功率为：GR-3 原始 BC 45.7%，加入 progress filtering 后 61.6%，再加入镜像增强后 72.7%，完整 GR-RL（含 online steering）83.3%。在线训练早期因 offline-to-online 分布偏移短暂下降，随后移动平均成功率超过 90%；最终采用 online step 500 的 checkpoint 做评测。
+
+![GR-RL 各训练阶段成功率及在线曲线（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-gr-rl/main_metric.8s41mu1g3c.webp)
+
+### 5.3 Ablation Study
+
+**【Paper】** 非分布式 critic 会在长时域 sparse reward 下严重过估计，早期状态的值尺度失真；distributional critic 的值被限制在预设范围内，能更稳定地反映时间顺序。直接回归成功轨迹的 $t/T$ 也会过度平滑，难以捕捉“只差几毫米”的插入失败和具有长期影响的重新抓取。
+
+![分布式与非分布式 critic 的进度预测对比（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-gr-rl/progress_ablation.9kgx4ki3os.webp)
+
+![不同训练阶段的中间步骤成功率（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-gr-rl/bar_stage_label.3nscxk1jmc.webp)
+
+### 5.4 Generalization
+
+**【Paper】** 模型能处理不同颜色和尺寸的鞋子，并在鞋带掉落、未精确穿入 eyelet、初始抓取点过远、鞋子朝向/位置不理想、两端交叉等情况下主动重抓、重试、重定向或调整场景。中间阶段统计显示，filtering 和 online RL 对 threading 阶段的失败降低最明显，镜像增强则在各阶段都有较为均匀的收益。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** 三个阶段分别处理三个不同误差源：progress filtering 减少监督噪声，mirror augmentation 增加结构化覆盖，latent-space RL 修正 raw action 与部署后处理之间的 distribution shift。它们不是重复堆叠，而是从数据、先验和闭环控制三个层面缩小策略的有效搜索空间。
+
+### 6.2 核心创新
+
+真正新颖之处不是“在 VLA 后面加 RL”，而是把 critic 的值重新解释成可用于数据治理的 progress signal，并把 online exploration 的坐标系改成 flow policy 的 latent noise。这样既能拒绝坏示范，又不会用无结构的动作噪声破坏精密操作。
+
+### 6.3 与已有方法的本质区别
+
+与纯 BC 相比，GR-RL 允许策略超越示范并从失败中学习；与在动作空间直接加噪的 real-world RL 相比，它在噪声空间探索；与只做 advantage-conditioned denoising 的方案相比，它先训练一个更强的 filtered BC 起点，再做小范围 online steering。
+
+### 6.4 关键假设
+
+1. sparse terminal reward 足以让 distributional Q 值形成有意义的进度排序。
+2. 双臂任务在 world frame 中存在可用的左右镜像对称性，且语言空间描述可以同步翻转。
+3. flow policy 的初始噪声空间包含足够多的高回报动作，轻量 noise predictor 能在其中找到改进方向。
+4. 在线 rollout 的视觉、动力学和奖励信号足够稳定，能够支撑真实机器人上的 off-policy 更新。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 在线 RL 存在 behavior drifting：sparse、noisy reward 可能导致行为不稳定，原因可能是轻量 noise predictor 容量有限，也可能是大 latent action space 中的 credit assignment 困难。作者还提出未来应把改进后的策略蒸馏回基础 VLA，以同时获得通用性和专精能力。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】** 论文只展示一个鞋带任务和一种机器人平台，83.3% 成功率能否迁移到更多柔性物体、不同双臂几何和更长任务仍未知。过滤阈值 $\delta$、噪声约束 $\beta$ 与 retry keyframe 标注质量可能显著影响结果；论文也未公开代码和完整训练成本，因此复现实验难度较高。最后，形态镜像并不适用于明显左右不对称的工具、场景或任务。
+
+## 8. 启发与研究思考
+
+GR-RL 给出的研究路线很清晰：先把通用 VLA 当作“可行性先验”，再用 RL 判断哪些示范片段值得保留，最后让在线数据直接来自部署控制栈。对后续工作而言，一个值得验证的问题是：能否把 progress critic 变成跨任务的通用数据质量模型，而不是每个任务重新训练；另一个问题是如何将 latent-space 改进安全地蒸馏回大 VLA，避免专精能力与开放场景泛化之间的此消彼长。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和公开资料的分析推断。论文图像因自定义 CDN 尚未刷新，暂使用已验证 HTTP 200 的 GitHub Raw 地址。
+</Aside>
