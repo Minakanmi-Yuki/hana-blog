@@ -1,0 +1,278 @@
+---
+title: 'PriorVLA 论文精读：保留预训练先验的 VLA 适配'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: 'PriorVLA 用冻结 Prior Expert 与 Expert Queries 保留 VLA 的场景和运动先验，在少样本与 OOD 机器人操作中提升适配性能。'
+heroImage:
+  { src: 'https://pic.hana0721.top/71187447_p0_master1200.13mdb6lism.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '71187447'
+tags:
+  - 'paper deep dive'
+  - 'VLA'
+  - 'adaptation'
+  - 'OOD generalization'
+  - 'robot learning'
+paper:
+  arxivId: '2605.10925'
+  title: 'PriorVLA: Prior-Preserving Adaptation for Vision-Language-Action Models'
+  authors:
+    - 'Xinyu Guo'
+    - 'Bin Xie'
+    - 'Wei Chai'
+    - 'Xianchi Deng'
+    - 'Tiancai Wang'
+    - 'Zhengxing Wu'
+    - 'Xingyu Chen'
+  venue: 'arXiv'
+  year: 2026
+  code: 'https://github.com/xinyuguo1566/PriorVLA'
+  project: 'https://priorvla.github.io/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2605.10925'
+  tldr='PriorVLA 冻结一个 Prior Expert 保存预训练运动先验，用 Scene/Motor/Action Queries 将先验注入可训练分支，在 RoboTwin、LIBERO 和真实机器人上尤其改善 OOD 与少样本适配。'
+  rank={5}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《PriorVLA: Prior-Preserving Adaptation for Vision-Language-Action Models》
+
+**作者**：Xinyu Guo、Bin Xie、Wei Chai、Xianchi Deng、Tiancai Wang、Zhengxing Wu、Xingyu Chen
+
+**论文链接**：[arXiv:2605.10925](https://arxiv.org/abs/2605.10925) · **项目主页**：[priorvla.github.io](https://priorvla.github.io/)
+
+**代码链接**：[xinyuguo1566/PriorVLA](https://github.com/xinyuguo1566/PriorVLA)
+
+![PriorVLA 总览：保留先验并比较 OOD、少样本表现（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-priorvla/overview.priorvla.webp)
+
+### 一句话总结
+
+**【Paper】** 全量 fine-tuning 往往把大规模 VLA 预训练得到的通用能力当作初始化，在有限示教上不断移动参数，结果是训练分布内变好、分布外（OOD）场景中的先验被遗忘。PriorVLA 将原始 action expert 复制成两个角色：冻结的 **Prior Expert** 只读地提供运动先验，可训练的 **Adaptation Expert** 负责最终动作生成；再用 **Scene Query、Motor Query、Action Query** 三种可学习接口，把视觉与运动先验送入适配分支。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 将下游 VLA 适配重新表述为“保存并利用 forward-pass priors”，而不只是更新初始化权重。
+2. 提出 **Dual Action Experts**：原始 action expert 冻结为 Prior Expert，同权重初始化的 Adaptation Expert 学习任务特化；前者的动作输出从不直接执行。
+3. 提出 **Expert Queries**：Scene Queries 从冻结 VLM 捕获场景先验，Motor Queries 从 Prior Expert 捕获运动先验，Action Queries 在 Adaptation Expert 内整合两者。
+4. 只更新 full fine-tuning 约 25% 的参数，在 RoboTwin 2.0-Hard、LIBERO 和真实机器人上均超过强基线；增益在 OOD、few-shot 条件下最大。
+
+**【Analysis】** 论文的关键不是再加一个“专家投票器”，而是把冻结分支变成可复用的表示源，同时限制信息通过 Query 接口流动。这样“记住预训练能力”和“学习新任务”在参数与注意力路径上都被显式解耦。
+
+## 2. 背景与相关工作
+
+**【Paper】** 现代 VLA（如 $pi_0$、$pi_{0.5}$、OpenVLA）从多机器人、多任务数据中学习两类互补能力：VLM 编码视觉—语言中的场景结构，action expert 在 flow matching 或 diffusion 去噪过程中学习动作生成规律。下游任务却常只有几十条到几百条示教，且测试时会改变物体位置、背景、光照或桌面高度。
+
+全量 fine-tuning 能迅速提高 ID 成功率，却可能将广泛先验压缩成训练集中的窄模式。LoRA、冻结 VLM、参数约束和 replay 等工作分别减少更新量或限制漂移；query/bridge 方法则把视觉语言特征接到动作策略。**【Paper】** PriorVLA 的区别是：它不把预训练网络仅看成待修改的参数集合，而把其 forward 表示本身当作需要保存、且要被下游策略读取的 prior source。
+
+## 3. 问题定义
+
+**【Paper】** 给定视觉观测 $o_t$、语言指令 $l$、本体状态 $s_t$，策略在 action horizon $H$ 内预测动作块：
+
+$$
+\hat a_{t:t+H-1}=\pi_\theta(\tilde a_{t:t+H-1},o_t,l,s_t),
+$$
+
+其中 $\tilde a$ 是 flow-matching 去噪过程中的 noisy action chunk，$\hat a$ 是当前步的速度/去噪预测。目标是用有限下游数据学习一个适配策略，同时保持预训练 VLM 的场景先验与 action expert 的运动先验，并在 ID 与 OOD 条件下生成可靠动作。
+
+| 维度     | 论文设置                                                                          |
+| -------- | --------------------------------------------------------------------------------- |
+| Base VLA | $\pi_{0.5}$，VLM + flow-matching action expert                                    |
+| 输入     | 图像、语言指令、本体状态；实验覆盖单臂 Franka 与双臂 AC-One                       |
+| 输出     | 未来 $H$ 步 action chunk；仅 Adaptation Expert 的预测更新轨迹                     |
+| 训练参数 | Adaptation Expert、三类 Queries、VLM vision encoder；约为 full fine-tuning 的 25% |
+| 先验源   | 冻结 VLM 主干与冻结 Prior Expert                                                  |
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![PriorVLA 架构：Dual Action Experts 与三类 Expert Queries（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-priorvla/architecture.priorvla.webp)
+
+**【Paper】** 图像和指令先进入预训练 VLM；Scene Query 读取其层级表示。相同 noisy action chunk 同时送入 Prior Expert 和 Adaptation Expert，Motor Query 读取前者的内部去噪表示，Action Query 将 Scene/Motor Query 的缓存与当前适配分支的 token 融合，最后只有 Adaptation Expert 的输出执行 flow-matching 更新。
+
+### 4.2 核心模块
+
+#### Dual Action Experts
+
+- **输入**：每个去噪步的同一 noisy action chunk 与观测条件。
+- **Prior Expert 输出**：中间 hidden states（motor prior）；最终 denoising prediction 被丢弃。
+- **Adaptation Expert 输出**：用于更新 action trajectory 的 denoising prediction。
+- **为什么需要**：冻结副本阻止下游梯度改变预训练动作动力学；同权重初始化的适配副本仍有足够容量拟合新任务。
+
+**【Paper】** 在第 $\tau$ 步，$\tilde a^\tau_{PE}=\tilde a^\tau_{Ada}=\tilde a^\tau$，但只有 $f^\tau_{Ada}$ 进入 flow-matching 更新 $\tilde a^{\tau+1}=FM(\tilde a^\tau,f^\tau_{Ada})$。因此 Prior Expert 是 read-only memory，而不是第二个控制器。
+
+#### Expert Queries 与注意力路由
+
+![PriorVLA 的 token attention mask 与信息流（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-priorvla/attention.priorvla.webp)
+
+- **Scene Query（SQ）**：插入 VLM 输入序列，可与原始 observation tokens 自注意力；其逐层 key/value cache 是紧凑的 scene-prior 接口。
+- **Motor Query（MQ）**：附加在 Prior Expert 上，只读取冻结分支 noisy action tokens 并自注意力；Prior Expert 的原始动作 token 不读取 SQ/MQ，因而保持预训练去噪路径不变。
+- **Action Query（AQ）**：插入 Adaptation Expert，与适配分支 noisy action、原始 observation、SQ、MQ 共同注意力；不直接读取 Prior Expert 的 raw action cache，迫使运动先验经 MQ 路由。
+
+**【Analysis】** 这是一种“单向读出、集中整合”的设计：SQ/MQ 负责压缩先验，AQ 负责决定下游动作生成时如何使用先验。移除 Query 后，即便冻结分支仍执行，也没有可学习的接口把先验变成有效条件。
+
+### 4.3 关键公式
+
+对任意 token group $x$，第 $l$ 层的投影为 $Q_x^l=h_x^lW_Q^l$、$K_x^l=h_x^lW_K^l$、$V_x^l=h_x^lW_V^l$。
+
+**【Paper】** Scene Query 的更新为：
+
+$$
+h_{sq}^{l+1}=\operatorname{Attn}(Q_{sq}^l,[K_{obs}^l\Vert K_{sq}^l],[V_{obs}^l\Vert V_{sq}^l]).
+$$
+
+Motor Query 只从 Prior Expert 的 noisy action 读取：
+
+$$
+h_{mq}^{l+1}=\operatorname{Attn}(Q_{mq}^l,[K_{mq}^l\Vert K_{\tilde a_{pe}}^l],[V_{mq}^l\Vert V_{\tilde a_{pe}}^l]).
+$$
+
+Action Query 在 Adaptation Expert 中整合多源信息：
+
+$$
+h_{aq,\tilde a_{ae}}^{l+1}=\operatorname{Attn}(Q_{aq,\tilde a_{ae}}^l,
+[K_{aq,\tilde a_{ae}}^l\Vert K_{obs}^l\Vert K_{sq}^l\Vert K_{mq}^l],
+[V_{aq,\tilde a_{ae}}^l\Vert V_{obs}^l\Vert V_{sq}^l\Vert V_{mq}^l]).
+$$
+
+这里 $\Vert$ 表示 token 级拼接，$h$ 是 hidden state，$W_Q/W_K/W_V$ 是注意力投影。关键约束不在公式外另加正则，而在 mask 中禁止 Prior Expert 的 noisy action 直接穿透到 Adaptation Expert。
+
+### 4.4 Training
+
+**【Paper】** 训练 full Adaptation Expert、三组 Expert Queries 和 VLM vision encoder；其余 VLM 参数及 Prior Expert 全部冻结。损失仍是标准 flow-matching MSE，只作用于 Adaptation Expert 的 denoising prediction：
+
+$$
+\mathcal L(\theta)=\mathbb E_{\tau,\tilde a}\left[\|f^\tau_{Ada,\theta}(\tilde a,o,l,s)-u^\tau\|_2^2\right],
+$$
+
+其中 $u^\tau$ 是 flow-matching 目标速度，$\tau$ 是采样的去噪时间步。Prior Expert 的输出不参与 loss，Queries 也没有额外 auxiliary objective。
+
+<Algorithm number={1} title='PriorVLA Training' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>预训练 $\pi_{0.5}$、下游示教 $D$、action horizon $H$</div>
+  <div slot='output'>适配策略 $\pi_\theta$ 与可复用的冻结先验路径</div>
+  <AlgorithmStep keyword='Given'>复制预训练 action expert：冻结副本作为 Prior Expert，同权重副本作为 Adaptation Expert；初始化 SQ、MQ、AQ</AlgorithmStep>
+  <AlgorithmStep>从 $D$ 采样 $(o_t,l,s_t,a_{t:t+H-1})$，采样 flow-matching 时间步并构造 noisy action</AlgorithmStep>
+  <AlgorithmStep>运行 VLM 与 SQ，缓存逐层 scene-prior key/value；运行 Prior Expert 与 MQ，缓存 motor-prior key/value</AlgorithmStep>
+  <AlgorithmStep>在 Adaptation Expert 中通过 AQ 融合 observation、SQ、MQ 与适配分支 token</AlgorithmStep>
+  <AlgorithmStep>仅用 Adaptation Expert 的 denoising prediction 计算 flow-matching MSE，反向传播更新可训练参数</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 推理时每个去噪步都用同一个 noisy action chunk 执行两条 expert 路径。Prior Expert 继续提供 MQ 的 motor prior，但其动作预测丢弃；AQ 驱动 Adaptation Expert 输出并更新 chunk。去噪完成后执行 Adaptation Expert 产生的动作块，并在下一控制时刻重新观测。
+
+<Algorithm number={2} title='PriorVLA Inference' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>图像 $o_t$、语言 $l$、状态 $s_t$、初始 noisy action chunk</div>
+  <div slot='output'>执行的动作块 $a_{t:t+H-1}$</div>
+  <AlgorithmStep>编码观测与指令，运行冻结 VLM + Scene Query，得到 scene-prior caches</AlgorithmStep>
+  <AlgorithmStep>对每个去噪步，将当前 chunk 同时输入 Prior Expert 与 Adaptation Expert</AlgorithmStep>
+  <AlgorithmStep>用 Motor Query 读取 Prior Expert hidden states，用 Action Query 在 Adaptation Expert 中整合 SQ/MQ</AlgorithmStep>
+  <AlgorithmStep>丢弃 Prior Expert 输出，仅用 Adaptation Expert 输出执行 flow-matching 更新</AlgorithmStep>
+  <AlgorithmStep>去噪结束后反归一化并执行动作 chunk；滚动到下一观测时重复上述过程</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** 截至论文提交时，作者的 [GitHub 仓库](https://github.com/xinyuguo1566/PriorVLA) README 仅说明“Code will be released soon”，没有可审计的模型定义、DataLoader、训练脚本或 checkpoint。因此本文不能把具体文件路径或超参数当作已验证实现；方法细节以论文为准。
+
+**【Analysis】** 这也意味着复现工作的关键风险在于 attention mask、逐层 KV cache 与 flow-matching 时间步的精确实现，而不是简单地把 action expert 复制两份。代码发布后，应重点核对冻结参数列表、AQ 是否能绕过 raw PE action cache、以及 Prior Expert 是否在每个去噪步重复计算。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![PriorVLA 的 LIBERO、RoboTwin 2.0 与真实机器人评测覆盖（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-priorvla/setup.priorvla.webp)
+
+**【Paper】** 实验覆盖三个层次：
+
+- **RoboTwin 2.0**：13 个双臂任务，Easy 为 ID、Hard 为 OOD；标准设置每任务 50 条 clean demonstrations、每设置 300 次评测，并比较 few/standard/large 三种数据规模。
+- **LIBERO**：Spatial、Object、Goal、Long 四个 Franka task suites，每个 suite 10 个任务。
+- **Real-world**：单臂 Franka 与双臂 AC-One，8 个任务；OOD 同时扰动 Light、Background、Object Position、Table Height；few-shot 每任务仅 10 条示教。
+
+### 5.2 Main Results
+
+**【Paper】** 主要结果如下（成功率均为百分比）：
+
+| 基准                                        |     PriorVLA |                           对比基线 | 结论                      |
+| ------------------------------------------- | -----------: | ---------------------------------: | ------------------------- |
+| RoboTwin 2.0 Easy（standard）               |           77 |                     $\pi_{0.5}$ 67 | +10                       |
+| RoboTwin 2.0 Hard（standard）               |           53 |                     $\pi_{0.5}$ 42 | +11                       |
+| RoboTwin 2.0 Hard（few / standard / large） | 31 / 53 / 65 |           $\pi_{0.5}$ 20 / 42 / 59 | +11 / +11 / +6            |
+| LIBERO 平均                                 |         99.1 | $\pi_{0.5}$ 96.9、OpenVLA-OFT 97.1 | 在饱和 benchmark 上仍提升 |
+| Real-world ID（standard）                   |           81 |                     $\pi_{0.5}$ 69 | +12                       |
+| Real-world OOD（standard）                  |           57 |                     $\pi_{0.5}$ 41 | +16                       |
+| Real-world ID / OOD（10 demos）             |      48 / 32 |                $\pi_{0.5}$ 24 / 10 | +24 / +22                 |
+
+**【Analysis】** 增益随数据减少或分布偏移而扩大，符合“先验是数据覆盖不足时的补充结构”这一解释；在 RoboTwin large-data Easy 上两者接近，说明先验保存并非替代充分示教，而是降低覆盖成本。
+
+### 5.3 Ablation Study
+
+**【Paper】** 在 RoboTwin 六任务子集上，完整模型达到 Easy 77%、Hard 49%。移除 Prior Expert（等价于移除 PE→AE 的 MQ 路径）后为 75% / 42%；随机冻结分支为 75% / 43%；让 Prior Expert 可训练为 73% / 44%。这说明收益来自预训练运动先验，而不是“多一个分支”或参数量变化。
+
+Expert Query 消融进一步显示：SQ、MQ、AQ 全部保留时为 77% / 49%；去掉全部 Query 降至 61% / 28%。分别去掉 SQ、MQ、AQ 后为 75% / 42%、70% / 30%、71% / 43%，其中 SQ 对 Hard 最关键。
+
+### 5.4 Generalization
+
+**【Paper】** 论文没有将八个 OOD 因子拆成独立实验，而是联合施加四类扰动；作者明确指出这更接近部署但无法分辨单一因素的贡献。跨 Franka 与 AC-One 的结果表明，方法并不依赖单一 embodiment，但尚未证明在更多机器人形态或更长 horizon 上仍保持相同收益。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** 有三层原因：
+
+1. **参数层**：冻结 PE 与 VLM 主干为预训练能力提供稳定锚点，避免小数据梯度把动作动力学推向狭窄模式。
+2. **表示层**：SQ/MQ 将分散在多层、多去噪步中的先验压缩成可读 cache，让适配分支能按任务选择性使用，而不是被动复制全部 hidden states。
+3. **控制层**：AQ 只改变最终动作生成路径；先验不直接产生动作，因此不会与任务特化分支发生不受控的 action-level ensemble。
+
+### 6.2 核心创新
+
+**【Paper】** 创新点是“preserve + leverage”的组合：Dual Action Experts 负责 preserve，Expert Queries 负责 leverage，且二者通过 masked attention 形成明确的信息边界。**【Analysis】** 单独冻结或单独加分支都不足以得到同样结果，消融实验支持这是一种结构性创新而非训练技巧。
+
+### 6.3 与已有方法的本质区别
+
+| 路线                  | 预训练模型角色                                 | 先验如何进入动作策略                   |
+| --------------------- | ---------------------------------------------- | -------------------------------------- |
+| Full fine-tuning      | 初始化，所有权重可漂移                         | 隐式地写入更新后的参数                 |
+| LoRA / partial tuning | 限制更新子空间                                 | 先验留在未更新权重中，但未必被显式读取 |
+| Frozen-VLM bridge     | 冻结视觉语言 backbone                          | 通过桥接层传递表征                     |
+| PriorVLA              | 冻结 VLM + 冻结 PE 作为 read-only prior source | SQ/MQ 捕获，AQ 在 AE 内整合            |
+
+### 6.4 关键假设
+
+**【Analysis】** 方法隐含四个假设：预训练 VLM 表征仍覆盖下游场景的可用结构；预训练 action expert 的 hidden states 含有可迁移运动规律；Query bottleneck 足以表达任务所需先验；额外运行 PE 的计算开销在 chunked control 中可接受。若下游任务与预训练 embodiment 或动作空间完全不相容，这些假设可能失效。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** (1) RoboTwin 只报告 50 任务中的 13 个子集，因为每个任务需单独训练模型；(2) 真实机器人 OOD 因子联合扰动，无法解耦单因素效果；(3) 推理时每个去噪步都执行冻结 Prior Expert，带来额外计算；(4) 尚未细致分析 scene/motor priors 在层与时间步之间的产生、交互和演化。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】** 官方代码尚未公开，复现者无法验证 mask 与缓存实现。其次，Prior Expert 与 Adaptation Expert 同时前向会近似翻倍 action-expert 计算，论文只称开销“manageable”，没有给出端到端 latency、显存峰值或 cache 复用测量。最后，成功率提升主要来自单一 base（$\pi_{0.5}$）和有限任务集；在完全不同的 VLA、连续长时任务、失败恢复或在线数据分布变化下，先验是否仍可靠仍待实验。
+
+## 8. 启发与研究思考
+
+**【Analysis】** PriorVLA 把“预训练知识”从静态参数改写成可查询的运行时资源，这给后续工作留下几条路线：
+
+- **先验压缩**：蒸馏 MQ 的层级 KV cache，或按场景检索并缓存 PE 表示，减少双分支推理成本。
+- **可解释路由**：记录 AQ 对 SQ/MQ 的注意力，研究不同任务究竟依赖视觉先验还是运动先验。
+- **多先验库**：为不同 embodiment、技能或数据域保存多个冻结 Prior Experts，再用 Query router 选择组合。
+- **安全适配**：把 PE 的动作一致性作为运行时检查器，在 Adaptation Expert 产生异常动作时回退或缩小更新。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码状态的分析推断。官方仓库截至本文撰写时尚未发布可运行代码，因此代码对照部分仅报告
+  README 的公开状态。
+</Aside>
