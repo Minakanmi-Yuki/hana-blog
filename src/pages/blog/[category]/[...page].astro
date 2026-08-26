@@ -7,7 +7,7 @@ import {
   getBlogCollection,
   getUniqueCategories,
   getCollectionsByCategory,
-  getUniqueTags,
+  getPopularTags,
   getSidebarCollections,
   sortMDByDate,
   type SidebarCollection
@@ -36,7 +36,7 @@ export const getStaticPaths = (async ({ paginate }) => {
   
   return uniqueCategories.flatMap((category, index) => {
     const collections = sortMDByDate(getCollectionsByCategory(allCollections, category))
-    const uniqueTags = getUniqueTags(collections)
+    const uniqueTags = getPopularTags(collections)
     const allSidebarCollections = getSidebarCollections(allCollections, 'zh', {
       preferCategory: category
     })

@@ -146,6 +146,16 @@ export function getUniqueTagsWithCount(collections: Collections): [string, numbe
   ].sort((a, b) => b[1] - a[1])
 }
 
+/**
+ * Return the most frequently used tags, ordered by usage count.
+ * A limit keeps compact tag lists (such as sidebars) from growing with the archive.
+ */
+export function getPopularTags(collections: Collections, limit = 8): string[] {
+  return getUniqueTagsWithCount(collections)
+    .slice(0, limit)
+    .map(([tag]) => tag)
+}
+
 /** Note: This function doesn't filter draft posts, pass it the result of getAllPosts above to do so. */
 export function getAllCategories(collections: Collections) {
   return collections
