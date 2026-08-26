@@ -27,7 +27,7 @@ Use only after the count-1 pool is exhausted.
 |         2 | `105886628` | `https://pic.hana0721.top/105886628_p0_master1200.5fl6its319.webp` | `paper-deep-dive-diffusion-policy`, `rl-note-24`                              |
 |         3 | `66119164`  | `https://pic.hana0721.top/66119164_p0_master1200.3d5duqih46.webp`  | `rl-note-2`, `robotic-grasp-detection-1`, `paper-deep-dive-rlinf-user`        |
 |         2 | `65089776`  | `https://pic.hana0721.top/65089776_p0_master1200.5c1kl2nzfo.webp`  | `robotic-grasp-detection-0`, `paper-deep-dive-openvla-oft`                    |
-|         2 | `66952181`  | `https://pic.hana0721.top/66952181_p0_master1200.6ikvtocw16.webp`  | `rl-note-3`, `robotic-grasp-detection-2`                                      |
+|         3 | `66952181`  | `https://pic.hana0721.top/66952181_p0_master1200.6ikvtocw16.webp`  | `rl-note-3`, `robotic-grasp-detection-2`, `paper-deep-dive-starvla`           |
 |         2 | `67997247`  | `https://pic.hana0721.top/67997247_p0_master1200.6po3p2g2e0.webp`  | `paper-deep-dive-act`, `paper-reading-eba4`                                   |
 |         2 | `70217040`  | `https://pic.hana0721.top/70217040_p0_master1200.77e5dp0f1s.webp`  | `rl-note-4`, `robotic-grasp-detection-3`                                      |
 |         2 | `71849616`  | `https://pic.hana0721.top/71849616_p0.1sfmv9l9of.webp`             | `rl-note-5`, `robotic-grasp-detection-4`                                      |
@@ -69,7 +69,7 @@ Preferred candidates for new posts.
 |         2 | `65089776`  | `https://pic.hana0721.top/65089776_p0_master1200.5c1kl2nzfo.webp`  | `rl-note-1`, `paper-deep-dive-pld`                                                                                          |
 |         2 | `42175762`  | `https://pic.hana0721.top/42175762_p0_master1200.6m4jay5vlg.webp`  | `paper-reading-eba5`, `paper-deep-dive-cot-vla`, `paper-deep-dive-pi05`                                                     |
 |         3 | `112236596` | `https://pic.hana0721.top/112236596_p0_master1200.232gogbiox.webp` | `rl-note-25`, `paper-deep-dive-qwen-robotmanip`, `paper-deep-dive-rlinf-vla`, `paper-deep-dive-what-matters-latent-actions` |
-|         3 | `133376054` | `https://pic.hana0721.top/133376054_p0_master1200.1ziuqmv790.webp` | `vscode-ssh-setup`, `paper-deep-dive-clap`, `paper-deep-dive-multiview-il`                                                  |
+|         3 | `133376054` | `https://pic.hana0721.top/133376054_p0_master1200.1ziuqmv790.webp` | `vscode-ssh-setup`, `paper-deep-dive-clap`, `paper-deep-dive-multiview-il`, `paper-deep-dive-lerobot`                       |
 |         2 | `56422576`  | `https://pic.hana0721.top/56422576_p0_master1200.7i0z6ufn65.webp`  | `paper-reading-vlm1`, `paper-deep-dive-chatvla-2`                                                                           |
 |         2 | `62258773`  | `https://pic.hana0721.top/62258773_p0_master1200.7zr0vfh0rf.webp`  | `paper-reading-cv1`, `paper-deep-dive-ace-ego-0`                                                                            |
 |         2 | `64131498`  | `https://pic.hana0721.top/64131498_p0_master1200.45i9cfg3rk.webp`  | `paper-reading-eba2`, `paper-deep-dive-lap`                                                                                 |
