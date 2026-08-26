@@ -51,7 +51,7 @@ Use only after the count-1 pool is exhausted.
 |         3 | `124956717` | `https://pic.hana0721.top/124956717_p0_master1200.83amt2xvmx.webp` | `galgame-2`, `paper-deep-dive-hex`, `paper-deep-dive-umi`, `paper-deep-dive-dexumi`                       |
 |         3 | `49383596`  | `https://pic.hana0721.top/49383596_p0_master1200.6t7pmts45l.webp`  | `paper-reading-umllm2`, `paper-deep-dive-rdt-1b`, `paper-deep-dive-open-h-embodiment`                     |
 |         3 | `139063757` | `https://pic.hana0721.top/139063757_p0_master1200.2yyzxgr9fg.webp` | `paper-reading-cv2`, `paper-deep-dive-g05`, `paper-deep-dive-aspire`                                    |
-|         2 | `66497987`  | `https://pic.hana0721.top/66497987_p0_master1200.58hynbbxn8.webp`  | `paper-reading-eba3`, `paper-deep-dive-vla-0`                                                           |
+|         3 | `66497987`  | `https://pic.hana0721.top/66497987_p0_master1200.58hynbbxn8.webp`  | `paper-reading-eba3`, `paper-deep-dive-vla-0`, `paper-deep-dive-touchanything`                          |
 |         3 | `134041716` | `https://pic.hana0721.top/134041716_p0_master1200.5q80bz7b6v.webp` | `rl-note-27`, `paper-deep-dive-caip`, `paper-deep-dive-gr-rl`                                           |
 |         3 | `126839080` | `https://pic.hana0721.top/126839080_p0_master1200.232gprncye.webp` | `upload-project-to-github`, `paper-deep-dive-knowledge-insulating-vla`, `paper-deep-dive-worldarena`    |
 |         2 | `126903857` | `https://pic.hana0721.top/126903857_p0_master1200.2dpaix2l3u.webp` | `tmux-ssh-session-management`, `paper-deep-dive-internvla-m1`                                           |

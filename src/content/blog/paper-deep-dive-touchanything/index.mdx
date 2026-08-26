@@ -1,0 +1,322 @@
+---
+title: 'TouchAnything 论文精读：从第一视角视频估计双手触觉'
+publishDate: 2026-08-27
+updatedDate: 2026-08-27
+description: '精读 TouchAnything：EgoTouch 用多视角视频、双手姿态和压力手套构建触觉监督，TouchAnything 以 cross-view attention 与 view dropout 预测双手压力图。'
+heroImage:
+  { src: 'https://pic.hana0721.top/66497987_p0_master1200.58hynbbxn8.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '66497987'
+tags:
+  - 'paper deep dive'
+  - 'tactile sensing'
+  - 'egocentric vision'
+  - 'multi-view learning'
+paper:
+  arxivId: '2605.13083'
+  title: 'TouchAnything: A Dataset and Framework for Bimanual Tactile Estimation from Egocentric Video'
+  authors:
+    - 'Jianyi Zhou'
+    - 'Ziteng Gao'
+    - 'Feiyang Hong'
+    - 'Zirui Liu'
+    - 'Guannan Zhang'
+    - 'Weisheng Dai'
+    - 'Ruichen Zhen'
+    - 'Chuqiao Lyu'
+    - 'Haotian Wu'
+    - 'Yinian Mao'
+    - 'Xushi Wang'
+    - 'Yuxiang Jiang'
+    - 'Wenbo Ding'
+    - 'Shuo Yang'
+  venue: 'arXiv'
+  year: 2026
+  code: 'https://github.com/Jianyi2004/TouchAnything'
+  project: 'https://jianyi2004.github.io/TouchAnything-Website/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2605.13083'
+  tldr='TouchAnything 用 EgoTouch 的头戴与双腕视频、42 个双手关节和压力手套监督，借助跨视角融合与 view dropout 在可变相机配置下预测双手 21×21 触觉图。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**【Paper】** 《TouchAnything》同时贡献了数据集 EgoTouch、vision-to-touch 基准和一个可处理缺失视角的基线模型。EgoTouch 包含 208 个操作任务、1,891 个 episode、约 20 小时（约 210 万帧）视频，覆盖 1,000 多个物体和室内外场景。每个同步时间点包含头戴第一视角、左右腕部相机、42 个双手 3D 关节，以及两只手的连续压力图。
+
+![EgoTouch 数据集总览（论文 Figure 1）](https://arxiv.org/html/2605.13083v1/teaser.png)
+
+![EgoTouch 任务分布与数据统计（论文 Figure 4）](https://arxiv.org/html/2605.13083v1/figures/data_statistic_3.png)
+
+### 一句话总结
+
+**【Analysis】** 论文的关键判断是：第一视角视频缺失的不是更多模型容量，而是被手掌或物体遮挡的接触证据；腕部相机提供了几何上互补的观察，因而可以把“看不见的触觉”变成可学习的视觉监督。
+
+### 核心贡献
+
+**【Paper】**
+
+1. **EgoTouch 数据集**：首个同时提供多视角视频、双手姿态与真实稠密压力的 in-the-wild 双手交互数据集。
+2. **多视角基准**：按 seen/unseen object 和 ego、单腕、双腕配置评估 tactile prediction 与 contact detection。
+3. **TouchAnything 模型**：共享 DINOv2、view embedding、cross-view attention、pose-aware fusion 与 joint-level tactile decoder。
+4. **View dropout**：训练时随机丢弃腕部视角，使同一模型可以在只有 ego、一个腕部或三视角都可用时推理。
+
+## 2. 背景与相关工作
+
+**【Paper】** Ego4D、EPIC-KITCHENS 等第一视角数据很容易规模化，但通常只有 RGB，缺少接触力、压力分布和抓取稳定性等物理信号。EgoPressure 提供了压力监督，却主要是单手、受控的手-表面交互；OpenTouch 支持野外采集，但仍是单手单视角。GRAB、ARCTIC、OakInk 等数据集拥有双手或物体交互标注，但接触通常由解析模型或 MoCap 推断，不是真实压力。
+
+**【Analysis】** 对 vision-to-touch 来说，手掌与物体的接触面恰好是第一视角最容易遮挡的区域。EgoTouch 的设计不是简单增加相机数量，而是把相机安装在手腕附近，让新增视角直接观察接触界面，同时保留头戴相机的全局上下文。
+
+## 3. 问题定义
+
+给定长度为 $T$ 的同步片段和可用视角集合 $\mathcal V\subseteq\{V^{ego},V^{wL},V^{wR}\}$，模型接收：
+
+- **Observation**：三路 $640\times480$ RGB（训练时缩放到 $224\times224$）和双手 42 个 3D 关节；
+- **Target**：每帧两张 canonical hand-shaped $21\times21$ 压力图，记为 $\mathbf M\in\mathbb R^{T\times2\times21\times21}$；
+- **时间采样**：默认 $T=8$，帧间隔为 2；
+- **输出范围**：压力归一化到 $[0,1]$，左、右手分别输出一个通道。
+
+形式化地，目标是学习：
+
+$$
+\hat{\mathbf M}_{1:T}=f_\theta\left(\{V_v\}_{v\in\mathcal V},\mathbf P_{1:T}\right),\qquad
+\mathbf P\in\mathbb R^{T\times42\times3}.
+$$
+
+其中 $\mathbf P$ 是 WiLoR/Rokoko 来源的双手关节，$f_\theta$ 需要同时利用外观、时序、视角和手部几何。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![TouchAnything 多视角触觉预测架构（论文 Figure 5）](https://arxiv.org/html/2605.13083v1/model_architecture.png)
+
+**【Paper】** 每个视角经共享 DINOv2 提取 patch token，加入相机类型 embedding 后，在 view-level summary 上做 cross-view attention，再用 gate 加权得到统一视觉特征；时间 Transformer 建模片段动态，手部 pose encoder 与视觉 token 做 joint-to-visual cross-attention，最后由 joint-level decoder 生成左右手压力图。
+
+### 4.2 核心模块
+
+#### 共享视觉编码与视角身份
+
+- **输入**：每个视角的 $T$ 帧 RGB。
+- **编码器**：冻结的 DINOv2 ViT-B/14，输出每帧 $N=256$ 个 patch token、维度 $D=768$。
+- **View embedding**：为 `ego`、`wrist_left`、`wrist_right` 各学习一个 $D$ 维向量并加到 token 上。
+- **作用**：共享 backbone 保持参数效率，view embedding 让模型知道 token 来自头部还是哪只手腕。
+
+**【Code】** `src/models/vision_encoder.py` 调用 `forward_features` 并取 `x_norm_patchtokens`；`configs/touchanything_with_glove_aug_wilor.yaml` 将 `freeze` 设为 `true`，因此 DINOv2 不参与反向传播。
+
+#### Cross-view attention 与 gated fusion
+
+**【Paper】** 每路 patch 先做平均池化得到 view summary。两个 Transformer layer 在 summary 之间交换信息，然后 `view_gate` 输出每个视角的标量权重，softmax 后对原始 patch 特征加权求和。这样腕部视角可以补足 ego 被遮挡的接触区域，质量较差的视角也不会被固定等权使用。
+
+**【Code】** `MultiViewEncoder` 的 `_apply_view_dropout` 始终保留 ego，并以配置概率独立丢弃腕部视角；只有一个活动视角时直接跳过 cross-view Transformer。
+
+#### 时序建模
+
+**【Code】** `TemporalTransformer` 对每个空间 patch 沿时间做 attention，再对每个时间点的 patch 做 spatial attention，最后经过 MLP 和 LayerNorm。这个 divided space-time 结构让模型同时捕捉接触发生/解除的时间变化与局部空间关系。
+
+#### Pose encoder 与 pose-aware fusion
+
+- **输入**：$(T,42,3)$ 双手关节。
+- **Pose encoder**：每个 3D 关节先由 $3\rightarrow384\rightarrow768$ 的 MLP 投影，加可学习 joint position embedding，再由 2 层 Transformer 建模关节间关系。
+- **Fusion**：每个 joint feature 作为 query，访问时间建模后的视觉 patch；每层包含 joint-to-visual cross-attention、joint self-attention 和 FFN。
+- **为什么需要**：压力图位于手部坐标系，joint-level token 比一个全局 pose 向量更容易把视觉证据绑定到具体手指/掌部。
+
+**【Code】** `pose_encoder.output_mode='per_joint'`，`fusion.type='cross_attention'`，对应 `(B,T,42,768)` 的 joint features。
+
+#### Joint-level tactile decoder
+
+**【Code】** `JointLevelTactileDecoder` 将 42 个 joint feature 投影到 128 通道，按左右手拆分；每个关节通过可学习 soft weights scatter 到 $8\times8$ 网格，再经过卷积 refinement、反卷积和双线性插值生成 $21\times21$ 压力图。左右手分别通过同一结构输出一个 sigmoid 通道。
+
+### 4.3 关键公式
+
+#### 多视角融合
+
+设第 $v$ 个视角的 patch 特征为 $F_v\in\mathbb R^{N\times D}$，summary 为 $s_v=\frac1N\sum_iF_{v,i}$。Cross-view Transformer 得到 $\tilde s_v$，gate 计算：
+
+$$
+\alpha_v=\operatorname{softmax}_v(g(\tilde s_v)),\qquad
+F=\sum_{v\in\mathcal V}\alpha_vF_v.
+$$
+
+$g$ 是两层 MLP，$\alpha_v$ 是动态视角权重。它表达的不是“腕部永远更重要”，而是“当前片段中哪个视角更可靠”。
+
+#### Contact-aware 重建损失
+
+$$
+\mathcal L=\lambda_{mse}\mathcal L_{MSE}+\lambda_{l1}\mathcal L_{L1}+\lambda_{tv}\mathcal L_{TV}.
+$$
+
+**【Paper】** 默认 $\lambda_{mse}=1.0$、$\lambda_{l1}=0.5$、$\lambda_{tv}=0.01$。当真实压力 $M_{i,j}>0.1$ 时，像素权重设为 3.0，否则为 1.0：
+
+$$
+w_{i,j}=1+2\,\mathbf1[M_{i,j}>0.1].
+$$
+
+加权 MSE/L1 防止稀疏压力图导致模型学成全零输出；TV 项为相邻网格施加空间平滑约束。
+
+#### Volumetric IoU
+
+$$
+\operatorname{IoU}_{vol}=\frac{\sum_{i,j}\min(M_{i,j},\hat M_{i,j})}{\sum_{i,j}\max(M_{i,j},\hat M_{i,j})}.
+$$
+
+它同时考察接触位置和压力大小；Contact IoU 则先把压力阈值化，只衡量接触区域重叠。
+
+### 4.4 Training
+
+**【Paper】** 数据按 episode 划分为 80%/10%/10%，避免相邻帧泄漏；训练样本是三路同步视频片段、42 个关节和两张压力图。使用 AdamW（$5\times10^{-5}$、weight decay 0.05），cosine schedule，10 个 warmup epoch。
+
+**【Code】** 配置脚本使用 6 GPU、每卡 batch size 16、梯度累积 3（有效 batch size 288），默认训练配置为 100 epochs；论文实验描述为 25 epochs。该差异应以具体 checkpoint 的启动参数为准，不能把两者混写成同一个实验设置。代码还以 0.2 概率做 glove appearance augmentation，以减轻手套颜色偏差。
+
+<Algorithm number={1} title='TouchAnything 训练' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>同步多视角 clip、双手关节 P、压力图 M。</div>
+  <div slot='output'>训练后的触觉预测模型 fθ。</div>
+  <AlgorithmStep>对每路 RGB clip 调用共享冻结 DINOv2，并加 view embedding。</AlgorithmStep>
+  <AlgorithmStep>以概率 0.3 独立丢弃左右 wrist view，始终保留 ego view。</AlgorithmStep>
+  <AlgorithmStep>在 view summary 上执行 cross-view attention 和 gated fusion。</AlgorithmStep>
+  <AlgorithmStep>用 temporal Transformer 建模动态，用 pose encoder 得到 per-joint features。</AlgorithmStep>
+  <AlgorithmStep>让 joints attend visual tokens，经 joint-level decoder 输出左右压力图。</AlgorithmStep>
+  <AlgorithmStep>计算 contact-aware MSE+L1+TV 损失，更新可训练模块的参数。</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+推理时不需要额外的 tactile 输入。调用者通过 `views` 字典提供任意视角子集，ego-only、ego+wrist_left 和全视角走同一网络；模型输出 `(B,T,2,21,21)` 压力图，再按阈值计算接触指标或渲染热力图。
+
+<Algorithm number={2} title='可变视角触觉推理' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>任意可用的 RGB views 和对应的双手关节片段。</div>
+  <div slot='output'>双手时序压力图与接触预测。</div>
+  <AlgorithmStep>检查并编码可用视角；推理阶段不执行随机 view dropout。</AlgorithmStep>
+  <AlgorithmStep>通过 view embedding、cross-view attention 和 gate 融合活动视角。</AlgorithmStep>
+  <AlgorithmStep>融合 temporal visual features 与 joint pose features。</AlgorithmStep>
+  <AlgorithmStep>由 decoder 输出归一化左右手压力图。</AlgorithmStep>
+  <AlgorithmStep>按压力阈值生成 contact map，并计算 Temporal Accuracy、Contact IoU、Volumetric IoU 和 MAE。</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** 官方仓库的主要对应关系如下：
+
+| 论文概念 | 官方实现 |
+| --- | --- |
+| 共享 DINOv2 | `src/models/vision_encoder.py` |
+| 多视角、view dropout、cross-view gate | `src/models/multi_view_encoder.py` |
+| 时空 Transformer | `src/models/temporal_transformer.py` |
+| 42 关节 pose Transformer | `src/models/pose_encoder.py` |
+| joint-to-visual fusion | `src/models/fusion.py` 的 `CrossAttentionFusion` |
+| 压力图 decoder | `src/models/pose_decoder.py` 的 `JointLevelTactileDecoder` |
+| 加权重建与 TV | `src/losses/tactile_loss.py` |
+| HDF5 数据读取 | `src/data/touchanything_dataset.py` |
+
+**【Analysis】** 论文主文的结构图是概念层面的描述，代码则明确了实现细节：patch token 数为 256、cross-view 层数为 2、temporal 层数为 3、decoder 中间网格为 $8\times8$。这些细节决定了模型的空间归纳偏置，但不是论文声称的额外算法贡献。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![EgoTouch 数据采集硬件与同步模态（论文 Figure 2）](https://arxiv.org/html/2605.13083v1/data_collection.png)
+
+**【Paper】** EgoTouch 使用头戴 RGB、双腕鱼眼相机、Rokoko Smartglove、16×16 压力手套和 HTC Vive Tracker，所有流在 30 Hz 时间线上对齐。五类环境为 Home、Workbench、Office、Retail 和 Outdoor。测试集同时报告 seen-object 与 unseen-object，后者检验新物体实例上的迁移。
+
+主要指标：
+
+- **Temporal Accuracy**：接触出现/消失的帧级一致性；
+- **Contact IoU**：压力阈值化后的时空接触区域重叠；
+- **Volumetric IoU**：把压力大小也纳入 IoU；
+- **MAE**：归一化压力的像素平均绝对误差。
+
+### 5.2 Main Results
+
+![腕部视角恢复被遮挡接触（论文 Figure 7）](https://arxiv.org/html/2605.13083v1/ego_multi_predictions.png)
+
+**【Paper】** Overall 结果如下（seen / unseen object）：
+
+| 视角 | C.IoU | V.IoU | MAE |
+| --- | ---: | ---: | ---: |
+| Ego-only | 0.4792 / 0.4396 | 0.4311 / 0.3743 | 0.0456 / 0.0615 |
+| Ego + wL | 0.5030 / 0.4499 | 0.4575 / 0.3856 | 0.0437 / 0.0601 |
+| Ego + wR | 0.5024 / 0.4497 | 0.4572 / 0.3854 | 0.0437 / 0.0602 |
+| Ego + wL + wR | **0.5030 / 0.4496** | **0.4575 / 0.3852** | **0.0436 / 0.0601** |
+
+相对 ego-only，全视角在 seen object 上带来 Contact IoU **+5.0%**、Volumetric IoU **+6.1%**；unseen object 上分别为 **+2.3%** 和 **+2.9%**。Temporal Accuracy 的提升较小且并不总是单调，说明腕部视角主要改善“在哪里接触、压力多大”，而不是单纯提高接触/非接触分类。
+
+**【Analysis】** 单个腕部相机已经获得大部分收益，意味着真正关键的是至少一个能看到接触界面的视角；第二个腕部视角在更强的双手遮挡下才提供额外信息。
+
+### 5.3 Ablation Study
+
+**【Paper】** View dropout 消融显示，未使用 dropout 时，模型从全视角切换到 ego-only 的 Volumetric IoU 相对下降 **27.20%**；使用 $p=0.3$ 后下降仅 **5.78%**。同时，全视角性能几乎不受损。
+
+数据规模从 25%、50%、75% 增加到 100% 时，Contact IoU 和 Volumetric IoU 持续提高，没有明显饱和。**【Analysis】** 这说明当前瓶颈仍是交互多样性和覆盖范围，而不是已经足够强的 decoder。
+
+### 5.4 Generalization
+
+**【Paper】** 在 unseen object 上，多视角仍然有效，但增益比 seen object 小；Workbench 是最难的场景之一，Outdoor 的 Temporal Accuracy 也出现新增视角后的轻微下降。失败案例中，黑色手套与黑色短裤颜色接近，模型在尚未接触的第一帧幻觉出左手压力。
+
+**【Analysis】** 这个结果把泛化问题拆成两类：腕部相机解决几何遮挡，却不能消除材质/颜色造成的视觉混淆；view dropout 解决传感器缺失，却不能替代跨物体的物理建模。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+1. **互补几何证据**：腕部视角看到掌面接触区，直接减少 ego-only 的不可观测区域。
+2. **姿态提供坐标系**：42 个关节把压力预测从“图像像素”约束到左右手的结构位置。
+3. **接触加权损失**：稀疏压力图中非接触像素占多数，3× contact weight 抑制全零捷径。
+4. **可变视角训练**：随机缺失视角迫使模型学习可组合的表示，而不是记住固定三相机模板。
+
+### 6.2 核心创新
+
+**【Paper】** 最实质的创新是数据采集范式和问题设定：把第一视角、双腕视角、双手姿态与真实压力放在同一时间轴上，并把“缺失视角下的触觉估计”定义为基准。模型本身是一个清晰、可复现的 baseline，创新重点不在新的 backbone。
+
+### 6.3 与已有方法的本质区别
+
+| 路线 | 监督/视角 | 主要缺口 | TouchAnything 的补充 |
+| --- | --- | --- | --- |
+| Ego4D / EPIC-KITCHENS | 大规模 ego RGB | 无真实触觉 | 加入压力与双手姿态 |
+| EgoPressure | 单手 ego + pressure | 场景与手数受限 | 双手、多环境、双腕视角 |
+| OpenTouch | 野外单手 tactile | 缺少腕部互补视角 | 直接观察接触界面 |
+| MoCap/解析接触数据 | 解析或估计接触 | 非真实压力 | 连续压力图监督 |
+
+### 6.4 关键假设
+
+- 头戴 ego view 始终可用，只有 wrist view 会缺失；
+- 训练与部署使用相同的压力手套/网格定义；
+- WiLoR 或 Rokoko 能提供足够稳定的 42 关节；
+- 21×21 canonical grid 能表达不同手型和接触区域的空间对应；
+- 视觉中存在可学习的外观线索来推断压力，极端遮挡或低对比度下仍可能不可辨识。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 当前数据全部来自触觉手套，可能带来手套外观偏差，限制裸手触觉估计。数据规模消融尚未饱和，模型仍然 data-hungry。当前 benchmark 主要评估 tactile estimation，尚未直接验证接触感知操控、抓取稳定性或机器人策略学习。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+1. **传感器域差异**：16×16 原始阵列被重映射为 21×21 网格，插值和手型 canonicalization 可能抹平细小峰值。
+2. **时序窗口有限**：默认 8 帧、间隔 2 只覆盖短时接触，难以表达长程任务阶段或先接近后施力的因果关系。
+3. **压力与动作的闭环尚未建立**：模型预测触觉，但没有把预测结果反馈给机器人控制器；因此还不能证明 tactile prediction 会提升真实操作成功率。
+4. **单一阈值假设**：$0.1$ contact threshold 对不同物体、手指和传感器噪声未必一致。
+5. **相机质量与同步成本**：三路相机、追踪器和两类手套提升了监督质量，也提高了真实部署的佩戴、标定与同步成本。
+
+## 8. 启发与研究思考
+
+**【Analysis】**
+
+- **从触觉估计到触觉基础模型**：EgoTouch 的规模仍小于纯视觉数据，但它提供了“视觉—姿态—压力”三模态对齐，可用于预训练 contact-aware encoder，再迁移到机器人策略。
+- **用不确定性处理不可观测性**：遮挡下的压力并非总能由 RGB 唯一决定。未来可以输出 pressure distribution 或 confidence，而不是单张确定性 heatmap。
+- **视角选择可以主动化**：当前 gate 只是被动加权。机器人可根据预测不确定性主动调整腕部相机或手腕姿态，形成 active perception。
+- **从人手到机器人手**：canonical hand grid 为跨 embodiment 对齐提供了接口，但仍需要手部拓扑、接触面积和执行器力矩之间的 retargeting。
+- **最终指标应回到控制**：更高 IoU 不一定意味着更好的抓取。下一步应把预测压力用于 grasp stability、contact-rich planning 和 tactile-enhanced world model，并报告真实机器人成功率。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方仓库实现，`【Analysis】` 表示基于论文和代码的分析推断。论文正文写的是 25 epochs，而公开配置默认 100 epochs；两者属于不同运行设置，不能直接当作同一实验复述。
+</Aside>
