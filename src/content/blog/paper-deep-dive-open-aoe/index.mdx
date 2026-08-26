@@ -1,0 +1,311 @@
+---
+title: 'Open-AoE 论文精读：把智能手机第一视角视频变成具身学习基础设施'
+publishDate: 2026-08-27
+updatedDate: 2026-08-27
+description: '精读 Open-AoE：2,000 小时智能手机第一视角操作数据，如何通过手部、相机和动作标注连接 VLA、WAM、世界模型与跨具身机器人控制。'
+heroImage:
+  { src: 'https://pic.hana0721.top/92079701_p0_master1200.64eg2t4l77.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '92079701'
+tags:
+  - 'paper deep dive'
+  - 'Open-AoE'
+  - 'egocentric manipulation'
+  - 'embodied learning'
+paper:
+  arxivId: '2607.14183'
+  title: 'Open-AoE: An Open Egocentric Manipulation Dataset and Toolchain for Embodied Learning'
+  authors:
+    - 'Zishuo Li'
+    - 'Bowen Yang'
+    - 'Changtao Miao'
+    - 'Kai Zhu'
+    - 'Hao Chen'
+    - 'Qingze Guan'
+    - 'Zhengxing Wu'
+    - 'Wanke Zhan'
+    - 'Yang Sun'
+    - 'Zhiyi Huang'
+    - 'Zitong Shan'
+    - 'Zhenchao Jin'
+    - 'Jiadong Hong'
+    - 'Taowen Wang'
+    - 'Yushi Feng'
+    - 'You Liu'
+    - 'Yibo Wang'
+    - 'Yifan Yang'
+    - 'Zhaowen Zhou'
+    - 'Man Luo'
+    - 'Hao Cheng'
+    - 'Bo Zhang'
+    - 'Jianshu Li'
+    - 'Jiansheng Cai'
+    - 'Guocai Yao'
+    - 'Jize Zhang'
+    - 'Chenhao Lin'
+    - 'Renjing Xu'
+    - 'Lequan Yu'
+    - 'Chao Shen'
+    - 'Chunhua Shen'
+    - 'Zhe Li'
+  venue: 'arXiv'
+  year: 2026
+  code: 'https://github.com/ant-research/Open-AoE'
+  project: 'https://github.com/ant-research/Open-AoE'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2607.14183'
+  tldr='Open-AoE 用消费级手机采集并处理 2,000 小时第一视角操作视频，把 RGB、MANO 手部、相机轨迹和原子动作对齐，再通过开源工具链接入 VLA、WAM、世界模型和机器人重定向。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《Open-AoE: An Open Egocentric Manipulation Dataset and Toolchain for Embodied Learning》  
+**作者**：Zishuo Li、Bowen Yang、Changtao Miao 等 AoE Team  以及 Ant Group、浙江大学、香港大学等机构  
+**论文链接**：[arXiv:2607.14183](https://arxiv.org/abs/2607.14183)  
+**代码与数据**：[Open-AoE GitHub](https://github.com/ant-research/Open-AoE)、[Hugging Face 数据集](https://huggingface.co/datasets/inclusionAI/OpenAoE-2000h)、[ModelScope 数据集](https://www.modelscope.cn/datasets/inclusionAI/OpenAoE-2000h)
+
+![Open-AoE 数据集、处理管线与工具链总览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-open-aoe/figure1_v5.icuyygyg0.webp)
+
+### 一句话总结
+
+**【Paper】** Open-AoE 不是单独发布一批视频，而是把“手机采集 → 质量筛选 → 手部/相机重建 → 原子动作标注 → 机器人与模型训练”做成可复用的开放闭环。首个版本约含 2,000 小时真实操作视频，来自 500+ 贡献者和 400+ 手机型号。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 发布 Open-AoE-2000H：视频与去畸变 RGB、相机内参和 6-DoF 轨迹、双手 MANO 重建、有效性掩码、双语原子动作标注在同一时间轴上对齐。
+2. 开放四阶段数据生产流程：端侧在线检测、离线质量检查与场景标注、重建与语义标注、三道质量门和人工抽检。
+3. 开放三套下游工具：AoE-Visualization、AoE-Reconstruct-Retarget、AoE-Training-Ready，分别服务于数据审查、跨具身运动转换和模型训练。
+4. 用统一审计验证数据的视觉多样性、语义覆盖、图文一致性和训练样本产出，而不是只报告总时长。
+
+## 2. 背景与相关工作
+
+**【Paper】** 具身模型的瓶颈不是互联网图像，而是能描述“手如何接近物体、相机如何移动、动作何时开始和结束”的真实交互数据。机器人遥操作信号精确但昂贵；AR/VR 或定制头戴设备能提供手部和相机信息，却提高了采集门槛；Ego4D、EPIC-KITCHENS 等被动视频规模大，但通常缺少可直接用于控制的几何和时间标注。
+
+Open-AoE 继承 AoE（Always-on Egocentric）的手机采集思路，试图解决两个断裂：第一，如何低成本、长时间地获得自然操作；第二，如何把原始视频加工成 VLA、World Action Model（WAM）、World Model 和机器人重定向真正能消费的格式。**【Analysis】** 因而本文的主要创新更接近“数据基础设施设计”，而不是提出一个新的 policy 网络。
+
+## 3. 问题定义
+
+**【Paper】** 每个样本是一段带统一帧索引的第一视角操作片段，核心输入输出如下：
+
+| 层级 | 输入 / 输出 | 作用 |
+| --- | --- | --- |
+| 观测 | 原始与去畸变 RGB、相机内参、设备信息 | 视觉建模与质量审查 |
+| 几何 | 双手 MANO pose/shape、21 关节、有效性、相机 6-DoF 轨迹 | 手物交互与跨具身转换 |
+| 语义 | 英文原子动作、verb、object、hand、bbox、置信度，以及中文描述 | 任务意图和时间边界 |
+| 下游动作 | 110D dense MANO、48D wrist-fingertip、20/26D hand+camera、机器人关节或 EEF | 按模型需要适配，而非强行统一成一个 action |
+
+**【Paper】** 数据集覆盖 8,000+ tasks、400+ scenes 和 400+ consumer-phone models。论文明确区分了“人手运动表示”和“机器人控制表示”：例如 28-DoF 是重定向后的机器人关节空间，而 world-model recipe 的 26D 是人手 20D 加相机 6D，两者不可互换。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![Open-AoE 的数据处理与下游模块总览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-open-aoe/figure1_v5.icuyygyg0.webp)
+
+**【Paper】** 数据从手机端的 consent、自动录制和隐私控制开始，经过四阶段处理后形成同步的 RGB、MANO、相机运动和 action text；同一证据层随后被 Visualization、Reconstruct-Retarget 和 Training-Ready 复用。训练和推理的具体操作分别见 4.4 与 4.5。
+
+### 4.2 核心模块
+
+#### A. 端侧采集与离线质量控制
+
+- **输入**：手机摄像头视频、设备状态和佩戴状态。
+- **输出**：通过合规检查、去隐私和帧率固定的 qualified Parts。
+- **模块**：端侧手部可见性检测、边界截断提醒、佩戴/稳定性检查、低照度补光与过热/存储保护；离线再检查黑帧、曝光、旋转、编码完整性、第三人称视角、抖动和敏感信息。
+- **为什么需要**：让错误在数据源头被拦截，减少带宽和后续重建成本。人脸等隐私内容会被像素化，元数据中的身份字段被匿名化。
+
+#### B. 场景标注与时间切片
+
+**【Paper】** 合格视频先按连续合格/不合格区间切成 Parts，固定帧率并保留统一 process-tag。随后由 Qwen3.7-Plus 做语义级合规判断、有效动作判断，并从 closed-set label tree 中选择 domain、scene、task 和 salient objects。
+
+#### C. 相机与手部重建
+
+**【Paper】** DROID-W 估计相机轨迹；针对手持和穿戴采集重新调节 robust kernel，以抑制抖动和躯干运动。两手检测器提供 bbox 和跨帧关联，HaWoR 从 bbox 重建 3D MANO，再用 SLAM 对齐尺度并变换到世界坐标。最后通过 global bundle adjustment 联合优化手网格、动态物体掩码和相机轨迹，减少分段重建的尺度漂移。
+
+#### D. 原子动作与质量门
+
+**【Paper】** 从重建网格提取 21-joint keypoints，并生成带英文描述的语义片段；人类复核纠正模型幻觉。交付前依次通过：
+
+1. completeness gate：手部重建有效帧比例足够高；
+2. correctness gate：重定向到 28-DoF 机器人空间时 IK 失败率低；
+3. consistency gate：相机轨迹连续、无突跳。
+
+#### E. 三条下游工具链
+
+![AoE-Reconstruct-Retarget：从手机视频到 4D 资产、机器人轨迹与 robotized video（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-open-aoe/fig3-reconstruct-retarget.4clmhwyvyx.webp)
+
+**AoE-Visualization** 用 Rerun 风格的时间线同时显示去畸变视频、MANO mesh、21-keypoint skeleton、future wrist trail 与 world-frame 3D 视图。**【Code】** `aoe-visualization/visualize.py` 支持 `--sample` 或 `--data_dir`，每个样本输出 `AoE_output_vis.mp4`；没有 OpenGL 时会回退到 NumPy 着色渲染。
+
+**AoE-Reconstruct-Retarget** 接入 EgoInfinity、Do-as-I-Do 等重建路线，并提供 Phantom（Unitree G1 + Dex3/Inspire）、Retarget Galbot 和 Retarget Lab。输出可以是 4D hand-object asset、机器人可执行轨迹或保留原场景的 robotized video。
+
+**AoE-Training-Ready** 按任务暴露多个 action interface：dense MANO 适合细粒度手部监督，wrist-fingertip 或 EEF/关节表示适合机器人，hand+camera 表示适合第一视角视频动力学，latent/weak action 则服务于世界模型。
+
+### 4.3 关键公式
+
+#### 110D dense MANO 表示
+
+**【Paper】** 每只手 55D，由有效性、腕部平移、腕部 axis-angle、速度和 45D MANO pose 组成：
+
+$$
+\mathbf{s}^{hand} = [v,\; t_{xyz},\; r_{aa},\; \dot t_{xyz},\; p_{MANO}] \in \mathbb{R}^{55},\qquad
+\mathbf{s}^{both} = [\mathbf{s}^{left},\mathbf{s}^{right}] \in \mathbb{R}^{110}.
+$$
+
+其中 $v$ 是 0/1 有效标记，$t$ 单位为米，$r_{aa}$ 为弧度制 axis-angle，$\dot t$ 为米/秒，$p_{MANO}$ 为 45 个关节旋转参数。坐标是当前 OpenCV 相机坐标系（$x$ 向右、$y$ 向下、$z$ 向前），所以速度同时包含手和相机的相对运动。
+
+#### World-model 的 26D hand+camera action
+
+**【Code】** `ACTION_SPEC.md` 定义 hand action 为 20D：左右手各含 wrist xyz、rotation 6D 和 gripper open/close proxy；可追加相邻帧相机相对运动的 6D（平移 3 + axis-angle 3）：
+
+$$
+\mathbf{a}_{t} = [\mathbf{h}_{t},\; \Delta \mathbf{c}_{t}] \in \mathbb{R}^{26},\qquad
+\Delta T_t = T_{c2w,t}^{-1}T_{c2w,t+1}.
+$$
+
+**【Analysis】** 这一定义把相机自运动显式当成 action condition，避免模型把头部/手机移动误认为物体动力学。它和重定向侧的 28D 机器人关节向量属于不同问题。
+
+#### 训练窗口产出
+
+**【Paper】** 对长度为 $L_q$ 秒的序列，以 history $h=2$ 秒、future $f=2$ 秒、stride $\Delta=2$ 秒构造窗口：
+
+$$
+N_q = \max\left(0,\left\lfloor\frac{L_q-h-f}{\Delta}\right\rfloor+1\right).
+$$
+
+每小时产出率为 $Y=\sum_qN_q/\sum_qL_q/3600$，相对无边界上限的保留率为 $\eta=Y/(3600/\Delta)$。这个指标只衡量边界和时间不连续造成的损失，不把下游任务过滤混进来。
+
+### 4.4 Training
+
+**【Paper】** 数据生产训练链路是：上传后先筛选与匿名化，再做时间切片、语义标注、相机轨迹估计、MANO 重建和原子动作复核，最后通过三道质量门交付。下游转换不是简单改文件后缀，而是根据目标模型选择 action semantics：VLA 使用可归一化的状态/动作，WAM 使用 hand+camera 的 next-state 条件，世界模型则可只保留视频或使用弱 MANO 监督。
+
+**【Code】** LeRobot converter `convert_open_aoe_to_lerobot.py` 将样本写为 `observation.images.front`、`observation.state`、`action` 和 `task`；默认输出 224×224 图像、30 FPS。110D action 的字段名显式记录左右手 valid、wrist、velocity 和 MANO pose，动作对应下一帧手状态。各模型子目录还提供 SmolVLA、GR00T N1.7、H-RDT、VITRA、DreamZero、LingBot-VA、Ctrl-World、iVideoGPT、GenieRedux、LAOM、AdaWorld 和 DreamDojo 的独立 recipe。
+
+<Algorithm number={1} title='Open-AoE 数据到训练样本' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>手机视频、设备元数据、可选的采集端质量信号</div>
+  <div slot='output'>通过质量门的同步多模态样本与模型专用 action interface</div>
+  <AlgorithmStep keyword='capture'>端侧检测手部可见性、佩戴稳定性、光照和设备健康，上传合规片段</AlgorithmStep>
+  <AlgorithmStep keyword='filter'>离线检查编码、曝光、视角、抖动与隐私内容，固定帧率并切成 Parts</AlgorithmStep>
+  <AlgorithmStep keyword='label'>用视觉语言模型完成合规/有效动作判断与 domain-scene-task-object 标注</AlgorithmStep>
+  <AlgorithmStep keyword='reconstruct'>估计相机 6-DoF，重建双手 MANO，并以 bundle adjustment 对齐到统一世界坐标</AlgorithmStep>
+  <AlgorithmStep keyword='annotate'>生成原子动作区间、bbox、verb/object/hand 和中英文描述，进行人工抽检</AlgorithmStep>
+  <AlgorithmStep keyword='gate'>依次通过 completeness、correctness、consistency 三道质量门</AlgorithmStep>
+  <AlgorithmStep keyword='convert'>按 VLA、WAM 或 World Model 的语义需求导出数据和训练配置</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 推理阶段不再运行采集端的筛选和重建，而是直接读取已对齐样本：VLA policy 从图像、语言和状态预测机器人动作；WAM 或 action-conditioned video model 读取当前帧与 hand+camera action 预测下一帧；重定向模块则把手腕/手指目标送入 IK、dex-retargeting 或 TCP 求解器。
+
+**【Code】** Visualization 的 CLI 对一个样本或目录逐段渲染；Retarget Lab 以 `trajectory_6dof × hand_source × retargeting` 组织 12 个组合单元。训练 recipe 的 launcher、patch 和依赖均放在各自目录，不会把某一模型的命令伪装成仓库级标准。
+
+<Algorithm number={2} title='Open-AoE 下游推理' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>同步 RGB、相机轨迹、手部状态、语言动作片段和目标模型/机器人</div>
+  <div slot='output'>预测的视频下一帧、策略 action 或目标机器人轨迹</div>
+  <AlgorithmStep keyword='inspect'>用 AoE-Visualization 检查手、相机和语义时间线是否一致</AlgorithmStep>
+  <AlgorithmStep keyword='represent'>选择 dense MANO、wrist-fingertip、EEF/关节、hand+camera 或 latent action 表示</AlgorithmStep>
+  <AlgorithmStep keyword='predict'>将表示输入对应的 VLA、WAM、World Model 或重定向后端</AlgorithmStep>
+  <AlgorithmStep keyword='execute'>策略输出由机器人低层控制器/IK 执行，视频模型输出下一帧或 rollout</AlgorithmStep>
+  <AlgorithmStep keyword='validate'>在 Rerun、MuJoCo、robotized video 或真实硬件回放中验证几何与时间一致性</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+| 论文描述 | 官方仓库实现 | 对照结论 |
+| --- | --- | --- |
+| 可视化数据浏览器 | `aoe-visualization/visualize.py` 与 `aoe_vis` | 支持单样本/批量渲染，OpenGL 不可用时回退 NumPy |
+| 数据规格 | `open-aoe-2000h/README.md`、`ACTION_SPEC.md` | 明确目录、坐标系、字段和 20D/26D action 差异 |
+| LeRobot 训练适配 | `aoe-training-ready/lerobot/scripts/convert_open_aoe_to_lerobot.py` | 默认 224px、30 FPS，导出 state/action/task 与视频 |
+| 多模型训练 | `aoe-training-ready/*/README_OPEN_AOE.md` | 每个模型独立依赖、转换器和 launcher，不存在全局统一格式 |
+| 跨具身重定向 | `aoe-reconstruct-retarget/phantom`、`retarget_galbot`、`retarget-lab` | 覆盖 G1、Galbot/Galaxea、Sharpa、XHand 等路线 |
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![Open-AoE 的 Training-Ready 表示谱与模型连接（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-open-aoe/fig4-training-ready.83as35nrci.webp)
+
+**【Paper】** 数据分析主要在随机抽取的 100 小时上进行，并与 OpenEgo、EgoDex、EgoXtreme 比较。视觉多样性使用 CLIP embedding；语义/时间分析统计 action vocabulary、覆盖率、片段时长与密度；一致性由 Idefics2 逐序列评分；训练效用使用 2 秒 history、2 秒 future、2 秒 stride 的窗口规则。
+
+### 5.2 Main Results
+
+![CLIP 六项视觉多样性指标（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-open-aoe/fig_clip_six_metrics.4xva47tckn.webp)
+
+**【Paper】** Open-AoE 在 3,000 次平衡随机试验的六项视觉指标均值上排名第一：Effective Rank 97.43、Participation Ratio 40.47、Meaningful Coverage 19.89、Normalized Cluster Entropy 0.712、Effective Clusters 16.29、kNN Domain Mixing 0.0775。论文特别指出，前两项和 kNN mixing 的优势在所有试验中都保持第一，说明设备、场景和采集者带来的变化并非只由少数样本贡献。
+
+**【Paper】** 语义方面，Open-AoE 的主 action 字段包含 32,407 个自然语言描述、8,030 个 object strings、175 个 verbs 和 135 个 scenes；评估时间线覆盖率为 99.99%，平均片段 9.64 秒、密度 13.97 segments/min。
+
+### 5.3 Ablation Study
+
+![不同数据集的语义宽度与时间标注特征（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-open-aoe/fig_temporal_semantic.5mojo8gvn1.webp)
+
+严格意义上，本文没有像 policy 论文那样逐模块移除的 ablation；它做的是数据属性审计。**【Paper】** 一致性评估中，Open-AoE 的 Idefics2 sequence-macro 为 4.583/5（95% bootstrap CI [4.557, 4.608]），85.4% 序列达到至少 4 分，只有 2.2% 处于不高于 2 分的低分区间。
+
+**【Analysis】** 这些比较支持“标注完整且视觉支持度高”，但不能直接推出某个数据字段对机器人成功率的因果贡献。相机多样性改善泛化仍是需要受控训练实验验证的假设。
+
+### 5.4 Generalization
+
+**【Paper】** 训练窗口分析显示每小时约 1,760 个候选 history-future windows，相当于理论上限 1,800 的 97.8%；98.93% 条目至少有一只有效手，98.02% 双手均有效；bbox 有效率 100%，平均置信度 0.947。所有五类主要 supervision（action、bbox、confidence、hand pose、camera pose）都具有近乎普遍的序列级覆盖。
+
+**【Analysis】** 这里的“泛化”主要体现为视觉域、场景、贡献者和手机光学系统的覆盖，而不是在一个统一机器人 benchmark 上报告成功率。真正的跨机器人泛化仍依赖具体模型 recipe、重定向后端和硬件评测。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** Open-AoE 的有效性来自三个互补的对齐：
+
+1. **时间对齐**：动作边界、视频帧、手部和相机轨迹共享帧索引，减少下游重新同步。
+2. **因果拆分**：手的运动与相机自运动分别可用，世界模型不必把视角变化当成物体变化。
+3. **表示分层**：同一段证据可按模型需要变成 MANO、EEF/关节、hand+camera 或 latent action，避免一个 action vector 同时牺牲手部细节和机器人可执行性。
+
+### 6.2 核心创新
+
+**【Paper】** 真正的创新不是“2,000 小时”这一单一数字，而是把低门槛采集、结构化生产、跨具身重定向和模型适配放在同一个开源仓库中。**【Analysis】** 这使数据集从静态 corpus 变成可以被贡献者、重建方法作者和模型团队共同迭代的 infrastructure。
+
+### 6.3 与已有方法的本质区别
+
+- 被动 egocentric dataset 通常只给 RGB 与粗粒度标签；Open-AoE 额外提供 MANO、相机轨迹、原子动作和质量门。
+- 机器人数据集通常以某一种 embodiment 为中心；Open-AoE 先保留人类运动证据，再由不同后端映射到 G1、Galbot、Sharpa 或 XHand。
+- 多数数据发布不包含训练接口；Open-AoE 将 LeRobot、GR00T、SmolVLA、WAM 和 World Model recipe 分开维护，明确每种格式的语义边界。
+
+### 6.4 关键假设
+
+1. **【Paper】** 手机视频经过筛选和重建后，足以恢复可用于学习的手物几何与相机运动。
+2. **【Analysis】** MANO 和 IK 的质量门能作为下游可用性的代理，但低 IK 失败率不等于真实机器人接触动力学正确。
+3. **【Analysis】** 设备和 FOV 多样性有望形成自然 sensor-domain randomization；该收益需要跨相机、跨机器人控制实验确认。
+4. **【Paper】** 当前训练适配器按模型分别定义，不能假设一个 recipe 的 action layout 可直接迁移到另一个模型。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 报告没有把手机采集数据宣称为真实机器人数据的替代品；robotized video 仅用于保持场景和任务进度的配对视觉信号，不能替代真实硬件执行。不同数据集的 action ontology 也不一致，因此词汇量比较不是严格控制的共享本体 benchmark。
+
+### 7.2 自己分析得到的局限
+
+- **【Analysis】** 单目视频下的遮挡、透明物体、接触力和物体 6D pose 仍然难以可靠恢复；bundle adjustment 只能缓解尺度/坐标问题，不能凭空产生触觉。
+- **【Analysis】** 端侧自动录制和离线 VLM 标注会引入选择偏差：被过滤掉的失败、遮挡或非典型动作可能正是鲁棒策略需要的 hard negative。
+- **【Analysis】** 98% 左右的手部有效率来自已筛选的交付集，不能直接代表自然部署时的观测缺失率。
+- **【Analysis】** 20D gripper proxy 只是开合标量，`ACTION_SPEC.md` 明确说明当前 recipe 尚未完成 MANO forward kinematics 到指尖动作的统一升级。
+- **【Analysis】** 许可证、MANO 权重、第三方机器人资产和外部模型 checkpoint 分开管理，复现实验仍需要额外下载和遵守各自许可。
+
+## 8. 启发与研究思考
+
+1. **把数据管线当作模型的一部分。** 对具身学习而言，时间切片、坐标系、质量门和 action semantics 会直接改变训练分布，不能只把它们当工程脚本。
+2. **相机动作值得成为显式变量。** 在第一视角视频中，解释视觉变化至少需要区分 observer motion、hand motion 和 object motion；26D hand+camera 是一个简单但可检验的起点。
+3. **跨具身学习可以先学“关系”再学关节。** 双手角色、腕部轨迹、接触时序和释放时刻比某一机器人的绝对关节角更容易迁移。
+4. **下一步应做因果 ablation。** 固定视频和模型，只分别加入相机轨迹、MANO、原子动作和手机域随机化，才能回答哪些字段真正带来泛化。
+5. **开放基础设施需要闭环反馈。** 未来贡献不应只增加小时数，还应回传重建失败、重定向失败、真实机器人回放和模型错误案例，让数据筛选规则随下游需求演化。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方 Open-AoE 仓库中可核对的实现，`【Analysis】` 表示基于论文和代码的分析推断。图床 CDN 尚未刷新时，正文中的论文图使用 GitHub Raw 地址。
+</Aside>
