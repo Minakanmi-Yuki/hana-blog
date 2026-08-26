@@ -1,0 +1,373 @@
+---
+title: 'Cosmos Policy 论文精读：把视频扩散模型变成策略、世界模型与规划器'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 Cosmos Policy：无需改动视频模型架构，通过 latent frame injection 联合生成动作、未来状态和值，并用 rollout 数据实现模型式规划。'
+heroImage:
+  { src: 'https://pic.hana0721.top/90399055_p0_master1200.4g535npbv6.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '90399055'
+tags:
+  - 'paper deep dive'
+  - 'Cosmos Policy'
+  - 'video diffusion'
+  - 'world model'
+  - 'robot learning'
+paper:
+  arxivId: '2601.16163'
+  title: 'Cosmos Policy: Fine-Tuning Video Models for Visuomotor Control and Planning'
+  authors:
+    - 'Moo Jin Kim'
+    - 'Yihuai Gao'
+    - 'Tsung-Yi Lin'
+    - 'Yen-Chen Lin'
+    - 'Yunhao Ge'
+    - 'Grace Lam'
+    - 'Percy Liang'
+    - 'Shuran Song'
+    - 'Ming-Yu Liu'
+    - 'Chelsea Finn'
+    - 'Jinwei Gu'
+  venue: 'ICLR 2026'
+  year: 2026
+  code: 'https://github.com/nvlabs/cosmos-policy'
+  project: 'https://research.nvidia.com/labs/cosmos-lab/cosmos-policy/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2601.16163'
+  tldr='Cosmos Policy 将 Cosmos-Predict2-2B 的视频 latent diffusion 直接微调为统一的策略、世界模型和值函数，在同一序列中生成动作、未来观测与回报，并用 rollout 数据做 best-of-N 模型式规划。'
+  rank={5}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《Cosmos Policy: Fine-Tuning Video Models for Visuomotor Control and Planning》
+
+**作者**：Moo Jin Kim、Yihuai Gao、Tsung-Yi Lin、Yen-Chen Lin、Yunhao Ge、Grace Lam、Percy Liang、Shuran Song、Ming-Yu Liu、Chelsea Finn、Jinwei Gu
+
+**机构**：NVIDIA、Stanford University
+
+**会议 / 期刊**：ICLR 2026
+
+**论文链接**：[arXiv](https://arxiv.org/abs/2601.16163)
+
+**代码链接**：[nvlabs/cosmos-policy](https://github.com/nvlabs/cosmos-policy)
+
+**项目主页**：[Cosmos Policy](https://research.nvidia.com/labs/cosmos-lab/cosmos-policy/)
+
+**模型与数据**：[Hugging Face collection](https://huggingface.co/collections/nvidia/cosmos-policy)
+
+<img
+  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-cosmos-policy/overview.7lkqe73l1z.webp'
+  alt='Cosmos Policy 论文 Figure 1：输入当前状态和任务描述，联合输出动作、未来状态和值'
+  class='zoomable'
+  width='1776'
+  height='494'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+### 一句话总结
+
+**【Paper】** Cosmos Policy 不再为动作另造 action head，而是把 proprioception、action chunk、未来图像和 value 都编码成 latent frame，插入 Cosmos-Predict2-2B 的原生视频扩散序列；一次微调同时得到直接策略、世界模型和值函数，再用 rollout 数据校准后进行 best-of-N 规划。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出 **latent frame injection**：不修改视频模型结构，只覆盖占位 latent frame，就能加入机器人状态、动作和值等新模态。
+2. 用一个统一扩散模型联合学习 $pi(a,s',V(s')\mid s)$、$p(s',V(s')\mid s,a)$ 和 $p(V(s')\mid s,a,s')$，避免多阶段训练与独立模块。
+3. 直接策略在 LIBERO 与 RoboCasa 达到 98.5% 和 67.1% 平均成功率，并在 ALOHA 双臂任务取得 93.6 平均完成度。
+4. 收集失败与成功的 rollout，微调 planning model，通过世界模型预测未来状态、value function 排序候选动作；困难 ALOHA 任务平均提升 12.5 个百分点。
+5. 公开训练、评测和部署代码，以及模型检查点和训练数据。
+
+## 2. 背景与相关工作
+
+**【Paper】** 视频生成模型从互联网视频中学习时间因果、隐式物理和运动模式，而典型 VLA 主要从静态图文对中学习语义。把视频模型迁移到机器人控制有潜力，但已有方法往往需要先微调视频、再训练 action module，或增加 inverse dynamics / action diffuser 等结构。
+
+论文将路线分成三类：
+
+- **Video-based policy**：利用视频先验预测未来画面，再由额外模块解码动作；优点是能利用时空知识，缺点是系统复杂。
+- **Unified video-action model**：动作和视频一起预测，但通常从头设计或训练，无法直接继承大规模视频模型权重。
+- **VLA**：视觉语言模型擅长开放词汇和指令跟随，却未必具备视频模型已经学到的细粒度动力学先验。
+
+**【Analysis】** Cosmos Policy 的关键取舍是“迁移学习算法本身，而不是只迁移特征”。它接受视频扩散模型擅长表示高维、多模态、时间相关分布这一事实，然后把机器人动作当成另一种“帧”来建模。
+
+## 3. 问题定义
+
+**【Paper】** 机器人任务被写成有限时域 MDP $⟨S,A,T,R,H⟩$。给定时刻 $t$ 的观测状态 $s_t$ 与语言任务描述，策略输出长度为 $K$ 的动作 chunk；执行后到达未来观测 $s'$，并以稀疏终端奖励计算 return。
+
+- **Observation**：多视角 RGB 图像、机器人 proprioception 和文本任务描述。
+- **Action**：连续动作序列 $a_{t:t+K-1}\in\mathbb{R}^{K\times d_{act}}$；不同 benchmark 的 $K$ 不同。
+- **Future state**：未来 proprioception 与各相机图像。论文为简洁称其为 state，但严格来说是 observation 近似。
+- **Value**：未来状态的期望累计回报，取 Monte Carlo return $G_t=\gamma^{H-t}R(s_H,a_H)$。
+- **Embodiment**：LIBERO 和 RoboCasa 中的单臂 Franka Emika Panda；真实环境使用双臂 ALOHA（两台 ViperX 300）。
+
+**【Code】** 官方仓库支持 `libero`、`robocasa`、`aloha` 三套评测。`cosmos_utils.py` 将相机、proprio 和语言 embedding 组织成模型序列，动作通过 `ACTION_DIM` 与配置中的 `chunk_size` 解码并反归一化。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+Cosmos-Predict2-2B 原本接收首帧和文本、生成视频。Cosmos Policy 保留其 Wan2.1 VAE tokenizer、EDM 风格 latent diffusion transformer 与 T5 文本条件，只在 latent 序列中插入新帧：
+
+![Cosmos Policy 的 latent frame injection：把动作、未来状态和值插入视频扩散序列（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-cosmos-policy/latent-injection.8dxlvxk6jh.webp)
+
+**【Paper】** 数据流可以概括为：当前观测 $s$ 和语言条件进入一串 clean latent frames，action、未来状态 $s'$ 与 value 的位置保留为待生成帧；扩散模型只对目标帧加噪并进行去噪，得到三类输出。
+
+**【Code】** ALOHA / RoboCasa 的默认 latent 顺序是 `[blank, current proprio, wrist image(s), third-person image(s), action, future proprio, future images, value]`；LIBERO 使用 9 个 latent frame，RoboCasa 与 ALOHA 使用 11 个。首个 blank frame 是 Wan2.1 的 `(1+T)` 时间压缩所需占位符。
+
+### 4.2 核心模块
+
+#### Latent frame injection
+
+- **输入**：已由 VAE 编码的图像 latent，以及归一化到 $[-1,1]$ 的 proprio、动作和值。
+- **输出**：形状不变但语义被覆盖的 latent 序列。
+- **做法**：将低维向量展平并重复，填满一个 $C'\times H'\times W'$ latent volume，覆盖对应 blank frame。
+- **为什么需要**：不增加网络输入输出头，扩散 transformer 仍只处理原生 latent token。
+
+**【Code】** `policy_text2world_model.py` 的 `replace_latent_with_action_chunk` 与 `replace_latent_with_proprio` 完成覆盖；推理时 `get_action` 对 action latent 求平均、恢复 chunk 形状，再做 unnormalize。value 是整个 latent volume 的均值，不需要 VAE 解码。
+
+#### 统一的 Policy / World Model / Value Function
+
+- **Policy 输入 / 输出**：$s\rightarrow(a,s',V(s'))$，以 demo 样本为主。
+- **World model 输入 / 输出**：$(s,a)\rightarrow(s',V(s'))$，用 rollout 样本学习环境后果。
+- **Value function 输入 / 输出**：$(s,a,s')\rightarrow V(s')$；微调 planning checkpoint 时可 mask 掉 $s,a$，变成真正的 $V(s')$。
+- **为什么联合训练**：未来状态和值提供辅助监督，使动作预测不只拟合瞬时控制量，还要与可达状态和任务完成度一致。
+
+**【Paper】** 初始训练 batch 按 50% policy、25% world model、25% value function 划分。三种任务使用同一套 latent 序列，只改变 clean conditioning mask 和 target mask。
+
+#### Diffusion sampler 与噪声分布
+
+**【Paper】** 基础 Cosmos-Predict2 的 log-normal 噪声对高 $σ$ 权重不足。Cosmos Policy 以 0.7 概率采样原 log-normal、以 0.3 概率从 $[1,85]$ 均匀采样；推理时令 $σ_{max}=80$、$σ_{min}=4$，避免接近零噪声的末端步骤降低精度。
+
+**【Code】** `HybridEDMSDE` 和 `CosmosPolicySampler` 实现混合噪声与去噪采样；动作、未来状态和值可以并行生成，也可按 action → future state → value 自回归生成。
+
+#### Best-of-N planning
+
+**【Paper】** planning model 对每个候选 action 采样 3 次未来状态、每个未来状态采样 5 次 value，共 15 个 value 预测；使用 `majority_mean`，先按阈值判断多数预测成功或失败，再在多数组内求均值，降低双峰分布中的离群值影响。
+
+### 4.3 关键公式
+
+#### 基础视频扩散目标
+
+Cosmos-Predict2 使用 EDM denoising score matching：
+
+$$
+\mathcal{L}_{EDM}=\mathbb{E}_{x_0,c,n,\sigma}\left[\|D_\theta(x_0+n;\sigma,c)-x_0\|_2^2\right]
+$$
+
+其中 $x_0$ 是 clean latent sequence，$c$ 是 T5 文本条件，$n\sim\mathcal{N}(0,\sigma^2I)$，$D_\theta$ 是 diffusion transformer。Cosmos Policy 只改变 $x_0$ 中部分 latent 的语义和 conditioning mask，核心损失仍是同一个去噪目标。
+
+#### 联合条件分布
+
+三种训练视图对应：
+
+$$
+\pi(a,s',V(s')\mid s),\qquad p(s',V(s')\mid s,a),\qquad p(V(s')\mid s,a,s').
+$$
+
+第一个学习直接动作策略，第二个学习动作造成的未来观测，第三个学习给定未来状态后的回报。输入 mask 决定哪些 latent 是条件、哪些 latent 是 target。
+
+#### Value target
+
+稀疏终端奖励下，样本 return 为：
+
+$$
+G_t=\gamma^{H-t}R(s_H,a_H),\qquad V^\pi(s_t)=\mathbb{E}_{\tau\sim\pi}[G_t].
+$$
+
+代码中 `compute_monte_carlo_returns` 为每个 transition 写入该 return，并把它复制到 value latent 的所有位置。
+
+#### Best-of-N 选择
+
+给定候选动作 ${ a^{(i)}}_{i=1}^N$，规划器选择：
+
+$$
+i^*=\arg\max_i\;\operatorname{Agg}_{j,k}V^{(i,j,k)}(s'^{(i,j)}),\qquad a^{*}=a^{(i^*)}.
+$$
+
+$j$ 索引未来状态 ensemble，$k$ 索引 value ensemble，`Agg` 是 majority-mean 而非简单平均。
+
+### 4.4 Training
+
+**【Paper】** 初始 post-training 只使用目标机器人上的 demonstration。LIBERO 过滤失败示教训练 policy，但保留全部示教训练 world model/value；RoboCasa 同样处理。后续 planning model 使用 648 条 rollout（包含来自不同策略的 rollout 及额外 ALOHA ziploc-bag rollout），并把 batch 比例改为 10% policy、45% world model、45% value。
+
+**【Code】** `LIBERODataset`、`RoboCasaDataset` 和 `ALOHADataSet` 负责 HDF5 读取、图像增强、动作/proprio 归一化、chunk padding 与 Monte Carlo return；`trainer.py` 通过 sample mask 选择三种 loss。
+
+**主要超参数（【Paper】）**：
+
+| Benchmark | 训练步数 | GPU / global batch |        action chunk | 执行策略             |
+| --------- | -------: | ------------------ | ------------------: | -------------------- |
+| LIBERO    |      40K | 64×H100 / 1920     |                  16 | 执行完整 chunk       |
+| RoboCasa  |      45K | 32×H100 / 800      |                  32 | 执行前 16 步后重查询 |
+| ALOHA     |      50K | 8×H100 / 200       | 50（25 Hz 下 2 秒） | 执行完整 chunk       |
+
+<Algorithm number={1} title='Cosmos Policy 联合训练' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>示教或 rollout 样本 (s, a, s′, G)，预训练 Cosmos-Predict2 checkpoint</div>
+  <div slot='output'>可生成动作、未来状态和值的 Cosmos Policy checkpoint</div>
+  <AlgorithmStep>
+    采样一个 batch，并按 50% / 25% / 25% 分配 policy、world model、value function 样本
+  </AlgorithmStep>
+  <AlgorithmStep>
+    将图像和 blank placeholder 编码为 latent frames，再注入 proprio、action chunk 与 return
+  </AlgorithmStep>
+  <AlgorithmStep>
+    按样本类型设置 conditioning mask，选择要预测的 action、future state 或 value latent
+  </AlgorithmStep>
+  <AlgorithmStep>
+    按混合噪声分布采样 σ 和 Gaussian noise，构造部分加噪 latent sequence
+  </AlgorithmStep>
+  <AlgorithmStep>
+    用 diffusion transformer 去噪，计算被 mask 目标帧上的 EDM loss，并更新全部模型权重
+  </AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 不做 planning 时使用并行解码：一次生成 action、future state、value，后两者可丢弃；LIBERO/RoboCasa 使用 5 个 denoising steps，ALOHA 使用 10 个。planning 时使用自回归解码，先产生动作，再预测未来状态和值。
+
+**【Code】** `get_action` 先把多相机图像 resize 到 224、读取 T5 embedding、注入 proprio 与图像；采样后从 action latent 恢复 chunk 并 unnormalize。planning 代码使用 N 个 GPU 并行执行候选分支，默认 real-world best-of-N 为 $N=8$。
+
+<Algorithm number={2} title='Best-of-N 模型式规划' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前观测 s、语言指令、policy model、rollout 微调后的 planning model</div>
+  <div slot='output'>要执行的 action chunk</div>
+  <AlgorithmStep>用 policy model 独立采样 N 个候选 action chunks</AlgorithmStep>
+  <AlgorithmStep>对每个候选 action，用 planning model 采样 3 个未来状态预测</AlgorithmStep>
+  <AlgorithmStep>
+    对每个未来状态采样 5 个 value，按 success threshold 做 majority-mean 聚合
+  </AlgorithmStep>
+  <AlgorithmStep>选择聚合 value 最高的候选，并执行完整 action chunk</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** 官方实现与论文的对应关系如下：
+
+| 论文概念         | 代码位置                                              | 实际行为                                         |
+| ---------------- | ----------------------------------------------------- | ------------------------------------------------ |
+| latent injection | `models/policy_text2world_model.py`                   | 用重复向量覆盖 action/proprio latent volume      |
+| 视频策略模型     | `models/policy_video2world_model.py`                  | 通过 mask 切换 policy/world/value 训练目标       |
+| 数据与 return    | `datasets/*_dataset.py`、`datasets/dataset_common.py` | 读取 HDF5、chunk padding、Monte Carlo return     |
+| 推理与解码       | `experiments/robot/cosmos_utils.py`                   | 图像预处理、采样、latent 解码和动作反归一化      |
+| 评测部署         | `experiments/robot/{libero,robocasa,aloha}`           | 三套 benchmark 的配置、环境和控制循环            |
+| 模型配置         | `cosmos_policy/config` 与各 experiment config         | `state_t`、相机数量、chunk size、denoising steps |
+
+**【Analysis】** 代码显示“无架构修改”并不意味着无需工程适配：每个 embodiment 都要定义 latent frame 顺序、相机数量、统计量、图像翻转/JPEG 处理和执行 horizon；真正复用的是 denoiser 和其采样机制。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+**【Paper】** LIBERO 包含 Spatial、Object、Goal、Long 四个 suite，每 suite 500 条示教；RoboCasa 有 24 个厨房任务，每任务仅使用 50 条人工示教；ALOHA 使用 4 个双臂任务、185 条示教，并测试 in-distribution 与 OOD 初始状态。
+
+![ALOHA 真实双臂任务的 Cosmos Policy rollout（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-cosmos-policy/aloha-results.7i14ghahla.webp)
+
+ALOHA 控制频率为 25 Hz，输入 14 维关节状态、一个 top-down 相机和两个 wrist 相机；动作 chunk 为 50 步。RoboCasa 每任务 50 trials、5 个场景、3 个随机种子；LIBERO 每 suite 500 trials、3 个种子。
+
+### 5.2 Main Results
+
+**【Paper】** 结果显示，Cosmos Policy 在不同数据规模和 embodiment 上都保持竞争力：
+
+| Benchmark        | Cosmos Policy |                      代表性对手 | 训练数据对比                   |
+| ---------------- | ------------: | ------------------------------: | ------------------------------ |
+| LIBERO 平均 SR   |     **98.5%** | CogVLA 97.4%、OpenVLA-OFT 97.1% | 4 个 suite，各 500 demos       |
+| RoboCasa 平均 SR |     **67.1%** | FLARE 66.4%、Video Policy 66.0% | 50 demos/task，而对手多为 300+ |
+| ALOHA 平均完成度 |      **93.6** |    π0.5 88.6、OpenVLA-OFT+ 62.0 | 185 demos，总计 101 trials     |
+
+LIBERO 的四个 suite 分别为 Spatial 98.1、Object 100.0、Goal 98.2、Long 97.6。**【Analysis】** Long suite 的高分说明 action chunk 与视频时空先验不仅改善短程抓取，也有助于长时序任务。
+
+![Cosmos Policy 与 VLA、Diffusion Policy 在 ALOHA 上的任务完成度（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-cosmos-policy/aloha-results.7i14ghahla.webp)
+
+论文还观察到：π0.5 在 ziploc bag 的高精度抓取上容易丢失滑块，OpenVLA-OFT+ 在多颗糖果任务中会落在两个目标之间。**【Analysis】** 这与 Cosmos Policy 直接建模连续多模态 action distribution 的设计相吻合，但仅凭这些案例不能推出对所有任务都优于 VLA。
+
+### 5.3 Ablation Study
+
+**【Paper】** LIBERO 消融：去掉 auxiliary targets，平均 SR 从 98.5 降到 97.0；从随机初始化训练，降到 94.6。RoboCasa 逐步移除 value/world-model 样本和 policy 的辅助目标后，只有 action 的 barebones policy 降到 44.4%。
+
+![联合训练的 50% / 25% / 25% balanced batches（论文 Figure 12）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-cosmos-policy/balanced-batches.2vfhfsby0j.webp)
+
+**【Analysis】** 消融把贡献拆成两层：预训练视频先验提供初始化，future state/value 辅助任务提供表征约束。RoboCasa 中从 67.1 降到 44.4 的大幅变化，说明未来状态预测比单纯增加一个 value head 更像是策略学习的关键正则。
+
+### 5.4 Generalization
+
+**【Paper】** ALOHA 同时评测训练分布内与 OOD 初始摆放。Cosmos Policy 在四任务平均分最高，并在“put candies in bowl”和“put candy in ziploc bag”这类多模态、毫米级精度任务上优势最明显。
+
+rollout 微调后的 planning model 能预测基础策略容易漏掉的失败，例如 ziploc bag slider 脱手。与无规划 policy 相比，模型式规划在两个困难任务上平均提升 12.5 分。
+
+![基础模型与 rollout 微调模型的规划结果对比（论文 Figure 7）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-cosmos-policy/planning-results.3gp5236f1i.webp)
+
+模型式 $V(s')$ 规划优于直接学习 $Q(s,a)$ 的 model-free 版本；论文将原因归因于世界模型提供的动力学结构，以及有限 rollout 数据下 Q 函数更容易过拟合。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** 有三条互相补强的路径：
+
+1. **视频先验**：Cosmos-Predict2 已在大规模视频中学习物体运动与时间一致性，微调不必从随机权重开始。
+2. **统一 latent 空间**：动作、proprio、图像和值共享 attention 与噪声建模，模型能把“动作是否会导致可达未来状态”纳入同一预测过程。
+3. **多模态采样**：扩散采样保留多个可行 action mode，避免 L1/L2 回归把不同抓取策略平均成一个不可执行动作。
+
+### 6.2 核心创新
+
+真正的新意不是“视频模型用于机器人”这一方向本身，而是把适配接口压缩成 **latent frame injection + mask**：新模态只需能归一化成向量、填入 latent volume，并定义其在序列中的位置，就可以复用同一 denoiser。这样 policy、world model 和 value function 不是三个网络，而是同一网络的三种条件化方式。
+
+### 6.3 与已有方法的本质区别
+
+| 维度         | 典型 VLA          | 视频策略 + 独立动作模块          | Cosmos Policy               |
+| ------------ | ----------------- | -------------------------------- | --------------------------- |
+| 预训练先验   | 静态图文语义      | 视频动力学，但常需多阶段         | 直接继承 Cosmos-Predict2    |
+| 动作输出     | token 或回归 head | 独立 diffuser / inverse dynamics | 原生 latent diffusion frame |
+| 世界模型和值 | 通常分开          | 多为额外模块                     | 同一模型、不同 mask         |
+| 规划         | 常无或外接        | 依赖额外接口                     | rollout 微调后 best-of-N    |
+| 主要代价     | 动作量化或均值化  | 系统复杂                         | 推理搜索延迟高              |
+
+### 6.4 关键假设
+
+- 目标机器人数据足以让视频模型理解新增 latent frame 的语义；论文没有证明跨 embodiment 零样本迁移。
+- 单个 action chunk 后的未来状态足以支持一层 best-of-N 搜索；更深树搜索未被验证。
+- rollout 的成功/失败标签和观测足够覆盖策略分布外的关键错误。
+- 对低维模态做重复填充不会损害 transformer 对其数值结构的读取；这是有效的工程编码，而非信息最优编码。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】**
+
+1. 模型式规划在 ALOHA 上生成一个 action chunk 约需 4.9 秒，难以应对快速动态任务。
+2. 准确的 planning model 需要相当数量的 rollout，少数据学习仍是开放问题。
+3. 当前只做一层 best-of-N，尚未扩展到更长预测 horizon 或更深搜索树。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+- 每种机器人都要重新定义 latent 顺序、相机预处理和数据统计，所谓“无架构修改”仍包含明显的 embodiment engineering。
+- future image 是高维生成目标，训练 loss 低并不等价于可用于控制的视觉预测准确；论文主要用任务成功率间接验证。
+- 规划使用固定 success threshold 和 majority-mean，面对奖励连续、风险敏感或长尾失败时可能不够校准。
+- 直接执行完整 action chunk 而不是 receding horizon，降低了搜索开销，却减少了中途纠错机会。
+- 训练与评测依赖大规模 H100 资源（LIBERO 64 张、RoboCasa 32 张），社区复现实验的硬件门槛较高；官方 README 的单 GPU 说明主要针对推理。
+
+## 8. 启发与研究思考
+
+**【Analysis】** 这篇工作给 Embodied AI 的启发可以概括为“把接口设计成数据，而不是模块”：
+
+1. **统一生成器的边界**：只要不同模态能被放进同一序列并定义清晰的 mask，策略、动力学和价值估计可以共享一个大模型；这为加入触觉、语言反馈或接触事件留下接口。
+2. **失败数据的价值**：示教主要告诉模型“怎么成功”，rollout 才能告诉世界模型“哪些动作会失败”。规划性能提升来自数据分布扩展，而不只是模型变大。
+3. **速度与质量的可调旋钮**：RoboCasa 一步 denoising 仍有 66.4% 成功率，说明采样步数、chunk 长度和搜索宽度可以按机器人控制频率折中。
+4. **下一步实验**：值得验证跨任务/跨 embodiment 的 latent schema 是否能共享、如何进行多步 imagination、如何用蒸馏或 consistency sampling 把 4.9 秒搜索压到实时范围。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示 NVIDIA 官方仓库实现，`【Analysis】`
+  表示基于论文和代码的分析推断。图床新图的自定义域名尚未刷新，因此正文使用对应的 GitHub Raw 200 状态
+  URL。
+</Aside>

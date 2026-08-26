@@ -79,7 +79,7 @@ Preferred candidates for new posts.
 |         2 | `70977889`  | `https://pic.hana0721.top/70977889_p0_master1200.9gx5x526gc.webp`  | `paper-reading-mllm2`, `paper-deep-dive-faster`                                 |
 |         2 | `71187447`  | `https://pic.hana0721.top/71187447_p0_master1200.13mdb6lism.webp`  | `galgame-1`, `paper-deep-dive-dreamzero`                                        |
 |         2 | `71875434`  | `https://pic.hana0721.top/71875434_p0_master1200.7pvvr603z.webp`   | `paper-reading-umllm1`, `paper-deep-dive-warp-rm`                               |
-|         1 | `90399055`  | `https://pic.hana0721.top/90399055_p0_master1200.4g535npbv6.webp`  | `rl-note-21`                                                                    |
+|         2 | `90399055`  | `https://pic.hana0721.top/90399055_p0_master1200.4g535npbv6.webp`  | `rl-note-21`, `paper-deep-dive-internvla-a1`, `paper-deep-dive-cosmos-policy`   |
 |         2 | `91341540`  | `https://pic.hana0721.top/91341540_p0_master1200.7pw5duffp.webp`   | `rustdesk-cli-server-setup`, `paper-deep-dive-dreamvla`                         |
 |         1 | `92079701`  | `https://pic.hana0721.top/92079701_p0_master1200.64eg2t4l77.webp`  | `rl-note-15`                                                                    |
 |         1 | `93990522`  | `https://pic.hana0721.top/93990522_p0_master1200.et40soxif.webp`   | `scp-upload-to-server`                                                          |
