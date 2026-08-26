@@ -31,7 +31,7 @@ Use only after the count-1 pool is exhausted.
 |         2 | `67997247`  | `https://pic.hana0721.top/67997247_p0_master1200.6po3p2g2e0.webp`  | `paper-deep-dive-act`, `paper-reading-eba4`                                                             |
 |         3 | `70217040`  | `https://pic.hana0721.top/70217040_p0_master1200.77e5dp0f1s.webp`  | `rl-note-4`, `robotic-grasp-detection-3`, `paper-deep-dive-helix`                                       |
 |         3 | `71849616`  | `https://pic.hana0721.top/71849616_p0.1sfmv9l9of.webp`             | `rl-note-5`, `robotic-grasp-detection-4`, `paper-deep-dive-mask-world-model`                            |
-|         2 | `72072963`  | `https://pic.hana0721.top/72072963_p0_master1200.mo0d1wsi.webp`    | `rl-note-6`, `robotic-grasp-detection-5`                                                                |
+|         3 | `72072963`  | `https://pic.hana0721.top/72072963_p0_master1200.mo0d1wsi.webp`    | `rl-note-6`, `robotic-grasp-detection-5`, `paper-deep-dive-dust`                                        |
 |         2 | `72300463`  | `https://pic.hana0721.top/72300463_p0_master1200.83amt5a3ia.webp`  | `rl-note-7`, `robotic-grasp-detection-6`                                                                |
 |         2 | `74378589`  | `https://pic.hana0721.top/74378589_p0_master1200.5j4sgia4w5.webp`  | `rl-note-8`, `robotic-grasp-detection-7`                                                                |
 |         2 | `74502138`  | `https://pic.hana0721.top/74502138_p0_master1200.7i0z6ufn7r.webp`  | `rl-note-9`, `robotic-grasp-detection-8`                                                                |
