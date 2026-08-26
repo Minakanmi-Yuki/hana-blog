@@ -223,6 +223,8 @@ $$
 | 去掉 frame-level condition | 122.7 | 179.1 | action 与视觉帧失去精确对齐 |
 | 去掉 joint prediction | — | 158.1 | wrist 与其他视角不能联合约束 |
 
+![Ctrl-World controllability ablation from paper Figure 4](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ctrl-world/controllability-ablation.13mikwd3df.webp)
+
 **【Paper】** Figure 4 还显示，即使 action 只相差几厘米，完整模型也能生成不同的未来；去掉 memory 后预测变模糊，去掉逐帧 pose condition 后控制精度下降。由此可见，三项模块分别负责“找回过去”“对齐动作”和“跨视角补足信息”，不是重复的正则化技巧。
 
 ### 5.4 Generalization
