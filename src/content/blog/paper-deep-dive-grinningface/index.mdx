@@ -1,0 +1,312 @@
+---
+title: 'What Do VLAs Actually Inherit from VLMs? 论文精读'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 GrinningFace：用 emoji 桌面操作任务拆分 VLA 的执行能力与 VLM 视觉语义先验，比较 LoRA、冻结 VLM、协同训练、离散动作和 latent action。'
+heroImage:
+  { src: 'https://pic.hana0721.top/99749488_p0_master1200.83an1pr7zr.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '99749488'
+tags:
+  - 'paper deep dive'
+  - 'VLA'
+  - 'VLM knowledge transfer'
+  - 'robotic benchmark'
+paper:
+  arxivId: '2511.06619'
+  title: 'What Do VLAs Actually Inherit from VLMs?'
+  authors:
+    - 'Chuheng Zhang'
+    - 'Rushuai Yang'
+    - 'Xiaoyu Chen'
+    - 'Kaixin Wang'
+    - 'Li Zhao'
+    - 'Yi Chen'
+    - 'Jiang Bian'
+  venue: 'arXiv 预印本'
+  year: 2025
+  code: 'https://github.com/zhangchuheng123/GrinningFace'
+  project: ''
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2511.06619'
+  tldr='GrinningFace 用训练集中从未出现的 emoji 测量 VLA 是否真正保留并激活 VLM 的视觉语义先验，并发现协同训练与 latent action 比单纯 LoRA 更有希望。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《What Do VLAs Actually Inherit from VLMs?》
+
+**作者**：Chuheng Zhang、Rushuai Yang、Xiaoyu Chen、Kaixin Wang、Li Zhao、Yi Chen、Jiang Bian
+
+**机构**：Microsoft Research、香港科技大学、清华大学
+
+**会议 / 期刊**：arXiv 预印本（2025）
+
+**论文链接**：[arXiv](https://arxiv.org/abs/2511.06619)
+
+**代码链接**：[GrinningFace](https://github.com/zhangchuheng123/GrinningFace)
+
+![GrinningFace 任务总览：机器人把方块放到语言指定的 emoji 卡片上（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-grinningface/grinningface.2h91oye4e0.webp)
+
+### 一句话总结
+
+**【Paper】** 本文提出 GrinningFace，一个执行动作很简单、但视觉语义泛化很难的 emoji 桌面操作基准：机器人要从三张卡片中找出语言指令对应的 emoji，并把方块放上去。它用来诊断 VLA 是否继承了 VLM 的开放世界知识，而不是只记住机器人训练数据。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出一个最小、可复现的 VLA 知识迁移探针，把执行（能否完成 pick-and-place）与识别（是否选对 emoji）分离。
+2. 在 ManiSkill3 仿真和 Realman RM75 真实机器人上，统一比较多种 VLA 预训练和微调策略。
+3. 发现“从 VLM 初始化”并不自动等于知识迁移；全参数微调会遗忘先验，单调 action head 又会欠拟合。
+4. 协同训练（co-training）、联合预测 latent action，以及更丰富的机器人预训练数据，能更好地保留或激活 VLM 先验。
+
+## 2. 背景与相关工作
+
+**【Paper】** VLA 的主流做法是把预训练 VLM 接上 action expert，再用机器人轨迹训练低层控制。VLM 带来开放词汇识别和语言语义，机器人数据带来关节控制与接触动力学；问题在于，后续训练可能让 VLM 忘掉原有知识（catastrophic forgetting）。
+
+已有路线大致分为四类：
+
+- **Co-training**：把 VQA、caption、检测等视觉语言任务和机器人数据混合训练，持续提供语义梯度。
+- **Parameter-efficient fine-tuning**：用 LoRA 或只训练 action expert，限制对 VLM backbone 的改动。
+- **结构化 action target**：把连续动作离散化，或额外预测 latent action，使视觉语言模块面对更高层的监督。
+- **扩大预训练数据**：用 OXE 等多数据集混合物学习更通用的 tabletop 视觉与动作模式。
+
+**【Analysis】** 这些方法在不同论文、不同机器人和不同 benchmark 上报告，分数很难横向解释。GrinningFace 的价值在于把“会动”和“看懂指令”变成两个可测量的因子。
+
+## 3. 问题定义
+
+### 3.1 GrinningFace 仿真任务
+
+**【Paper】** 场景中放置一个蓝色方块和三张 emoji 卡片。指令模板是 `Pick the cube and place it on [desc.]`，其中 `[desc.]` 是由 VLM 重新标注并过滤后的 emoji 描述。emoji 被划分为 100 个训练符号和 100 个验证符号，微调数据包含 500 条规则策略轨迹。
+
+每次评估从三种协议中选一种，每种 100 条试验：
+
+| 协议 | emoji 来源 | 测量重点 |
+| --- | --- | --- |
+| `ID` | 训练轨迹中出现过的组合 | 组合记忆与执行 |
+| `Train` | 训练 emoji，但组合可未出现 | 训练词汇内组合泛化 |
+| `Val` | 完全未参与微调的验证 emoji | VLM 先验迁移 |
+
+### 3.2 两个成功率
+
+**【Paper】** 记录总体成功率和执行成功率，再计算识别成功率：
+
+$$
+\mathrm{overall\ SR}=\mathrm{execution\ SR}\times\mathrm{recognition\ SR}.
+$$
+
+执行成功表示方块被抓起并放到任意卡片上；识别成功表示选择了正确卡片。因为动作本身只是简单搬运，`Val` 上的识别率主要反映 VLM 视觉语义知识是否存活。
+
+### 3.3 真实机器人
+
+**【Paper】** 真实实验把任务进一步简化为 `Touch [desc.]`：末端移动到目标 emoji 上方并闭合夹爪。使用同一训练/验证 emoji 集合，在 Realman RM75 机械臂和 Inspire gripper 上进行 30 次验证试验。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+**【Paper】** 所有变体都建立在 `π₀`-style VLA 上：PaliGemma 负责视觉语言表征，SigLIP 负责图像编码，action expert 输出连续的机器人动作。训练时输入场景图像、本体感知和文本指令，输出末端位姿/夹爪动作；推理时只保留动作预测路径。
+
+### 4.2 核心模块
+
+#### VLM backbone 与视觉输入
+
+- **输入**：224×224 RGB 主视角图像、7 维 proprioception、文本指令。
+- **输出**：供 action expert 使用的多模态 token。
+- **作用**：PaliGemma/SigLIP 提供 emoji 识别、语言理解与场景视觉特征。
+
+**【Code】** `inference_widowx_v8.py` 将渲染图从 `H×W×3` 转为 `B×C×H×W`，resize 到 224×224，并把 proprio reshape 成 `[B,T,7]`；环境默认注册为 `PickCubeWidowX-v8`。
+
+#### Action expert
+
+- **输入**：融合后的视觉语言 token 与 proprioception。
+- **输出**：连续低维动作，控制 `pd_ee_target_delta_pose`。
+- **作用**：学习抓取、抬升、移动到卡片和释放四个运动阶段。
+
+**【Paper】** 论文统一使用 `π₀`-style 代码库和 OXE magic-soup 预训练，默认预训练 80k steps、微调 30k steps，batch size 为 1024，使用 8 张 Nvidia A100。
+
+#### 训练策略变体
+
+1. **Full fine-tuning**：更新全部 VLA 参数，适应最快，但最容易遗忘 VLM 先验。
+2. **LoRA fine-tuning**：只在 backbone 插入低秩适配器，限制参数漂移。
+3. **Action expert only**：冻结视觉语言部分，只训练动作头，作为先验保留的强探针。
+4. **Freezing VLM**：直接从 VLM 或 LoRA 预训练 VLA 微调，最大限度保留语义能力。
+5. **Co-training**：在机器人任务外加入 emoji 问答；论文比较原始 emoji 问答和桌面场景内识别两种版本。
+6. **Discretized action**：把每个连续动作维度量化为 256 个 bin，并复用 VLM 的最后 256 个 token。
+7. **Latent action**：在机器人动作之外增加 latent action 预测目标，给模型一个高层运动监督。
+
+### 4.3 关键公式
+
+#### 成功率分解
+
+$$
+S_{\mathrm{overall}}=S_{\mathrm{exe}}\cdot S_{\mathrm{rec}}.
+$$
+
+其中 $S_{\mathrm{exe}}$ 是方块是否被成功搬运到某张卡片，$S_{\mathrm{rec}}$ 是三选一是否命中目标。该分解假设二者近似独立；论文用实验记录的总体率和执行率反推识别率。
+
+#### 连续与离散动作目标
+
+连续策略直接回归 $a_t\in\mathbb{R}^d$；离散变体把每个维度映射到 $b_t\in\{1,\ldots,256\}$。量化误差会影响末端位姿精度，因此离散化并不必然带来更好的知识保留。
+
+#### Latent action 多任务目标
+
+可将训练目标写作：
+
+$$
+\mathcal{L}=\mathcal{L}_{\mathrm{robot}}+\lambda\mathcal{L}_{\mathrm{latent}},
+$$
+
+其中 $\mathcal{L}_{\mathrm{robot}}$ 监督低层机器人动作，$\mathcal{L}_{\mathrm{latent}}$ 监督由轨迹抽取的高层 latent action，$\lambda$ 控制两者权重。论文未公开所有实现超参数，但实验证明附加高层目标有助于识别泛化。
+
+### 4.4 Training
+
+**【Paper】** 默认在 OXE magic-soup 的 913k 条轨迹上预训练，再用 500 条 GrinningFace 轨迹微调。检查点在 5k、10k、20k、30k steps 比较，并选择 `Val` 总体成功率最高者。基线采用连续动作；离散、co-training、latent action 是替代训练目标或数据配方。
+
+<Algorithm number={1} title='GrinningFace VLA 训练' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>机器人预训练轨迹、emoji 微调轨迹、VLM 初始化参数</div>
+  <div slot='output'>可执行 pick-and-place 的 VLA checkpoint</div>
+  <AlgorithmStep>从 OXE 或指定数据混合物采样图像、指令、proprioception 与动作。</AlgorithmStep>
+  <AlgorithmStep>根据变体选择连续动作、256-bin 离散动作、co-training 或 latent action 目标。</AlgorithmStep>
+  <AlgorithmStep>计算机器人动作损失及可选的视觉语言/latent action 辅助损失。</AlgorithmStep>
+  <AlgorithmStep>按 full、LoRA、action expert-only 或 frozen VLM 策略更新参数。</AlgorithmStep>
+  <AlgorithmStep>在 5k/10k/20k/30k 微调步保存 checkpoint，并以 `Val` overall SR 选最优模型。</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Code】** 仿真推理器每一步读取渲染图、proprio 和任务描述，通过 `agent.inference` 得到动作，再调用 `env.step`。episode 结束后记录 `success`、`is_obj_placed`、`is_grasped`、三张卡片描述和目标 id。
+
+<Algorithm number={2} title='GrinningFace 推理与评估' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前 RGB 图像、7 维 proprioception、`Pick the cube and place it on [desc.]`</div>
+  <div slot='output'>连续动作序列、执行成功率与识别成功率</div>
+  <AlgorithmStep>环境随机化方块、卡片、机械臂初始位置，并从 `train` 或 `val` emoji 集合采样三张卡。</AlgorithmStep>
+  <AlgorithmStep>把图像 resize 到 224×224，与 proprio 和文本一起送入 VLA。</AlgorithmStep>
+  <AlgorithmStep>执行预测动作，直到方块放置成功或达到 200 步上限。</AlgorithmStep>
+  <AlgorithmStep>判断是否完成搬运，再检查目标卡片是否正确，分别累计 execution SR 与 recognition SR。</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** 官方仓库当前 README 明确说明代码发布仍是 placeholder，但已包含可运行骨架：
+
+| 论文概念 | 代码位置 | 实现观察 |
+| --- | --- | --- |
+| ManiSkill3 环境 | `GrinningFace/env_widowx_v8.py` | 注册 `PickCubeWidowX-v8`，三张卡、蓝色方块、WidowX250S |
+| WidowX 控制器 | `GrinningFace/widowx_v1.py` | 6 个 arm joints + 2 个 gripper joints，PD EE pose controller |
+| 规则数据采集 | `generate_touchsim_dataset_widowx_v8.py` | 50/5/20/50 步分阶段抓取、抬升、移动、释放，目标为 500 条轨迹 |
+| 推理评估 | `inference_widowx_v8.py` | 224×224 图像、proprio 与 instruction 输入，保存每 episode 指标 |
+| 训练主干 | 未提供 | 论文中的 `π₀`-style 训练代码尚未在此仓库完整公开 |
+
+**【Analysis】** 因此，论文中的 80k/30k steps、各策略损失和实验数字应视为论文事实，不能误写成已在该 GitHub 仓库中逐行复现的行为。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+**【Paper】** 仿真使用 ManiSkill3，视角尽量对齐 Bridge-v2；默认机器人是 WidowX250S。每种协议 100 次试验，重复种子实验显示 `Val` execution SR 的标准差约 1.0 个百分点、recognition SR 约 1.5 个百分点。
+
+![不同 VLA 训练数据集（OXE、Bridge、OXE-Bridge）的比较（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-grinningface/datasets.wjaphgwuz.webp)
+
+真实机器人使用 RM75 + Inspire gripper，验证集上每个变体 30 次试验；除直接微调 VLM 使用 20k steps 外，其余使用 5k steps。
+
+### 5.2 Main Results
+
+![不同预训练与微调策略在 GrinningFace 上的结果（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-grinningface/variants.362b8z1nfv.webp)
+
+**【Paper】** 主要趋势如下：
+
+- 基线 VLA 在 `Val` 上执行率高、识别率低，说明它会搬运但不一定读懂新 emoji。
+- LoRA 比 full fine-tuning 略能保留识别率，但提升有限；只训练 action expert 在 ID 场景也会欠拟合。
+- 冻结 VLM 或从 LoRA 预训练 VLA 出发，识别率可超过 90%，但需要约 20k steps 才学会简单搬运，适应速度慢。
+- co-training 只有在“桌面场景中识别 emoji”的任务设计下明显有效；只问原始 emoji `what's in the image` 并没有带来同等收益。
+- 离散动作同时损害执行率和识别率，量化误差并未换来更好的先验保留。
+- latent action 联合目标带来更好的识别率，是最有希望的结构化监督之一。
+
+### 5.3 Ablation Study
+
+数据集消融表明，预训练数据既影响动作适应，也影响先验激活：Bridge-v2 与目标视角一致时优于 OXE-Bridge，而完整 OXE 的多样性又优于单一 Bridge。只训练 action expert 对不同预训练数据最敏感，因此可作为比较预训练质量的探针。
+
+**【Paper】** 真实机器人结果（30 次）为：
+
+| 方法 | Exe. SR | Rec. SR |
+| --- | ---: | ---: |
+| Baseline | 30/30 | 11/30 |
+| Freezing VLM | 28/30 | 20/28 |
+| Co-training | 30/30 | 26/30 |
+| Discretized action | 30/30 | 10/30 |
+| Latent action | 30/30 | 24/30 |
+
+### 5.4 Generalization
+
+**【Paper】** 论文先验证 VLM 确实能识别 emoji：对 `Train`、`Val`、`Hard` 的描述匹配准确率分别为 90%、89%、85%；OXE 任务描述中出现的 emoji 概念少于 5%。因此 `Val` 识别率可以合理地视为 VLM 先验迁移的代理，而不是机器人数据记忆。
+
+注意力可视化显示：VLM 能关注目标 emoji 但较分散；VLA 预训练后更关注夹爪、方块和卡片等操作相关物体；微调后对正确 emoji 的注意力更集中、对干扰卡片更少。
+
+![VLM、预训练 VLA 与微调 VLA 的 emoji 注意力图（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-grinningface/attention.1zj00dcqot.webp)
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** GrinningFace 把视觉语义和运动控制放在同一条因果链上：VLM 提供“这张卡是什么”，VLA 预训练把视觉特征变成 tabletop 可用的表示，微调再学习“如何抓和放”。如果只做最后一步，全参数更新会覆盖前两步；如果完全冻结，又缺少把语义落到机械臂动作的适配能力。co-training 和 latent action 的共同点，是在低层动作梯度之外持续提供结构化语义/运动约束。
+
+### 6.2 核心创新
+
+1. **诊断性而非竞赛性 benchmark**：用简单执行隔离复杂识别，避免总成功率掩盖先验遗忘。
+2. **统一控制变量**：同一 `π₀`-style backbone、同一微调数据和评估协议比较策略。
+3. **把“继承多少”变成可测量量**：`Val` recognition SR 直接刻画未见 emoji 的语义迁移。
+4. **横向比较训练目标**：LoRA、冻结、co-training、离散 action、latent action 和数据多样性被放进同一实验框架。
+
+### 6.3 与已有方法的本质区别
+
+**【Analysis】** 传统 LIBERO、CALVIN 等 benchmark 的分数同时受物体识别、轨迹规划、接触控制和场景记忆影响，很难知道失败来自哪里。GrinningFace 故意把动作设计成几乎所有现代 VLA 都能学会的 pick-and-place，把主要难点移到“看懂一个机器人数据里没出现过的 emoji”。
+
+### 6.4 关键假设
+
+- emoji 图像在 VLM 互联网预训练中常见、在机器人轨迹中稀少。
+- 执行与识别可以用乘法近似分解。
+- 训练和验证 emoji 的描述与 VLM 的语义理解一致。
+- 100 次仿真试验足以稳定估计每种协议的成功率。
+
+**【Analysis】** 这些假设让 benchmark 很干净，但也意味着它更像“先验保留探针”，不能覆盖三维几何、长时序规划或真实接触失败的全部问题。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 当前任务只要求简单 pick-and-place，不能证明某种策略能扩展到复杂 motor skills；co-training 只覆盖与 emoji 识别相关的简化视觉语言任务；latent action 的具体构造与尺度仍有进一步研究空间。官方代码仓库也仍处于 placeholder 发布阶段。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+1. 识别率是由总体率和执行率反推的，乘法分解的独立性并未被严格检验。
+2. 只使用 100 个验证 emoji，且描述经过 VLM 重标注与过滤，可能高估了模型熟悉度。
+3. 真实机器人只有 30 次试验，足以看趋势但不适合精细比较小幅差异。
+4. 论文没有公开完整训练实现，读者难以复现实验中所有策略和超参数。
+5. 注意力图是相关性证据，不等价于因果解释；更集中不一定意味着真正的语义推理。
+
+## 8. 启发与研究思考
+
+**【Analysis】** 这篇论文最重要的启发不是“某个技巧赢了”，而是 VLA 评测应该问两个不同问题：模型是否保留了世界知识，以及模型是否能把知识转成动作。未来可以沿着三条线推进：
+
+1. **更系统的语义探针**：从 emoji 扩展到品牌、符号、文化对象和组合概念，并控制图像出现频率。
+2. **显式的层级监督**：把 latent action、语言解释、目标定位和动作 chunk 联合起来，减少低层梯度对 VLM 的覆盖。
+3. **持续学习式 VLA**：在扩大机器人数据规模的同时加入 representation retention、VLM replay 或冻结/解冻策略，监控先验随训练的变化。
+
+如果一个 VLA 在简单的三选一 emoji 任务上都无法识别未见符号，那么在开放世界家庭环境中声称“继承了 VLM 知识”就需要更加谨慎。GrinningFace 提供了一个成本很低、解释性很强的 sanity check。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。
+</Aside>
