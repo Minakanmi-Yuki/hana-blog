@@ -1,0 +1,303 @@
+---
+title: 'RoboChallenge 论文精读：用远端机器人做大规模 VLA 真实评测'
+publishDate: 2026-08-27
+updatedDate: 2026-08-27
+description: '精读 RoboChallenge：以远端机器人、视觉任务复现和 Table30，探索可扩展、可复现的真实机器人 VLA 评测。'
+heroImage:
+  { src: 'https://pic.hana0721.top/101003773_p0_master1200.3uvfruqg2c.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '101003773'
+tags:
+  - 'paper deep dive'
+  - 'robot evaluation'
+  - 'VLA'
+  - 'benchmark'
+  - 'real robot'
+paper:
+  arxivId: '2510.17950'
+  title: 'RoboChallenge: Large-scale Real-robot Evaluation of Embodied Policies'
+  authors:
+    - 'Adina Yakefu'
+    - 'Bin Xie'
+    - 'Chongyang Xu'
+    - 'Enwen Zhang'
+    - 'Erjin Zhou'
+    - 'Fan Jia'
+    - 'Haitao Yang'
+    - 'Haoqiang Fan'
+    - 'Haowei Zhang'
+    - 'Hongyang Peng'
+    - 'Jing Tan'
+    - 'Junwen Huang'
+    - 'Kai Liu'
+    - 'Kaixin Liu'
+    - 'Kefan Gu'
+    - 'Qinglun Zhang'
+    - 'Ruitao Zhang'
+    - 'Saike Huang'
+    - 'Shen Cheng'
+    - 'Shuaicheng Liu'
+    - 'Tiancai Wang'
+    - 'Tiezhen Wang'
+    - 'Wei Sun'
+    - 'Wenbin Tang'
+    - 'Yajun Wei'
+    - 'Yang Chen'
+    - 'Youqiang Gui'
+    - 'Yucheng Zhao'
+    - 'Yunchao Ma'
+    - 'Yunfei Wei'
+    - 'Yunhuan Yang'
+    - 'Yutong Guo'
+    - 'Ze Chen'
+    - 'Zhengyuan Du'
+    - 'Ziheng Zhang'
+    - 'Ziming Liu'
+    - 'Ziwei Yan'
+  venue: 'arXiv'
+  year: 2025
+  code: 'https://github.com/RoboChallenge/RoboChallengeInference'
+  project: 'https://robochallenge.ai/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2510.17950'
+  tldr='RoboChallenge 不替参赛者部署模型，而是把真实机器人以低层异步 API 暴露给用户，并以视觉复现协议和 Table30 让 VLA 的真实执行评测更可比。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**【Paper】** RoboChallenge 关注的不是提出一个新的 Vision-Language-Action（VLA）policy，而是回答一个更基础的问题：当要在许多真实机器人、任务和候选模型上做评测时，如何兼顾可扩展性、可复现性与对不同控制范式的兼容性。论文给出在线真实机器人基础设施，并以 30 个桌面及桌边任务组成 Table30 初始 benchmark。
+
+### 一句话总结
+
+**【Analysis】** 它把评测接口从「主办方运行你的模型」翻转为「你的程序远程读取机器人状态、再把动作放进队列」；随后用图像对齐来约束人类 reset 的初始状态。前者减少部署摩擦，后者针对真实机器人基准中最隐蔽、也最容易扭曲排名的变量。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出 **remote robot** 范式：模型与推理代码始终运行在参赛者一侧，平台提供带时间戳的观测、动作队列与调度 API。
+2. 建设包含 UR5、Franka Panda、Cobot Magic ALOHA、ARX-5 四类机器人的初始 10 台机器人 fleet，并提供多路 RealSense RGB-D 传感器。
+3. 提出 Visual Task Reproduction：让测试员把实时相机画面与留出的参考首帧对齐，降低 reset 分布和测试员策略对结果的影响。
+4. 发布 Table30：用 Success Rate（SR）和 Progress Score 区分「最终完成」与「已取得多少有效进展」，并报告五个已公开配置的基线结果。
+
+**【Code】** 官方仓库 [RoboChallengeInference](https://github.com/RoboChallenge/RoboChallengeInference) 是参赛端示例、客户端与 mock server；它不包含论文中 $\pi_0$、$\pi_{0.5}$、CogACT 或 OpenVLA/OFT 的训练实现和 checkpoint。因此，本文对代码的讨论限定为评测通信与执行循环。
+
+## 2. 背景与相关工作
+
+**【Paper】** 模拟器 benchmark 覆盖范围大、成本低，但数字孪生无法穷尽现实中的相机漂移、接触、道具差异和人类布置误差。真实机器评测不可省略，然而常见的三种提交方式各有缺陷：提交 checkpoint / model files 会遇到 CUDA、框架与硬件不匹配；提交 Docker image 仍难调试；由评测端调用参赛者线上 Model API 则要求用户有稳定公网入口，并天然偏向「停机—推理—执行」循环。
+
+**【Paper】** 论文特别指出 Real-Time Action Chunking 一类方法需要知道观测精确时间与动作排队状态，不能被简化为一个同步的 observation-to-action RPC。RoboChallenge 的目标因此不是仅托管若干任务，而是提供可让不同推理节奏和 temporal alignment 策略接入的真实机器低层接口。
+
+**【Analysis】** 这与只比较固定 policy checkpoint 的 benchmark 有本质差异：RoboChallenge 的比较单位是「一个声明的模型与其运行时控制系统」。它获得了实现自由度，也把模型声明是否诚实的问题留给了协议与社区治理。
+
+## 3. 问题定义
+
+**【Paper】** 对一个任务 $\mathcal T$、参赛者控制程序 $\pi$ 与真实机器人 $R$，系统在时刻 $t$ 返回观测：
+
+$$
+o_t=\{I_t^{(1)},\ldots,I_t^{(V)}, q_t, t_{\rm robot}, n_t\},
+$$
+
+其中 $I_t^{(v)}$ 是一个或多个 RGB / depth 相机流，$q_t$ 是与所选 action mode 对应的机器人状态，$t_{\rm robot}$ 是平台时间戳，$n_t$ 是尚待执行的动作数。参赛程序可在自己的机器上计算动作序列 $A_t=\pi(o_t,\mathcal T)$，连同每个动作的 duration 投递到 FIFO action queue；机器人按队列顺序执行。
+
+**【Paper】** 评测目标不是让所有模型共享某种 action representation。论文的平台支持 joint 或 end-point / position 控制；单臂或双臂的可用相机与动作维度随机器人而定。输入输出的契约是「状态—动作队列」，而不是某个 VLA 的 token format。
+
+| 要素 | RoboChallenge 的定义 |
+| --- | --- |
+| 观测 | 带时间戳的 RGB、depth、proprioception；代码示例以 pickle 字典返回 |
+| 控制 | joint 或 position，支持 left / right / 双臂等 mode |
+| 时序 | 独立 capture 与 action submission；客户端可以查看 pending queue |
+| 执行端 | 用户本地 GPU 与模型；平台侧只运行机器人与测试 harness |
+| 评测输出 | 每个 task 的 SR、Progress Score、视频与记录 |
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![RoboChallenge 远端机器人接口与异步观测、动作队列（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-robochallenge/remote-robot-api-crop.45iemgxa5j.webp)
+
+**【Paper】** RoboChallenge Site 集中托管真实机器人、相机与 action queue；Challenge Participant 在任意地点运行自己的 Transformer / policy，通过 API 拉取 observation、提交 action。平台不交换 Docker 镜像或 checkpoint，只承诺观测和队列的时序接口。
+
+### 4.2 核心模块
+
+#### Remote robot API
+
+**【Paper】** 用户可发 capture request 得到 RGB、depth 与 proprioception，并把带 duration 的动作送入 FIFO 队列。已经提交的动作不可撤回；平台同时返回当前队列长度，使用户可以自行实现同步控制、temporal alignment 或 action ensembling。
+
+**【Code】** `robot/interface_client.py` 的 `get_state()` 请求 `state.pkl`，发送图像尺寸、`image_type` 和 `action_type`；`post_actions()` 将 `actions` 与 `duration` POST 到 `/action`。客户端先做 10 次 `/clock-sync` 采样，以两程时间的中点估计并平均 clock offset。每次动作提交会携带随机 hash，最多重试 5 次。
+
+#### 机器人与传感器
+
+**【Paper】** 初始 fleet 含 UR5（6-DoF + Robotiq gripper）、Franka Panda（7-DoF，替换为 Robotiq gripper）、双 6-DoF 的 Cobot Magic ALOHA，以及桌面 ARX-5。论文列出选型约束：持续运行的耐久性、研究社区普及度、安全性，以及最高 100 Hz cyclic position control 与毫米级 repeatability。每台机器配有多台 RealSense RGB-D 相机，通常包括俯视主相机、腕部相机，单臂设置另有侧相机。
+
+**【Code】** README 指定 `left_hand`、`right_hand`、`high` 为状态请求的相机位置；mock server 根据 `joint` / `pos` 与 left/right 前缀校验动作长度。它是本地调试用的仿真接口，不是平台真实机器人驱动。
+
+#### Visual Task Reproduction
+
+![Visual Task Reproduction：测试员以参考画面叠加实时相机来复现任务初始状态（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-robochallenge/visual-task-reproduction-crop.362b9auj2m.webp)
+
+**【Paper】** 人类测试员本身会造成很大方差：熟悉演示分布的人、第一次读任务说明的人、以及有动力为某个模型寻找「sweet spot」的人，会摆出不同的初始物体位置。平台从 demonstration 中抽取并留出 reference episodes；每次 rollout 将其中的首帧叠到实时预览上，测试员据此移动道具并检查桌面等因素。作者称之为 controlled tester，经验上其稳定性优于仅依赖「经验测试员」。
+
+**【Analysis】** 它约束的是视觉输入而非物体的精确三维 pose。这很贴近 VLA 实际接收的信号，也避免了额外动作捕捉系统；但相机画面相似不必然代表遮挡、摩擦、物体重量或深度完全等价。
+
+### 4.3 关键公式
+
+**【Paper】** Table30 把每个任务分为若干 stage，并令每个 stage 有 progress points $p_k$。第 $r$ 次 rollout 的未归一化进度可概括为：
+
+$$
+P_r=\sum_{k\in\mathcal C_r}p_k-0.5\,n_r,
+$$
+
+其中 $\mathcal C_r$ 是完成的 stages，$n_r$ 是 retry 次数。一个 stage 的 progress 若已降至负值，或连续失败 retry 超过 4 次，则该 rollout 被提前终止。论文将每个 rollout 的总 progress points 设为 10，每个 task 执行 10 次，故 task-level Progress Score 的满分为：
+
+$$
+\mathrm{PS}(\mathcal T)=\sum_{r=1}^{10}P_r\le 100.
+$$
+
+**【Paper】** Success Rate 则只衡量最终是否完成关键 stages：
+
+$$
+\mathrm{SR}(\mathcal T)=\frac1{10}\sum_{r=1}^{10}
+\mathbb{1}[\text{rollout }r\text{ 完成所有 critical stages}].
+$$
+
+因此一次在最后一步失败的执行可以有较高 PS、零 SR；多次重试后勉强完成则可有正 SR、较低 PS。两者不能互相替代。
+
+### 4.4 Training
+
+**【Paper】** RoboChallenge 本身不训练统一 policy，也没有 policy loss、optimizer 或公共 checkpoint。平台为每个任务提供最多约 1,000 条 demonstration episodes；用户自行选择 VLA 与 fine-tuning 方案。论文的 **Task-specific** 设置使用每个任务的全部演示数据分别训练，典型地在 8 GPU 上耗时约一天；**Generalist** 设置从每个任务取约 50 条样本混合训练，但只混合同一种机器人，因此更准确地说是 machine generalist。
+
+**【Paper】** 训练前，reference episodes 会从可训练演示中留出，以供 Visual Task Reproduction 使用；这使测试首帧不会直接落入同一批训练样本。论文没有报告这些基线的统一学习率、batch size、数据增广或 loss，不能把它们补写为 RoboChallenge 的标准训练配方。
+
+<Algorithm number={1} title='参与者的训练与评测准备' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>任务 demonstrations、参考 episode 留出集、候选 VLA / policy、RoboChallenge API 客户端</div>
+  <div slot='output'>可在远端机器人上运行的本地推理程序与待调度评测请求</div>
+  <AlgorithmStep>按目标协议选择 Task-specific 或同一机器人内的 Generalist 数据划分</AlgorithmStep>
+  <AlgorithmStep>留出部分 episode 的初始帧，作为测试员的视觉复现 reference</AlgorithmStep>
+  <AlgorithmStep>由参与者自行 fine-tune policy，并将其 observation / action 格式适配为平台 API</AlgorithmStep>
+  <AlgorithmStep>用官方 mock server 检查状态解码、动作维度和控制循环</AlgorithmStep>
+  <AlgorithmStep>在网站提交任务集合、显示模型名与评测请求，等待平台排期</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 评测时，平台给出可执行窗口，用户在本地加载权重、分配 GPU、warm-up 推理引擎。骨架程序在机器人状态正常且 action queue 清空时取观测、推理并提交动作；等待队列清空后再取下一帧，因而示例走的是 steady-state 的 observe–infer–act cycle。论文同时强调，低层异步 API 并不强制所有用户采用这一周期。
+
+**【Code】** `robot/job_worker.py` 只在 job status 为 `ready` 时启动机器人，循环中跳过非 `normal` 状态或 `pending_actions != 0` 的状态。`demo.py` 的 `GPUClient.infer()` 把完整 state 字典交给参与者实现的 `DummyPolicy.run_policy()`；示例默认请求 $224\times224$ 的三路图像、`joint` 控制和 0.05 秒 duration。这些是样例默认值，不是论文对所有 submission 的限制。
+
+<Algorithm number={2} title='远端机器人评测执行循环' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>已排期 job、用户本地 policy $\pi$、机器人状态 / 动作 API</div>
+  <div slot='output'>真实 rollout、队列化动作与平台记录</div>
+  <AlgorithmStep>轮询 job；获分配后取得 robot ID、校准时钟并在 `ready` 状态启动机器人</AlgorithmStep>
+  <AlgorithmStep keyword='while'>job 状态为 `running`</AlgorithmStep>
+  <AlgorithmStep indent={1}>请求带时间戳的 state；若机器人异常或 pending queue 非空，则等待</AlgorithmStep>
+  <AlgorithmStep indent={1}>用户本地执行 $A_t=\pi(o_t)$，保持其自己的后处理、同步与 action chunk 策略</AlgorithmStep>
+  <AlgorithmStep indent={1}>将 $A_t$ 与 duration 提交到 FIFO queue；平台依序执行并录制</AlgorithmStep>
+  <AlgorithmStep keyword='end while' />
+  <AlgorithmStep>平台完成评分，公开结果数字、视频与日志</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+| 论文中的能力 | 官方代码位置 | 可核对的实际行为 |
+| --- | --- | --- |
+| 参与者本地推理 | `demo.py` | `DummyPolicy` 是待替换接口；`GPUClient` 将完整 state 传给用户 policy |
+| 任务调度与运行 | `robot/job_worker.py` | 轮询 job collection，遇到 `ready` 的 job 后启动并驱动执行循环 |
+| 状态与动作协议 | `robot/interface_client.py` | `state.pkl` 以 pickle 返回；`/action` 以 JSON 投递动作序列和 duration |
+| 时间对齐 | `robot/interface_client.py` | 对 `/clock-sync` 连续采样 10 次，使用平均 offset |
+| 离线调试 | `mock_server/`、`test.py` | FastAPI mock server 回放数据并校验 action mode / 维度，不连接真实平台 |
+
+**【Analysis】** 代码把「模型」刻意留为用户的实现空位，这正体现 remote robot 的边界：平台标准化机器交互与调度，而不试图标准化 VLA 内部。但这也意味着同名模型可以配不同 temporal policy、后处理甚至人为干预；仅靠结果表无法完全归因到 base model。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![Table30 的算法挑战、机器人类型、场景位置和目标物体分布（论文 Figure 7）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-robochallenge/table30-task-distribution-crop.4n8gb1ynvm.webp)
+
+**【Paper】** Table30 的 30 个任务均发生在桌面或桌边，却覆盖摆花、整理餐桌、折布、插网线、扫码、开抽屉、扫垃圾、浇花等不同活动。平台按 precise 3D localization、occlusion / multi-view、temporal dependence、long horizon、多物体识别、双臂协作和 soft body 等能力组织难点。
+
+**【Paper】** 每个 task 有 10 次 rollout；评分既看最后是否成功，也按 stage 累加 progress 并对 retry 罚分。作者的基线包括 $\pi_0$、$\pi_{0.5}$、CogACT 与 OpenVLA/OFT；论文的结果图和表实际列出了 $\pi_{0.5}$、$\pi_0$、CogACT 及两种 multi-task 配置共五个条目，不能据此推断未展示的 OpenVLA/OFT 数值。
+
+### 5.2 Main Results
+
+![Table30 各模型的 Success Rate 与 Progress Score 累积分布（论文 Figure 8）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-robochallenge/table30-score-distribution-crop.4qs28rrqnc.webp)
+
+**【Paper】** 已报告条目的 30-task 平均值如下；SR 是百分比，PS 满分为 100：
+
+| 设置 | 平均 SR | 平均 PS |
+| --- | ---: | ---: |
+| $\pi_{0.5}$，Task-specific | **43.7** | **62.2** |
+| $\pi_0$，Task-specific | 28.3 | 47.6 |
+| CogACT，Task-specific | 11.7 | 21.8 |
+| $\pi_{0.5}$/multi，Generalist | 17.7 | 31.3 |
+| $\pi_0$/multi，Generalist | 9.3 | 20.6 |
+
+**【Paper】** $\pi_{0.5}$ 的 task-specific 曲线在 SR 和 PS 的各个排序百分位都领先。论文还观察到，在每任务仅约 50 条演示、按机器混合训练时，$\pi_{0.5}$/multi 在少数任务上能超过 task-specific 版本；这是一项关于该数据划分和基线的结果，并非对跨机器人通用能力的证明。
+
+### 5.3 Ablation Study
+
+**【Paper】** 该论文没有对一个新模型架构给出传统的模块消融表；其「ablation」更接近评测协议的设计诊断。作者让经验测试员、不了解数据的测试员和试图提升某个模型成绩的 adaptive tester 分别执行两个任务，发现测试者与物体摆放方式会显著改变 SR。后者还会在成功区域附近不断布置物体，形成 sweet-spot bias。
+
+**【Paper】** 为检验环境变化，作者对输入图像人为加入背景、遮挡等扰动，观察 VLA 输出仍大体一致；它支持「不必进行光学级复现」的设计判断，但只是 proof-of-concept，不是所有视觉扰动与所有模型的严格鲁棒性结论。
+
+### 5.4 Generalization
+
+**【Paper】** Table30 特意让任务难度、机器人、地点类别和目标物体性质多样化。跨任务平均表现最低的是 temporal（SR 5、PS 14）与 softbody（SR 8、PS 27）；precise3d 也偏难（SR 18、PS 38）。全体 30 个任务的平均为 SR 22、PS 37；simple-pick 标签的任务平均 SR 为 42。
+
+**【Analysis】** 这些数字说明评测集能区分当前模型，却不等于已证明对未见机器人、移动底盘、触觉任务或开放环境的泛化。Table30 的初始范围仍是固定桌面附近、夹爪操作与现有四种机器形态。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** 远端访问让参赛者在熟悉的硬件和软件栈上保留完整控制循环，消除了「提交镜像在另一台机器跑不起来」这一与 policy 能力无关的失败源。视觉复现则将人类 reset 从隐含变量变成可操作流程：测试员不需要重演数据采集者的经验，只需要让模型实际会看到的画面接近 reference。
+
+### 6.2 核心创新
+
+**【Analysis】** 最大创新不是某个 action decoder，而是评测接口与 protocol 的共同设计。时间戳、观测 buffer、action queue 让复杂 online control 有接口基础；reference-frame reset 又约束了真实世界里最难消除的初始分布偏移。两者缺一不可：只有 API 会留下人为 reset bias，只有统一 reset 又会把控制范式锁死在固定 runner 中。
+
+### 6.3 与已有方法的本质区别
+
+| 维度 | 提交模型 / Docker | 评测端调用参赛者模型 API | RoboChallenge remote robot |
+| --- | --- | --- | --- |
+| 推理运行处 | 主办方机器 | 参赛者服务器 | 参赛者本地 / 自己的算力 |
+| 主要接口 | 权重或容器 | model input / output | 带时间戳状态与动作队列 |
+| 部署风险 | 环境、GPU、依赖不一致 | 公网可达性与服务维护 | 参与者需保持本地程序在线 |
+| 控制节奏 | 常被 runner 固化 | 多为同步 RPC | capture 与 action 可异步组织 |
+| 可核验性 | 可检查提交物 | 可检查服务调用 | 最弱：平台无法确认实际运行的模型 |
+
+### 6.4 关键假设
+
+**【Analysis】** 方法假定：（1）参考图像足以约束对 policy 重要的初始状态；（2）不同用户能正确将自己的归一化、坐标系和 action duration 适配到 API；（3）用户不会把声称的 generalist 置换为 task-specific 模型，或引入 human-in-the-loop；（4）公开录像、模型/代码发布倡议和社区监督能提供足够的诚信约束；（5）同一 task 的 10 次 rollout 足以描述该设置的随机性。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 推理运行在用户侧的直接代价是平台无法验证实际运行的模型是否与声明一致。用户理论上可以使用完全不同的方案、把本应是 multi-task generalist 的结果替换为独立调优的模型，甚至进行 human-in-the-loop 操作。论文的处理方式是信任参与者，并鼓励公开代码和模型。
+
+**【Paper】** 固定的 reference test cases 也可能让 submission 对这些特定测试初态过拟合；作者称截至写作时尚未观察到这种情形，但没有将其排除。平台目前采用更重视单模型稳定性的 benchmark protocol；随机抽取模型且测试员不知道模型身份的 comparative protocol 尚只是未来计划。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】** 评测的可扩展性仍受物理运营约束：道具准备、测试员、设备维护和排期可使等待时间达到数小时至数天。其次，真实机器与多机器人设置增加生态有效性，却也让同一 policy 的结果同时受相机标定、夹爪、机械臂控制器和场地状态影响。最后，官方仓库只公开接口骨架与 mock server，未给出论文基线的完整训练配方；读者应将 Table30 视为公开的测量结果，而非已可端到端复现的全部 baseline pipeline。
+
+## 8. 启发与研究思考
+
+**【Analysis】** 一个成熟的真实机器人 leaderboard 不该只发布单一 SR，而应同时发布初态协议、每步或分阶段成绩、视频、控制频率、观测延迟、动作队列状态及可能的人工干预记录。RoboChallenge 已把视频和 logs 纳入结果的一部分；下一步可考虑加密版本化的 policy artifact、受限随机 reference set、盲测 comparative protocol，以及把 action trace 与模型身份做可审计绑定。
+
+**【Analysis】** 对 VLA 研究者而言，Table30 的低分标签也给出很具体的方向：单帧策略难处理 temporal dependence，$224\times224$ 输入对 precise 3D 操作是瓶颈，soft body 需要比纯视觉模仿更可靠的状态估计或交互反馈。比起只提高平均 SR，更值得追问的是某种 memory、3D representation、触觉或 closed-loop recovery 是否确实改善了这些失败模式。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。
+</Aside>
