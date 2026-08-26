@@ -126,7 +126,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** code-generation agent 读取 API 列表、函数调用示例、层级约束和任务描述，先生成 Python 程序。每轮执行 10 次，日志记录不可运行代码、左右臂抓取失败、错误放置和规划失败；VLM observer 逐帧查看关键步骤，报告失败时间点与可能原因。代码代理融合定量日志和定性视觉诊断，最多连续修复 5 轮，达到设置的成功率阈值即停止。
 
-**【Code】** code_gen/task_generation_mm.py 会写出 envs_gen/gpt_<task>.py，调用 insert_observation_points 注入观测点，再由 run() 汇总 success_rate、error_message 和 run_records。仓库默认每个候选程序最多尝试 5 次，test_gen_code.py 中的模拟评估以 10 次 rollout 形成成功率。
+**【Code】** code_gen/task_generation_mm.py 会写出 envs_gen/gpt_task.py（其中 task 是任务名），调用 insert_observation_points 注入观测点，再由 run() 汇总 success_rate、error_message 和 run_records。仓库默认每个候选程序最多尝试 5 次，test_gen_code.py 中的模拟评估以 10 次 rollout 形成成功率。
 
 #### 五轴 domain randomization
 
