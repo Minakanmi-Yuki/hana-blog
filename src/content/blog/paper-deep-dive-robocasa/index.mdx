@@ -1,0 +1,314 @@
+---
+title: 'RoboCasa 论文精读：把日常机器人训练数据扩展到十万条轨迹'
+publishDate: 2026-08-27
+updatedDate: 2026-08-27
+description: '精读 RoboCasa：用可交互厨房、LLM 任务设计与 MimicGen 轨迹扩增构建大规模仿真数据，并验证模拟数据的规模效应和真实迁移价值。'
+heroImage:
+  { src: 'https://pic.hana0721.top/86800103_p0_master1200.4qrwyrtj6a.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '86800103'
+tags:
+  - 'paper deep dive'
+  - 'robot learning'
+  - 'simulation'
+  - 'imitation learning'
+  - 'RoboCasa'
+paper:
+  arxivId: '2406.02523'
+  title: 'RoboCasa: Large-Scale Simulation of Everyday Tasks for Generalist Robots'
+  authors:
+    - 'Soroush Nasiriany'
+    - 'Abhiram Maddukuri'
+    - 'Lance Zhang'
+    - 'Adeet Parikh'
+    - 'Aaron Lo'
+    - 'Abhishek Joshi'
+    - 'Ajay Mandlekar'
+    - 'Yuke Zhu'
+  venue: 'Robotics: Science and Systems (RSS)'
+  year: 2024
+  code: 'https://github.com/robocasa/robocasa'
+  project: 'https://robocasa.ai/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2406.02523'
+  tldr='RoboCasa 将可交互厨房、LLM 生成任务和 MimicGen 轨迹扩增合在一起，证明大规模仿真示教能显著提升多任务模仿学习，并能改善少样本真实机器人训练。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《RoboCasa: Large-Scale Simulation of Everyday Tasks for Generalist Robots》
+**作者**：Soroush Nasiriany、Abhiram Maddukuri、Lance Zhang 等
+**发表会议**：Robotics: Science and Systems（RSS 2024）
+**论文链接**：[arXiv:2406.02523](https://arxiv.org/abs/2406.02523)
+**代码链接**：[robocasa/robocasa](https://github.com/robocasa/robocasa)
+**项目主页**：[RoboCasa](https://robocasa.ai/)
+
+<img
+  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-robocasa/robocasa-overview-web.lwgwogkca.webp'
+  alt='RoboCasa 的多样厨房场景与移动操作机器人（论文 Figure 1）'
+  class='zoomable'
+  width='2400'
+  height='1013'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+### 一句话总结
+
+**【Paper】** RoboCasa 不是单一策略或单一基准，而是一套面向日常厨房操作的可扩展数据生产线：用多样的可交互场景承载任务，用 LLM 提议有语义的复合活动，再用少量人类遥操作示教驱动 MimicGen 大规模合成轨迹；实验表明，生成数据从每任务 100 条增加到 3,000 条时，多任务行为克隆的成功率持续上升。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 构建厨房仿真框架：10 种平面布局与 12 种装修风格组合为 120 个场景，具有橱柜、抽屉和可改变状态的电器；资产库包含 2,509 个物体、153 个类别。
+2. 定义 100 个任务：25 个 atomic tasks 覆盖抓放、开关门/抽屉、旋钮、按钮、插入和导航等 8 类基础传感运动技能；75 个 composite tasks 由 LLM 辅助提出并由人工实现。
+3. 发布逾 10 万条轨迹的数据集：4 名操作者先收集每个 atomic task 的 50 条高质量示教，再以 MimicGen 扩增，从而降低大规模数据采集的人力门槛。
+4. 在仿真中展示清晰的规模趋势，并在真实厨房中证明与仿真数据共同训练可以优于只用目标真实数据训练。
+
+## 2. 背景与相关工作
+
+**【Paper】** 机器人学习的瓶颈常常不是模型，而是覆盖足够物体、场景和任务变化的交互数据。真实数据昂贵、采集慢、容易受硬件和安全条件限制；但过于简单的仿真环境又无法提供日常操作所需的丰富物体、可动家具与长程任务组合。
+
+**【Paper】** RoboCasa 建立在 RoboSuite 之上，选择厨房作为首个领域：它既包含抓取、放置等基础动作，也天然包含门、抽屉、开关与多物体整理等状态变化。论文将已有工作中的两个长处合并：一方面从大型仿真框架获得环境多样性，另一方面从 MimicGen 获得“少量真人 seed demonstration → 大量成功轨迹”的数据扩增能力。
+
+**【Analysis】** 这篇论文的关键不在于宣称“仿真替代真实”，而是把仿真看作可控的数据规模杠杆。场景/物体/任务多样性、轨迹生成与策略学习在同一系统内闭环，因而能问一个更严格的问题：在其他训练条件不变时，扩充成功示教是否真的带来策略收益？
+
+## 3. 问题定义
+
+**【Paper】** 给定语言指令 $l$、过去 $H$ 个观测 $o_{t-H+1:t}$，策略预测未来动作序列。论文的主要多任务实验使用 Franka Panda 加 Omron 移动底座，并以行为克隆训练 BC-Transformer：观测由三个相机画面、末端执行器位姿和移动底座位姿构成，输出为连续机器人动作。
+
+| 维度     | RoboCasa 论文设定                                          |
+| -------- | ---------------------------------------------------------- |
+| 环境     | 厨房；120 个由布局、风格与纹理组合的场景                   |
+| 具身     | 轮式移动操作臂，也支持人形和带臂四足机器人                 |
+| 基础技能 | 抓放、门/抽屉开关、旋钮、拨杆、按钮、插入、导航            |
+| 任务     | 25 个 atomic tasks + 75 个 composite tasks                 |
+| 观测     | 三路相机、末端执行器位姿、移动底座位姿、语言目标           |
+| 训练目标 | 从示教学习条件策略，评估新物体及未见场景风格下的任务成功率 |
+
+**【Paper】** 对于 atomic tasks，目标是学习一个共享的多任务策略；对于由多个技能串联的 composite tasks，论文改为每个任务各训练一个策略，并比较从头训练与从 atomic-policy 初始化后微调。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+**【Paper】** RoboCasa 的数据流为：场景与资产随机化 → 任务规格 → 人类 seed demonstrations → MimicGen 轨迹扩增与成功筛选 → 多任务 imitation learning。论文的架构重点是数据生成与评测基础设施，而不是提出一个新的 policy network。
+
+### 4.2 核心模块
+
+#### 可交互厨房与视觉随机化
+
+**【Paper】** 论文收集常见厨房平面图并建模 10 种布局；再组合 Industrial、Scandinavian、Coastal、Modern 等 12 种风格。墙面、地板、台面和橱柜面板各有 100 张由 MidJourney 生成的纹理，可作为视觉 domain randomization。电器被处理为可关节化对象：例如微波炉门可开合、炉灶旋钮可旋转，且旋钮会触发炉眼点亮等状态变化。
+
+**【Analysis】** 这里的随机化不是只改背景颜色。布局改变可达性，家具与电器改变交互状态，纹理改变视觉外观；三者分别覆盖几何、动力学前提与感知域。它们共同决定“同一个语言任务”是否会在训练集中呈现足够多的实现方式。
+
+#### 任务层级：atomic 与 composite
+
+**【Paper】** 25 个 atomic tasks 将 8 类基础技能显式拆开，便于复用轨迹分段逻辑；75 个 composite tasks 则描述“准备咖啡”“解冻食物”“整理食品柜”等有语义的厨房活动。任务设计分两步：先让 GPT-4 列出 20 类高层厨房活动，再由 GPT-4 或 Gemini 1.5 为每类活动提出代表性任务。论文明确说明，LLM 输出会被过滤或修改，最终任务仍需人工编程实现。
+
+<img
+  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-robocasa/robocasa-task-generation.26m7w5drzj.webp'
+  alt='从 LLM 活动提示到复合厨房任务与子任务序列（论文 Figure 5）'
+  class='zoomable'
+  width='7705'
+  height='2640'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+#### MimicGen 轨迹扩增
+
+**【Paper】** MimicGen 先将一条 seed demonstration 分解为围绕参考物体的操作片段。面对新场景时，它按该参考物体的当前位姿变换每个片段、拼接为完整轨迹，并让机器人执行。只有最终成功的生成尝试被保留，因此生成过程带有 rejection sampling。
+
+**【Paper】** 该过程依赖两个前提：任务需具有已知的 object-centric subtask 序列，且 seed trajectory 要带有相应分段标注。RoboCasa 利用 8 个基础技能的共享结构缓解人工负担，例如所有抓放任务都能复用“抓取参考物 → 放置到目标物”的分段模板和终止检测器。
+
+### 4.3 关键公式
+
+**【Paper】** 论文的策略学习部分采用条件行为克隆。令 $o_{t-H+1:t}$ 是长度为 $H$ 的观测历史，$l$ 是语言指令，$a_{t:t+A-1}$ 是要预测的 $A$ 步动作序列，则可写为：
+
+$$
+\hat a_{t:t+A-1} = \pi_\theta(o_{t-H+1:t}, l)
+$$
+
+训练以示教动作监督预测动作：
+
+$$
+\mathcal L_{\mathrm{BC}}(\theta) =
+\mathbb E_{(o,l,a)\sim \mathcal D}
+\left[\sum_{j=0}^{A-1} \ell\!\left(\hat a_{t+j}, a_{t+j}\right)\right]
+$$
+
+其中 $\mathcal D$ 可为人类遥操作数据或 MimicGen 生成数据；$\ell$ 是动作误差。**【Paper】** 原文将具体 BC-Transformer 实现交由 RoboMimic，并未在正文为该损失指定单独的新公式；上式用于明确其监督对象，而非论文额外提出的算法贡献。
+
+**【Paper】** 轨迹生成的缩放变量是每任务示教数 $N$：Human-50、Generated-100、Generated-300 与 Generated-3000 仅在数据来源/规模上变化。实验由此将“更多生成数据是否有用”转化为受控比较。
+
+### 4.4 Training
+
+**【Paper】** 首先，4 名操作者用 3D SpaceMouse 为每个 atomic task 收集 50 条示教，共 1,250 条；每条示教均在随机厨房布局、风格和 AI 纹理下采集。随后，MimicGen 以这些示教为种子，对 24 个 non-navigation atomic tasks 每个合成 3,000 条轨迹，得到 72,000 条；另有 28,000 条使用 AI 生成物体的轨迹，组成逾 10 万条的发布数据。
+
+**【Paper】** 主实验用 RoboMimic 的 BC-Transformer 训练四个多任务数据设置。模型读取过去 10 帧观测和语言目标，预测未来 10 步动作；每步重规划一次。三个相机各用一个 ResNet-18 编码器，视觉特征由 FiLM 融合，再输入约 2,000 万参数、6 层的 Transformer。训练 50 万个 gradient steps，学习率 $10^{-4}$ 并使用 warmup。
+
+<Algorithm number={1} title='RoboCasa 轨迹数据生成与策略训练' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>
+    atomic task 的人类 seed demonstrations、场景随机化器、MimicGen、策略网络 $\pi_\theta$
+  </div>
+  <div slot='output'>生成数据集 $\mathcal D_{gen}$ 与训练好的多任务策略</div>
+  <AlgorithmStep>为每个 atomic task 收集并标注人类 seed demonstrations</AlgorithmStep>
+  <AlgorithmStep keyword='for'>每个目标 task 与随机厨房配置</AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    按参考物体位姿变换 seed trajectory 的 object-centric segments
+  </AlgorithmStep>
+  <AlgorithmStep indent={1}>拼接片段并在仿真中执行候选轨迹</AlgorithmStep>
+  <AlgorithmStep indent={1}>若任务成功，将该轨迹加入 $\mathcal D_{gen}$</AlgorithmStep>
+  <AlgorithmStep keyword='end for' />
+  <AlgorithmStep>从 $\mathcal D_{gen}$ 采样视觉、本体和语言观测及目标动作</AlgorithmStep>
+  <AlgorithmStep>最小化行为克隆损失，更新多任务策略 $\pi_\theta$</AlgorithmStep>
+  <AlgorithmStep keyword='return'>策略 $\pi_\theta$</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 每个控制时刻，策略取最近 10 个观测、三路图像和语言目标，输出未来 10 步动作，但只执行第一步，下一时刻重新规划。这个 receding-horizon 设计让策略可用新的视觉反馈修正先前预测。
+
+<Algorithm number={2} title='RoboCasa BC-Transformer 闭环执行' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>已训练策略 $\pi_\theta$、语言目标 $l$、环境 $E$</div>
+  <div slot='output'>任务成功或 episode 结束</div>
+  <AlgorithmStep>重置 $E$，采集初始观测历史 $o_{1:H}$</AlgorithmStep>
+  <AlgorithmStep keyword='while'>任务未结束</AlgorithmStep>
+  <AlgorithmStep indent={1}>从三路相机和本体状态构成最新历史 $o_{t-H+1:t}$</AlgorithmStep>
+  <AlgorithmStep indent={1}>预测 $\hat a_{t:t+9}=\pi_\theta(o_{t-H+1:t}, l)$</AlgorithmStep>
+  <AlgorithmStep indent={1}>仅执行 $\hat a_t$，获取下一观测并滑动更新历史</AlgorithmStep>
+  <AlgorithmStep keyword='end while' />
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** 官方仓库当前主分支已是后续的 RoboCasa365，而非论文 2024 初版：README 标注其扩展到 365 个任务、2,500+ 厨房场景及更多数据。因此下列代码观察描述的是项目的当前实现，不能当作原论文的实验设置。
+
+| 论文中的角色   | 当前代码位置                                                               | 可核查行为                                                                   |
+| -------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| 仿真任务入口   | `robocasa/__init__.py`                                                     | 注册 RoboCasa 环境，支持以 Gymnasium 方式创建任务。                          |
+| 人类示教采集   | `robocasa/scripts/collect_demos.py`                                        | 接收键盘/SpaceMouse 等设备输入，逐步执行动作，并将成功 episode 汇总为 HDF5。 |
+| 数据集索引     | `robocasa/utils/dataset_registry_utils.py`                                 | 按 `pretrain`、`target`、`real` split 和 human/MimicGen 来源返回数据元信息。 |
+| 数据下载与格式 | `robocasa/scripts/download_datasets.py`、`docs/datasets/using_datasets.md` | 当前发布数据支持 LeRobot 格式下载。                                          |
+| MimicGen 使用  | `docs/use_cases/mimicgen.md`                                               | 文档给出以已有 seed demonstrations 为起点生成新轨迹的流程。                  |
+
+**【Analysis】** 代码演进本身很有信息量：论文建立的是“可扩展的接口与数据生产范式”，而非固定 100 任务的封闭系统。阅读复现实验时应固定到论文对应版本或数据快照；直接使用今日主分支能获得更多功能，却无法复现本文表格里的任务数与数据规模。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+**【Paper】** atomic-task 对比包括 Human-50（25 task、每 task 50 条，合计 1,250 条）与 Generated-100/300/3000（24 task，分别合计 2,400/7,200/72,000 条）。训练图像使用 AI 纹理，评估时换为人工精选纹理；每个 task 在 5 个固定评估场景运行 50 次，并只评估未见物体实例。五个场景中有两个使用训练未见的风格。
+
+**【Paper】** composite-task 实验选择 ArrangeVegetables、MicrowaveThawing、RestockPantry、PreSoakPan 和 PrepareCoffee：每个任务只有 50 条人类示教，比较从零训练与在 Generated-3000 atomic policy 上微调。真实机器人实验使用 DROID 硬件上的 Franka Panda，覆盖 counter→sink、sink→counter、counter→cabinet 三个抓放任务；每任务收集 50 条、横跨 5 种物体类别的真实示教。
+
+<img
+  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-robocasa/robocasa-real-robot.4g58fmyjq9.webp'
+  alt='真实厨房中的 Franka Panda 与三个迁移评测任务示例（论文实验设置图）'
+  class='zoomable'
+  width='1970'
+  height='648'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+### 5.2 Main Results
+
+**【Paper】** 在 24 个 atomic tasks 上，Human-50 的总体成功率为 **28.8%**，Generated-3000 为 **47.6%**。从图中可见 Generated-100、Generated-300、Generated-3000 随数据量增大而逐步提升，说明收益并非只来自“生成轨迹替换人工轨迹”，还与规模直接相关。
+
+<img
+  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-robocasa/robocasa-main-results.3nscxwhxri.webp'
+  alt='Human-50 与不同规模 MimicGen 数据训练的 atomic task 成功率（论文主结果图）'
+  class='zoomable'
+  width='4497'
+  height='1137'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+**【Paper】** 不同技能的难度并不均匀：门/抽屉开关和按钮按压的成功率较高；抓放和插入较难。作者将其归因于物体可供性多样、精细接触要求更高等因素。该差异提醒我们，“总成功率提升”并不等于每种具身能力都已被解决。
+
+**【Paper】** 真实机器人中，Real only 在 seen objects 上平均成功率为 **13.6%**，Real + Sim 为 **24.4%**；在 unseen objects 上则由 **2.6%** 升至 **9.3%**。论文报告 seen-object 平均值相对提高 79%。这些结果支持仿真数据可作为真实小数据训练的补充，但绝对成功率仍有限。
+
+### 5.3 Ablation Study
+
+**【Paper】** 论文最核心的 ablation 是数据规模：Generated-100、Generated-300、Generated-3000 共享生成机制与策略训练设置，区别是每 task 的保留示教数。总体柱状图从 34.9%、35.2% 到 47.6% 上升，而 Human-50 为 28.8%。因此作者的结论是：经过成功筛选的自动生成轨迹能以较低人工成本形成可缩放的训练集。
+
+**【Paper】** 附录还以相同观测编码器比较 Diffusion Policy 与 BC-Transformer：在单阶段 PickPlaceCounterToSink 上，BC-Transformer 达到 56%，Diffusion Policy 为 12%。作者指出两者采用的 observation history 不同（BC-Transformer 为 10，Diffusion Policy 为 2），因而这不是对架构能力的完全隔离比较。
+
+### 5.4 Generalization
+
+**【Paper】** 仿真评估刻意把训练纹理与评估纹理分离，并保留未见物体实例、未见厨房风格，测试的是视觉与物体泛化，而不只是回放训练场景。
+
+**【Paper】** 对 composite tasks，从 atomic 数据预训练后再微调优于从零训练，并使 5 个任务中的 4 个获得非零成功率；但整体仍然困难。作者观察到的失败包括精细操作失误和阶段间切换失败。
+
+**【Analysis】** 真实迁移与 composite 微调共同描述了一个边界：RoboCasa 的规模化数据能提供有用先验，但长程阶段组合与 sim-to-real 的视觉/控制差异不会因单纯增加单阶段成功轨迹而自动消失。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** MimicGen 让少量高质量示教承担“结构模板”的角色，把变化最大的部分——物体位置、场景配置和资产外观——交给仿真反复实例化。相比让人类为每种厨房状态重新遥操作，这种分工更适合规模化。
+
+**【Analysis】** 生成过程仅保留完成任务的轨迹，避免把明显失败的动作作为 BC 标签；而 receding-horizon BC-Transformer 又能在每步使用最新观测重规划。前者提高监督数据的有效密度，后者降低动作序列一次预测到底的脆弱性。
+
+### 6.2 核心创新
+
+**【Paper】** 论文的创新组合可概括为：
+
+1. 面向日常操作而设计的高交互性、大规模厨房仿真资产与场景。
+2. 将 LLM 用于扩展“应该做什么”的任务语义空间，而不是让 LLM 直接控制机器人。
+3. 将 MimicGen 与共享基础技能、自动分段逻辑耦合，系统化扩增多任务示教。
+4. 用数据规模曲线、复合任务微调与真实 co-training 三组实验检查数据集是否真正对学习有用。
+
+### 6.3 与已有方法的本质区别
+
+**【Analysis】** 单纯的 domain randomization 常把随机化视为缩小 sim-to-real 差距的手段；RoboCasa 还把它作为制造训练分布覆盖度的机制。单纯的 benchmark 常给定任务和数据；RoboCasa 重点展示如何持续生产数据。与端到端大模型路线相比，论文采用的 BC-Transformer 相对朴素，这反而使性能提升更容易归因于环境和数据规模。
+
+### 6.4 关键假设
+
+**【Paper】** MimicGen 假设 task 能写成已知的 object-centric subtask 序列，并需要带分段信息的 seed demonstrations；这对高度结构化的厨房基础技能有效，但不适用于任意开放式操作。
+
+**【Paper】** 实验也假设仿真中的成功状态和物体位姿足够可靠，能够自动筛除失败生成轨迹。现实世界中通常没有同等完美的状态访问与 success oracle。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 作者指出，composite task 的微调成功率仍低；MimicGen 轨迹虽满足任务成功，但可能出现抖动或碰撞。作者建议未来利用仿真状态自动检测并过滤这些不良轨迹。
+
+**【Paper】** LLM 虽能提出活动和任务，但场景与任务实现仍需要人工引导和编程。论文还明确缺少高灵巧操作、可变形物体操作和双臂操作，并计划从厨房扩展到更多环境、结合其他模拟器、互联网视频与真实机器人数据。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】** 论文的规模曲线主要来自 atomic tasks，且只对 24 个 non-navigation tasks 用 MimicGen 扩增。因而它强力证明了“可分段的短程操作可以规模化”，却尚未证明长程、全身移动与开放世界任务具有相同的缩放规律。
+
+**【Analysis】** 生成器的成功筛选可能使数据偏向容易完成的轨迹，弱化接触边界、恢复动作和罕见状态。BC 在这种数据上变好，并不保证机器人遇到失败前兆时也会更会纠错。
+
+**【Analysis】** Real + Sim 提升明显但绝对数值仍低，说明相机标定、控制频率、控制器和光照差异仍是不可忽略的 sim-to-real gap；不能把该实验读为“仅凭仿真即可部署”。
+
+## 8. 启发与研究思考
+
+**【Analysis】** RoboCasa 提供的最有价值视角是把数据集当作系统，而不是一个静态下载文件。若要追求通用机器人，研究者需要同时设计：哪些状态变化值得被模拟、任务如何被组合、少量人类示教如何成为可复用模板、生成数据如何做质量控制，以及评测如何隔离“更多数据”与“更容易测试”的影响。
+
+**【Analysis】** 一个自然的后续方向是让高层模型提出并验证新任务候选，但保留可执行性检查、碰撞/平滑度过滤及人工审核；另一个方向是为 composite task 显式学习子任务切换、失败恢复与层级策略，而非期望单一扁平 BC policy 自动从 atomic pretraining 中获得长程组合能力。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码当前实现，`【Analysis】`
+  表示基于论文和代码的分析推断。RoboCasa 当前主分支已演进为
+  RoboCasa365；本文中的任务数、轨迹数与实验结果均以 2024 论文为准。
+</Aside>

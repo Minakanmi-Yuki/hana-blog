@@ -55,7 +55,7 @@ Use only after the count-1 pool is exhausted.
 |         3 | `134041716` | `https://pic.hana0721.top/134041716_p0_master1200.5q80bz7b6v.webp` | `rl-note-27`, `paper-deep-dive-caip`, `paper-deep-dive-gr-rl`                                           |
 |         3 | `126839080` | `https://pic.hana0721.top/126839080_p0_master1200.232gprncye.webp` | `upload-project-to-github`, `paper-deep-dive-knowledge-insulating-vla`, `paper-deep-dive-worldarena`    |
 |         3 | `126903857` | `https://pic.hana0721.top/126903857_p0_master1200.2dpaix2l3u.webp` | `tmux-ssh-session-management`, `paper-deep-dive-internvla-m1`, `paper-deep-dive-mimicgen`                 |
-|         2 | `86800103`  | `https://pic.hana0721.top/86800103_p0_master1200.4qrwyrtj6a.webp`  | `rl-note-14`, `paper-deep-dive-qwen-vla`                                                                |
+|         3 | `86800103`  | `https://pic.hana0721.top/86800103_p0_master1200.4qrwyrtj6a.webp`  | `rl-note-14`, `paper-deep-dive-qwen-vla`, `paper-deep-dive-robocasa`                                   |
 |         2 | `92079701`  | `https://pic.hana0721.top/92079701_p0_master1200.64eg2t4l77.webp`  | `rl-note-15`, `paper-deep-dive-videovla`                                                                |
 |         2 | `93990522`  | `https://pic.hana0721.top/93990522_p0_master1200.et40soxif.webp`   | `scp-upload-to-server`, `paper-deep-dive-lingbot-va`                                                    |
 |         2 | `98259515`  | `https://pic.hana0721.top/98259515_p0_master1200.3ns7nvxpav.webp`  | `rl-note-18`, `paper-deep-dive-dworldeval`, `paper-deep-dive-vlac`                                      |
