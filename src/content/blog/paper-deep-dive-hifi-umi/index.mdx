@@ -1,0 +1,280 @@
+---
+title: 'HiFi-UMI 论文精读：仅用高保真 UMI 数据学习可部署操作策略'
+publishDate: 2026-08-27
+updatedDate: 2026-08-27
+description: '精读 HiFi-UMI：用 3 mm 轨迹精度、40 μs 硬件同步和六视角采集，把机器人无关示教推进到零机器人后训练与真实机器人部署。'
+heroImage:
+  { src: 'https://pic.hana0721.top/126839080_p0_master1200.232gprncye.webp', color: '#6E86A3' }
+category: 'research'
+pixivLink: '126839080'
+tags:
+  - 'paper deep dive'
+  - 'robot-free data'
+  - 'UMI'
+  - 'vision-language-action model'
+  - 'robot learning'
+paper:
+  arxivId: '2607.25895'
+  title: 'HiFi-UMI: Learning Deployable Manipulation Policies from High-Fidelity UMI Data Alone'
+  authors:
+    - 'Yuteng Wei'
+    - 'Jinming Ma'
+    - 'Jiawei Wang'
+    - 'Weitao Zhou'
+    - 'Yushen Zuo'
+    - 'Ke Rui'
+    - 'Minglei Li'
+    - 'Jinhao Zhang'
+    - 'Zhikang Pan'
+    - 'Xiang Wang'
+    - 'Haoran Jia'
+    - 'Huan Du'
+    - 'Zicheng Zeng'
+    - 'Jun Ma'
+    - 'Guiyu Qin'
+    - 'Di Zhang'
+    - 'Xiaofei Li'
+  venue: 'arXiv'
+  year: 2026
+  code: ''
+  project: 'https://cloud.simpleai.tech/simple-world-lab/hifi-umi/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2607.25895'
+  tldr='HiFi-UMI 通过高保真、可回放的机器人无关示教证明：任务后训练可以完全不使用真实机器人 teleoperation 数据，并直接部署到真实双臂机器人。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+### 一句话总结
+
+**【Paper】** HiFi-UMI 的核心不是再造一个 VLA，而是把 UMI（Universal Manipulation Interface）数据生产系统做得足够可信：头戴式离线双目惯性 SLAM 负责低漂移轨迹，双手在同一头部坐标系中获得原生相对位姿，统一 GPIO 触发保证微秒级同步，双手各两枚超广角相机补足遮挡。经仿真回放筛选后，这些机器人无关示教可以单独承担 post-training，并直接驱动真实双臂机器人。
+
+![HiFi-UMI 系统总览：采集、数据引擎与部署](https://pic.hana0721.top/blog/paper-deep-dive-hifi-umi/overview.77eanp5e4a.webp)
+
+### 核心贡献
+
+**【Paper】** 论文的贡献可以拆成四层：
+
+1. **数据采集硬件–软件协同。** 把轨迹精度、双手相对位姿、时间同步、视场角和在线质量控制作为同一个系统问题，报告约 3 mm workspace-local end-effector error、低于 40 μs 的跨传感器偏移和约 200° 的双手覆盖范围。
+2. **可回放的数据引擎。** 原始记录经过轨迹重建、自动清洗、simulation retargeting、AI 辅助标注、人工验证和统计导出；轨迹重建和回放验证通过率都约为 98%，累计保留率约 96%。
+3. **Zero-robot post-training。** 在 StarVLA-QwenPI、OpenPI-π0.5 和 LingBot-VA 三个 backbone 上，UMI-only post-training 与同场景 teleoperation 的 aggregate success-rate 差分别为 −2.5、+3.1 和 −0.6 个百分点。
+4. **可扩展数据资源。** 从 20,000+ 小时、4.32M+ episodes 的处理语料中发布 2,000 小时的 HiFi-UMI-2K，覆盖 110+ scenes 和 482,100+ episodes。
+
+**【Analysis】** 真正被挑战的假设是“post-training 必须有一小份真实机器人 anchor”。论文把问题改写为：只要 robot-free action label 的 fidelity 足够高，是否可以完全移除这个 anchor？
+
+## 2. 背景与相关工作
+
+**【Paper】** 真实机器人 teleoperation 的轨迹天然位于目标机器人的 observation、action 和动力学空间中，但每小时数据都要占用目标机器人、操作设备、场地和安全人员。Ego-video 规模大，却没有可执行 action；UMI 位于两者之间：人手持设备完成示教，成本和采集地点更灵活，同时保留腕部视觉与相对末端运动。
+
+已有 UMI 系统的瓶颈集中在四点：腕部视觉 SLAM 容易被手和物体遮挡并累积 drift；双手相对位姿常由跨相机共视后处理得到；软件或无线时间戳会制造 action-label misalignment；单枚 155° wrist fisheye 视场狭窄，接触和深度线索不稳定。**【Analysis】** 这解释了为什么此前 robot-free 数据大多用于 pre-training，而 deployment-oriented post-training 仍依赖少量真实机器人示教。
+
+## 3. 问题定义
+
+**【Paper】** 每条示教包含多视角观测、机器人状态、语言指令和未来动作块：
+
+$$
+\tau=\left\{(o_t^{(m)},q_t^{(m)},\ell,a_{t:t+H_m-1}^{(m)})\right\}_{t=1}^{T},
+$$
+
+其中 $m$ 表示具体 backbone，$o_t$ 是其使用的 wrist views，$q_t$ 是 proprioception，$\ell$ 是任务语言，$H_m$ 是该模型的原生 action horizon。头戴式 stereo views 只用于离线重建，部署时不输入 policy。
+
+对双臂 $j$，每一个未来 action 都锚定在同一个当前观测位姿：
+
+$$
+\Delta T_{t_0,h}^{j,(m)}=\left(T_{j,t_0}^{(m)}\right)^{-1}T_{j,t_0+\delta_h}^{(m)}.
+$$
+
+**【Paper】** 平移用 anchor end-effector frame 表示，旋转用 Rotation6D，夹爪开合保持 absolute target；每只手有 $3+6+1=10$ 个物理通道，双臂共 20 个 active channels。三种 backbone 可以保留各自 tensorization、padding、masking、normalization 和 horizon，但共享这套物理语义。
+
+**【Analysis】** “共享 anchor、逐行独立恢复”很关键：如果把 action chunk 递归地接在前一个预测目标上，微小误差会在 chunk 内累积；锚定当前实测位姿则把问题限制为每一行的局部恢复。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![HiFi-UMI 采集设备与六视角感知架构](https://pic.hana0721.top/blog/paper-deep-dive-hifi-umi/capture-device.b9n3im2pr.webp)
+
+**【Paper】** 整体数据流只有一条：便携设备捕获头部和双手同步观测 → 离线重建并自动清洗轨迹 → simulation retargeting 验证能否被目标 embodiment 执行 → 标注、人工复核和分布均衡 → 为 VLA/WAM 做 pre-training 或 task-specific post-training → 在真实双臂机器人上闭环执行。
+
+### 4.2 核心模块
+
+#### 采集设备
+
+- **Head-mounted offline stereo-inertial SLAM。** 头部双目相机和 IMU 估计全局头部轨迹；双手的 fiducial marker cube 在同一头部坐标系中定位，再组合出左右手世界轨迹。**【Paper】** 离线优化可以同时利用过去和未来观测，并在动态场景中使用 sliding-window local consistency，而不是依赖会被操作物体破坏的 global loop closure。
+- **Native bimanual relative pose。** 左右 marker 在同一头部相机帧中被同时观测，双手相对位姿是原生测量，而不是从两个 wrist camera 的共视结果中事后相减。**【Analysis】** 这直接针对双手协作时最敏感的误差源。
+- **Full-palm glove gripper。** 两根不对称手指分别对应拇指和其余四指；窄指尖照顾小物体精细操作，较宽的近端接触面支撑大物体，并保留操作者的接触和力分布。
+- **Six-view sensing and GPIO trigger。** 每只手两枚非平行 fisheye 相机，整体约 200° 水平和垂直覆盖；头部和双手还带 IMU、夹爪角度 encoder。所有传感器由一个共享 GPIO 外部触发，跨相机、IMU、encoder 的 offset 小于 40 μs。
+- **Online quality control。** 采集时检测欠曝光、motion blur、过快运动和手离开头部视场，并通过语音提示现场修正；操作者还可在线标记 task/subtask boundary。
+
+#### 六阶段数据引擎
+
+![HiFi-UMI 数据处理飞轮](https://pic.hana0721.top/blog/paper-deep-dive-hifi-umi/data-flywheel.wjaptgj9f.webp)
+
+1. **Collection & upload：** 硬件同步、在线告警、在线切片和 Wi-Fi 并行上传。
+2. **Trajectory reconstruction & cleaning：** 离线 SLAM 重建头部，检测 marker 得到双手轨迹，异常轨迹自动重算或移除；约 98% 通过。
+3. **Simulation retargeting：** 用目标 embodiment 的 whole-body controller 在仿真中回放，过滤运动学或动力学不可行轨迹；重建后的约 98% 通过。
+4. **AI-assisted annotation：** 联合头戴和手部视角生成任务描述、subtask 边界、对象和异常候选，并输出置信度。
+5. **Human verification：** 人工优先检查低置信度、自动告警和分布异常样本，保留审核状态、拒绝原因和修订历史。
+6. **Analysis & export：** 统计任务、场景、对象、action pattern 和 replay success，按目标模型显式均衡后导出训练格式。
+
+**【Paper】** 数据质量不是一个事后评分，而是每一阶段都在删除或标记不合格样本的 cumulative gate。**【Analysis】** 这种“可追溯的过滤—重放—再导出”让数据规模和数据可用率可以同时被讨论。
+
+### 4.3 关键公式
+
+#### Chunk-anchored action reconstruction
+
+$$
+\hat{T}_{j,t_0+\delta_h}=T_{j,t_0}\,\Delta T_{t_0,h}^{j}.
+$$
+
+这里 $T_{j,t_0}$ 是当前实测末端位姿，$\Delta T$ 是模型预测的相对 SE(3) 增量，$\hat T$ 是送给控制器的未来目标。平移、Rotation6D 和绝对夹爪开合在 backbone-specific tensor 中分别归一化。
+
+#### VLA flow matching
+
+StarVLA-QwenPI 的 action head 从噪声 $\epsilon\sim\mathcal N(0,I)$ 和真实 action chunk $a$ 构造：
+
+$$
+a_\tau=(1-\tau)\epsilon+\tau a,
+\qquad
+\mathcal L_{FM}=\mathbb E\left[\left\|v_\theta(a_\tau,\tau,z_t)-(a-\epsilon)\right\|_2^2\right].
+$$
+
+OpenPI-π0.5 使用等价的 continuous flow-matching 目标；LingBot-VA 则联合 future-video latent 和 action 的 flow-matching loss：
+
+$$
+\mathcal L_{LingBot}=\mathcal L_{video}+\mathcal L_{action}.
+$$
+
+**【Paper】** 这些公式描述的是三种 policy 的训练接口，而不是 HiFi-UMI 的数据重建损失。HiFi-UMI 的创新在于让输入 action label 达到足以支撑这些既有 policy head 的 fidelity。
+
+### 4.4 Training
+
+**【Paper】** 论文比较三种训练条件：真实机器人 teleoperation post-training、仅 HiFi-UMI post-training，以及 HiFi-UMI pre-training + HiFi-UMI post-training。每个任务使用 3,200 条 UMI trajectory；teleoperation 对照约 300 条，采集于评测场景。StarVLA-QwenPI 另用 4,000 小时 HiFi-UMI 做 pre-training；OpenPI-π0.5 和 LingBot-VA 从公开 base checkpoint 开始。
+
+StarVLA-QwenPI 的 pre-training 用 AdamW、global batch 2,048、3,000-step warm-up，action DiT 和 projection 的峰值 learning rate 为 $10^{-4}$；post-training 为 50,000 steps、global batch 512。LingBot-VA 更新 Transformer、冻结 causal VAE 和 text encoder，使用 3,500 steps 与等权 video/action loss。
+
+<Algorithm number={1} title='HiFi-UMI 数据驱动的训练流程' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>同步的六视角示教、双手轨迹、夹爪状态、语言标签与目标 backbone 的公开 checkpoint。</div>
+  <div slot='output'>可在真实双臂机器人上部署的 VLA/WAM policy。</div>
+  <AlgorithmStep>离线 SLAM 重建头部和双手轨迹，并移除重建失败样本。</AlgorithmStep>
+  <AlgorithmStep>在目标 embodiment 仿真中 retarget 每条轨迹，过滤不可执行 episode。</AlgorithmStep>
+  <AlgorithmStep>把世界坐标轨迹转换成 chunk-anchored end-effector action，按 backbone 打包、padding、mask 和 normalization。</AlgorithmStep>
+  <AlgorithmStep>可选地用大规模 HiFi-UMI pre-training 获得 visual-motor initialization，再用任务子集做 post-training。</AlgorithmStep>
+  <AlgorithmStep>冻结 checkpoint 和评测协议，比较 UMI-only 与 teleoperation post-training。</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** VLA 使用 timestamped receding-horizon control：将图像、proprioception 和夹爪状态对齐到同一 observation time，再独立恢复 action chunk 的每一行。StarVLA-QwenPI 生成 20 步、执行前 10 步；OpenPI-π0.5 保留其原生 horizon。LingBot-VA 使用 block-causal streaming，reset 后生成 12 个 action，之后每次生成 24 个 action，并用 rolling KV cache 接入真实执行历史。
+
+<Algorithm number={2} title='零机器人后训练策略的部署推理' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前四路 wrist observation、proprioception、夹爪状态和语言指令。</div>
+  <div slot='output'>带时间戳的双臂 end-effector pose targets。</div>
+  <AlgorithmStep>按各传感器 latency 对齐观测时刻，形成 backbone 原生输入。</AlgorithmStep>
+  <AlgorithmStep>VLA 通过 flow-matching action head，或 WAM 通过 future-video latent 与 inverse dynamics，生成 action chunk。</AlgorithmStep>
+  <AlgorithmStep>以当前实测末端位姿为共享 anchor，独立恢复每个未来目标，而不是递归累积预测目标。</AlgorithmStep>
+  <AlgorithmStep>将目标送入 125 Hz 插值与 IK 控制链路；VLA 在 receding horizon 下重规划，LingBot-VA 在 chunk 边界更新 KV cache。</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** 本次核对的官方项目页提供论文、演示和 HiFi-UMI-2K 数据集链接，但论文与项目页没有公开可用于复现实验的 GitHub 训练代码仓库。因此无法把 `Model`、`DataLoader`、loss、checkpoint 或 inference 映射到具体文件；官网前端 JavaScript 只负责展示项目内容，不应被当作训练实现。
+
+**【Paper】** 论文明确给出了数据处理和三种 backbone 的训练/部署接口，但没有给出足以复现硬件采集、SLAM、whole-body replay 或完整 fine-tuning 的代码清单。下文的“代码”结论仅限于“官方代码未提供”，其余实现描述都标作 `【Paper】` 或 `【Analysis】`。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+**【Paper】** 评测平台是固定式双臂 Tianji Robotics Marvin M6，每臂 7-DoF，使用与 HiFi-UMI 末端相同的夹爪和四路 wrist cameras；头戴 stereo pair 不输入 policy。控制器以 125 Hz 插值 end-effector target，并通过 EtherCAT 以 1 kHz 下发关节命令。
+
+四个任务覆盖不同 interaction dynamics：Stain Wiping（接触和覆盖）、Shirt Folding（双手可变形物体）、Remote Insertion（精确受限放置）和 Produce Sorting（语义分类与双臂协调）。每个 task–policy pair 进行 40 次 rollout，成功要求在 timeout 内完成、最终状态稳定至少 2 秒且没有 safety intervention。
+
+数据并不 sample-matched：UMI 每任务 3,200 条、约 10–20 小时，来自不同操作者和场景；teleoperation 每任务约 300 条、约 3–7 小时，且采自评测场景。**【Analysis】** 因而比较的是两种实际数据生产管线能否达到同等部署效果，不是每条轨迹的严格 data efficiency。
+
+### 5.2 Main Results
+
+![三种 backbone 上 UMI-only 与 teleoperation post-training 的主结果](https://pic.hana0721.top/blog/paper-deep-dive-hifi-umi/main-success.86ue0v857l.webp)
+
+| Backbone | HiFi-UMI post-training | Teleoperation post-training | UMI − Teleop |
+| --- | ---: | ---: | ---: |
+| StarVLA-QwenPI | 51.3%（82/160） | 53.8%（86/160） | −2.5 pp |
+| OpenPI-π0.5 | 77.5%（124/160） | 74.4%（119/160） | +3.1 pp |
+| LingBot-VA | 56.9%（91/160） | 57.5%（92/160） | −0.6 pp |
+
+**【Paper】** 三个差值方向不一致，且每个任务只有 40 次 rollout（一次成功就是 2.5 个百分点），所以论文把结论表述为 approximate parity，而不是某个数据源显著优于另一个。最强单项是 OpenPI-π0.5 在 Remote Insertion 上的 85%，即使 UMI 没有在评测场景采集轨迹。
+
+**【Analysis】** 这里的控制实验比跨模型绝对分数更有信息：同一 backbone、action semantics、normalization、optimization 和 deployment executor 内只替换 post-training data source，说明高 fidelity UMI 至少可以替代 in-domain teleoperation 的部署锚点。
+
+### 5.3 Ablation Study
+
+![Remote Insertion 的 UMI 数据规模与预训练初始化消融](https://pic.hana0721.top/blog/paper-deep-dive-hifi-umi/pretraining-scaling.99u3br3zfn.webp)
+
+**【Paper】** OpenPI-π0.5 在 Remote Insertion 上的 UMI post-training 随 episode 数量从 400、800、1,600、3,200 增加到 6,400，成功率依次为 37.5%、65%、70%、85% 和 82.5%；约 3,200 条后开始饱和。StarVLA-QwenPI 的初始化消融显示，UMI-pretrained policy 只用 800 条任务数据就超过 Qwen-VL 初始化、3,200 条数据训练的 52.5% baseline。
+
+在四个 benchmark tasks 上用相同 3,200 条任务轨迹做 post-training，UMI pre-training 将 StarVLA-QwenPI aggregate success 提高 18.1 个百分点。**【Analysis】** 预训练的主要收益不是让最终 policy 获得更多 task labels，而是把 visual-motor prior 的起点前移，从而同时改善低数据区间和最终上限。
+
+### 5.4 Generalization
+
+![HiFi-UMI 预训练对下游真实机器人成功率的影响](https://pic.hana0721.top/blog/paper-deep-dive-hifi-umi/downstream-success.9kgx4wj76k.webp)
+
+**【Paper】** 4,000 小时 UMI pre-training 使十个未见任务的 action error 降低 41%，每个任务都改善。held-out action error 在一次训练 pass 内下降 61%，pre-decay power-law 拟合为：
+
+$$
+L_{heldout}(S)=L_\infty+A S^{-\alpha},\qquad \alpha=0.268,\quad R^2=0.993,
+$$
+
+其中 $S$ 是累计处理的 UMI action chunks。OOD scaling 的速度取决于 interaction family：utensil/tableware 最快，granular transfer 居中，cloth folding 最慢。**【Analysis】** 这说明“对象是否见过”不是唯一因素，预训练数据是否覆盖相似的接触、容器几何、重抓和折叠动力学更重要。
+
+LingBot-VA 的 ground-truth-video oracle diagnostic 显示，UMI→Real 的 full-chunk XYZ RMSE 为 24.33 mm、frame-to-frame rotation error 为 0.65°；UMI→UMI 为 21.13 mm 和 0.88°，与 teleoperation→Real 的 21.64 mm 和 0.46° 同处厘米级、亚度级范围。**【Paper】** 这是 action decoder 的诊断，不代表可部署推理时可以跳过 future-video generation。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** HiFi-UMI 有效不是因为一个单独的硬件指标，而是误差链条被同时压低：空间误差由头部视角、离线 stereo SLAM 和 native 双手位姿控制；时间误差由 GPIO trigger 控制；可观测性误差由双手四枚 fisheye 相机缓解；可执行性误差由仿真 replay 过滤。这样 robot-free label 才不再只是 pre-training 的弱监督，而可以承担 task-specific post-training。
+
+### 6.2 核心创新
+
+**【Paper】** 方法创新集中在 data-production system，而非新 policy architecture：把 offline SLAM、native relative pose、hardware sync、wide-FoV sensing 和 full-palm gripper 作为一个 fidelity contract；用 replayable data engine 让每条 episode 都有重建、回放、标注和审核痕迹；再用跨 VLA/WAM 的 controlled comparison 验证 zero-robot post-training。
+
+### 6.3 与已有方法的本质区别
+
+**【Analysis】** 以往工作通常减少 teleoperation 比例，但保留一个 real-robot anchor；HiFi-UMI 不再问“anchor 能否缩到多小”，而是问“robot-free data 的 fidelity 能否高到让 anchor 变成零”。因此论文的单位不是一个 network block，而是从采集到 deployment 的闭环数据系统。
+
+### 6.4 关键假设
+
+**【Paper】** 主要假设包括：局部 3 mm 轨迹精度足以覆盖目标 workspace；同一 full-palm gripper 可以消除大部分接触 interface gap；仿真 retargeting 的通过可以作为真实可执行性的前置筛选；四个桌面双臂任务和三个 backbone 足以初步检验 post-training 来源替代。
+
+**【Analysis】** 这些假设还没有覆盖移动机器人、灵巧手、软体物体的长时程恢复，或比 Marvin M6 更大的 embodiment gap。高保真是必要条件，但论文没有证明它对所有任务都充分。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** zero-robot post-training 只覆盖四个桌面双臂任务和三个 backbone；pre-training scaling 与 downstream gain 只在 StarVLA-QwenPI 上验证。每个 task–policy pair 只有 40 次 rollout，一次结果变化 2.5 个百分点。fidelity 被作为整体系统设计验证，没有分别 degradation trajectory accuracy、relative pose、synchronization、FoV。UMI 与 teleoperation 的后训练数据量也不匹配，结论不是 equal-sample efficiency；pre-training 收益是否继续增长、是否同样帮助 teleoperation post-training，仍需更大规模实验。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】** 评测机器人使用与采集一致的 gripper 和 wrist views，换成不同末端或移动底盘后 action semantics 未必保持不变；仿真 replay 不能完全模拟摩擦、柔性物体和接触恢复；96% usable ratio 仍把 fidelity 与场景覆盖绑定在一起；多视角 AI annotation 的跨任务误差分布和训练实现尚未公开。Remote Insertion 中 UMI policy 更直接但重试更多，也说明 nominal motion efficiency 与 recovery robustness 不是同一指标。
+
+## 8. 启发与研究思考
+
+1. **机器人数据的瓶颈可能从“机器人数量”转为“action-label contract”。** 采集设备、坐标定义、同步和回放验证被标准化后，更多数据可以在没有目标机器人的地点并行产生。
+2. **零机器人后训练不等于零 embodiment 问题。** 它移除的是 task-specific teleoperation anchor，而不是所有 robot calibration。
+3. **应把 fidelity 做成可消融的 specification。** 固定 episode 数和场景覆盖，分别注入时间偏移、相对位姿噪声、FoV 遮挡和 SLAM drift，才能测出部署成功率对每种误差的阈值。
+4. **数据配比应按 interaction dynamics 设计。** cloth folding scaling 慢于 utensil/tableware，下一批数据应主动增加 deformable-object topology、regrasp、接触修正和恢复行为。
+5. **replay metadata 可以反向决定下一轮采集。** 失败原因、场景覆盖和模型不确定性可以形成 collection 到 deployment 的主动数据飞轮。
+6. **HiFi-UMI-2K 的价值不只是 2,000 小时。** 六视角视频、校准双手轨迹、夹爪状态、语言边界和质量元数据共同提供了 VLA、WAM、offline evaluation 与 data curation 的接口。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码或项目资源核对结果，`【Analysis】` 表示基于论文和公开资源的分析推断。本文使用的论文图像均从 arXiv 源文件裁切并上传到图床；官方未公开训练代码，因此没有虚构文件级实现映射。
+</Aside>
