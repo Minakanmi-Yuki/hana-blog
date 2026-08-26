@@ -1,0 +1,284 @@
+---
+title: 'Open-H-Embodiment 论文精读：让医疗机器人也拥有可扩展的基础模型数据'
+publishDate: 2026-08-27
+updatedDate: 2026-08-27
+description: '精读 Open-H-Embodiment：780 小时、20 种医疗机器人平台的数据基础设施，以及 GR00T-H 和 Cosmos-H-Surgical-Simulator 的跨具身验证。'
+heroImage:
+  { src: 'https://pic.hana0721.top/49383596_p0_master1200.6t7pmts45l.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '49383596'
+tags:
+  - 'paper deep dive'
+  - 'medical robotics'
+  - 'VLA'
+  - 'robot learning'
+paper:
+  arxivId: '2604.21017'
+  title: 'Open-H-Embodiment: A Large-Scale Dataset for Enabling Foundation Models in Medical Robotics'
+  authors:
+    - 'Open-H-Embodiment Consortium'
+    - 'Nigel Nelson'
+    - 'Juo-Tung Chen'
+    - 'Jesse Haworth'
+    - 'Xinhao Chen'
+    - 'Lukas Zbinden'
+    - 'Dianye Huang'
+  venue: 'arXiv'
+  year: 2026
+  code: 'https://github.com/open-h/open-h-embodiment'
+  project: 'https://open-h.github.io/open-h-embodiment/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2604.21017'
+  tldr='Open-H 把 50 多家机构的医疗机器人视频、语言和运动轨迹统一为可复用的数据基础设施，并用 GR00T-H 与 C-H-S-S 验证跨平台策略学习和世界模型。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《Open-H-Embodiment: A Large-Scale Dataset for Enabling Foundation Models in Medical Robotics》  
+**作者**：Open-H-Embodiment Consortium（首位作者 Nigel Nelson 等）  
+**发表形式**：arXiv 预印本（2026）  
+**论文链接**：[arXiv:2604.21017](https://arxiv.org/abs/2604.21017)  
+**数据集**：[Hugging Face](https://huggingface.co/datasets/nvidia/PhysicalAI-Robotics-Open-H-Embodiment)  
+**代码**：[Open-H 数据仓库](https://github.com/open-h/open-h-embodiment)、[GR00T-H](https://github.com/NVIDIA-Medtech/GR00T-H)、[C-H-S-S](https://github.com/NVIDIA-Medtech/Cosmos-H-Surgical-Simulator)
+
+![Open-H 数据集与两条基础模型路线（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-open-h-embodiment/overview.webp)
+
+### 一句话总结
+
+**【Paper】** 医疗机器人领域真正缺的不是又一个窄任务策略，而是能跨机构、跨设备、跨任务共享的训练数据。Open-H 收集 119 个数据集、780 小时的同步视频与运动学，覆盖 20 种平台和 33 类任务；在此之上，GR00T-H 证明医疗领域的 post-training 能提升 VLA 的长程成功率，Cosmos-H-Surgical-Simulator（C-H-S-S）则证明单个动作条件世界模型可以服务多种手术机器人。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 建立首个大规模、跨具身、多机构的医疗机器人数据集：超过 50 家机构、125,815 个 episode、780 小时配对视频和运动学，统一为 LeRobot v2.1 格式。
+2. 发布 GR00T-H：在 601 小时真实手术子集上 post-train GR00T-N1.6-3B，支持相对末端执行器控制和具身专属 action head。
+3. 发布 C-H-S-S：在 9 种具身、32 个数据集上微调 Cosmos-Predict 2.5-2B，用 44 维统一动作空间生成未来手术视频。
+4. 给出可复现实验：GR00T-H 在 SutureBot 上达到 25% 端到端完成率（其他基线为 0%），在 29 步离体缝合序列上达到 64% 平均子任务成功率。
+
+## 2. 背景与相关工作
+
+**【Paper】** 通用机器人已经通过 Open-X-Embodiment、Octo、OpenVLA 等工作验证了“跨具身数据 + 大模型预训练”的规模效应，但手术机器人仍停留在 JIGSAWS（约 3 小时）、SutureBot（约 6 小时）等单机构、单平台数据集。临床数据采集还要面对 IRB、隐私、专有控制接口、同步和安全审查，导致数据难以公开和复用。
+
+这造成了一个特殊的 domain gap：手术动作比普通桌面抓取更长程、更接触密集，也更依赖组织形变和器械状态。论文引用的 SutureBot 结果显示，直接把通用 VLA 拿来做缝合，甚至不如在单一平台上从零训练的 ACT。问题因此不只是模型容量，而是模型没有见过足够多的医疗视觉—运动关联。
+
+**【Analysis】** Open-H 的关键判断是把“医疗机器人基础模型”拆成两层：先用统一数据学习可迁移的视觉、语言和运动先验，再在目标机构用少量数据做具身/任务适配。这与为每台机器人单独训练一个 policy 的路线不同，也让世界模型、视觉表征和规划器共享同一数据基础设施。
+
+## 3. 问题定义
+
+**【Paper】** 数据层面，Open-H 要求每个样本至少有同步视频和运动学，并附带任务 prompt、平台说明、同步方式、控制坐标系和数据多样性等 README 元数据。数据覆盖五种环境真实性层级：数字仿真（84 小时）、benchtop/phantom（119 小时）、ex vivo（75 小时）、in vivo（3 小时）和临床人体手术（499 小时）。
+
+| 维度 | Open-H 设定 |
+| --- | --- |
+| 观测 | 单目/双目内窥镜、wrist/第三视角 RGB、深度、超声，部分数据含 gaze 与力 |
+| 动作 | 原始关节或笛卡尔轨迹；GR00T-H 统一为相对 EEF + 6D rotation |
+| 具身 | Versius、da Vinci、dVRK、MIRA、BiTrack、Maestro、Franka、UR5e 等 20 个平台 |
+| 任务 | 缝合、打结、组织操作、peg transfer、超声扫描、内窥镜导航等 33 类 |
+| 规模 | 119 数据集、125,815 episodes、780 小时 |
+| 发布格式 | LeRobot v2.1；视频 MP4、运动学 Parquet，CC-BY-4.0 |
+
+**【Paper】** GR00T-H 学习的是从多视角视觉与语言到相对末端动作 chunk 的映射；C-H-S-S 学习的是给定当前帧和未来运动学，生成 12 帧后续视频。两者共享数据，但前者输出动作，后者预测动作造成的视觉后果。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![Open-H 的机构、机器人、任务和两条模型路线（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-open-h-embodiment/overview.webp)
+
+**【Paper】** 数据经 LeRobot v2.1 统一后，一路进入 GR00T-H 的 VLA post-training，另一路进入 C-H-S-S 的动作条件视频生成；前者用于真实机器人控制，后者用于仿真评估与合成数据。
+
+### 4.2 核心模块
+
+#### Open-H 数据层
+
+- **输入**：各机构原始视频、关节/末端轨迹、语言或阶段标注。
+- **处理**：转换为 LeRobot v2.1，并为每个数据集保留平台专属 README；对超声参数、手术阶段、主动器械等扩展字段提供规范。
+- **输出**：可由统一 DataLoader 读取的多具身 episode。
+- **为什么需要**：仅统一张量维度会隐藏 clutch、线缆迟滞、未驱动器械等语义；README 把这些“数据外知识”显式交给下游用户。
+
+![Open-H 数据组成：平台、环境和任务分布（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-open-h-embodiment/dataset-composition.webp)
+
+#### GR00T-H Policy
+
+- **基础模型**：GR00T-N1.6-3B 的 VLM backbone + DiT action expert。
+- **动作表示**：所有数据转成相对 EEF 控制，平移为相对位移，旋转用连续的 6D rotation；每个机器人配置保留独立 action head。
+- **采样**：601 小时真实手术数据；Versius 采样比例封顶 20%，其余按数据规模采样。
+- **归一化**：按数据集统计量做 weighted moment matching，统计到每个具身、动作维度和 chunk 时间步，z-score 后裁剪到 `[-5, 5]`。
+- **为什么有效**：相对动作减少模型学习每种机器人的 forward kinematics；独立 head 则允许吸收不同器械的线缆伸缩、磨损和映射差异。
+
+#### Cosmos-H-Surgical-Simulator
+
+- **输入**：一张 context frame 与 12 个动作向量。
+- **中间模块**：Cosmos-Predict 2.5 的 VAE latent、2B DiT 去噪器和按时间步注入动作的 MLP。
+- **输出**：12 帧未来视频；自回归连接 6 个 chunk 可得到 72 帧轨迹。
+- **统一动作空间**：44 维向量，较短的具身动作通过 zero-padding 对齐；平移采用 relative 格式，旋转采用 6D 表示。
+- **用途**：重放真实动作评估视频预测，也可作为 policy 的 in-silico 环境和合成数据生成器。
+
+### 4.3 关键公式
+
+#### GR00T-H 的跨具身动作归一化
+
+对具身 $e$ 的动作 chunk $a^{(e)}_{1:K}$，论文采用逐维、逐时间步的 z-score：
+
+$$
+\tilde a^{(e)}_{k,d}=\operatorname{clip}\left(\frac{a^{(e)}_{k,d}-\mu^{(e)}_{k,d}}{\sigma^{(e)}_{k,d}},-5,5\right)
+$$
+
+$k$ 是 chunk 内时间步，$d$ 是动作维度，$\mu$ 与 $\sigma$ 来自按训练混合比例加权合并的统计量。**【Analysis】** 保留 $k$ 维度让模型区分“马上执行”的动作和 chunk 尾部动作，避免一个全局统计量抹平时间结构。
+
+#### C-H-S-S 的动作条件生成
+
+$$
+\hat v_{t+1:t+12}=F_\theta\left(v_t,\,a_{t:t+11},\,\epsilon\right)
+$$
+
+其中 $v_t$ 是当前视频帧的 latent，$a$ 是 44 维动作序列，$\epsilon$ 是扩散噪声，$F_\theta$ 是 Cosmos DiT。模型训练每次预测 12 帧，推理时将最后一帧作为下一 chunk 的 context。
+
+评估使用逐帧 L1 和 SSIM：
+
+$$
+L1=\frac{1}{N}\sum_{i=1}^{N}|\hat I_i-I_i|,\qquad SSIM(\hat I_i,I_i)
+$$
+
+**【Paper】** L1 衡量像素误差，SSIM 衡量结构相似度；它们只能评价 open-loop 重放，不能直接证明闭环手术物理正确。
+
+### 4.4 Training
+
+<Algorithm number={1} title='Open-H 多具身训练' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>各机构原始 episode、平台配置、动作统计量与基础模型 checkpoint。</div>
+  <div slot='output'>GR00T-H policy 或 C-H-S-S world model checkpoint。</div>
+  <AlgorithmStep>将视频、运动学和元数据转换为 LeRobot v2.1；生成每数据集的 stats 与 temporal stats。</AlgorithmStep>
+  <AlgorithmStep>按具身配置完成相对 EEF/6D rotation 转换，并合并加权归一化统计量。</AlgorithmStep>
+  <AlgorithmStep>GR00T-H：在 601 小时手术子集上全参数 post-train 65,000 steps，global batch size 1,024。</AlgorithmStep>
+  <AlgorithmStep>C-H-S-S：在 32 个数据集、9 种具身上微调 42,000 steps，64 张 A100 80GB，输入 13 帧、动作 12 步。</AlgorithmStep>
+  <AlgorithmStep>用 held-out 轨迹和 Cosmos-Surg-dVRK 自动闭环筛选 checkpoint，再进行真实机器人验证。</AlgorithmStep>
+</Algorithm>
+
+**【Code】** `open_h/prepare_datasets.sh` 依次复制 `modality.json`、生成 `stats.json` 和 `temporal_stats.json`；`gr00t_h_config.yaml` 记录具身标签、数据路径、混合比例和训练参数。C-H-S-S 仓库的 `scripts/README_ACTION_SPACE.md` 明确实现了 44D zero-padding、每具身归一化和 12 步 action chunk。
+
+### 4.5 Inference
+
+<Algorithm number={2} title='动作执行与世界模型 rollout' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前视觉帧、语言/子任务 prompt、具身标签，以及 GR00T-H 或 C-H-S-S checkpoint。</div>
+  <div slot='output'>GR00T-H 的 EEF action chunk，或 C-H-S-S 生成的视频轨迹。</div>
+  <AlgorithmStep>根据具身标签选择对应 modality config、action head 和归一化统计量。</AlgorithmStep>
+  <AlgorithmStep>GR00T-H 编码视觉与语言并预测动作 chunk；仅执行当前动作窗口，再读取新观测。</AlgorithmStep>
+  <AlgorithmStep>C-H-S-S 接收一帧与 12 个动作，生成 12 帧；取末帧作为下一次 context，循环 rollout。</AlgorithmStep>
+  <AlgorithmStep>真实部署中由低层控制器跟踪动作；仿真评估中将生成帧交给 policy 或指标计算器。</AlgorithmStep>
+</Algorithm>
+
+**【Code】** GR00T-H 的独立推理入口是 `scripts/deployment/standalone_inference_script.py`；C-H-S-S 提供 `scripts/.../inference_open_h.py`，按 JSON manifest 加载不同具身。代码仓库还提供 TensorRT、动作统计计算和批量 episode 评估脚本。
+
+### 4.6 代码实现对照
+
+| 论文描述 | 官方代码对应 | 需要注意的实现细节 |
+| --- | --- | --- |
+| 统一数据格式 | `open_h/prepare_datasets.sh`、各 embodiment `modality.json` | 先生成 temporal stats，否则训练会失败 |
+| 具身专属动作投影 | `open_h/embodiments/*_config.py` 与 GR00T projector index | 同平台不同机器也可使用不同配置 |
+| GR00T-H 多具身训练 | `open_h/gr00t_h_config.yaml`、`launch_train.py` | N1.7 仓库当前 README 记录 16 具身/34+机构；论文 v3 的统计为 20 平台/50+机构，版本口径不同 |
+| C-H-S-S 44D 动作 | `scripts/README_ACTION_SPACE.md`、`action_conditioned.py` | 44D 是每时间步维度，样本动作张量为 `(12, 44)` |
+| 推理与评估 | `inference_open_h.py`、`cosmos_h_surgical_simulator_quant_eval.py` | 量化评估是 open-loop action replay |
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![GR00T-H 在 dVRK、Versius 与 MIRA 上的评估设置（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-open-h-embodiment/eval-setups.webp)
+
+**【Paper】** 主要 policy 对比包括 GR00T-H、未 post-train 的 GR00T-N1.6、ACT 和用 50 小时 dVRK 子集适配的 LingBot-VA。SutureBot 端到端实验包含 needle pickup、handover、throw、extraction、knot tying 五个阶段，每个模型 20 次尝试。OOD 实验改变 wound 配置和光照；data-efficiency 实验使用约 33% 或 100% 的本地微调数据。另在 Versius Peg Transfer、MIRA needle pickup 和皮肤猪肉离体缝合上验证跨具身性能。
+
+### 5.2 Main Results
+
+![SutureBot 端到端任务生存率与 OOD 结果（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-open-h-embodiment/subtask-survival.webp)
+
+**【Paper】** 结果呈现出明显的长程优势：
+
+| 评估 | GR00T-H | GR00T-N1.6 | ACT | LingBot-VA |
+| --- | ---: | ---: | ---: | ---: |
+| SutureBot 端到端完成（20 次） | **5/20（25%）** | 0/20 | 0/20 | 0/20 |
+| OOD 三任务平均 | **54%** | 30% | 5% | 未报告 |
+| 33% 微调数据三任务平均 | ≈47% | ≈20% | ≈47% | 未报告 |
+| 100% 微调数据三任务平均 | **≈73%** | ≈37% | ≈50% | 未报告 |
+
+在端到端实验中，GR00T-H 到 throw 阶段仍保留 12/20 条轨迹，GR00T-N1.6 和 ACT 都只有 4/20；这说明 post-training 主要改善了错误累积后的恢复能力，而不是只提升早期抓取。
+
+![GR00T-H 的跨具身成功率（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-open-h-embodiment/gr00t-h-multi-embodiment.webp)
+
+**【Paper】** 在 dVRK-Si、CMR Versius 和 MIRA 三个平台上，GR00T-H 都显著优于 GR00T-N1.6，总体平均差异的 Fisher 检验为 $p<0.001$。这支持“共享 backbone + 具身专属 head”比单平台策略更能抵抗设备变化的结论。
+
+### 5.3 Ablation Study
+
+![GR00T-H 在 29 个离体缝合子任务上的成功率（论文 Figure 7）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-open-h-embodiment/gr00t-h-exvivo.webp)
+
+**【Paper】** 29 步、290 次离体实验的平均成功率为 64%。needle pickup、handover、set-down needle 和三步 knot tying 基本接近满分；readjust、open wound、抓取 suture tail 以及两步 cut suture 明显较弱，切线步骤只有 20–30% 左右。
+
+**【Analysis】** 这不是“模型整体不会缝合”，而是误差集中在快速、细接触和组织形变相关动作。因而最有价值的下一轮数据并非盲目扩大所有任务，而是针对切割、抓尾线和组织接触采集 failure/recovery demonstrations。
+
+### 5.4 Generalization
+
+![C-H-S-S 在 benchtop 与 tissue-based 数据上的 L1/SSIM（论文 Figure 8）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-open-h-embodiment/cosmos-results.webp)
+
+**【Paper】** C-H-S-S 在 25 个数据集上做 72 帧自回归重放，每个 episode 使用 3 个随机种子。benchtop 场景保持较低 L1 和较高 SSIM，tissue-based 场景误差更高、种子方差更大；原因包括内窥镜光照、器械遮挡、湿组织高光和可变形解剖结构。chunk 边界的 sawtooth 误差存在但幅度有限，说明模型能维持跨 chunk 的场景状态。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** Open-H 同时解决了三个瓶颈：
+
+1. **统计覆盖**：更多平台和机构让模型看到器械、视角、光照和动作风格的变化。
+2. **表示对齐**：相对 EEF + 6D rotation 把不同机器人的控制问题映射到共同坐标系。
+3. **评估闭环**：C-H-S-S 和 Cosmos-Surg-dVRK 把昂贵的真实机器人试错变成可批量的视频 rollout 筛选。
+
+### 6.2 核心创新
+
+**【Paper】** 真正的创新不在单个 Transformer 层，而在“数据基础设施 + 两种基础模型验证”的组合：Open-H 让跨具身医疗数据可用；GR00T-H 验证策略迁移；C-H-S-S 验证世界建模迁移。三者共同把医疗机器人从单任务 benchmark 推向可扩展的研究平台。
+
+### 6.3 与已有方法的本质区别
+
+**【Analysis】** JIGSAWS、SutureBot 等数据集是“一个平台、一个任务族”的 benchmark；Open-H 是“多平台、多真实性层级、多模态”的 corpus。ACT 直接从头学习某一任务的动作分布，而 GR00T-H 先学习医疗领域先验再进行小数据适配。单平台 Cosmos-Surg 模型只能回答“这台机器人会发生什么”，C-H-S-S 试图回答“在训练分布内的多台机器人上，这个动作会发生什么”。
+
+### 6.4 关键假设
+
+- **【Paper】** 统一 LeRobot schema 和相对动作足以保留跨平台迁移所需的信息。
+- **【Analysis】** 具身专属 action head 可以吸收硬件差异，但不能自动解决未见平台的动力学和安全约束。
+- **【Paper】** open-loop 视频指标能反映世界模型的基础 fidelity；闭环策略安全性仍需额外指标与真实实验。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】**
+
+- GR00T-H 的 25% 端到端 SutureBot 完成率和 64% 离体平均成功率距离临床可靠性仍很远。
+- 所有自主评估都在 phantom、benchtop 或 ex vivo 条件进行；活体组织的出血、运动和刚度变化尚未覆盖。
+- 模型没有检测组织撕裂、器械故障或患者移动的显式安全机制。
+- Open-H 以成功示教为主，失败轨迹不足；这会限制 world model 对异常状态的建模。
+- C-H-S-S 的 L1/SSIM 只适用于有 ground truth 的 open-loop replay，不能衡量闭环工具位置和物理接触真实性。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】** 数据时长的 64% 来自 Versius 临床流程，平台和任务分布并非均匀；“780 小时”不能简单等价为 780 小时同质量的动作监督。论文 v3 与当前代码仓库的版本也存在口径差异（论文报告 20 平台，GR00T-H README 介绍 16 个具身），复现实验必须锁定 commit、数据清单和模型版本。
+
+此外，统一 44D zero-padding 解决了张量接口，却可能让模型把“未使用维度”当作缺失值而非结构性信息；未来需要显式 action mask、动力学约束和风险预测。最后，临床部署还要求不确定性估计、可中断控制和审计日志，这些不属于当前 policy/world-model 训练目标。
+
+## 8. 启发与研究思考
+
+1. **数据治理本身是模型创新。** 对医疗机器人，schema、同步、平台 README 和许可协议与网络结构同等重要。
+2. **从“成功率”转向“可诊断性”。** 29 步实验暴露了 cut suture、抓尾线等具体失败模式，下一步应围绕失败类型主动采样。
+3. **世界模型应成为训练基础设施。** 如果 C-H-S-S 能进一步加入工具轨迹、组织接触和风险标签，就可以支持策略筛选、反事实数据生成和安全回归测试。
+4. **跨具身不等于零样本通用。** 共享 backbone 负责迁移视觉—语言先验，具身 head 和少量本地数据仍负责精确控制；两者的边界值得单独研究。
+5. **临床价值需要新的指标。** 工具尖端偏差、组织损伤风险、动作可逆性和人类接管频率，比单纯像素 SSIM 更接近真实手术需求。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。论文与代码仓库在 2026 年仍可能继续更新，复现时请记录版本号。
+</Aside>

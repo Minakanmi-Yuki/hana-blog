@@ -1,0 +1,258 @@
+---
+title: 'Open X-Embodiment 论文精读：用跨机器人数据训练 RT-X 通用策略'
+publishDate: 2026-08-27
+updatedDate: 2026-08-27
+description: '精读 Open X-Embodiment：统一 22 种机器人、60 个数据集与 RLDS 格式，并分析 RT-1-X/RT-2-X 如何从跨具身数据中获得正迁移。'
+heroImage:
+  { src: 'https://pic.hana0721.top/131135880_p0_master1200.9rjzqc0dp5.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '131135880'
+tags:
+  - 'paper deep dive'
+  - 'robot learning'
+  - 'VLA'
+  - 'dataset'
+paper:
+  arxivId: '2310.08864'
+  title: 'Open X-Embodiment: Robotic Learning Datasets and RT-X Models'
+  authors:
+    - 'Open X-Embodiment Collaboration'
+  venue: 'arXiv'
+  year: 2023
+  code: 'https://github.com/google-deepmind/open_x_embodiment'
+  project: 'https://robotics-transformer-x.github.io/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2310.08864'
+  tldr='Open X-Embodiment 把 22 种机器人、60 个数据集统一为 RLDS，并证明 RT-1-X/RT-2-X 能通过跨具身联合训练获得正迁移和新技能。'
+  rank={5}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《Open X-Embodiment: Robotic Learning Datasets and RT-X Models》
+
+**作者**：Open X-Embodiment Collaboration（作者按字母顺序列出）
+
+**论文链接**：[arXiv](https://arxiv.org/abs/2310.08864)　**项目主页**：[robotics-transformer-x.github.io](https://robotics-transformer-x.github.io/)
+
+**官方代码**：[google-deepmind/open_x_embodiment](https://github.com/google-deepmind/open_x_embodiment)
+
+![Open X-Embodiment 数据与机器人多样性总览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-open-x-embodiment/oxe-overview.7sny9zvf5j.webp)
+
+### 一句话总结
+
+**【Paper】** 本文的核心不是提出一个全新的网络，而是把分散在不同实验室、机器人和任务上的示教数据统一起来，并用 RT-1 与 RT-2 的跨具身版本（RT-1-X、RT-2-X）验证“大而杂”的机器人数据是否能带来正迁移。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 发布 Open X-Embodiment（OXE）数据集：1M+ 条真实机器人轨迹、60 个已有数据集、22 种 robot embodiments，覆盖 527 skills 与 160,266 tasks，数据来自 21 家机构（数据池包含 34 个 robotic research labs）。
+2. 将数据转换为 RLDS 格式，使不同相机、动作空间和 episode 结构可以被统一读取。
+3. 在 9 种机械臂的数据混合上训练 RT-1-X 与 RT-2-X，系统评估跨具身 co-training 的 in-distribution、OOD generalization 和 emergent skills。
+4. 证明容量是关键：RT-1-X 在小数据域平均成功率比原方法高约 50%，而 55B 的 RT-2-X 在跨机器人新技能上达到约 3 倍于 RT-2 的表现。
+
+## 2. 背景与相关工作
+
+**【Paper】** NLP 和 Computer Vision 已通过大规模预训练模型从“每个任务一个模型”走向通用 backbone；机器人学习却仍经常为每个任务、环境和机器人单独训练策略。原因不只是数据量小，更是 embodiment、相机、坐标系和控制频率都不一致。
+
+过去的跨机器人工作通常显式缩小 embodiment gap：共享 action representation、加入 embodiment conditioning、学习可迁移表征，或把机器人与环境因素解耦。OXE 采取了相反的实验立场：先做粗粒度数据对齐，直接把多种机器人数据喂给同一个 Transformer policy，观察是否已经存在正迁移。
+
+**【Analysis】** 这使论文更像一项基础设施与 scaling study：它把“能否训练机器人通用模型”的瓶颈，从单一算法设计转移到数据标准、混合策略和模型容量。
+
+## 3. 问题定义
+
+**【Paper】** 给定语言指令 $l$、最近的图像历史 $I_{t-H+1:t}$ 和机器人状态，学习一个能在不同 embodiment 上执行的策略：
+
+$$
+\pi_\theta(a_t \mid I_{t-H+1:t}, l, e),
+$$
+
+其中 $e$ 表示由数据集约定的动作解释（例如绝对位置、位置增量或速度），而不是显式输入给模型的统一 embodiment id。
+
+| 项目 | 论文设定 |
+| --- | --- |
+| Observation | 每个数据集选择一个 canonical RGB camera view，并统一分辨率；输入还包括自然语言 task instruction |
+| Action | 7-DoF end-effector action：$x,y,z$、roll/pitch/yaw 和 gripper；另加 episode termination，共 8 个维度 |
+| Action representation | 每个维度均匀离散为 256 bins；归一化后按 embodiment 反归一化 |
+| Dataset format | RLDS serialized TFRecord，支持变长 episode、不同相机模态和并行读取 |
+| Training mixture | 实验时使用 9 个 manipulator 的机器人数据；OXE 完整仓库包含 22 种 embodiment |
+| Inference | RT-1 在本地运行，RT-2 通过云端服务查询，控制频率约 3–10 Hz |
+
+**【Analysis】** 这里的“统一”并不是把所有机器人变成同一坐标系：论文明确保留各数据集原本的 absolute/relative/velocity 语义，因此模型输出的同一个 token 在不同 embodiment 上可能对应完全不同的运动。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![RT-1-X 与 RT-2-X 架构及离散动作输出（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-open-x-embodiment/rtx-architecture.86ue0v3qzc.webp)
+
+**【Paper】** 两个模型共享“图像 + 语言 → 离散 end-effector action”的接口：RT-1-X 使用 FiLM-conditioned EfficientNet 与 decoder-only Transformer；RT-2-X 则把动作序列写成文本 token，与 Web-scale vision-language 数据 co-fine-tune。
+
+### 4.2 核心模块
+
+#### Open X-Embodiment Dataset 与 RLDS
+
+- **输入**：来自 60 个数据集的原始 episode，可能含多个 RGB/深度相机、点云和不同自由度动作。
+- **处理**：选定一台 canonical camera，调整图像分辨率；将原动作映射为 7-DoF end-effector 字段并逐数据集归一化。
+- **输出**：RLDS episode，包含 observation、action、语言标注和 episode 边界。
+- **为什么需要**：没有共享 schema，DataLoader 无法在不同机构的数据之间切换，跨具身训练也就无法复现。
+
+**【Code】** 官方仓库的 README 说明每个数据集都是 RLDS episode；Colab 展示了 `tfds.load`、episode 可视化、批处理和 checkpoint 推理。仓库还提供数据集元数据 spreadsheet，但没有在代码仓库中放入完整的 1M+ 轨迹。
+
+#### RT-1-X：机器人专用 Policy
+
+- **输入**：长度为 15 的 RGB 图像历史和 USE language embedding。
+- **视觉编码**：ImageNet-pretrained EfficientNet-B3 + FiLM，将语言条件注入视觉特征；Token Learner 压缩为 81 个 image tokens。
+- **时序建模**：8 层 Transformer，默认 8 heads；动作 token 作为占位 token 拼接到图像 token 后。
+- **输出**：每个时间步 11 个 token，覆盖 termination、3 个 world-vector、3 个 rotation、gripper 和 base 相关维度。
+
+**【Code】** `models/rt1.py` 中 RT-1-X 推理配置为 `num_image_tokens=81`、`num_action_tokens=11`、`layer_size=256`、`vocab_size=512`，并将 `world_vector_range` 改为 `(-2, 2)`。代码默认不使用前一时刻 action token，而是将其置零。
+
+#### RT-2-X：VLM-to-VLA
+
+**【Paper】** RT-2-X 基于 RT-2-PaLI-X（ViT + UL2），把 8 维离散动作写成类似自然语言的数字序列，在约一比一的 WebLI/VLM 数据与机器人数据混合上 co-fine-tune。这样 Web pretraining 提供视觉和语言泛化，机器人数据把抽象语义落到 action tokens。
+
+**【Analysis】** RT-2-X 的关键增益不是新的 action decoder，而是让高容量 VLM 有足够参数吸收跨机器人、多任务分布；这也解释了 RT-1-X 在大数据域出现 underfitting，而 55B RT-2-X 能恢复性能。
+
+### 4.3 关键公式
+
+动作离散化对每个连续维度 $a^d$ 使用数据集专属范围 $[l_d,u_d]$：
+
+$$
+k^d = \left\lfloor \frac{\operatorname{clip}(a^d,l_d,u_d)-l_d}{u_d-l_d}(V-1) \right\rfloor,
+$$
+
+其中 $V$ 是词表大小，$k^d\in\{0,\ldots,V-1\}$。**【Paper】** RT-X 论文主实验描述 256 bins；**【Code】** JAX RT-1-X 示例使用 `vocab_size=512`，说明开源 checkpoint/config 与论文版本存在实现差异。
+
+两个模型都使用分类交叉熵：
+
+$$
+\mathcal L(\theta)=-\sum_{t,d}\log p_\theta(k^d_t\mid I_{t-H+1:t},l).
+$$
+
+**【Code】** RT-1 的 `tokenize_action` 先对各字段 clip、归一化并转成整数 token；`detokenize_action` 再按相同范围还原连续动作。代码中 `terminate_episode` 是 3 类 one-hot，而运动与夹爪字段按 vocab bins 解码。
+
+### 4.4 Training
+
+**【Paper】** RT-1-X 仅使用机器人数据；RT-2-X 采用机器人数据与原始 VLM 数据约一比一的 co-fine-tuning。动作在离散空间上进行 categorical cross-entropy 训练。实验混合数据来自 RT-1、QT-Opt、Bridge、Task Agnostic Robot Play、Jaco Play、Cable Routing、RoboTurk、NYU VINN、Austin VIOLA、Berkeley UR5、TOTO 和 Language Table 等数据集。
+
+<Algorithm number={1} title='X-Embodiment Co-training' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>RLDS episode 混合、语言指令、canonical RGB 图像与按数据集归一化的动作。</div>
+  <div slot='output'>在多种 embodiment 上共享的 RT-X policy checkpoint。</div>
+  <AlgorithmStep>从 RLDS 采样 episode 与时间窗口，读取图像历史和语言指令。</AlgorithmStep>
+  <AlgorithmStep>按数据集动作范围归一化，并将 7-DoF action 离散为 bins。</AlgorithmStep>
+  <AlgorithmStep>RT-1-X 经过 EfficientNet/FiLM/Token Learner；RT-2-X 与 Web VLM batch 混合。</AlgorithmStep>
+  <AlgorithmStep>计算各 action token 的 categorical cross-entropy，反向传播更新 policy。</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Code】** `models/rt1_inference_example.py` 将输入图像 resize 到 `300×300`、缩放到 `[0,1]`，JAX forward 后对最后时间步的 action logits 做 softmax/argmax，再调用 `detokenize_action`。若预测出的 termination 无效，示例代码回退到 base pose 模式。
+
+<Algorithm number={2} title='RT-1-X Runtime Inference' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>最近 15 帧 RGB 图像、自然语言任务描述与目标 embodiment 的动作解释。</div>
+  <div slot='output'>一个反归一化后的 end-effector action 字典。</div>
+  <AlgorithmStep>将图像 resize，并删除 JAX 不支持的字符串字段。</AlgorithmStep>
+  <AlgorithmStep>用 RT-1-X 预测最后时间步的 11 个 action tokens。</AlgorithmStep>
+  <AlgorithmStep>对每个 token 取 argmax，按 world/rotation/gripper/base 范围 detokenize。</AlgorithmStep>
+  <AlgorithmStep>以目标机器人所需的 3–10 Hz 频率执行动作；RT-2-X 通过云端请求策略。</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+| 论文描述 | 官方代码对应 | 需要注意的差异 |
+| --- | --- | --- |
+| RT-1-X 架构 | `models/rt1.py` 的 `RT1`、`ImageTokenizer`、`Transformer` | JAX 实现默认使用 SwiGLU FFN，并提供 Token Learner 开关 |
+| Action tokenization | `tokenize_action` / `detokenize_action` | 示例 checkpoint 使用 512 vocab，论文正文写 256 bins |
+| 数据读取 | `colabs/Open_X_Embodiment_Datasets.ipynb` | 依赖 TFDS/RLDS；完整数据通过外部 bucket/TFDS 获取 |
+| 推理 | `models/rt1_inference_example.py` | 只提供 RT-1/RT-1-X JAX 推理示例；仓库未提供 RT-2-X 训练实现 |
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![OXE 数据集构成：数据集、embodiment、轨迹、技能与对象多样性（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-open-x-embodiment/oxe-overview.7sny9zvf5j.webp)
+
+**【Paper】** 论文共进行 3,600 次试验，覆盖 6 个真实机器人。小数据域包括 Kitchen Manipulation、Cable Routing、NYU Door Opening、AUTOLab UR5 和 Robot Play；大数据域包括 Bridge 与 RT-1 paper data。比较对象是各数据集原作者方法、单数据集 RT-1，以及 RT-X。
+
+### 5.2 Main Results
+
+![RT-1-X 在五个小数据域及均值上的成功率比较（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-open-x-embodiment/rt1x-results.pg2udq06r.webp)
+
+**【Paper】** 在 5 个小数据域中，RT-1-X 有 4 个超过 Original Method；图中均值约为 Original Method 的 1.5 倍，提升主要来自数据稀缺域的正迁移。
+
+**【Paper】** 在大数据域，RT-1-X 在 Bridge 上为 27%、Google Robot 任务上为 73%，低于单域 RT-1 的 40% 和 92%；55B RT-2-X 则分别达到 50% 和 91%。这说明小模型无法充分吸收大而杂的数据，高容量 VLM 才能在数据丰富域中维持竞争力。
+
+### 5.3 Ablation Study
+
+![RT-2-X 跨 embodiment emergent skills 任务示例（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-open-x-embodiment/rt2x-emergent.58i3xcvhff.webp)
+
+| 设置 | Emergent skills | RT-2 generalization |
+| --- | ---: | ---: |
+| RT-2 55B，仅 Google Robot action | 27.3% | 62% |
+| RT-2-X 55B，完整 robotics data | 75.8% | 61% |
+| RT-2-X 55B，去掉 Bridge | 42.8% | 54% |
+| RT-2-X 5B，history=2 | 44.4% | 52% |
+| RT-2-X 5B，无 history | 14.5% | 30% |
+| RT-2-X 5B，从零开始且无 Web pretraining | 0% | 1% |
+
+**【Paper】** 完整 RT-2-X 55B 在 Google Robot 上执行 Bridge 数据中出现、但 Google Robot 原始数据没有的技能，成功率达到 75.8%，约为 RT-2 的 3 倍。去掉 Bridge 后降至 42.8%，支持“跨机器人数据带来技能迁移”的解释。
+
+### 5.4 Generalization
+
+**【Paper】** 在 unseen objects、backgrounds 和 environments 的 RT-2 generalization 测试中，RT-2 与 RT-2-X 接近（62% vs 61%）。因此 OXE 的主要新证据不是进一步提升已有 VLM 的视觉泛化，而是让目标机器人获得原数据集中不存在的行为技能。
+
+**【Analysis】** 这一区分很重要：跨 embodiment co-training 对“看起来不同”的场景未必有额外收益，但对“做什么”有明显收益；数据中的技能覆盖和模型容量共同决定正迁移能否发生。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** OXE 同时扩大了三种覆盖：物体/场景、语言技能、机器人 embodiment。对小数据域，其他机器人的相似操作提供了视觉与动作先验；对大模型，Web pretraining 负责语义和视觉抽象，机器人混合数据负责把抽象语义落到控制动作。
+
+### 6.2 核心创新
+
+**【Paper】** 真正的创新组合是“社区数据协作 + 统一 RLDS schema + RT-X 基线模型 + 可复现实验”。论文有意不把贡献包装成新的 Policy architecture，而是建立一个可持续扩展的 X-embodiment substrate。
+
+### 6.3 与已有方法的本质区别
+
+**【Analysis】** 以往方法通常先学习 embodiment-invariant representation 或显式做 action translation；RT-X 只做粗粒度字段对齐，不输入 embodiment id，也不对坐标系做统一转换，直接让 Transformer 在数据中学习条件化的动作语义。这种简单性降低了接入成本，但把压力转移给数据质量与模型容量。
+
+### 6.4 关键假设
+
+- **【Paper】** 7-DoF end-effector action 足以覆盖本文评估的机械臂任务。
+- **【Paper】** 每个数据集可以选出有代表性的 canonical camera，并接受不同视角仍存在较大差异。
+- **【Analysis】** 模型能够从视觉和语言上下文隐式推断动作字段的 embodiment-specific 语义；当传感器或执行器差异更大时，该假设可能失效。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 实验没有覆盖 sensing/actuation modality 差异极大的机器人，也没有测试对全新机器人（训练中未出现的 embodiment）的泛化；论文没有给出何时正迁移、何时负迁移的通用判据。
+
+### 7.2 自己分析得到的局限
+
+1. **【Analysis】粗对齐的动作语义存在歧义。** 相同的 token 可能表示绝对位姿、增量或速度，训练数据的比例变化会改变策略的隐式坐标系。
+2. **【Analysis】数据混合存在长尾与来源偏差。** Franka 数据在场景多样性上占主导，xArm 与 Google Robot 贡献了大量轨迹；采样权重会直接影响迁移方向。
+3. **【Analysis】图像单视角限制了可观测性。** README 明确 RT-1-X 当前只接收 workspace RGB，不接 wrist camera、in-hand camera 或 depth。
+4. **【Analysis】评估主要是成功率。** 论文证明了行为是否完成，却较少报告动作平滑度、能耗、碰撞风险和跨实验室部署成本。
+
+## 8. 启发与研究思考
+
+1. **从“统一动作空间”转向“可解释的动作条件”。** 后续模型可以显式输入 embodiment、坐标系和控制模式，减少同一 token 多重语义造成的负迁移。
+2. **数据规模之外还要研究 mixture law。** OXE 提供了规模，但哪些数据应过采样、哪些技能能跨机器人迁移，仍需要 dataset-level attribution 与 gradient conflict 分析。
+3. **用 RLDS 作为机器人数据的公共 ABI。** 统一 schema 的价值不只在下载方便，它还允许不同 Policy、评估器和仿真器复用同一数据管线。
+4. **评估“新机器人”而非只评估“新技能”。** 真正的 robot generalist 应在训练未见的 kinematics、camera 和 actuator 上零样本或少样本适配。
+5. **RT-X 是路线而非终点。** 论文展示了正迁移可行，但也清楚暴露了容量、数据偏差和传感器异构性三个下一阶段瓶颈。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】` 表示基于论文和代码的分析推断。
+</Aside>
