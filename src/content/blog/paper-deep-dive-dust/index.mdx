@@ -77,10 +77,10 @@ import { Aside } from '@/components/user'
 
 ## 3. 问题定义
 
-**【Paper】** 每条示教轨迹包含任务指令 (I) 和序列 ({(O_t,A_t)}_{t=0}^{L})。观测 (O_t=(o_t^v,o_t^s)) 由视觉观测与机器人 proprioceptive state 组成，动作按 chunk 分组：
+**【Paper】** 每条示教轨迹包含任务指令 $I$ 和序列 $\{(O_t,A_t)\}_{t=0}^{L}$。观测 $O_t=(o_t^v,o_t^s)$ 由视觉观测与机器人 proprioceptive state 组成，动作按 chunk 分组：
 
 $$
-A_t=(a_t,ldots,a_{t+k-1})
+A_t=(a_t,\ldots,a_{t+k-1})
 $$
 
 模型在当前视觉、指令和状态条件下预测动作 chunk，同时预测执行该 chunk 后的未来视觉 embedding：
@@ -89,7 +89,7 @@ $$
 \pi_\theta(A_t,\tilde o_{t+k}\mid o_t^v,o_t^s,I).
 $$
 
-**【Paper】** DUST 不直接重建 RGB。未来目标 (	ilde o_{t+k}) 来自 VLM 的视觉编码器；实验中每张图先得到 256 个 SigLIP-2 token，再经 (2\times2) average pooling 压到 64 个 token。扩散模块最终处理 1 个 state token、16 个 action token 和 64 个 future-vision token。
+**【Paper】** DUST 不直接重建 RGB。未来目标 $\tilde o_{t+k}$ 来自 VLM 的视觉编码器；实验中每张图先得到 256 个 SigLIP-2 token，再经 $2\times2$ average pooling 压到 64 个 token。扩散模块最终处理 1 个 state token、16 个 action token 和 64 个 future-vision token。
 
 ## 4. 方法
 
@@ -97,17 +97,17 @@ $$
 
 ![DUST 双流 MMDiT 架构：冻结 VLM 条件、共享 attention 与模态专属 DiT（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dust/architecture.7p4cc4gsnd.webp)
 
-**【Paper】** 冻结的 Eagle-2 VLM 从当前图像和指令提取语义特征 (Phi_t)，扩散模型接收 ((o_t^s,A_t^{\tau_A},\tilde o_{t+k}^{\tau_o}))。每个 MMDiT block 将两条流仅在 cross-modal attention 处拼接，之后重新拆开；末端的 modality-specific DiT block 分别完成视觉语义重建和动作精修。
+**【Paper】** 冻结的 Eagle-2 VLM 从当前图像和指令提取语义特征 $\Phi_t$，扩散模型接收 $(o_t^s,A_t^{\tau_A},\tilde o_{t+k}^{\tau_o})$。每个 MMDiT block 将两条流仅在 cross-modal attention 处拼接，之后重新拆开；末端的 modality-specific DiT block 分别完成视觉语义重建和动作精修。
 
 ### 4.2 核心模块
 
 | 模块 | 输入 | 输出 | 作用 |
 | --- | --- | --- | --- |
-| Frozen VLM（Eagle-2） | 当前 RGB、任务指令 | (Phi_t) | 提供高层语义条件；论文使用第 12 层特征 |
-| Action stream | 状态 token、16 个加噪动作 token | (V_\theta^A) | 学习低维、时序平滑的控制轨迹 |
-| Vision stream | 64 个加噪未来图像 embedding token | (V_\theta^o) | 预测动作执行后的语义场景状态 |
+| Frozen VLM（Eagle-2） | 当前 RGB、任务指令 | $\Phi_t$ | 提供高层语义条件；论文使用第 12 层特征 |
+| Action stream | 状态 token、16 个加噪动作 token | $V_\theta^A$ | 学习低维、时序平滑的控制轨迹 |
+| Vision stream | 64 个加噪未来图像 embedding token | $V_\theta^o$ | 预测动作执行后的语义场景状态 |
 | Shared MMDiT | 两条 token 流 | 更新后的两流表示 | 在 cross-modal attention 中交换信息 |
-| AdaLN | 各自的 (	au_A,	au_o) | 模态条件 | 让两条流感知不同噪声等级 |
+| AdaLN | 各自的 $(\tau_A,\tau_o)$ | 模态条件 | 让两条流感知不同噪声等级 |
 | Modality-specific DiT | 各自的共享层输出 | 动作/视觉速度场 | 最后阶段恢复模态专属建模能力 |
 
 **【Paper】** 扩散主干由 12 个 MMDiT blocks 和每个模态 4 个 DiT blocks 组成；VLM 特征以交错 self-attention / cross-attention 方式注入。  
@@ -115,7 +115,7 @@ $$
 
 ### 4.3 关键公式
 
-独立采样 (	au_A,	au_o\in[0,1]) 和高斯噪声 (epsilon_A,epsilon_o)：
+独立采样 $(\tau_A,\tau_o\in[0,1])$ 和高斯噪声 $(\epsilon_A,\epsilon_o)$：
 
 $$
 A_t^{\tau_A}=\tau_A A_t+(1-\tau_A)\epsilon_A,
@@ -123,7 +123,7 @@ A_t^{\tau_A}=\tau_A A_t+(1-\tau_A)\epsilon_A,
 \tilde o_{t+k}^{\tau_o}=\tau_o\tilde o_{t+k}+(1-\tau_o)\epsilon_o.
 $$
 
-其中 (	au=0) 对应纯噪声，(	au=1) 对应干净目标。网络预测速度场 (V_\theta=[V_\theta^A,V_\theta^o])，分别用：
+其中 $\tau=0$ 对应纯噪声，$\tau=1$ 对应干净目标。网络预测速度场 $V_\theta=[V_\theta^A,V_\theta^o]$，分别用：
 
 $$
 \mathcal L_A=\mathbb E\left[\left\|V_\theta^A-(A_t-\epsilon_A)\right\|^2\right],
@@ -139,24 +139,24 @@ $$
 \mathcal L_{Joint}=\mathcal L_A+\lambda_{WM}\mathcal L_{WM}.
 $$
 
-**【Paper】** 主实验取 (lambda_{WM}=1.0)，即动作和 world-modeling 等权。独立噪声使模型看到“干净未来 + 全噪声动作”（偏 inverse dynamics）以及“干净动作 + 噪声未来”（偏 forward dynamics）等组合，从而学习双向因果关系。
+**【Paper】** 主实验取 $\lambda_{WM}=1.0$，即动作和 world-modeling 等权。独立噪声使模型看到“干净未来 + 全噪声动作”（偏 inverse dynamics）以及“干净动作 + 噪声未来”（偏 forward dynamics）等组合，从而学习双向因果关系。
 
 ### 4.4 Training
 
 **【Paper】** 训练时冻结 Eagle-2 VLM，只从数据中取当前状态、动作 chunk 和执行后的未来图像 embedding；扩散主干随机初始化。RoboCasa 使用每任务 100/300/1000 demos，GR-1 使用 300/1000 demos，Franka Research 3 的 7 个真实任务各收集 60 条 teleoperation 示教。
 
 <Algorithm number={1} title='Decoupled joint diffusion training' inputLabel='输入' outputLabel='输出'>
-  <div slot='input'>示教批次 ((I,o_t^v,o_t^s,A_t,o_{t+k}^v))</div>
+  <div slot='input'>示教批次 $(I,o_t^v,o_t^s,A_t,o_{t+k}^v)$</div>
   <div slot='output'>训练后的 DUST diffusion policy</div>
-  <AlgorithmStep>用冻结 VLM 编码当前观测与指令，得到 (Phi_t)，并编码未来观测得到 (	ilde o_{t+k})。</AlgorithmStep>
-  <AlgorithmStep>独立采样 (	au_A,	au_o,epsilon_A,epsilon_o)，构造 (A_t^{	au_A}) 与 (	ilde o_{t+k}^{	au_o})。</AlgorithmStep>
+  <AlgorithmStep>用冻结 VLM 编码当前观测与指令，得到 $\Phi_t$，并编码未来观测得到 $\tilde o_{t+k}$。</AlgorithmStep>
+  <AlgorithmStep>独立采样 $(\tau_A,\tau_o,\epsilon_A,\epsilon_o)$，构造 $A_t^{\tau_A}$ 与 $\tilde o_{t+k}^{\tau_o}$。</AlgorithmStep>
   <AlgorithmStep>将 state、action 和 vision token 送入双流 MMDiT，得到两个速度场。</AlgorithmStep>
-  <AlgorithmStep>计算 (mathcal L_A+lambda_{WM}mathcal L_{WM})，反向传播更新扩散模块。</AlgorithmStep>
+  <AlgorithmStep>计算 $\mathcal L_A+\lambda_{WM}\mathcal L_{WM}$，反向传播更新扩散模块。</AlgorithmStep>
 </Algorithm>
 
 ### 4.5 Inference
 
-**【Paper】** 推理从 (A_t^0\sim\mathcal N(0,I_A)) 和 (	ilde o_{t+k}^0\sim\mathcal N(0,I_v)) 开始。动作使用 (N_A) 步，视觉使用 (N_o=qN_A) 步；视觉每个细粒度步都更新，动作每 (q) 步更新一次：
+**【Paper】** 推理从 $A_t^0\sim\mathcal N(0,I_A)$ 和 $\tilde o_{t+k}^0\sim\mathcal N(0,I_v)$ 开始。动作使用 $N_A$ 步，视觉使用 $N_o=qN_A$ 步；视觉每个细粒度步都更新，动作每 $q$ 步更新一次：
 
 $$
 \tilde o^{\tau_o+\Delta\tau_o}=\tilde o^{\tau_o}+V_\theta^o\Delta\tau_o,
@@ -164,21 +164,21 @@ $$
 
 $$
 A^{\tau_A+\Delta\tau_A}=A^{\tau_A}+V_\theta^A\Delta\tau_A
-\quad\text{(每 (q) 个视觉步执行一次)}.
+\quad\text{(每 $q$ 个视觉步执行一次)}.
 $$
 
 ![异步 vision-action joint sampling：视觉步数可多于动作步数（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dust/diffusion-steps.7axwl98i0s.webp)
 
 <Algorithm number={2} title='Asynchronous vision-action sampling' inputLabel='输入' outputLabel='输出'>
-  <div slot='input'>当前图像、指令、状态，动作步数 (N_A)，视觉倍率 (q)</div>
-  <div slot='output'>动作 chunk (A_t) 与未来视觉 embedding 预测</div>
-  <AlgorithmStep>初始化动作和视觉高斯噪声，计算冻结 VLM 条件 (Phi_t)。</AlgorithmStep>
-  <AlgorithmStep>对 (N_o=qN_A) 个全局小步，每步更新 vision stream。</AlgorithmStep>
-  <AlgorithmStep>当步数满足 (q) 的间隔时，用更大步长更新 action stream。</AlgorithmStep>
-  <AlgorithmStep>执行最终动作 chunk；根据延迟预算选择 (q)，在速度和精度之间折中。</AlgorithmStep>
+  <div slot='input'>当前图像、指令、状态，动作步数 $N_A$，视觉倍率 $q$</div>
+  <div slot='output'>动作 chunk $A_t$ 与未来视觉 embedding 预测</div>
+  <AlgorithmStep>初始化动作和视觉高斯噪声，计算冻结 VLM 条件 $\Phi_t$。</AlgorithmStep>
+  <AlgorithmStep>对 $N_o=qN_A$ 个全局小步，每步更新 vision stream。</AlgorithmStep>
+  <AlgorithmStep>当步数满足 $q$ 的间隔时，用更大步长更新 action stream。</AlgorithmStep>
+  <AlgorithmStep>执行最终动作 chunk；根据延迟预算选择 $q$，在速度和精度之间折中。</AlgorithmStep>
 </Algorithm>
 
-**【Analysis】** 主实验使用 (q=1,N_A=N_o=4)，因此与基线公平；(q>1) 是可选的“精度旋钮”，不是必须的在线控制步骤。
+**【Analysis】** 主实验使用 $q=1,N_A=N_o=4$，因此与基线公平；$q>1$ 是可选的“精度旋钮”，不是必须的在线控制步骤。
 
 ### 4.6 代码实现对照
 
@@ -223,7 +223,7 @@ $$
 | MMDiT + joint noise | 38.2 |
 | **MMDiT + decoupled noise（DUST）** | **50.1** |
 
-去掉双流结构下降约 8 个百分点，去掉 decoupled noise 下降约 12 个百分点，说明两者互补。MMDiT 深度在 12 层时最好（50.1%）；(lambda_{WM}) 在 0.5–2.0 区间较稳定，偏离到 0.2 时降至 34.3%。SigLIP-2、DINOv2、Flux.1 VAE 三种目标的平均成功率分别为 50.1%、51.6%、49.1%，像素重建能力更强的 VAE 并未带来更好的控制。
+去掉双流结构下降约 8 个百分点，去掉 decoupled noise 下降约 12 个百分点，说明两者互补。MMDiT 深度在 12 层时最好（50.1%）；$\lambda_{WM}$ 在 0.5–2.0 区间较稳定，偏离到 0.2 时降至 34.3%。SigLIP-2、DINOv2、Flux.1 VAE 三种目标的平均成功率分别为 50.1%、51.6%、49.1%，像素重建能力更强的 VAE 并未带来更好的控制。
 
 ### 5.4 Generalization
 

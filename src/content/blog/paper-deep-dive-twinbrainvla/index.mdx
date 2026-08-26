@@ -119,7 +119,7 @@ $$
 
 #### Right Brain：带状态的 Specialist
 
-- **输入**：图像 $I$、指令 $T$、proprioceptive state $s$，以及代码实现中的 `<|propri|>`、`<|action|>` 特殊 token。
+- **输入**：图像 $I$、指令 $T$、proprioceptive state $s$，以及代码实现中的 `&lt;|propri|&gt;`、`&lt;|action|&gt;` 特殊 token。
 - **中间模块**：vision encoder、text tokenizer、state encoder $\phi$、Right VLM Transformer。
 - **输出**：用于 action expert 的条件表示 $H_R$，或 action query token 的 hidden states。
 - **作用**：让可训练路径专门吸收机器人动力学、embodiment 差异和动作时序。
@@ -209,7 +209,7 @@ $$
 
 **【Paper】** 推理时不需要 CVAE 或额外语义数据：机器人读取图像、指令和状态，Left Brain 产生冻结的语义 KV，Right Brain 通过 AsyMoT 查询它们，Action Expert 从噪声动作开始沿 learned vector field 去噪，输出一个连续动作 chunk，再交给底层控制器执行。
 
-**【Code】** PhysBrain 实现会定位 `<|action|>` query token 的 hidden states 作为 action head 条件，并支持按 embodiment id 注入机器人类型；这说明公开实现已经把论文中的“状态条件”落实为具体 token/embedding 接口。
+**【Code】** PhysBrain 实现会定位 `&lt;|action|&gt;` query token 的 hidden states 作为 action head 条件，并支持按 embodiment id 注入机器人类型；这说明公开实现已经把论文中的“状态条件”落实为具体 token/embedding 接口。
 
 <Algorithm number={2} title='TwinBrainVLA Inference' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>当前图像 $I_t$、任务指令 $T$、本体状态 $s_t$</div>
@@ -228,7 +228,7 @@ $$
 | 双 VLM | `physbrain_vla/PhysBrainVLA.py:MoT_Qwen_VL_Interface` | 载入 `frozen_vlm` 与 `trainable_vlm` 两份模型 |
 | 冻结 Left Brain | `physbrainvla_conf/utils.py`、`freeze_left_vlm` | 冻结参数，前向结果 detach；可切换为不冻结做消融 |
 | AsyMoT | `private/PhysBrainVLA.py` 的逐层 attention loop | Right Q 查询 `[frozen KV; trainable KV]`，默认单向 |
-| 状态输入 | `build_qwenvl_inputs`、`embodiment_conditioned_mlp.py` | `<|propri|>` token、state encoder 与 embodiment id |
+| 状态输入 | `build_qwenvl_inputs`、`embodiment_conditioned_mlp.py` | `&lt;|propri|&gt;` token、state encoder 与 embodiment id |
 | Action Expert | `starVLA/.../GR00T_ActionHeader.py` | FlowmatchingActionHead / DiT 负责连续动作 |
 | 训练与部署 | `deployment/`、`README.md` | 仓库 README 称 TwinBrainVLA 已集成到 PhysBrain 1.0；原始论文仓库本身没有独立训练脚本 |
 
