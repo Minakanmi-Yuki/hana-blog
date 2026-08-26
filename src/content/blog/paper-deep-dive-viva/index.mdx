@@ -1,0 +1,267 @@
+---
+title: 'ViVa 论文精读：让视频生成模型成为机器人价值函数'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 ViVa：把 Wan2.2 的时空生成先验改造成价值模型，同时预测未来本体状态与任务回报，并接入 RECAP 改善长时程机器人强化学习。'
+heroImage: { src: 'https://pic.hana0721.top/98073480.3rbvmy4uvn.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '139063757'
+tags:
+  - 'paper deep dive'
+  - 'robot reinforcement learning'
+  - 'video generation'
+  - 'value function'
+paper:
+  arxivId: '2604.08168'
+  title: 'ViVa: A Video-Generative Value Model for Robot Reinforcement Learning'
+  authors:
+    - 'Jindi Lv'
+    - 'Hao Li'
+    - 'Jie Li'
+    - 'Fankun Kong'
+    - 'Yang Wang'
+    - 'Pengfei Yi'
+    - 'Yifei Nie'
+    - 'Xiaofeng Wang'
+    - 'Zheng Zhu'
+    - 'Chaojun Ni'
+    - 'Qiuping Deng'
+    - 'Hengtao Li'
+    - 'Jiancheng Lv'
+    - 'Guan Huang'
+  venue: 'arXiv'
+  year: 2026
+  code: 'https://github.com/GigaAI-research/ViVa'
+  project: 'https://viva-value-model.github.io/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating id='2604.08168' tldr='ViVa 把价值估计重写为“预测未来会怎样”：用 Wan2.2 视频扩散 Transformer 联合生成未来本体状态与当前状态的归一化回报，再为 RECAP 提供更敏感的优势信号。' rank={4} />
+
+## 1. 论文概述
+
+**【Paper】** ViVa（Video-generative Value model）针对长时程机器人任务中的价值估计问题：单帧 VLM 能理解“现在有什么”，却不一定知道动作之后会发生什么。作者将预训练视频生成器 Wan2.2 改造成一个 value function，在给定三路相机图像和机器人本体状态后，同时预测 $K$ 步之后的本体状态与当前状态的标量 value。
+
+![ViVa 方法总览（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-viva/viva-method.1zj00da5e9.webp)
+
+### 一句话总结
+
+**【Analysis】** ViVa 的关键不是让模型生成可观看的视频，而是借用“必须解释时空变化”的生成训练目标，让 value 预测被机器人动力学约束，从而更早发现进展和错误。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 将机器人 value estimation 定义为 future anticipation 问题，指出视频生成模型比静态 VLM 更适合表达交互动态。
+2. 通过 latent injection 在不改 Wan2.2 核心 DiT 的前提下加入本体状态和标量 value 两种新模态。
+3. 联合预测未来本体状态与 value，使价值信号与 embodiment dynamics intrinsically coupled。
+4. 在衬衫折叠、纸箱包装、纸卷整理三个长时程任务上取得强相关性、事件敏感性和泛化表现；接入 RECAP 后平均成功率达到 80%。
+
+## 2. 背景与相关工作
+
+**【Paper】** VLA 在大规模预训练后已能执行多种操作，但现实交互具有 partial observability、接触动力学和 delayed feedback。RL 中的 value function 负责估计从当前状态出发的期望未来回报，并据此计算 advantage、筛选更好的行为。
+
+以 GVL、TopReward 和 $pi^*_{0.6}$ 为代表的方案主要使用 VLM：前两者从稀疏采样帧或 token 概率得到 value，后者在 RECAP 中用密集监督训练 VLM value model。**【Analysis】** 这些方法的共同瓶颈是 backbone 的预训练目标偏向静态图像语义，而不是显式预测“物体如何移动、接触如何改变结果”。ViVa 因此选择视频生成先验，并将预测未来本体状态作为额外的 embodiment 约束。
+
+## 3. 问题定义
+
+**【Paper】** 在 MDP 中，时刻 $t$ 的联合观测为 $x_t=(o_t,q_t)$，其中 $o_t$ 是三路 RGB 视角，$q_t$ 是 14 维末端执行器位姿或关节状态。策略 $pi$ 的 value 定义为：
+
+$$V^{\pi}(x_t)=\mathbb E_{\pi}\left[\sum_{k=t}^{T}r_k\mid x_t\right].$$
+
+模型输入是当前的 `cam_left_wrist`、`cam_right_wrist`、`cam_high` 和归一化本体状态；输出是 $hat q_{t+K}$ 与 $hat v_t$，其中 $hat v_t$ 表示任务进展/结果。实验固定 $K=50$。
+
+任务包括：双臂折叠衬衫（最长 300 秒）、纸箱包装（最长 300 秒）和纸卷整理（最长 240 秒）。每个任务有 50 个 held-out episodes，并人工标注 milestone 与 error frames。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+**【Paper】** ViVa 将七帧 latent 序列送入 Wan2.2：
+
+`[blank, current state, left wrist, right wrist, high view, future state, value]`
+
+前五帧是 clean conditioning，最后两帧是加噪 target；DiT 通过 flow matching 反演 target。**【Analysis】** 这相当于把“未来状态”和“价值”放在同一个生成空间里，让 value 不能只依赖静态外观。
+
+### 4.2 核心模块
+
+#### Latent injection
+
+- **图像**：预训练时空 VAE 将每路图像压成 latent frame。
+- **本体状态**：先归一化到 $[-1,1]$，再 repeat-padding 到 latent frame 的 $H'\times W'\times C'$ 个元素。
+- **标量 value**：归一化后 broadcast 到整张 latent frame，使所有元素携带同一个值。
+- **blank token**：因果 VAE 所需的零帧占位符。
+
+#### Wan2.2 Diffusion Transformer
+
+**【Paper】** 核心 DiT 不做结构修改，只用 latent injection 扩展模态。训练时对 future-state latent 和 value latent 分别采样噪声与 flow time；推理时固定条件前缀并做 reverse diffusion。
+
+#### RECAP 接口
+
+**【Paper】** ViVa 替换 RECAP 中的 VLM value model，其他 advantage 估计、二值 improvement indicator 和 advantage-conditioned policy training 保持不变。这样可以把性能变化归因于 value representation。
+
+### 4.3 关键公式
+
+#### Flow matching loss
+
+令干净 latent 为 $z_0$，高斯噪声为 $z_1\sim\mathcal N(0,I)$，插值路径为：
+
+$$z_\tau=(1-\tau)z_0+\tau z_1,\quad \tau\sim\mathcal U[0,1].$$
+
+DiT 预测恒定速度 $z_1-z_0$，总目标为：
+
+$$\mathcal L=\lambda_{prop}\mathbb E\|v_\theta(z_\tau^q;\tau,c)-(z_1-z_0^q)\|_2^2+\lambda_{val}\mathbb E\|v_\theta(z_\tau^v;\tau,c)-(z_1-z_0^v)\|_2^2.$$
+
+其中 $c$ 是五帧 clean prefix，$lambda_{prop}=0.5$、$lambda_{val}=1.0$（实验默认值）。第一项提供 embodiment 动力学监督，第二项直接监督 value。
+
+#### Outcome-aware return
+
+**【Paper】** 对长度为 $T$ 的 episode，非终止步奖励为 $1/T$；成功终止奖励为 0，失败终止奖励为 1。因此：
+
+$$G_t=\begin{cases}(T-t)/T,&success\\(T-t)/T+1,&failure.\end{cases}$$
+
+成功轨迹的 value 位于 $[0,1)$，失败轨迹位于 $[1,2)$，两者始终有 1.0 的 margin。**【Analysis】** 该设计把“进展快慢”和“最终是否失败”分离，避免模型把接近终点的失败状态误认为高价值。
+
+#### Event Response Score
+
+对标注事件 $k$，以事件前后窗口均值计算：
+
+$$ERS_k=d_k\frac{V_{after}^{(k)}-V_{before}^{(k)}}{V_{before}^{(k)}+\epsilon},$$
+
+其中 milestone 的 $d_k=+1$、error 的 $d_k=-1$。MS/ES 是两类事件的平均 ERS；MDR/ErrDR 是 ERS 大于 0 的检测比例。
+
+### 4.4 Training
+
+**【Paper】** 训练数据来自三任务的 demonstration 与两轮 RECAP rollout：第一轮每任务 150 成功/50 失败，第二轮 100 成功/50 失败；模型训练一个 epoch，batch size 192，使用 8 张 NVIDIA A800，$K=50$。
+
+**【Code】** `VivaDataset` 从 LeRobot 数据集中读取三路图像和 `observation.state`，以 `future_offset` 取未来状态；状态按训练集 min/max 归一化到 $[-1,1]$。`VivaModel.training_step` 对整段 latent 加噪，只在 future-state 与 value 两帧上计算 MSE flow-matching loss。
+
+<Algorithm number={1} title='ViVa flow-matching training' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前三视角图像、本体状态、未来本体状态、归一化回报与任务文本 embedding。</div>
+  <div slot='output'>训练后的视频生成式 value model。</div>
+  <AlgorithmStep>用 VAE 编码三路图像，并将当前/未来状态与 value 注入 latent frame。</AlgorithmStep>
+  <AlgorithmStep>拼接七帧序列，采样 flow time 与高斯噪声，只扰动最后两帧。</AlgorithmStep>
+  <AlgorithmStep>让 Wan2.2 DiT 预测噪声到干净 latent 的速度。</AlgorithmStep>
+  <AlgorithmStep>以 $0.5L_{prop}+1.0L_{value}$ 反向传播并更新模型。</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 推理时只提供前五帧条件，reverse diffusion 生成 future-state/value 两帧。value latent 的元素均值经 $[-1,1]\to[0,1]$ 重缩放得到 $hat v_t$；future-state latent 则按 repeat-padding 的逆过程分块平均还原为 14 维状态。
+
+**【Code】** `inference.py` 逐帧读取 episode，调用 `predict_value`，将预测值写回 parquet；官方脚本默认使用 1 个 DDIM denoising step，并同时保存归一化 prediction 与按 episode 长度反归一化的 `model_prediction`。
+
+<Algorithm number={2} title='ViVa value inference' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前三视角图像、本体状态与任务文本 embedding。</div>
+  <div slot='output'>当前 value 与预测的未来本体状态。</div>
+  <AlgorithmStep>编码条件帧并构造 blank、state、三路相机的 clean prefix。</AlgorithmStep>
+  <AlgorithmStep>对 future-state/value 从噪声执行 reverse diffusion。</AlgorithmStep>
+  <AlgorithmStep>平均 value latent 得到 $hat v_t$，逆 repeat-padding 得到 $hat q_{t+K}$。</AlgorithmStep>
+  <AlgorithmStep>将 value 用于 RECAP 的 N-step advantage 与策略改进。</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+| 论文描述 | 官方代码位置 | 对照结果 |
+| --- | --- | --- |
+| 七帧 latent 与条件 mask | `viva_utils.py`, `viva_model.py` | `[1,1,1,1,1,0,0]` 与论文一致 |
+| Wan2.2 backbone | `wan_model.py`, `wan/` | 加载 Wan2.2-TI2V-5B，核心 DiT 复用 |
+| 状态/值注入 | `viva_model.py` | repeat-padding 与 broadcast 均显式实现 |
+| 数据与未来状态 | `viva_dataset.py` | LeRobot，多任务配置，默认 `future_offset: 50` |
+| 推理输出 | `inference.py` | 输出 `[0,1]` value 与 episode-scale remaining-frame 估计 |
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![ViVa 的三个真实机器人任务（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-viva/viva-tasks.pg2u1s68s.webp)
+
+三个任务分别考察柔性织物双臂协调、纸箱多阶段装配和纸张撕取/回卷。评估集每任务 50 个 episode，并标注关键里程碑与实际发生的错误。
+
+### 5.2 Main Results
+
+**【Paper】** Pearson/Spearman 全局相关性如下：
+
+| 方法 | Shirt P/S | Box P/S | Paper P/S |
+| --- | --- | --- | --- |
+| GVL | 0.276 / 0.263 | -0.081 / -0.114 | -0.099 / -0.096 |
+| TopReward | 0.118 / 0.090 | 0.503 / 0.499 | 0.318 / 0.241 |
+| $\pi^*_{0.6}$ | 0.740 / 0.720 | **0.946 / 0.945** | 0.926 / 0.936 |
+| ViVa | **0.984 / 0.982** | 0.868 / 0.850 | **0.952 / 0.948** |
+
+ViVa 在衬衫和纸卷上领先，纸箱上由 $pi^*_{0.6}$ 领先。事件级指标更能反映 RL 信号质量：衬衫任务 ViVa 的 MDR/ErrDR 为 0.990/1.000，而 VLM baseline 仅 0.407/0.500。
+
+![ViVa 对细微操作错误的 value 响应（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-viva/viva-errors.3k8qzu7cnv.webp)
+
+接入 RECAP 的真实机器人成功率为：
+
+| 方法 | Shirt | Box | Paper | 平均 |
+| --- | ---: | ---: | ---: | ---: |
+| $\pi_{0.5}$ | 60 | 40 | 40 | 46.7 |
+| Gigabrain-0 | 50 | 50 | 20 | 40.0 |
+| RECAP (VLM) | 70 | 60 | 60 | 63.3 |
+| RECAP (ViVa) | **90** | **70** | **80** | **80.0** |
+
+### 5.3 Ablation Study
+
+**【Paper】** 架构消融显示：将 VLM 换成 video generator 后，衬衫 MDR 从 0.407 提升到 1.000；加入当前 proprioception 和 future-state prediction 后，纸卷 ES/ErrDR 达到 0.055/0.778。去掉预训练视频权重会显著恶化，衬衫 ES 从 0.012 降至 -0.524。
+
+![损失权重与预测 horizon 消融（论文 Figure 8/9）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-viva/viva-loss.6f1f5mmjk5.webp)
+
+最佳折中是 $\lambda_{prop}=0.5$、$K=50$；$K=10$ 上下文不足，$K=75$ 则引入更多噪声。
+
+### 5.4 Generalization
+
+**【Paper】** 在未见过的 pants folding 任务上，ViVa 的相关性为 0.819/0.799，事件敏感性 ES 为 0.037，综合指标较 $pi^*_{0.6}$ 的 0.643 提升超过 60%。
+
+![跨任务 value trajectory（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-viva/viva-trajectory.92qvfzfl9p.webp)
+
+效率方面，ViVa 训练成本 4 GPU·days、推理 0.18 s/frame；VLM baseline 为 6 GPU·days、0.32 s/frame。仅预测 value 的 video variant 更快（3 GPU·days、0.11 s/frame），但事件质量下降。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** value 的监督本质上要求模型回答“当前行为是否把系统带向成功”。未来本体状态是一个低维、可检查的中间目标：若模型无法预测合理的末端姿态/关节变化，就很难仅凭外观给出稳定 value。视频 DiT 的时空先验则提供了跨帧的运动归纳偏置。
+
+### 6.2 核心创新
+
+**【Analysis】** 真正的创新是把 value 从一个孤立的 discriminative head，改写成生成序列中的一个 target frame；未来状态预测不是辅助可视化，而是让 value 学会遵守 embodiment dynamics 的训练约束。
+
+### 6.3 与已有方法的本质区别
+
+VLM value model 主要对当前帧做语义判别；ViVa 通过 noisy-target denoising 学习条件分布，并在同一 latent sequence 中联合建模未来状态与回报。前者问“这帧像不像成功”，后者问“从这帧出发，系统将如何演化以及结果如何”。
+
+### 6.4 关键假设
+
+1. 三路视觉和 14 维本体状态足以作为 MDP 状态的实用代理。
+2. 预测固定 horizon 的未来状态能提供足够的 dynamics grounding。
+3. 大规模通用视频预训练的时空先验可以迁移到机器人操作。
+4. 归一化 return 的排序与 RECAP 所需的 advantage 信号一致。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 受资源限制，作者尚未对 value model 做大规模预训练；跨任务泛化潜力仍留作未来工作。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】** 论文只评估三个任务、单一机器人形态与三路相机；代码依赖 Wan2.2-TI2V-5B 和多 GPU 训练，复现实验门槛较高。把标量 value broadcast 成整张 latent frame 虽然简单，但空间冗余可能限制更细粒度的 value uncertainty 表达。推理默认单步 DDIM 也意味着生成质量与速度之间的权衡尚未充分探索。
+
+## 8. 启发与研究思考
+
+**【Analysis】** ViVa 给出的方向是“用生成模型做 critic”，而不是只把生成模型当 policy 或 world model。后续可以沿三条线推进：
+
+- 让模型预测 action-conditioned future state，从 state value 走向 Q/advantage 建模；
+- 用多步或不确定性采样估计 value interval，而不是单一标量；
+- 在更多 embodiment 与跨任务数据上预训练，使视频先验真正转化为通用机器人动力学先验。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。
+</Aside>
