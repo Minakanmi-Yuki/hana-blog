@@ -1,0 +1,326 @@
+---
+title: 'dVLA 论文精读：用多模态 CoT 统一扩散式 VLA'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 dVLA：把视觉子目标、文本推理和机器人动作统一为离散扩散去噪，并用 Prefix Mask 与 KV Cache 将推理速度提升到约 2 倍。'
+heroImage:
+  { src: 'https://pic.hana0721.top/65089776_p0_master1200.5c1kl2nzfo.webp', color: '#7B819C' }
+category: 'research'
+pixivLink: '65089776'
+tags:
+  - 'paper deep dive'
+  - 'dVLA'
+  - 'diffusion VLA'
+  - 'multimodal chain-of-thought'
+paper:
+  arxivId: '2509.25681'
+  title: 'dVLA: Diffusion Vision-Language-Action Model with Multimodal Chain-of-Thought'
+  authors:
+    - 'Junjie Wen'
+    - 'Minjie Zhu'
+    - 'Jiaming Liu'
+    - 'Zhiyuan Liu'
+    - 'Yicun Yang'
+    - 'Linfeng Zhang'
+    - 'Shanghang Zhang'
+    - 'Yichen Zhu'
+    - 'Yi Xu'
+  venue: 'arXiv（technique report）'
+  year: 2025
+  code: ''
+  project: ''
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2509.25681'
+  tldr='dVLA 把视觉子目标、文本子任务和离散动作放进同一个扩散去噪空间，用多模态 CoT 改善长程操作，再用 Prefix Attention Mask 与 KV Caching 把实时推理从约 1.5 Hz 提升到 3 Hz。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《dVLA: Diffusion Vision-Language-Action Model with Multimodal Chain-of-Thought》  
+**作者**：Junjie Wen、Minjie Zhu、Jiaming Liu、Zhiyuan Liu、Yicun Yang、Linfeng Zhang、Shanghang Zhang、Yichen Zhu、Yi Xu  
+**机构**：美的集团、北京大学、上海交通大学  
+**论文链接**：[arXiv:2509.25681](https://arxiv.org/abs/2509.25681)  
+**代码 / 项目**：论文页面未给出官方代码仓库或项目主页。
+
+![dVLA 的统一扩散架构（论文 Figure 1）](https://arxiv.org/html/2509.25681v1/dvla_model.png)
+
+### 一句话总结
+
+**【Paper】** dVLA 将当前观测、语言指令、未来视觉子目标、文本推理和动作 chunk 都离散化为 token，并让一个 discrete diffusion MLLM 在同一去噪目标下同时恢复它们；这样“想象下一步会看到什么”“用语言拆解下一步做什么”和“真正执行哪些关节动作”不再由彼此独立的模块负责。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 以 MMaDA 为基础，将视觉、文本和动作统一到一个离散 token 空间；动作使用 FAST tokenizer，通过 DCT 与 BPE 压缩连续动作序列。
+2. 提出 multimodal Chain-of-Thought（MM-CoT）：模型先生成未来的 subgoal image，再生成 textual subgoal，最后生成 action chunk。
+3. 用随机 mask 的统一 diffusion loss 同时训练三种输出，避免传统“语言模型 next-token loss + 连续动作 diffusion loss”之间的目标不一致。
+4. 设计 Prefix Attention Mask 和 KV Caching，缓解双向离散扩散模型无法直接使用 KV cache 的推理瓶颈。
+5. 在 LIBERO 上取得 96.4% 平均成功率；在 7-DoF Franka 的四类真实任务上达到 26/40 次成功，并在真实 bin-picking 上展现多步规划能力。
+
+## 2. 背景与相关工作
+
+**【Paper】** 第一代 VLA 通常把预训练 VLM 当作视觉与语言特征提取器，再接一个 action head。这种结构在常规短任务上有效，但遇到开放世界指令和长时程操作时，模型需要把“目标”拆成一串可执行的中间状态。后续工作加入文本 CoT、视觉未来帧或世界模型，但推理与控制往往仍由不同目标、不同头部甚至不同模型优化。
+
+论文指出两个具体矛盾：
+
+- **目标冲突**：图文联合训练强调知识保持与场景理解，动作训练强调控制误差；两者的梯度可能互相干扰。
+- **模态鸿沟**：自回归 VLM 的 next-token 目标与图像生成、连续动作 diffusion 目标不同，视觉想象与动作执行容易出现 plan–act misalignment。
+
+**【Analysis】** dVLA 的切入点不是再增加一个“会思考”的语言模块，而是把所有需要预测的中间结果改成同一种离散扩散问题。它牺牲了部分自回归模型的成熟生态，却换来一个更直接的优化接口：所有被 mask 的 token 都由同一个模型、同一个概率目标恢复。
+
+## 3. 问题定义
+
+**【Paper】** 在时刻 $t$，机器人接收多视角图像、语言指令和机器人状态，输出一个动作 chunk，同时预测未来视觉子目标和文本子任务。论文将完整序列写成：
+
+$$
+x = \{o, l, s, o^{goal}, r, a^{chunk}\},
+$$
+
+其中：
+
+- $o$：当前观测图像，可包含多视角相机；
+- $l$：任务级语言指令；
+- $s$：当前机器人状态，论文中离散化为文本 token 输入；
+- $o^{goal}$：约在动作 chunk 之后的未来 subgoal image；
+- $r$：文本 reasoning / textual subgoal；
+- $a^{chunk}$：需要执行的离散动作 token 序列。
+
+**【Paper】** 视觉使用 MAGVIT-v2 tokenizer，压缩比为 16、codebook size 为 8192；$256\times256$ 图像对应 256 个视觉 token。文本使用 LLaDA tokenizer，词表大小为 126,464；动作使用 FAST tokenizer，词表大小为 2,048。合并模态后，模型词表扩展到 136,704。
+
+**【Paper】** 实验覆盖 LIBERO-Spatial、LIBERO-Object、LIBERO-Goal、LIBERO-Long 四个 suite，以及一台 7-DoF Franka 机械臂。真实任务包括 Bin Picking、Open Box、Hang Cups 和 Pick&Place Object。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![dVLA 的 MLLM、三种 tokenizer 与 Prefix Mask（论文 Figure 1）](https://arxiv.org/html/2509.25681v1/dvla_model.png)
+
+整体数据流是：输入图像与语言先分别 tokenization，和机器人状态拼接成 prefix；模型在离散 diffusion 的多轮 denoising 中，联合恢复 visual subgoal、textual reasoning 与 action tokens；最后三个 de-tokenizer 分别把 token 还原成图像、文本和可执行动作。
+
+### 4.2 核心模块
+
+#### Unified discrete tokenization
+
+**输入**是 RGB 图像、文本和连续动作，**输出**是共享词表中的离散 token。MAGVIT-v2 将图像映射为语义 token，LLaDA tokenizer 处理指令与 reasoning，FAST 先对连续动作做 DCT，再用 BPE 压缩成短 token 序列。
+
+**【Analysis】** FAST 的作用不只是节省序列长度。它把原本连续、几何意义明确的动作轨迹变成与文本和图像同类的预测对象，使“动作是否被正确 mask、是否被恢复”可以和其它模态共享同一个训练接口。
+
+#### Discrete diffusion MLLM
+
+**输入**是部分被 mask 的完整序列 $x_t$，**输出**是所有 mask 位置的原始 token 分布。模型基于 MMaDA 的 multimodal diffusion backbone，不按固定的左到右顺序生成，而是在多个 diffusion timestep 中反复 denoise。
+
+#### Multimodal Chain-of-Thought
+
+模型生成的中间推理由两部分组成：
+
+1. **Visual CoT**：预测动作后约一个 chunk 的场景图像，表达“如果按这个计划执行，未来会看到什么”。
+2. **Textual CoT**：把高层指令分解成当前可执行的子任务，例如“抓住绿色杯子”或“把杯子挂到架子上”。
+
+两者随后与 action token 一起生成，而不是作为独立 planner 的离线输出。
+
+![真实机器人任务中的视觉与文本 CoT（论文 Figure 2）](https://arxiv.org/html/2509.25681v1/subgoal_example_real.png)
+
+**【Paper】** 对简单任务，作者可以省略 textual reasoning 以降低延迟；对 bin-picking 等长任务，使用 SEED-1.5VL 以 3 秒间隔生成视频分割标注，作为文本 reasoning 数据。
+
+#### Prefix Attention Mask
+
+**【Paper】** 作者把序列拆成两个 block：$[o,l,s]$ 是输入 prefix，$[o^{goal},r,a^{chunk}]$ 是待生成 block。每个 block 内采用 full bidirectional attention，但前一个 block 不能看后一个 block。这样生成 block 内不同模态可以互相 attend，同时 prefix 的 key/value 可以跨 denoising step 复用。
+
+#### KV Caching
+
+**【Paper】** dLLM-Cache 的观察是：相邻 denoising step 的 key、value 和 attention output 变化通常较小。因此 dVLA 不必每一步都完全重算，而是低频刷新缓存。它是 inference-only 的 plug-and-play 优化，不改变训练目标。
+
+### 4.3 关键公式
+
+#### 统一 masked diffusion loss
+
+$$
+\mathcal{L}_{\text{unify}}(\theta)
+=-\mathbb{E}_{t,x_0,x_t}\left[
+\frac{1}{L}\sum_{i=1}^{L}
+\mathbf{1}[x_t^i=\text{[MASK]}]
+\log p_\theta(x_0^i\mid x_t)
+\right].
+$$
+
+其中：
+
+- $x_0$ 是未破坏的多模态 ground truth 序列；
+- $x_t$ 是在 diffusion timestep $t\in[0,1]$ 上随机 mask 后的序列；
+- $L$ 是序列总长度；
+- $\mathbf{1}[\cdot]$ 只让 mask 位置贡献 loss；
+- $p_\theta$ 是 dVLA 对原始 token 的预测分布。
+
+**【Analysis】** 这个目标的关键不是“mask”本身，而是 mask 可以跨模态发生：一次样本中既可能要求恢复视觉子目标，也可能要求恢复文本或动作。模型因此被迫学习这些模态之间的条件关系，而非只学习从观测到动作的单向映射。
+
+#### 动作与子目标的条件关系
+
+可以将推理过程概括为：
+
+$$
+p(a^{chunk},r,o^{goal}\mid o,l,s)
+\approx
+p(o^{goal},r,a^{chunk}\mid o,l,s;\theta).
+$$
+
+这里不是论文额外提出的独立概率分解，而是对其统一序列建模的解释：visual CoT、textual CoT 与 action chunk 在同一条件上下文下被联合恢复。
+
+### 4.4 Training
+
+**【Paper】** 训练时先构造包含 observation、instruction、state、未来 subgoal image、reasoning text 和 action chunk 的序列，再从不同模态随机 mask token。视觉 subgoal 的目标时间在 $[0.9C,1.1C]$ 中均匀采样，其中 LIBERO 的 chunk length $C=5$，真实任务 $C=50$；图像统一缩放到 $256\times256$，并对视觉生成使用 classifier-free guidance，scale 为 3.5。
+
+**【Paper】** 作者沿用 MMaDA 的 finetuning pipeline，在 LIBERO 数据与 1,100 条真实轨迹上训练。LIBERO 每个 suite 有 10 个任务、每个任务 50 条人类遥操作示范；真实数据分配为 bin picking 600 条、open box 100 条、hang cups 200 条、pick-and-place 200 条。
+
+<Algorithm number={1} title='dVLA Unified Diffusion Training' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>多模态示范数据 $D$、chunk length $C$、tokenizers 和 mask 过程</div>
+  <div slot='output'>训练好的 dVLA 参数 $\theta$</div>
+  <AlgorithmStep keyword='Given'>从示范中构造 $x_0=\{o,l,s,o^{goal},r,a^{chunk}\}$</AlgorithmStep>
+  <AlgorithmStep>分别用 MAGVIT-v2、LLaDA tokenizer 和 FAST 将三种模态离散化</AlgorithmStep>
+  <AlgorithmStep>采样 diffusion timestep $t$，随机 mask 不同模态中的 token，得到 $x_t$</AlgorithmStep>
+  <AlgorithmStep>用 dVLA 预测所有 mask 位置的原始 token 分布</AlgorithmStep>
+  <AlgorithmStep>只在 mask 位置计算 cross-entropy，得到 $\mathcal{L}_{\text{unify}}$</AlgorithmStep>
+  <AlgorithmStep keyword='repeat'>对 batch 反向传播并更新 $\theta$，直到验证集收敛</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 推理时输入当前图像、语言指令和状态，把 visual subgoal、textual subgoal、action chunk 的位置初始化为 mask，然后进行多轮 iterative denoising。得到的视觉与文本 CoT 不是单独展示用的解释，而是 action token 生成的条件上下文；action de-tokenizer 再将 FAST token 还原为连续动作并执行。
+
+**【Paper】** Prefix Mask + KV Cache 将 LIBERO 的速度从 1.3 actions/s 提升到 2.9 actions/s，将真实 bin-picking / hang-cups 的速度从 1.5 Hz 提升到 3 Hz，性能仅有小幅下降。
+
+<Algorithm number={2} title='dVLA Multimodal CoT Inference' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前多视角观测 $o$、指令 $l$、状态 $s$、训练好的 $\theta$</div>
+  <div slot='output'>连续动作 chunk $a^{chunk}$ 与可选的 CoT 结果</div>
+  <AlgorithmStep>
+    将 $o,l,s$ 编码为输入 prefix，将 $o^{goal},r,a^{chunk}$ 初始化为 mask
+  </AlgorithmStep>
+  <AlgorithmStep>在 Prefix Attention Mask 下进行多轮离散 diffusion denoising</AlgorithmStep>
+  <AlgorithmStep>使用 KV cache 复用稳定的 key/value，仅周期性刷新</AlgorithmStep>
+  <AlgorithmStep>对 visual subgoal、textual subgoal 和 action token 解码</AlgorithmStep>
+  <AlgorithmStep>
+    用 FAST de-tokenizer 得到连续动作，交给机器人控制器执行 action chunk
+  </AlgorithmStep>
+  <AlgorithmStep keyword='repeat'>读取新观测并滚动到下一个 chunk</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+论文页面、正文和参考资料中没有提供官方 GitHub repository、训练脚本或可复现实验配置，因此本节不虚构代码行为。**【Paper】** 可以确认的实现线索只有：模型初始化自 MMaDA，动作 tokenizer 使用 FAST，缓存策略参考 dLLM-Cache，文本 reasoning 标注使用 SEED-1.5VL。
+
+**【Analysis】** 这意味着读者目前只能按论文描述复现数据格式、token 词表扩展和 attention block 设计，无法核对诸如 optimizer、batch size、mask ratio、denoising step 数量和 checkpoint 结构等工程细节；这些细节在论文中未明确说明。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![dVLA 的真实 Franka 设置与任务套件（论文 Figure 3）](https://arxiv.org/html/2509.25681v1/figures/task_suite.png)
+
+**【Paper】** 仿真使用 LIBERO 四个 suite，每个 suite 10 个任务、每个任务 50 条示范；评价总计 500 次 trial。真实实验使用 7-DoF Franka、两台外置 ZED 相机和一台 Realsense 435i wrist camera，四类任务共 1,100 条训练轨迹，每个方法每个任务测试 10 次。
+
+### 5.2 Main Results
+
+![LIBERO 中的生成 Visual CoT 与实际执行结果（论文 Figure 4）](https://arxiv.org/html/2509.25681v1/libero_examples2.png)
+
+**【Paper】** dVLA 在 LIBERO 四个 suite 的成功率为：Spatial 97.4%、Object 97.9%、Goal 98.2%、Long 92.2%，平均 96.4%。这比 vanilla dVLA 的 89.8% 高 6.6 个百分点，也超过 Discrete Diffusion VLA 的 96.3% 和 OpenVLA-OFT（Discrete）的 95.5%。
+
+| 方法                    |  Spatial |   Object |     Goal |     Long |     平均 |
+| ----------------------- | -------: | -------: | -------: | -------: | -------: |
+| Diffusion Policy        |     78.3 |     92.5 |     68.3 |     50.5 |     72.4 |
+| GR00T-N1                |     94.4 |     97.6 |     93.0 |     90.6 |     93.9 |
+| $\pi_0$                 |     96.8 |     98.8 |     95.8 |     85.2 |     94.2 |
+| OpenVLA-OFT（Discrete） |     96.2 |     98.2 |     95.6 |     92.0 |     95.5 |
+| Discrete Diffusion VLA  |     97.2 |     98.6 |     97.4 |     92.0 |     96.3 |
+| **dVLA**                | **97.4** | **97.9** | **98.2** | **92.2** | **96.4** |
+
+**【Paper】** 真实 Franka 结果为 Bin Picking 7/10、Open Box 5/10、Hang Cups 7/10、Pick&Place Object 7/10，总计 26/40，平均成功率 65%。GR00T 的总成绩为 19/40，Diffusion Policy 与 OpenVLA 均为 14/40。
+
+### 5.3 Ablation Study
+
+**【Paper】** 多模态 CoT 是最关键的消融：真实任务上 vanilla dVLA 为 21/40（52.5%），加入 visual + textual CoT 后升至 26/40（65%），绝对提升 12.5 个百分点；LIBERO 上则从 89.8% 升到 96.4%。作者观察到，bin-picking 中 vanilla dVLA 常把夹爪预测到两个物体之间，而显式的视觉子目标和文本子任务能把抓取对象与后续动作约束到一起。
+
+**【Paper】** 加速消融如下：
+
+| 配置                   | LIBERO Spatial | LIBERO Object | 真实 Bin Picking | Hang Cups |                  速度 |
+| ---------------------- | -------------: | ------------: | ---------------: | --------: | --------------------: |
+| Full Attention         |           97.4 |          97.9 |             7/10 |      8/10 | 1.3 actions/s；1.5 Hz |
+| Prefix Mask + KV Cache |           96.9 |          97.3 |             7/10 |      7/10 |   2.9 actions/s；3 Hz |
+
+**【Analysis】** 加速配置的代价主要是约 0.5 个百分点的 LIBERO 下降和一个真实 Hang Cups trial 的波动，但吞吐接近翻倍。对于闭环机器人，这一交换通常比单纯追求离线 success rate 更有价值，因为更高频的观测更新可以减少执行漂移。
+
+### 5.4 Generalization
+
+**【Paper】** dVLA 在长时程 bin-picking 中需要反复选择并转移 3–5 个随机物体；作者报告模型生成的失败 Visual CoT 也会与真实失败结果对齐，例如物体卡在夹爪与盒沿之间，或机械臂朝错误方向移动。这说明模型不仅能预测“理想未来”，还会把某些动作后果映射到未来视觉状态。
+
+**【Analysis】** 这更接近一个弱形式的 action-conditioned world model，而不是纯粹的解释性热图。不过论文没有单独设计物理预测指标，也没有证明这种失败预测能被在线规划器利用，因此应把它视为有启发性的观察，而不是已经验证的世界模型能力。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** dVLA 的收益可以拆成三个互补因素：
+
+1. **共享表示**：视觉、文本和动作都经过离散化，模型可以在同一 token 级表示中传递约束。
+2. **显式未来状态**：subgoal image 给动作预测增加了“执行后场景应该长什么样”的约束，减少只看当前图像的局部贪心。
+3. **计划与控制同目标**：textual CoT 和 action chunk 同时作为 mask 位置恢复，文本计划不再是单独模型生成后再交给控制器。
+
+### 6.2 核心创新
+
+**【Paper】** 真正的新意是把 multimodal CoT 作为统一 diffusion sequence 的一部分，而不是把视觉预测、语言推理、动作策略串成三个独立模型。Prefix Mask 和 KV Cache 则是为这一统一范式补上实时部署所需的系统优化。
+
+### 6.3 与已有方法的本质区别
+
+| 路线         | 推理对象               | 训练目标                       | 主要风险                 |
+| ------------ | ---------------------- | ------------------------------ | ------------------------ |
+| 传统 VLA     | 观测到动作             | VLM 特征 + action head         | 缺少显式中间状态         |
+| 文本 CoT VLA | 文本计划 + 动作        | 文本 next-token 与动作目标分离 | 计划与执行错位           |
+| 世界模型 VLA | 未来图像 / 状态 + 动作 | 常见为分离的生成与控制损失     | 生成模型与控制器接口复杂 |
+| **dVLA**     | 视觉、文本、动作 token | 统一 masked discrete diffusion | denoising 成本较高       |
+
+### 6.4 关键假设
+
+**【Analysis】** 方法依赖以下假设：
+
+- 未来 subgoal image 在动作 chunk 时间尺度上足够稳定，能成为有效的中间监督；
+- FAST 离散化不会丢失关键的接触与精细控制信息；
+- 真实任务的文本 reasoning 标注（尤其是 SEED-1.5VL 自动生成的分段）与动作因果关系足够一致；
+- 多模态 token 的联合 denoising 能学到跨模态约束，而不是只利用最容易的模态完成 loss。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 作者没有单独列出 limitation 小节，但明确承认 multimodal CoT 会增加 inference cost，因此需要 Prefix Attention Mask 与 KV Caching。论文也只在有限的 LIBERO 与四类 Franka 任务上验证，尚未证明对更多机器人 embodiment 或更长任务 horizon 的可迁移性。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+1. **数据成本与标注依赖**：视觉 subgoal 需要未来帧，文本 CoT 对长任务还依赖额外的 video segmentation 标注；这比普通行为克隆需要更复杂的数据管线。
+2. **推理延迟仍高**：加速后约 3 Hz，适合当前实验的慢速桌面操作，但对快速接触、动态物体或高频力控仍可能不够。
+3. **实验规模有限**：真实结果每个任务只有 10 次测试，65% 与 70% 这类比例的统计不确定性较大；论文没有置信区间或跨随机种子的方差。
+4. **缺少代码复现**：没有官方仓库，读者无法核对 mask ratio、denoising steps、优化器、batch size 等关键实现细节。
+5. **“预测失败”尚未闭环利用**：论文展示了失败 Visual CoT，但没有让规划器据此主动拒绝或修正危险动作，因此安全性结论仍是观察性证据。
+
+## 8. 启发与研究思考
+
+**【Analysis】** dVLA 给 VLA 研究的启发不是“所有东西都应该离散化”，而是应认真选择一个能同时容纳计划、未来状态和动作的训练接口。对后续工作，我认为有三条值得推进：
+
+1. **从 CoT 到可验证计划**：把 visual subgoal 与可执行约束、碰撞检测或 affordance score 结合，让模型生成的未来不只是像素预测，而能被规划器检查。
+2. **自适应模态预算**：简单任务跳过 textual CoT，长任务保留完整 MM-CoT；还可以根据不确定性动态决定 denoising steps 和缓存刷新频率。
+3. **统一 token 与连续控制的混合架构**：离散 token 擅长跨模态语义和长时程结构，连续 diffusion / flow matching 擅长接触细节。更实际的方向可能是让 dVLA 负责 subgoal 与粗动作，再由局部连续控制器完成最后几厘米。
+
+如果 dVLA 的失败 Visual CoT 能被转化为可计算的风险预测，它就可能从“会解释动作的 VLA”进一步变成“执行前会检查动作后果的 VLA”。这也是统一生成目标最值得验证的下一步。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。由于论文未提供官方代码，本篇没有 `【Code】` 结论。
+</Aside>
