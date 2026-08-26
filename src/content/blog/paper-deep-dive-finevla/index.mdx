@@ -1,0 +1,337 @@
+---
+title: 'FineVLA 论文精读：用细粒度语言让 VLA 真正听懂“怎么做”'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 FineVLA：从异构轨迹清洗、DTW 采样到 RoboFine-Bench 与 FG/Raw 混合训练，理解细粒度指令如何带来可操控的机器人行为。'
+heroImage:
+  { src: 'https://pic.hana0721.top/129563571_p0_master1200.1ziuqmv78w.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '129563571'
+tags:
+  - 'paper deep dive'
+  - 'FineVLA'
+  - 'vision-language-action'
+  - 'robot learning'
+  - 'instruction alignment'
+paper:
+  arxivId: '2605.27284'
+  title: 'FineVLA: Fine-Grained Instruction Alignment for Steerable Vision-Language-Action Policies'
+  authors:
+    - 'Xintong Hu'
+    - 'Xuhong Huang'
+    - 'Jinyu Zhang'
+    - 'Yutong Yao'
+    - 'Yuchong Sun'
+    - 'Qiuyue Wang'
+    - 'Mingsheng Li'
+    - 'Sicheng Xie'
+    - 'Yitao Liu'
+    - 'Junhao Chen'
+    - 'Yixuan Chen'
+    - 'Yingming Zheng'
+    - 'Shuai Bai'
+    - 'Tao Yu'
+  venue: 'arXiv'
+  year: 2026
+  code: 'https://github.com/xlang-ai/FineVLA'
+  project: 'https://finevla.xlang.ai/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2605.27284'
+  tldr='FineVLA 把“完成什么任务”的粗粒度指令扩展成与动作对齐的“如何执行”描述，并证明 FG/Raw=1:2 到 1:1 的混合监督能同时提升任务成功率与可操控性。'
+  rank={5}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《FineVLA: Fine-Grained Instruction Alignment for Steerable Vision-Language-Action Policies》
+
+**作者**：Xintong Hu、Xuhong Huang、Jinyu Zhang、Yutong Yao、Yuchong Sun、Qiuyue Wang、Mingsheng Li、Sicheng Xie、Yitao Liu、Junhao Chen、Yixuan Chen、Yingming Zheng、Shuai Bai、Tao Yu。
+
+**机构**：香港大学 XLANG Lab、阿里巴巴 Qwen Team。
+
+**论文链接**：[arXiv](https://arxiv.org/abs/2605.27284)　**代码仓库**：[xlang-ai/FineVLA](https://github.com/xlang-ai/FineVLA)　**项目主页**：[finevla.xlang.ai](https://finevla.xlang.ai/)
+
+<img
+  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-finevla/main.webp'
+  alt='FineVLA 框架总览（论文 Figure 1）'
+  class='zoomable'
+  width='6067'
+  height='3247'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+### 一句话总结
+
+**【Paper】** 传统 VLA 数据通常只告诉机器人“拿起杯子”，却不说明用哪只手、从哪个方向接近、接触哪里或最终摆成什么姿态。FineVLA 构建一套从数据清洗、动作对齐标注、视频理解基准到策略训练的开放框架，把这些执行关键因素写进语言，并用受控的 FG（fine-grained）/Raw（goal-level）混合实验验证其价值。
+
+### 核心贡献
+
+**【Paper】**
+
+1. **FineVLA-Tool**：把 10 个公开机器人数据集的 972,247 条轨迹统一到 LeRobot 2.1，经过 canonicalization、质量门控、DTW 聚类和代表性采样，得到 47,159 条人工核验轨迹。
+2. **十维细粒度 schema**：覆盖 action sequence、active actor、target object、initial/final configuration、contact & approach、trajectory & orientation、object interaction、failure & recovery、body motion。
+3. **RoboFine-Bench**：500 个留出视频、11,631 个 atomic facts、1,030 道 VQA 问题，分别测试 grounding、action/motion 和 interaction/state reasoning，并提供 caption track。
+4. **RoboFine-VLM**：在 Qwen3.5-397B-A17B 上微调的机器人视频标注器；在 hard caption 设置达到 82.2% Overall、VQA 达到 68.2%。
+5. **FineVLA-Policy**：在 StarVLA-OFT 与 StarVLA-GR00T 两种 action decoder 上系统扫描 FG:Raw 比例。最优混合比例约为 1:2 到 1:1，RoboTwin AlohaMix-OFT 达到 86.8%/82.5%，真实双臂平均得分达到 62.7/100。
+
+## 2. 背景与相关工作
+
+**【Paper】** 现有机器人示教大多把一条轨迹绑定到一个简短目标句，例如“把积木放进盒子”。同一个目标可以由左臂或右臂完成，也可以从上方或侧面接近；如果语言没有区分这些行为，策略只能从视觉共现统计中猜测执行方式。因此，任务成功率并不等于 instruction following：机器人可能完成了目标，却用了错误的手、错误的物体或错误的旋转方向。
+
+相关工作主要有三类：通用 VLM 的视频描述、面向空间/手物关系的 embodied benchmark，以及以 goal-level language 为条件的 VLA。FineVLA 的差异在于，它把标注单位从“场景里有什么”推进到“动作按什么顺序发生、接触在哪里、状态如何变化”。
+
+**【Analysis】** 论文真正改变的不是 policy backbone，而是监督信号的语义分辨率：同一组 observation、action 保持不变，只替换配对语言，就能测量语言是否把隐含的行为选择显式化。
+
+## 3. 问题定义
+
+给定机器人轨迹 $\tau=(o_{0:T},a_{0:T-1})$ 与语言 $l$，策略学习 $\pi(a_{t:t+H}\mid o_{\le t},l)$。FineVLA 将语言分成两种视图：
+
+- **Raw instruction**：描述目标（what），例如“把红色杯子放到托盘里”。
+- **Fine-grained instruction**：按时间顺序描述目标与执行约束（what + how），例如主动臂、目标物体、接近方向、接触区域、轨迹、姿态和失败恢复。
+
+**【Paper】** 关键实验要求两种数据的 trajectory、visual observation 与 action label 完全相同，只有 instruction 改变；这样可以把收益归因于语言监督，而不是数据量或动作分布变化。
+
+**【Code】** 官方仓库的 policy 数据配置把同一任务的 FG 版本标记为 `_fg`，在 `starVLA/dataloader/gr00t_lerobot/mixtures.py` 中用 `FGOnly`、`FG1_1`、`FG2_1`、`FG4_1` 等命名混合；训练脚本再按 mixture weight 采样。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+FineVLA 是一个闭环框架：FineVLA-Tool 将异构轨迹变成细粒度监督；RoboFine-Bench 检查 VLM 是否真的看懂动作过程；RoboFine-VLM 负责未来数据的自动标注；FineVLA-Policy 则在固定 observation/action 下比较不同语言监督。
+
+![FineVLA 数据构建流水线（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-finevla/tool.webp)
+
+**【Paper】** 数据流可以浓缩为：raw episodes → canonical 80-dim state/action → action-state quality gate → DTW clustering/sampling → ten-dimensional annotation + human verification → benchmark/VLM/policy。
+
+### 4.2 核心模块
+
+#### FineVLA-Tool：统一、去冗余、再标注
+
+**输入**是来自 BridgeData-V2、BC-Z、RT-1、Galaxea、RoboMIND、RoboCOIN、RH20T、RDT、DROID 等数据集的原始 LeRobot 轨迹；**输出**是可以跨数据集比较的代表性轨迹与细粒度语言。
+
+1. **Format conversion**：各数据集的 state/action 可能是 joint 或 end-effector，可能采用 absolute、delta 或 relative 表示。代码中的 `convert_unified.py` 读取 `meta/modality.json`，把它们映射到统一的 80 维向量。
+2. **Canonicalization and cleaning**：统一为 absolute 坐标和 normalized quaternion，并计算 action-state 的 DTW/L2 一致性；异常帧数、空任务和状态-动作偏离过大的 episode 被过滤。
+3. **Trajectory clustering**：`ClusteringAndSampling` 对同一 task 的 canonical action sequence 计算 DTW 距离，再做 hierarchical 或 k-medoids clustering，从每个簇中挑选高质量代表，避免把预算花在近乎重复的示教上。
+4. **Annotation**：`AnnotationPipeline` 先以视频帧调用 VLM 生成有序步骤，再由人工对照原视频核验。十个维度让“抓住杯子”变成可检查的动作事实集合。
+
+#### RoboFine-Bench 与 RoboFine-VLM
+
+![RoboFine-Bench 组成：VQA 与 caption 两条评测轨道（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-finevla/benchmark.webp)
+
+**【Paper】** RoboFine-Bench 的 500 个视频与训练数据严格 disjoint。VQA track 提供 1,030 个问题；caption track 把人工核验描述拆成 11,631 个 atomic facts，再由 LLM 判断生成 caption 对每个事实是 match、partial、contradiction、omission 还是 hallucination，汇总为 Consistency、Coverage 与 Anti-Hallucination。
+
+**【Code】** `RoboFine-Bench` 提供 eval-set 准备、caption 生成与 direct-align 评测脚本；`RoboFine-VLM` 提供视频采样、prompt 模板和 API/SGLang 推理示例。VLM 只用于扩展未来标注，不参与本文 policy 训练标签的生成。
+
+#### FineVLA-Policy 的两个 decoder
+
+**【Paper】** 两个 policy 都共享 Qwen3.5-VL backbone：
+
+- **StarVLA-OFT**：从预定义 action token 的 hidden states 读取特征，用轻量 MLP 并行回归连续 action chunk，采用 L1 objective。
+- **StarVLA-GR00T**：视觉语言 backbone 作为较慢的 System 2，DiT flow-matching action head 作为 System 1 生成连续动作。
+
+**【Code】** `QwenGR00T.py` 构造 Qwen interface 与 `FlowmatchingActionHead`，`predict_action` 输出 `(B, chunk_len, action_dim)`；训练脚本在 action head 上计算 action loss，并可同时进行 VLM co-training。架构保持不变，实验变量仍是 language mixture。
+
+### 4.3 关键公式
+
+#### 监督混合
+
+令 $D_{FG}$ 为细粒度数据、$D_{Raw}$ 为原始指令数据，采样比例为 $r:1$：
+
+$$
+\mathcal{D}_r \sim \frac{r}{r+1}D_{FG}+\frac{1}{r+1}D_{Raw}.
+$$
+
+**【Paper】** $r=0$ 对应 Raw-only，$r\to\infty$ 对应 FG-only。论文扫描 Raw-only、1:4、1:2、1:1、2:1、4:1、FG-only 七种设置。
+
+#### 策略目标
+
+$$
+\mathcal{L}_{\pi}=\mathbb{E}_{(o,a,l)\sim\mathcal{D}_r}\left[\lVert f_\theta(o,l)-a\rVert_1\right].
+$$
+
+这里 $o$ 是视觉观测，$l$ 是 Raw 或 FG instruction，$a$ 是动作 chunk，$f_\theta$ 是 decoder。公式本身没有新增 loss；创新在于用不同信息密度的语言改变条件分布。
+
+#### DTW 轨迹距离
+
+对两条 canonical action sequence $x_{1:T}$、$y_{1:U}$，DTW 递推为：
+
+$$
+D(i,j)=d(x_i,y_j)+\min\{D(i-1,j),D(i,j-1),D(i-1,j-1)\}.
+$$
+
+$d(\cdot,\cdot)$ 是位置、旋转与夹爪等特征的加权距离。**【Code】** 仓库的 `utils/dtw_distance.py` 支持 path-length normalization 与 Sakoe–Chiba window；得到的距离矩阵交给 clustering 模块选 representative episodes。
+
+#### Atomic-fact 对齐指标
+
+设 GT facts 数量为 $A$，caption 命中的事实为 $M$，部分命中为 $P$，矛盾为 $C$，幻觉动作数为 $H$。**【Paper】** benchmark 将这些标签分别聚合为 coverage、consistency 与 anti-hallucination，而不是只用 n-gram 相似度，因此会惩罚“说得流畅但动作不对”的 caption。
+
+### 4.4 Training
+
+**【Paper】** FineVLA-Tool 先从 972,247 条轨迹中选出 47,159 条人工核验样本。policy 实验在三个组合上训练：RDT-OFT、RDT-GR00T、AlohaMix-OFT。预训练均为 100k steps、64 张 A100、global batch 512；RoboTwin fine-tuning 使用 27,500 条轨迹与 6,075,103 个 transitions，在 8 张 A100 上训练 100k steps。AlohaMix 是 86,662 episodes、598 tasks 的 ALOHA-compatible 双臂混合。
+
+<Algorithm number={1} title='FineVLA 语言混合训练' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>
+    固定的 observation/action 轨迹、Raw/FG instruction 数据集、预训练 StarVLA checkpoint、FG:Raw
+    比例
+  </div>
+  <div slot='output'>在指定语言分布下训练的 steerable VLA policy</div>
+  <AlgorithmStep>
+    从 $D_{FG}$ 与 $D_{Raw}$ 按 mixture weight 采样 batch；两者共享动作和视觉观测。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    将 instruction 与多视角图像送入 Qwen3.5-VL backbone，得到 action-token 或 DiT head 的条件特征。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    用 OFT 的 L1 regression 或 GR00T 的 flow-matching action loss 更新 action decoder。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    重复训练 steps；保存各 FG:Raw 设置的 checkpoint，供 RoboTwin 与真实机器人评测。
+  </AlgorithmStep>
+</Algorithm>
+
+**【Code】** `mixtures.py` 把 `FG1_1` 展开为 FG 与普通条目各一份，把 `FG2_1`/`FG4_1` 的 FG 条目权重设为 2/4；`train_starvla.py` 负责 dataloader、optimizer、checkpoint 与 `predict_action` 评估。仓库 README 给出了 Aloha FG1:1 的训练脚本，但预训练 policy checkpoint 在仓库中标注为后续发布。
+
+### 4.5 Inference
+
+推理时模型只接收当前图像、机器人状态和用户 instruction，不需要额外的 annotation schema 解析器。FG instruction 中指定的 actor、target、approach、pose 等因素通过 backbone 影响 action chunk；低层控制器执行预测动作并在下一次观测时闭环重查询。
+
+<Algorithm number={2} title='FineVLA 闭环动作执行' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前多视角 observation $o_t$、机器人状态、Raw 或 FG instruction $l$</div>
+  <div slot='output'>执行后的动作序列与下一时刻 observation</div>
+  <AlgorithmStep>
+    预处理图像、state 和语言，调用 `model.predict_action` 生成连续 action chunk。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    按 decoder 配置取出 OFT/GR00T 的 chunk，并反归一化到机器人动作空间。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    执行 chunk（或执行固定前缀后重新观测），把新 observation 作为下一轮输入。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    直到任务完成或达到 episode horizon；评测同时检查 goal success 与 instruction-sensitive factor。
+  </AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+| 论文组件              | 官方仓库位置                                                  | 代码行为                                                                        |
+| --------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Canonicalization      | `FineVLA-Tool/CanonicalizeAndClean/convert_unified.py`        | 读取 LeRobot parquet 与 `modality.json`，统一 state/action 字段并输出 parquet。 |
+| DTW clustering        | `FineVLA-Tool/ClusteringAndSampling/`                         | 计算距离矩阵，支持 hierarchical/k-medoids 与代表性采样。                        |
+| VLM annotation        | `FineVLA-Tool/AnnotationPipeline/`                            | 分析、细化、去重等阶段调用视觉 API，并解析 JSON steps。                         |
+| VQA/caption benchmark | `RoboFine-Bench/`                                             | 准备 held-out 输入、生成 caption、按 atomic facts 对齐。                        |
+| Policy mixture        | `FineVLA-Policy/starVLA/dataloader/gr00t_lerobot/mixtures.py` | 用 `_fg` robot type 与权重组合 FGOnly/FG1_1/FG2_1/FG4_1。                       |
+| Action decoder        | `FineVLA-Policy/starVLA/model/framework/QwenGR00T.py`         | Qwen VL backbone + flow-matching action head，输出多步动作。                    |
+
+**【Analysis】** 论文把“语言监督”作为唯一变量，但代码层面仍有一个工程前提：FG 轨迹是经过筛选的 representative subset，而 Raw 轨迹包含全部原始 episode。作者通过采样权重和固定训练步数控制这一差异；复现实验时必须同时核对数据规模、采样权重和 embodiment 过滤。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![真实双臂 paired steerability 任务：只改变语言中的一个控制因素（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-finevla/real.webp)
+
+**【Paper】** 实验包含三条轴：RoboFine-Bench 视频理解、RoboTwin 双臂仿真、Cobot Magic 真实双臂 steerability suite。真实套件将视觉场景近似固定，只改变 color、pose、approach、rotation direction 或 active arm；每个 paired variant 运行 10 次，用 0–100 partial-completion rubric 评分。
+
+### 5.2 Main Results
+
+#### 视频理解
+
+**【Paper】** RoboFine-VLM 在 VQA 上取得 68.2% overall accuracy，比 GPT-5.4 高 8.0 个百分点；Action and Motion Understanding 达到 75.7%。在 hard caption（不给任务指令、只看视频）中，Overall 为 82.2%，超过最强基线 78.0%。10 位人工评审与自动分数高度相关：easy Pearson 0.937、hard Pearson 0.922。
+
+#### RoboTwin 仿真
+
+| FG:Raw   | RDT-OFT Easy/Hard | RDT-GR00T Easy/Hard | AlohaMix-OFT Easy/Hard |
+| -------- | ----------------: | ------------------: | ---------------------: |
+| Raw-only |       61.5 / 60.0 |         55.1 / 53.4 |            71.8 / 71.4 |
+| 1:4      |       68.2 / 66.5 |         58.2 / 55.7 |            75.3 / 74.3 |
+| 1:2      |   **74.1 / 72.1** |         61.7 / 60.9 |            82.8 / 78.6 |
+| 1:1      |   73.9 / **72.4** |     **69.4 / 68.2** |        **86.8 / 82.5** |
+| 2:1      |       70.4 / 68.3 |         65.9 / 63.1 |            80.9 / 79.3 |
+| 4:1      |       68.6 / 67.5 |         64.9 / 63.2 |            79.5 / 78.5 |
+| FG-only  |       62.9 / 62.0 |         62.1 / 61.5 |            78.3 / 76.1 |
+
+**【Paper】** FG-only 相对 Raw-only 在三种设置都不降反升（+1.4 到 +8.1）；但最佳点不是 FG-only，而是 1:2 到 1:1，呈稳定的 inverted-U。AlohaMix-OFT 的 1:1 在 Easy/Hard 上分别比 Raw-only 高 15.0/11.1 个百分点。
+
+### 5.3 Ablation Study
+
+![RoboTwin 中 FG:Raw 混合比例的 inverted-U 曲线（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-finevla/mixing.webp)
+
+**【Paper】** 架构与数据规模对结论的影响如下：
+
+- 在同一 RDT 数据上，OFT 在 Raw-only 时领先 GR00T 约 6.4/6.6 点；FG 比例增加后差距缩小，FG-only 时仅约 0.8/0.5 点，说明细粒度语言缓解了 decoder 的 supervision bottleneck。
+- AlohaMix 比 RDT 大约 13 倍；FG-only 相对 Raw-only 的收益从 RDT 的 +1.4/+2.0 扩大到 AlohaMix 的 +6.5/+4.7，说明语言密度与轨迹多样性存在协同。
+
+### 5.4 Generalization
+
+| 监督       | Clean Table | Stack Block |  Color |   Pose | Approach | Rotate |    Arm | L→R OOD |  ID 平均 |
+| ---------- | ----------: | ----------: | -----: | -----: | -------: | -----: | -----: | ------: | -------: |
+| Raw-only   |          72 |          35 |     22 |     24 |       60 |     76 |     60 |       0 |     49.9 |
+| FG:Raw=1:2 |          79 |          39 |     36 | **48** |       76 | **87** |     63 |       5 |     61.1 |
+| FG:Raw=1:1 |      **84** |      **40** | **40** |     47 |   **78** |     86 | **64** |  **10** | **62.7** |
+| FG-only    |          70 |          35 |     25 |     41 |       70 |     80 |     60 |       0 |     54.4 |
+
+**【Paper】** 1:1 在真实 ID 任务达到 62.7/100，超过 Raw-only 的 49.9；Pose +23、Color +18、Approach +18 是最大收益。OOD actor-target binding 仍困难，但混合模型从 0 提升到 10，显示 factor grounding 有部分迁移，完整组合泛化尚未解决。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** Raw instruction 提供紧凑的 task semantics，FG instruction 提供执行约束。只用 Raw 时，策略必须从数据共现中猜“哪只手、从哪边、接触哪里”；只用 FG 时，语言更长、更像示教记录，可能减少对用户常见短指令的暴露。混合训练让同一个 action chunk 同时被两种语言视图解释，于是模型既保留 goal abstraction，又学会 factor grounding。
+
+### 6.2 核心创新
+
+1. 把 action alignment 做成可复用的数据基础设施，而不是一次性人工标注。
+2. 用 atomic facts 与 paired scenes 把“是否听懂怎么做”从整体成功率中分离出来。
+3. 用受控 FG:Raw sweep 给出可操作的训练配方，而不是只报告一个新模型。
+4. 将 annotation、benchmark、VLM annotator、policy code 放在同一开放框架中，形成数据到控制的闭环。
+
+### 6.3 与已有方法的本质区别
+
+**【Paper】** FineVLA 没有提出新的视觉 backbone、action tokenization 或 decoder；它的变量是语言与动作之间的对齐粒度。与普通 dense captioning 相比，FineVLA 的 caption 必须回答接触、方向、状态转移等控制相关问题；与传统 VLA fine-tuning 相比，它把“如何执行”作为显式条件。
+
+### 6.4 关键假设
+
+- 视频足以支持十个维度中的大部分判断，且人工核验可以纠正 VLM 的时间与事实错误。
+- 同一 trajectory 的 action/observation 固定时，instruction 替换可以近似隔离语言监督的因果影响。
+- 代表性采样不会丢掉对策略重要的长尾动作模式。
+- FG 语言中的执行约束在新场景中具有可组合性；OOD 结果表明这一假设目前只部分成立。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** RoboFine-VLM 仍需要人工 verification，并没有把标注成本降为零；真实评测只覆盖 Cobot Magic 桌面双臂和少量定向任务；OOD actor-target binding 仍然失败较多。物理环境中遵循细粒度指令还会引入安全风险，需要 feasibility 与 safety checks。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+1. 十维 schema 依赖可见性：遮挡、低帧率或缺失 proprioception 时，contact region 与 orientation 可能只能靠模型猜测。
+2. FG 数据是聚类后的 representative subset，而 Raw 是全量轨迹；即便动作和视觉固定，训练频率与 episode diversity 仍需谨慎配平。
+3. caption 评分依赖 LLM judge。虽然论文用 Gemini 与人工排序验证了鲁棒性，但自动指标仍可能受 judge 偏好影响。
+4. 真实任务的 paired design 很适合测 steerability，却不能代表开放世界中多物体、多步骤、长时程组合任务。
+
+## 8. 启发与研究思考
+
+FineVLA 给出的最实用结论是：细粒度语言不应简单替代 goal instruction，而应作为补充通道。下一步可以沿三个方向推进：
+
+- **数据侧**：把十维 schema 与触觉、力矩、失败日志结合，减少仅凭 RGB 推断接触和安全性的歧义。
+- **模型侧**：让 policy 显式分解目标 token 与 execution-factor token，并在推理时做约束检查，而不是把所有信息压进同一个句子。
+- **评测侧**：从 paired single-factor 走向组合因素 benchmark，例如“左臂从侧面抓蓝色物体并顺时针旋转”，同时报告 factor accuracy、任务成功率与安全违规率。
+
+**【Analysis】** 论文把 VLA 的竞争焦点从“更大的 backbone”转移到“更高密度、可验证的动作语言”。如果未来数据集都能提供这种对齐，机器人策略就不必把执行方式当作隐变量，而可以把用户的“怎么做”直接作为可学习、可评测、可控制的接口。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。
+</Aside>
