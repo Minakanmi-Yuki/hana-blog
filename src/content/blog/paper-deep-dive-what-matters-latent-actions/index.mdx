@@ -1,0 +1,275 @@
+---
+title: 'What Matters for Latent Actions in Robot Learning 论文精读'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '系统拆解 What Matters for Latent Actions in Robot Learning：41 项设计选择、三阶段训练、代理指标与真实机器人验证。'
+heroImage:
+  { src: 'https://pic.hana0721.top/112236596_p0_master1200.232gogbiox.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '112236596'
+tags:
+  - 'paper deep dive'
+  - 'latent action model'
+  - 'vision-language-action model'
+  - 'robot learning'
+paper:
+  arxivId: '2608.19613'
+  title: 'What Matters for Latent Actions in Robot Learning'
+  authors:
+    - 'Xizhou Bu'
+    - 'Qingda Hu'
+    - 'Lei Zhou'
+    - 'Lingfeng Zhang'
+    - 'Yingbo Tang'
+    - 'Zihao Liu'
+    - 'Xinyi Tao'
+    - 'Zhiqiang Ma'
+    - 'Qingqiu Huang'
+    - 'Chufeng Tang'
+    - 'Hongbo Wang'
+    - 'Jing Zhang'
+    - 'Jiayi Ma'
+    - 'Hangjun Ye'
+    - 'Wei Li'
+    - 'Xiaoshuai Hao'
+  venue: 'arXiv'
+  year: 2026
+  code: 'https://github.com/XizoB/What-Matters-for-Latent-Actions-in-Robot-Learning'
+  project: 'https://carldegio.github.io/latent_action.github.io/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2608.19613'
+  tldr='这篇研究在统一三阶段训练框架中比较 41 种 latent-action 设计，发现 LAPO、适度正则、维度 32 与联合 latent/physical action 训练是稳健选择，且 latent-action 微调能显著提升真实机器人策略。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《What Matters for Latent Actions in Robot Learning》  
+**作者**：Xizhou Bu、Qingda Hu、Lei Zhou、Lingfeng Zhang、Yingbo Tang、Zihao Liu、Xinyi Tao、Zhiqiang Ma、Qingqiu Huang、Chufeng Tang、Hongbo Wang、Jing Zhang、Jiayi Ma、Hangjun Ye、Wei Li、Xiaoshuai Hao  
+**论文链接**：[arXiv](https://arxiv.org/abs/2608.19613)  
+**项目主页**：[LAM project](https://carldegio.github.io/latent_action.github.io/)  
+**代码链接**：[GitHub](https://github.com/XizoB/What-Matters-for-Latent-Actions-in-Robot-Learning)
+
+![论文 Figure 1：latent-action 学习的三阶段流程与 41 项设计选择](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-what-matters-latent-actions/main.8z79iaszqq.webp)
+
+### 一句话总结
+
+**【Paper】** 论文把 latent action learning 统一成可比较的 autoencoding 框架，系统评估 latent-action 建模范式、正则化、动作头、维度、归一化和数据规模，回答“哪些设计真正改善机器人控制”，而不是只报告某一个方法的孤立结果。
+
+### 核心贡献
+
+**【Paper】** 研究覆盖 41 个去重后的设计选择、三个 benchmark（LIBERO、LIBERO-Plus、RoboTwin2.0）和 Franka Panda 真实实验，主要结论是：
+
+1. 原始 LAPO（IDM-FDM）在直接使用 raw video 时仍是最强基线之一；$\Delta$DINO 这种简单的语义特征差分也很有竞争力。
+2. 连续正则化方法的类型差异小于正则化强度差异；VAE 是默认首选，VQ-VAE 在 zero-shot 鲁棒性上更有优势。
+3. latent action 维度 32 在 7-DoF 单臂和 14-DoF 双臂之间取得最稳健的折中；已有合适正则时不必额外归一化。
+4. FDM 重建指标比训练 probe 解码 physical action 更能预测下游表现，但只适合粗粒度筛选。
+5. 用 latent action 微调 VLM backbone，且扩大 Stage-II 视频规模，会稳定提升下游策略和真实机器人成功率。
+
+## 2. 背景与相关工作
+
+**【Paper】** VLA 需要把视觉、语言和 physical action 对齐，但机器人 action data 的规模远小于互联网图像/视频。Latent Action Model（LAM）试图从无标注视频的相邻帧中提取紧凑的 $z_t$，把“状态如何变化”作为 physical action 的替代监督，从而把海量 video-only data 接入机器人学习。
+
+已有方法大致分两类：
+
+- **IDM-FDM**：Inverse Dynamics Model 从 $(o_t,o_{t+1})$ 推断 $z_t$，Forward Dynamics Model 再用 $(o_t,z_t)$ 重建未来帧，代表是 LAPO、LAOF、CoMo。
+- **CFD-AE**：先计算 $\Delta$RGB、$\Delta$DINO 或 optical flow，再用 Encoder/Decoder 压缩和重建差分。
+
+**【Analysis】** 过去工作往往只改一个模块、换一套数据和 action head，导致“方法更好”与“实验配方更好”混在一起。这篇论文的价值不在于提出全新的 LAM，而在于把这些选择放到同一坐标系中，测量它们对 downstream policy 的真实影响。
+
+## 3. 问题定义
+
+**【Paper】** 在时间 $t$，机器人观察图像 $o_t$，执行 physical action $a_t\in\mathbb{R}^{d_a}$ 并到达 $o_{t+1}$。LAM 学习低维 latent action $z_t\in\mathbb{R}^{d_z}$，使其包含从当前帧到未来帧的 transition information。
+
+轨迹可写成：
+
+$$
+\tau=(o_t,a_t,z_t,o_{t+1},l)_{t=1}^{T},
+$$
+
+其中 $l$ 是语言指令。训练分为三阶段：
+
+| 阶段 | 数据 | 目标 | 是否需要 physical action |
+| --- | --- | --- | --- |
+| Stage I Pre-training | 无标注视频帧 | 学习 LAM 与 transition representation | 否 |
+| Stage II Mid-training | 语言标注视频 + 自动生成 $z_t$ | 用 latent action 微调 VLM backbone | 默认否，可做可访问对照 |
+| Stage III Post-training | 机器人示教 $(o_t,a_t,l)$ | 学 physical-action policy | 是 |
+
+**【Paper】** Stage I 使用 700M spatiotemporal Transformer，随机时间下采样因子来自 $\{1,2,3,4,5\}$，帧被 center-crop 到 $224\times224$；Stage II/III 使用 Qwen3-VL-4B 与 OpenVLA-OFT 配方。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![论文 Figure 2：LAPO、LAOF、CoMo 与 CFD-AE 的统一比较](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-what-matters-latent-actions/cfm.7i14gjov4h.webp)
+
+**【Paper】** 统一数据流是：相邻观测进入 LAM 得到 $z_t$；Stage-II 用 $(o_t,z_t,l)$ 微调 VLM；Stage-III 再把 VLM 表征接到 physical-action head。IDM-FDM 通过未来帧重建学习隐式 transition，CFD-AE 则直接重建预定义的帧差分。
+
+### 4.2 核心模块
+
+#### Latent-action modeling
+
+- **LAPO**：$z_t=\mathrm{IDM}(o_t,o_{t+1})$，$\hat o_{t+1}=\mathrm{FDM}(o_t,z_t)$。优点是无需额外预处理，直接从 raw frames 学习。
+- **LAOF**：在 LAPO 的未来帧重建外，再由 FlowDecoder 重建 optical flow；论文分别测试 RAFT 与 SEA-RAFT。
+- **CoMo**：将 IDM 的未来帧输入替换为 $\Delta$DINO，以减轻 causal leakage。
+- **CFD-AE**：$z_t=\mathrm{Encoder}(\Delta_t)$，$\hat{\Delta}_t=\mathrm{Decoder}(z_t)$，其中 $\Delta_t$ 可为 $\Delta$RGB、$\Delta$DINO 或 optical flow。
+
+**【Paper】** 这四种方法共享 latent dimension 和 autoencoding 预算，因此比较重点是“motion signal 从哪里来”，而不是网络容量差异。
+
+#### 正则化
+
+**【Paper】** 总目标为 $\mathcal{L}=\mathcal{L}_{method}+\lambda_{reg}\mathcal{L}_{reg}$，比较 AE、VQ-VAE、VAE、Sparsity 和 SIGReg：
+
+| 方法 | latent 约束 | 直觉 |
+| --- | --- | --- |
+| AE | 无额外约束 | 重建能力最强但可能 shortcut |
+| VQ-VAE | codebook 离散化 | 学可复用 action prototypes |
+| VAE | KL 到 $\mathcal{N}(0,I)$ | 连续、平滑、可采样 |
+| Sparsity | VCM + $\ell_1/\ell_2$ | 少量维度激活、降低冗余 |
+| SIGReg | 随机投影后匹配高斯 | 保持各向同性、避免 collapse |
+
+#### Latent action integration
+
+给定 $h_t=\mathrm{VLM}_{\psi}(o_t,l)$，论文比较五种 action head：DAP（$h\to a$）、LAP（$h\to z\to a$）、JAP（$h\to[z,a]$）、JAP-DAP 和 JAP-LAP。DAP 只把 latent action 当 Stage-II 的辅助监督；LAP 在推理时保留 latent bottleneck；JAP 则让 latent 与 physical action 从同一个高层特征并行预测。
+
+![论文 Figure 4：不同 action head 的跨 benchmark 平均性能](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-what-matters-latent-actions/actionhead.232ly48iyn.webp)
+
+### 4.3 关键公式
+
+**LAPO 重建：**
+
+$$
+z_t=\mathrm{IDM}(o_t,o_{t+1}),\qquad \hat{o}_{t+1}=\mathrm{FDM}(o_t,z_t),
+$$
+$$
+\mathcal{L}_{recon}=\lVert o_{t+1}-\hat{o}_{t+1}\rVert_2^2.
+$$
+
+其中 $z_t$ 是需要被压缩的 transition code，$\hat{o}_{t+1}$ 是 FDM 的预测帧；该损失迫使 latent action 携带足以解释状态变化的信息。
+
+**VAE 正则：**
+
+$$
+\mathcal{L}_{reg}^{VAE}=D_{KL}\big(p_{IDM}(z_t|o_t,o_{t+1})\,\|\,\mathcal{N}(0,I)\big).
+$$
+
+**【Analysis】** $\lambda_{reg}$ 决定“保留 transition 信息”和“限制 latent 容量”的平衡；过大时 latent 过于规整，FDM 反而无法重建真实变化。
+
+**Physical-action 训练：**
+
+$$
+\mathcal{L}_{latent}=\lVert z_t-\hat z_t\rVert_2^2,\qquad
+\mathcal{L}_{act}=\lVert a_t-\hat a_t\rVert_2^2.
+$$
+
+JAP 使用 $\mathcal{L}_{latent}+\mathcal{L}_{act}$，DAP/LAP 在各自阶段使用对应分支的损失。
+
+### 4.4 Training
+
+**【Paper】** Stage I 在约 5,900 万帧的混合 video-only corpus 上训练 150k steps；数据包括 OXE 子集以及 Robotwin、Liberoplus。Stage II 用 LAM 的 IDM 自动标注 $z_t$，再以 latent action 监督 Qwen3-VL-4B；Stage III 用 LIBERO、LIBERO-Plus 或 RoboTwin 的 physical action 做策略后训练。
+
+<Algorithm number={1} title='三阶段 latent-action 训练' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>无标注视频、语言标注视频、机器人示教三类数据。</div>
+  <div slot='output'>可用于 physical-action policy 的 VLM backbone 与 action head。</div>
+  <AlgorithmStep>在相邻视频帧上训练 IDM/FDM 或 CFD-AE，得到 latent action $z_t$。</AlgorithmStep>
+  <AlgorithmStep>用训练好的 IDM 给语言视频自动生成 $(o_t,z_t,l)$。</AlgorithmStep>
+  <AlgorithmStep>用 latent-action loss 微调 VLM；可选地同时加入 physical-action supervision。</AlgorithmStep>
+  <AlgorithmStep>在机器人 action data 上训练 DAP、LAP 或 JAP，并固定同一 Stage-III 配方比较设计选择。</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 推理阶段只需当前 front-view RGB observation 与语言指令。VLM 产生 $h_t$，随后由 DAP/LAP/JAP action head 输出 physical action；评测不使用 wrist camera、joint state 或数据增强，以隔离 latent-action backbone 的影响。
+
+<Algorithm number={2} title='Latent-action policy 推理' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前图像 $o_t$ 与语言指令 $l$。</div>
+  <div slot='output'>当前时刻 physical action $\hat a_t$（或 action chunk）。</div>
+  <AlgorithmStep>计算高层视觉-语言表征 $h_t=\mathrm{VLM}(o_t,l)$。</AlgorithmStep>
+  <AlgorithmStep>按 head 类型得到 $\hat a_t=\mathrm{DAP}(h_t)$、$\mathrm{LAP}(\mathrm{ActionHead}_z(h_t))$ 或 JAP 输出。</AlgorithmStep>
+  <AlgorithmStep>将动作送入 7-DoF 单臂或 14-DoF 双臂控制器，闭环执行并读取下一帧。</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** 官方 GitHub 仓库在本次核对时仅包含 README，未提供模型定义、DataLoader、训练脚本、配置或推理实现。因此无法把论文中的 IDM/FDM、正则化和 action head 映射到具体代码文件；项目页提供的模型与数据链接也不能替代仓库源码。文章中的实现细节均以论文正文和附录为准。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+**【Paper】** LIBERO 是 7-DoF 单臂 end-effector delta control；LIBERO-Plus 在相同任务上加入 RobotInit 等扰动，本文报告最具挑战的 RobotInit；RoboTwin2.0 是 14-DoF 双臂 joint-position control，选取 12 个任务。每个消融通常汇报 3 个随机种子的平均成功率。
+
+![论文 Figure 5：四种 latent-action proxy metric 与下游性能的相关性](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-what-matters-latent-actions/metrics.8adzya5h2c.webp)
+
+代理指标包括负的 Linear/MLP probe loss、SSIM Gain 和 MSE Gain。前两者测 latent 是否能解码 physical action，后两者测 FDM 是否比“直接复制当前帧”更好地重建未来帧。
+
+### 5.2 Main Results
+
+**【Paper】** 在七种建模范式的跨 benchmark 平均中，排序为 LAPO 0.7327 > $\Delta$DINO 0.7280 > CoMo 0.7167 > $\Delta$RGB 0.6973 > LAOF 0.6907 > SEA-RAFT 0.6433 > RAFT 0.6427。LAPO 不需要 optical-flow 预处理，说明简单的 raw-frame IDM-FDM 仍然是强基线；$\Delta$DINO 接近 LAPO，表明预训练语义空间本身提供了有效归纳偏置。
+
+**【Analysis】** optical flow 并没有带来预期收益：像素位移会丢掉接触、遮挡、边界变化等 transition cues，且估计误差会传播到 latent。LIBERO-Plus 的噪声扰动进一步放大了这一问题。
+
+### 5.3 Ablation Study
+
+**【Paper】** 连续正则化的类型并非主导因素，强度才是关键。推荐值为 VAE $10^{-7}$、Sparsity $10^{-5}$、SIGReg $10^{-3}$，VQ-VAE 为 1；VQ-VAE 在 LIBERO-Plus 的平均成功率 0.517，高于 AE 0.445、VAE 0.433、Sparsity 0.468 和 SIGReg 0.467，但在其他 benchmark 不一定占优。
+
+![论文 Figure 7：latent action 维度对三个 benchmark 的影响](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-what-matters-latent-actions/latentdims.1hsybtf9py.webp)
+
+**【Paper】** action integration 上，DAP 最弱，LAP 更强，JAP 以及先联合微调再接 DAP/LAP 的混合方案整体最好。解释是 latent action 不应只作为一次性的 Stage-II 标签，而应在 downstream training 中持续约束 backbone，同时避免过窄的 latent bottleneck 直接限制 physical action。
+
+### 5.4 Generalization
+
+**【Paper】** $d_z=32$ 是跨 embodiment 的稳健折中：LIBERO 上 $d_z=16$ 得到 0.926、$d_z=32$ 为 0.922；LIBERO-Plus 上 $d_z=8$ 为 0.526、$d_z=32$ 为 0.516；RoboTwin2.0 上 $d_z=32$ 达到 0.856，明显高于 $d_z=8$ 的 0.802。适当正则化后不归一化 latent action 更好，33 个方法- benchmark 组合中 28 个受益，平均提升 +0.0115。
+
+Stage-II 数据规模从 Robotwin+Liberoplus（14.5%）扩展到完整约 59M 帧后，三个 benchmark 都提升，LIBERO-Plus 的增益最高可达 9.0%，说明 latent-action VLM tuning 存在稳定的 scaling trend，而不只是某个 action head 的偶然收益。
+
+![论文 Figure 8：Franka Panda 真实机器人任务与 LA-Tuned 对比](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-what-matters-latent-actions/realworld.6po8yt89su.webp)
+
+真实实验中，OpenVLA-OFT（LA-Tuned）在 400 次 rollout 中成功 317 次，原始 OpenVLA-OFT 成功 259 次，整体成功率从 64.75% 提升到 79.25%；10k 个 Stage-III steps 时 LA-Tuned 已达 85.0%，超过 baseline 在 40k steps 的 76.25%。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** latent action 的有效性来自三个互补因素：第一，FDM 重建迫使 representation 关注可预测的状态转移；第二，VLM backbone 在大规模视频上获得 motion-aware visual features；第三，LAP/JAP 把这些 features 与 physical control 保持结构化连接。它不是把 latent 当作“更短的 action token”，而是把 latent 当作视觉表征到控制之间的中间坐标系。
+
+### 6.2 核心创新
+
+**【Paper】** 论文的创新主要是实验方法论：统一 autoencoding 框架、跨 41 项选择的 controlled study、代理指标相关性分析以及 VLM latent-action scaling law。与提出一个新网络相比，这种系统基准更适合指导后续 LAM 工程取舍。
+
+### 6.3 与已有方法的本质区别
+
+**【Analysis】** 传统 LAM 论文常围绕单一正则或动作头证明有效；本文把“latent 如何学”“latent 如何接入 policy”“如何评价 latent”拆成三个正交问题，并显示强基线、超参数和训练阶段耦合关系。结论因此更像设计准则，而非一个不可替换的模型配方。
+
+### 6.4 关键假设
+
+**【Paper】** 主要假设包括：相邻帧足以提供可学习的 transition signal；自动生成的 latent action 可以作为 VLM 的稳定监督；video-only 表征的提升能迁移到 physical action policy。**【Analysis】** 这些假设在 front-view、有限任务和固定控制接口下成立，但不代表所有机器人 embodiment 或长时程任务都成立。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 论文强调 proxy metric 不能取代完整 downstream evaluation：Pearson 相关性较高，但 Spearman 相关性明显较低，因此只能做粗粒度筛选，不能可靠地给模型排序。跨 latent dimension 比较时，所有 proxy 的相关性还会下降。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】** 研究仍主要使用单帧 front-view 输入，Stage-I 的 700M Transformer 和 8×H200 训练成本很高；RoboTwin2.0 只选 12 个任务；官方仓库暂未提供可复现实验代码。因此，结论对多视角、proprioception、长 horizon 和更低算力设置的外推仍需验证。
+
+## 8. 启发与研究思考
+
+1. **先选强基线，再调正则强度。** LAPO + VAE($10^{-7}$) + $d_z=32$ 是合理起点，避免一开始堆叠复杂 optical-flow 或稀疏正则。
+2. **把 latent 保留到 policy learning。** 若有 physical action labels，JAP/JAP-LAP 的联合训练比只在预训练阶段使用 latent 更有说服力。
+3. **代理指标应按同一维度使用。** FDM 的 SSIM/MSE Gain 更贴近 transition，但最终模型选择仍必须回到真实任务成功率。
+4. **数据规模是可扩展杠杆。** 在 Stage-III 配方固定时扩大 video-only Stage-II 数据仍有收益，说明机器人数据稀缺并不意味着 representation 学习无法扩展。
+5. **值得继续研究的方向**：从单帧 latent action 走向 history-aware latent、把接触/力觉纳入 transition supervision，以及设计能跨 action dimension 校准的 proxy metric。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方仓库核对结果，`【Analysis】` 表示基于论文和实验设计的分析推断。论文与代码若有缺口，以“论文未明确说明”为准。
+</Aside>
