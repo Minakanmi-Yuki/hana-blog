@@ -1,0 +1,284 @@
+---
+title: 'UMI-Bench 1.0 论文精读：把 UMI 数据到真实机器人评测串成一条可审计流水线'
+publishDate: 2026-08-27
+updatedDate: 2026-08-27
+description: '精读 UMI-Bench 1.0：面向 UMI-style 策略的真实机器人基准，覆盖 10 个桌面任务、约 2 万条示教与可解释的 Seen/Unseen 评测。'
+heroImage:
+  { src: 'https://pic.hana0721.top/120188807_p0_master1200.1lcf3tjzx5.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '120188807'
+tags:
+  - 'paper deep dive'
+  - 'robot benchmark'
+  - 'UMI'
+  - 'real-world manipulation'
+paper:
+  arxivId: '2606.10382'
+  title: 'UMI-Bench 1.0: An Open and Reproducible Real-World Benchmark for Tabletop Robotic Manipulation with UMI Data'
+  authors:
+    - 'Shi Jin'
+    - 'Yuntian Wang'
+    - 'Yuhui Duan'
+    - 'Di Wu'
+    - 'Gaoqi Dong'
+    - 'Xiaohang Liu'
+    - 'Xiaotong Li'
+    - 'Hongfei Jia'
+    - 'Zehao Zhang'
+    - 'Tianyu Wang'
+    - 'Zhongjie Jia'
+    - 'Yuanqi Yao'
+    - 'Chenjia Bai'
+    - 'Zhaxizhuoma'
+    - 'Siao Liu'
+    - 'Nieqing Cao'
+    - 'Jin Wang'
+    - 'Chao Yu'
+    - 'Yan Ding'
+  venue: 'arXiv'
+  year: 2026
+  code: 'https://github.com/haoxixi1/UMI-Bench'
+  project: 'https://umibenchmark.github.io/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2606.10382'
+  tldr='UMI-Bench 1.0 把 UMI-style 数据采集、场景重置、策略执行、日志审计和 Seen/Unseen 诊断统一为一个可复现的真实机器人基准。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+### 一句话总结
+
+**【Paper】** UMI-Bench 1.0 不是一个新 Policy，而是一套围绕 Universal Manipulation Interface（UMI）数据设计的 real-robot benchmark：它规定数据如何采集、场景如何重置、动作如何执行、结果如何记录，并用任务因素拆解泛化失败。
+
+### 核心贡献
+
+**【Paper】** 论文的贡献可以压缩为四点：
+
+1. 将 UMI-style wrist-view observation、action representation、数据 schema 和物理部署放进同一评测协议。
+2. 提供 10 个桌面任务（4 个 single-arm、6 个 bimanual），每个任务约 1,600--3,000 条示教，第一版合计约 20k demonstrations。
+3. 规定固定工作台、重置图像、scene JSON、rollout manifest 与人工评分，使一次实验可以被复盘和审计。
+4. 用两个任务相关因素构造 Seen/Seen、Seen/Unseen、Unseen/Seen、Unseen/Unseen 四个条件，并报告 Full Success Rate（FSR）与 0--100 Progress Score。
+
+![UMI-Bench 任务、数据采集和真实 rollout 总览（论文 Figure 1）](https://raw.githubusercontent.com/haoxixi1/UMI-Bench/main/assets/images/overview-figure.jpg)
+
+## 2. 背景与相关工作
+
+**【Paper】** 仿真和 offline metric 无法完整反映接触动力学、相机伪影、摩擦、校准漂移、控制时序和操作员重置差异。RoboChallenge、RoboArena、ManipArena 等工作已经证明真实机器人评测需要统一协议，但它们没有围绕 UMI 的“数据到部署”耦合来设计。
+
+UMI-style 数据的特殊性在于：wrist-view 相机、动作 chunk、机器人 embodiment、场景重建和执行器接口相互依赖。如果训练使用一种 wrist-camera 或 action convention，而测试换了相机安装、reset 方式或控制频率，最终分数混合了模型能力与评测偏差。**【Analysis】** 因此 UMI-Bench 的真正对象不是某个单独任务，而是“训练分布如何被搬运到物理世界”这条链路。
+
+与纯数据集发布相比，UMI-Bench 额外固定了 episode specification、scene metadata、评分 rubric 和 rollout audit package；与远程机器人平台相比，它优先保证本地实验的可重复迭代。
+
+## 3. 问题定义
+
+**【Paper】** 给定 UMI-style demonstrations、任务 prompt、scene JSON 和一个待评测 checkpoint，基准需要在真实桌面机器人上执行一组固定 episode，并回答：
+
+- **Observation**：策略接收 wrist-view RGB（可选 proprioception），第三人称相机只用于 debug，不作为 policy input。
+- **Action**：动作接口由任务/策略配置指定，采用 action chunk 而非逐低层命令；每次 inference 返回 waypoint trajectory。
+- **Environment**：1.2 m × 1.0 m × 0.75 m 桌面，表面覆盖 5 cm × 5 cm acrylic grid，网格供操作员重置与记录，不假设策略能读懂。
+- **Embodiment**：FastTouch tabletop arm，支持单臂与双臂任务；wrist RGB 为 1280×1280、100 FPS，策略图像 resize 到 224×224。
+- **Dataset**：10 个任务、约 20k demonstrations；每任务 50 条 real-world evaluation episodes。
+- **Metrics**：FSR 衡量是否同时满足全部任务条件，Progress Score 对子目标给部分分；首版不把耗时、重试次数或 action length 作为官方主指标。
+
+每个任务定义 Factor A（对象、外观、类别组合或材质变化）与 Factor B（位置、布局、姿态或动态变化）。四个条件的笛卡尔积让“物体没见过”和“几何/动力学没见过”可以分开统计。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![UMI-Bench 的 data-to-evaluation pipeline（论文 Figure 2）](https://raw.githubusercontent.com/haoxixi1/UMI-Bench/main/assets/images/main-figure.jpg)
+
+**【Paper】** 整体数据流是：FastUMI Pro 采集示教 → 结构化 metadata 与训练 repository → checkpoint → 固定 episode list 和 scene reset → wrist-view rollout → manifest、轨迹、视频与人工评分 → FSR、Progress Score 及 task-factor diagnostics。基准的“架构”是协议组件之间的接口，而非神经网络层。
+
+### 4.2 核心模块
+
+#### Standardized UMI Data Collection
+
+- **输入**：任务定义、操作员示教、wrist RGB、TOF、IMU、gripper 与空间轨迹流。
+- **中间模块**：FastUMI SDK/ROS 初始化、stream check、相机与机器人标定检查、scene reset、录制、quality control、格式转换。
+- **输出**：HDF5 或 LeRobot-compatible episode，包含视频、timestamps、robot state、action chunks、scene metadata 与 quality flags。
+- **为什么需要**：让训练数据的 observation/action convention 与后续物理评测保持同源。
+
+**【Paper】** 论文给出的检查频率包括 pose/IMU 500 Hz、RGB 60 Hz、TOF 30 Hz；导出时原始 60 FPS 流可对齐到 20/30/60 Hz training frequency。八维单臂 state/action 向量为 $[x,y,z,q_x,q_y,q_z,q_w,\mathrm{clamp}]$。
+
+#### Scene JSON 与 Reset Image
+
+每个 episode 记录 task id、object id/category/appearance/material、桌面 marker position、pose、target region、split 和 reset image。**【Analysis】** 这一步把“看起来差不多的场景”转成可查询的分布变量，后续才能按对象、布局和子目标定位失败。
+
+#### Evaluation Runner 与 Audit Package
+
+runner 接收 checkpoint、task config、episode list、scene JSON、calibration 和 action-space config，执行统一 action chunk，并保存 manifest、predicted targets、transformed poses、gripper command、state samples、trajectory plot 与可选视频。人工分数独立存储，避免把主观评分覆盖原始 rollout。
+
+#### Task Suite
+
+| ID | 任务 | 手臂 | 主要能力 | Factor-B 例子 |
+| --- | --- | --- | --- | --- |
+| T1 | Sequential Object Stacking | Single | 空间对齐 | stacking position |
+| T2 | Articulated Container Manipulation | Single | 铰链容器 | object position |
+| T3 | Tool-Mediated Stamping | Single | 工具接触 | stamping position |
+| T4 | Precision Slot Insertion | Single | 精细插入 | insertion position |
+| T5 | Bimanual Material Pouring | Dual | 双臂稳定与倾倒 | basket/cup layout |
+| T6 | Bimanual Packing and Transport | Dual | 协同搬运 | box position |
+| T7 | Dynamic Pick-and-Place | Dual | 动态抓取 | turntable speed |
+| T8 | Category Sorting and Placement | Dual | 语义分类 | placement position |
+| T9 | Long-Horizon Rearrangement | Dual | 长时序规划 | target layout |
+| T10 | Deformable Object Folding | Dual | 可变形物体 | initial position |
+
+### 4.3 关键公式
+
+#### 进度分数与泛化差距
+
+对一个条件单元 $c$，Progress Score 是按任务 rubric 归一化到 0--100 的子目标得分。Factor-A 与 Factor-B 的泛化差距分别写成：
+
+$$
+\Delta_{\mathrm{gen}} = S_{\mathrm{seen}} - S_{\mathrm{unseen}},
+$$
+
+其中 $S$ 是对应条件下的平均 Progress Score。**【Paper】** 论文强调分数来自 rollout 终止时的最终稳定物理状态；中途短暂失败但后来恢复，不会自动抹掉已完成的子目标。
+
+#### Full Success Rate
+
+$$
+\mathrm{FSR}=\frac{1}{N}\sum_{i=1}^{N}\mathbf{1}[\text{all critical subgoals satisfied in final state}_i].
+$$
+
+$N$ 是该 task 的 rollout 数。**【Analysis】** 这使 FSR 更像“严格验收”，Progress Score 更像“过程诊断”；两者不能互相替代。
+
+### 4.4 Training
+
+**【Paper】** UMI-Bench 不规定唯一的训练算法，而是提供统一数据、schema 和 baseline checkpoints。实验比较 $\pi_0$、$\pi_{0.5}$ 与 DreamZero；它们共享 observation interface、action space、task definitions、data split 和 evaluation episode list。
+
+**【Code】** 官方公开仓库 `haoxixi1/UMI-Bench` 目前是项目页源码（HTML/CSS/JS、视频构建脚本与静态素材），没有可复现的 policy training loop、dataloader 或 loss 实现。因此不能把网页构建脚本误写成模型训练代码；训练细节以论文和各 baseline 原仓库为准。
+
+<Algorithm number={1} title='UMI-Bench Training-Repository Construction' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>示教流、task definition、scene metadata schema、quality-control 规则</div>
+  <div slot='output'>训练就绪的 UMI episode repository 与 split 清单</div>
+  <AlgorithmStep keyword='Given'>FastUMI Pro 设备、任务 prompt、reset image 与对象库</AlgorithmStep>
+  <AlgorithmStep>检查 RGB/TOF/IMU/pose/gripper 流连续性、时间戳和标定</AlgorithmStep>
+  <AlgorithmStep>按 scene JSON 记录对象、布局、目标区域和 Seen/Unseen 属性</AlgorithmStep>
+  <AlgorithmStep>录制 wrist-view 示教、机器人状态、action chunks 与失败备注</AlgorithmStep>
+  <AlgorithmStep>执行视频可读性、缺失数据和任务规则检查，拒绝无效 session</AlgorithmStep>
+  <AlgorithmStep keyword='return'>导出 HDF5/LeRobot-compatible repository 与评测 split</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 每次 rollout 先依据 scene JSON 与 reset image 重建场景，再由 checkpoint 读取 wrist-view observation，预测 waypoint/action chunk，经 FastTouch SDK 执行，直到成功、达到 task-specific step budget、离开有效区域或触发安全停止。单臂任务最多 800--1,200 steps，T9 长时序任务为 1,800 steps；单臂 $\pi_0$/DreamZero 与双臂 DreamZero 默认最多 24 个 waypoint，双臂 $\pi_0$ 默认 50 个（长时序/动态任务 20 个）。
+
+**【Code】** 项目页脚本只负责展示 rollout 视频和 poster，不包含机器人 runtime；因此实际 inference 行为应以论文附录和相应 baseline runner 为准。
+
+<Algorithm number={2} title='UMI-Bench Real-Robot Inference' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>checkpoint、episode list、scene JSON、calibration、action-space config</div>
+  <div slot='output'>rollout audit package、FSR 与 Progress Score</div>
+  <AlgorithmStep>按 reset image、grid marker 和 scene JSON 放置对象并确认机器人起始姿态</AlgorithmStep>
+  <AlgorithmStep>从 wrist camera 获取 1280×1280 RGB，resize 为 224×224，读取可选 proprioception</AlgorithmStep>
+  <AlgorithmStep>调用策略预测 waypoint trajectory/action chunk，并转换到机器人坐标系</AlgorithmStep>
+  <AlgorithmStep>通过 FastTouch SDK 执行 chunk，记录 action、state、timestamp 与 runtime status</AlgorithmStep>
+  <AlgorithmStep>满足成功、预算耗尽、越界或安全停止条件时结束 rollout</AlgorithmStep>
+  <AlgorithmStep keyword='return'>保存 manifest/视频/轨迹，随后按任务 rubric 标注最终状态</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+| 组件 | 论文规范 | 官方代码仓库现状 |
+| --- | --- | --- |
+| 项目页 | 展示 UMI-Bench、论文、视频、数据集和模型 | `index.html`、`styles.css`、`script.js` 与静态 assets |
+| 数据集 | UMI-Benchmark-v1 | Hugging Face 数据集链接：`UMIbenchmark/UMI-Benchmark-v1` |
+| Checkpoint | $\pi_0$、$\pi_{0.5}$、DreamZero 基线 | Hugging Face 模型链接：`UMIbenchmark/UMI-Benchmark-v1-checkpoints` |
+| 评测 runner | checkpoint + episode + scene JSON + calibration | 论文附录描述了接口，但项目页仓库未公开 runner 源码 |
+
+**【Analysis】** 这里的“open and reproducible”更准确地理解为协议、数据与结果包的开放；截至论文版本，读者仍需组合论文附录、Hugging Face 资源和各 baseline 的执行代码来复现实验。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+**【Paper】** 每个任务 50 条 rollout，10 个任务、3 个模型共 1,500 次真实执行。FastTouch 控制回路内部 waypoint 以 400 Hz 采样，gripper 周期为 5 ms；机器人状态默认 30 Hz 记录。所有模型使用同一 episode list 和评分协议。
+
+![10 个任务的示教与场景变体覆盖（论文 Appendix Figure）](https://raw.githubusercontent.com/haoxixi1/UMI-Bench/main/assets/images/task-distribution.jpg)
+
+### 5.2 Main Results
+
+**【Paper】** 平均 Overall Score 为：$\pi_{0.5}$ 55.84、$\pi_0$ 48.90、DreamZero 40.59。$\pi_{0.5}$ 在 10 个任务中的 6 个排名第一；$\pi_0$ 在 T1/T2 两个 single-arm 任务最强，DreamZero 在 T3/T6 有竞争力。
+
+任务层面，T2 的 $\pi_0$ Overall Score 为 86.50，T6 的 DreamZero 为 72.50；T3（stamping）和 T9（long-horizon rearrangement）三种模型 FSR 均为 0%，说明“多阶段状态估计 + 最终精确放置”仍是瓶颈。
+
+总体条件均值从 Seen/Seen 的 59.62 降到 Factor-A shift 的 53.45、Factor-B shift 的 45.33，再到 combined shift 的 40.19。**【Analysis】** 几何/动态分布变化造成的损失大于对象外观变化，表明策略仍依赖 demonstration-aligned motion prior。
+
+![三种 baseline 的 task-wise Progress Score 与泛化差距（论文 Figure 3）](https://raw.githubusercontent.com/haoxixi1/UMI-Bench/main/assets/images/taskwise-radar.jpg)
+
+### 5.3 Ablation Study
+
+UMI-Bench 论文没有像策略论文那样消融网络模块，而是通过条件切分、task heatmap 和 subgoal rubric 做“协议级消融”：把同一 checkpoint 的对象变化、布局变化和组合变化分开，观察分数到底在哪个因素上坍塌。
+
+以 T5 Bimanual Material Pouring 为例，论文同时记录抓篮、保持在目标上方、抓量杯、倾倒、返回量杯和返回篮子等子目标，并统计 first-failure distribution。**【Paper】** 这类诊断解释了“FSR 很低”是因为早期抓取失败，还是因为最后的返回/稳定性失败。
+
+![任务 rollout heatmap 示例（论文 Appendix Figure）](https://raw.githubusercontent.com/haoxixi1/UMI-Bench/main/assets/images/folding-heatmap.jpg)
+
+### 5.4 Generalization
+
+Factor A 的变化包含颜色、材质、尺寸、纹理、类别组合；Factor B 的变化包含位置、姿态、目标区域、物体密度、转盘速度等。T7 特别把 Factor B 定义为动态速度（8/15/30 deg/s），而不是简单的位置移动；T8 的 Factor A 是 mahjong category combination。
+
+**【Analysis】** 这种 task-defined factor 设计比统一的“随机扰动强度”更贴近真实失败原因，但也意味着不同任务的 Factor A/B 不能直接当作同一个物理量比较。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** UMI-Bench 的有效性来自三个闭环：
+
+1. **分布闭环**：采集端与评测端共享 wrist-view、action schema 和场景元数据。
+2. **执行闭环**：reset、chunk 执行、状态记录和终止规则被固定，减少“同一个模型换机器就变分数”。
+3. **诊断闭环**：FSR 告诉我们是否完成，Progress Score 和 first-failure 告诉我们在哪一步失败，Factor A/B 告诉我们是哪类分布偏移。
+
+### 6.2 核心创新
+
+**【Paper】** 创新点不是新的视觉编码器或 policy head，而是把 benchmark unit 从“一个任务视频”提升为“数据、场景、执行和评分的可审计 episode”。对于 UMI-style policy，这种接口级统一本身就是实验变量控制。
+
+### 6.3 与已有方法的本质区别
+
+- 与 simulation benchmark 相比：UMI-Bench 把摩擦、接触、相机与控制时序留在真实世界。
+- 与 remote-robot benchmark 相比：它强调 local-first 的固定工作站和可重复 reset。
+- 与 dataset release 相比：它规定 checkpoint 如何进入 episode、如何记录 rollout、如何从最终状态评分。
+- 与 policy method 相比：它不主张某个模型更优，而是提供公平比较和失败归因的共同坐标系。
+
+### 6.4 关键假设
+
+**【Paper】** 设计隐含了几项假设：固定桌面工作站足以代表第一版 UMI-style tabletop deployment；wrist-view 是策略主要输入；5 cm grid 由人操作员可靠读取但不要求策略视觉识别；最终稳定状态可以作为跨任务评分的共同依据。
+
+**【Analysis】** 这些假设让协议更可控，却限制了它对移动操作、大工作空间和高频闭环策略的外推能力。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 第一版聚焦 tabletop manipulation，不覆盖 mobile manipulation 或大工作空间；约 20k demonstrations 的规模仍小于大型 robot dataset；真实评测仍受操作员 reset、calibration drift、光照和硬件 timing 影响。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+1. 每任务 50 条 rollout 对 FSR 的置信区间较宽，尤其在 0%--20% 区间，模型排序可能受偶然事件影响。
+2. Progress rubric 依赖人工判断，跨实验室的评分一致性和 inter-rater reliability 仍需要量化。
+3. Factor A/B 是任务相关定义，跨任务平均泛化差距时必须保留语义，不能简单解释为统一难度。
+4. 项目页源码公开了展示层，但训练与评测 runner 尚未形成一个可直接运行的官方代码包，复现成本仍高于“下载后运行”。
+
+## 8. 启发与研究思考
+
+UMI-Bench 给策略研究的启发是：下一代论文不应只报告一个 aggregate success rate，而应同时发布 scene JSON、reset image、action-space contract、rollout manifest 和失败子目标。这样才能回答“模型真的学会了任务，还是只记住了对象外观/位置”。
+
+对 benchmark 设计者而言，值得继续推进三件事：扩大跨机器人 embodiment 的同协议评测；公开 runner 与自动化评分以降低人工成本；将时间、重试、碰撞和安全停止纳入可选但标准化的诊断指标。
+
+**【Analysis】** 如果把 UMI-Bench 看成一条 measurement pipeline，那么它最有价值的产物不是某个模型的 55.84 分，而是让“数据分布 → 物理执行 → 失败因素”之间的因果链开始可追踪。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方项目页仓库可确认的实现，`【Analysis】` 表示基于论文与代码的分析推断。项目页目前未提供独立的 policy training/evaluation runner，因此相关行为不会被冒充为已审阅的官方代码实现。
+</Aside>
