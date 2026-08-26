@@ -1,0 +1,324 @@
+---
+title: 'VideoVLA 论文精读：让视频生成器同时想象与执行'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 VideoVLA：基于 CogVideoX-5B 的多模态 DiT 同时预测未来视频 latent 与 7D 动作，在 SIMPLER 和真实 Realman 上验证视频想象带来的泛化能力。'
+heroImage:
+  { src: 'https://pic.hana0721.top/92079701_p0_master1200.64eg2t4l77.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '92079701'
+tags:
+  - 'paper deep dive'
+  - 'VideoVLA'
+  - 'vision-language-action model'
+  - 'video generation'
+  - 'diffusion policy'
+  - 'robot learning'
+paper:
+  arxivId: '2512.06963'
+  title: 'VideoVLA: Video Generators Can Be Generalizable Robot Manipulators'
+  authors:
+    - 'Yichao Shen'
+    - 'Fangyun Wei'
+    - 'Zhiying Du'
+    - 'Yaobo Liang'
+    - 'Yan Lu'
+    - 'Jiaolong Yang'
+    - 'Nanning Zheng'
+    - 'Baining Guo'
+  venue: 'NeurIPS 2025'
+  year: 2025
+  code: 'https://github.com/VideoVLA-Project/VideoVLA'
+  project: 'https://videovla-nips2025.github.io/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2512.06963'
+  tldr='VideoVLA 将预训练 CogVideoX 的视频 Diffusion Transformer 改为同时去噪未来视频 latent 与 7 维动作；让“动作会造成怎样的视觉后果”成为动作学习的联合监督，从而提升新物体与跨 embodiment 技能迁移。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《VideoVLA: Video Generators Can Be Generalizable Robot Manipulators》
+
+**作者**：Yichao Shen、Fangyun Wei、Zhiying Du、Yaobo Liang、Yan Lu、Jiaolong Yang、Nanning Zheng、Baining Guo
+
+**机构**：西安交通大学、Microsoft Research Asia、复旦大学
+
+**会议**：NeurIPS 2025
+
+**论文 / 代码 / 项目**：[arXiv](https://arxiv.org/abs/2512.06963) · [官方代码](https://github.com/VideoVLA-Project/VideoVLA) · [项目主页](https://videovla-nips2025.github.io/)
+
+### 一句话总结
+
+**【Paper】** VideoVLA 不把视频生成仅当作可视化副产品：给定当前图像和语言指令，它在一个多模态 Diffusion Transformer 中**联合预测未来视频 latent 和将要执行的动作 chunk**，借由二者在每一次去噪中的耦合，把预训练视频模型的条件理解、未来演化与物理先验迁移为机器人操控的泛化能力。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 将 CogVideoX 的 Video DiT 扩展为 Video-Action DiT：视频、语言与连续动作在一个统一 token 序列中交互。
+2. 提出 dual-prediction：对未来视觉结果和动作同时施加 DDPM 去噪监督，而不是只学习动作。
+3. 在 SIMPLER 和 Realman 真实机器人上测试 in-domain、新物体、跨 embodiment 新技能三类能力，并报告优于所列基线的总体结果。
+4. 分析视觉想象与执行结果的相关性：高质量 imagined future 与更可靠的动作、较高的任务成功率相关。
+
+**【Analysis】** 论文的关键转向不是“在 VLA 旁边再生成一段视频”，而是要求 action token 与 future-video token 在同一生成过程里彼此解释。视频预测因此为动作施加了一个很强的反事实约束：如果这段动作真会完成指令，模型也应能同时想象出合理的后果。
+
+## 2. 背景与相关工作
+
+**【Paper】** 常见 VLA 主要从视觉、视觉语言或语言理解模型迁移能力，再在机器人数据上微调。它们能读懂指令、识别物体，但面对未见物体、未见任务或未见环境时，泛化仍有限。另一边，大型视频生成器在新文本/新图像条件下生成连贯未来的能力，包含物体外观、运动与部分物理动态先验。
+
+**【Paper】** VideoVLA 的出发点是两类条件生成问题的结构相似性：视频模型根据文本和首帧预测未来世界，操控策略根据语言和当前观测预测未来行为。前者的“未来”尚没有可执行动作，后者的动作也未必被显式约束其视觉后果；论文用联合生成弥合这个缺口。
+
+**【Analysis】** 相比把视频生成器作为高层 planner、再由另一个 policy 跟踪计划，VideoVLA 的耦合更紧：它只训练一个生成器。代价是不能在推理时先筛选多个未来视频再选动作；收益是 action 和 video 能在扩散的每个时间步交换信息，而不是只在两个模块接口处相接。
+
+## 3. 问题定义
+
+**【Paper】** 给定语言指令 $\mathcal{T}$ 与当前视觉观测 $\mathcal{O}$，策略要同时输出：
+
+$$
+\mathcal{A}=\{\boldsymbol{a}_i\in\mathbb{R}^{7}\}_{i=1}^{K},\qquad
+\mathcal{F}=\{\boldsymbol{F}_j\}_{j=1}^{N}.
+$$
+
+- $\mathcal{A}$ 是 action chunk。每步 7 维：前三维腕部旋转、接着三维腕部平移、最后一维夹爪二值状态（0 闭合、1 张开）。
+- $\mathcal{F}$ 是执行该 chunk 后预期看到的未来视频。模型实际预测其 latent，而非 RGB 像素。
+- 每次执行一个 chunk 后获取新观测，再重复预测；动作频率和视频帧频率可以不同。
+
+**【Paper】** 预训练使用 OXE（Open X-Embodiment）中与前作相同的子集：约 2,250 万帧，来自 60 个数据集、22 类机器人 embodiment；真实实验另采集 5,824 个 Realman 样本，覆盖 pick、stack、place 三项任务。
+
+| Embodied AI 项目      | VideoVLA 的选择                                         |
+| --------------------- | ------------------------------------------------------- |
+| Observation           | 当前单帧图像，经 3D-causal VAE 编为首帧 latent          |
+| Language              | T5 编码为固定 226 个 token                              |
+| Action representation | 不离散化的连续 7D action；一次预测 6 步（论文默认实验） |
+| Future representation | CogVideoX 3D-causal VAE 的 future-frame latent          |
+| Policy / decoder      | 预训练 CogVideoX-5B 初始化的多模态 DiT                  |
+| Deployment            | 每轮只执行预测 6 步动作中的前 3 步，然后重新观测        |
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+<img
+  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-videovla/videovla-overview-crop.73uopm3lrn.webp'
+  alt='VideoVLA 论文 Figure 2：语言和视频编码、统一 DiT、动作与未来视频 latent 的联合预测'
+  class='zoomable'
+  width='2308'
+  height='985'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+**【Paper】** 架构由两类 encoder 和一个 DiT backbone 构成：T5 把指令变成文本 token；CogVideoX 的 3D-causal VAE 把训练视频变成 latent；DiT 以文本 token 和当前首帧 latent 为条件，联合生成 future-frame latents 与 action chunk。粉色 VAE decoder 只在展示 imagined future 时使用，并不参与机器人控制输出。
+
+**【Paper】** 一句话数据流：`instruction + current-image latent → unified DiT → future-video latents + action chunk`；训练与运行时分别如何构造/去噪，在 4.4 与 4.5 展开。
+
+### 4.2 核心模块
+
+#### 条件编码：T5 与 3D-causal VAE
+
+**【Paper】** T5 将 $\mathcal{T}$ 编为 226 个 token $\boldsymbol{T}$。3D-causal VAE 将视频 $\mathcal{F}$ 编为 $\mathcal{V}=\{\boldsymbol{V}_j\}_{j=1}^{n}$；因其因果性，$\boldsymbol{V}_1$ 只编码首帧，恰好可作为当前观测 $\mathcal{O}$ 的表示。训练时编码完整视频获得首帧和未来 latent；推理时只编码当前图像以获得 $\boldsymbol{V}_1$。
+
+#### Unified Video-Action DiT
+
+**【Paper】** 模型以 raster order 展平当前/未来视觉 latent，拼接文本 $\boldsymbol{T}$、当前图像 $\boldsymbol{V}'_1$、带噪未来 latent $\{\boldsymbol{V}'_j\}_{j=2}^{n}$ 与带噪动作 $\mathcal{A}$。所有模态投影至共同 embedding dimension 后，经 self-attention 在时间和模态之间交互；扩散 timestep 用 adaptive LayerNorm 注入。
+
+**【Paper】** 这让模型不是先“生成视频、再由视频取动作”，也不是并排的两个 head：future-video token 与 action token 在相同 DiT block 中共同去噪。论文还比较同步与异步 schedule，默认同步训练、同步推理的 SIMPLER 平均成功率为 80.4%，高于异步训练/同步推理的 73.8% 和异步训练/异步推理的 71.0%。
+
+#### 双预测为何是必要约束
+
+**【Paper】** 消融中，完整 dual-prediction 在 Google Robot 的 SIMPLER in-domain 三任务均值为 80.4%；只去掉 video loss 降至 27.0%，只预测 action 降至 25.5%。在新物体 / 新技能泛化上，完整模型为 65.2% / 48.6%，`No video loss` 为 12.7% / 4.4%，`Action only` 为 11.3% / 2.1%。
+
+**【Analysis】** 这份消融支持“视频损失很重要”，但不单独证明提升完全来自视频模型的物理常识：同时损失也增加了预测目标、提供了稠密的时间监督。它证明的是这种联训设定有效，不等价于对每个动作都进行了显式的 model-predictive verification。
+
+### 4.3 关键公式
+
+**【Paper】** 对目标 future-video latents 与 action chunk 加高斯噪声后，DiT 学习同时预测噪声。可将训练目标概括为：
+
+$$
+\mathcal{L}_{\mathrm{dual}}
+= \lambda_v\left\lVert\widehat{\boldsymbol{\epsilon}}_v-\boldsymbol{\epsilon}_v\right\rVert_2^2
++ \lambda_a\left\lVert\widehat{\boldsymbol{\epsilon}}_a-\boldsymbol{\epsilon}_a\right\rVert_2^2.
+$$
+
+- $\boldsymbol{\epsilon}_v,\boldsymbol{\epsilon}_a$：分别加到视频 latent、动作上的高斯噪声；
+- $\widehat{\boldsymbol{\epsilon}}_v,\widehat{\boldsymbol{\epsilon}}_a$：模型预测的噪声；
+- $\lambda_v,\lambda_a$：两项损失的权重。
+
+**【Code】** 公开配置 `config_use/action_config/videovla_config.yaml` 的 `VideoDiffusionLoss_withact` 将 `vd_lw` 与 `act_lw` 都设为 1，和上述等权的 dual loss 对应；该配置没有替代论文的理论定义。
+
+### 4.4 Training
+
+**【Paper】** 论文采用 CogVideoX-5B 初始化，预训练 100K iterations、微调 15K iterations，使用 32 张 AMD MI300X、batch size 256、AdamW（learning rate $10^{-5}$，weight decay $10^{-4}$）。仿真推理预测 13 个 future latents（49 帧）；真实机器人为效率预测 4 个 future latents（13 帧）。两种情形均预测 6 个动作。
+
+<Algorithm
+  number={1}
+  title='VideoVLA Dual-Prediction Training'
+  inputLabel='输入'
+  outputLabel='输出'
+>
+  <div slot='input'>机器人视频片段、语言指令、对应 7D action chunk、CogVideoX-5B 初始化参数</div>
+  <div slot='output'>联合生成 future-video latent 与 action 的 VideoVLA</div>
+  <AlgorithmStep keyword='for'>每个训练样本</AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    用 T5 得到 226 个语言 token；用 3D-causal VAE 编码完整视频
+  </AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    保留首帧 latent 作为条件，并取未来 latent 和 action chunk 为目标
+  </AlgorithmStep>
+  <AlgorithmStep indent={1}>对未来 latent 与动作使用同一扩散 timestep 加噪</AlgorithmStep>
+  <AlgorithmStep indent={1}>拼接所有模态 token，DiT 同时预测两类噪声</AlgorithmStep>
+  <AlgorithmStep indent={1}>计算视频与动作的去噪损失，反向传播更新模型</AlgorithmStep>
+  <AlgorithmStep keyword='end for' />
+  <AlgorithmStep keyword='return'>训练后的 VideoVLA checkpoint</AlgorithmStep>
+</Algorithm>
+
+**【Code】** 公开仓库提供 inference、配置和模型实现，但 README 没有给出可复现的 OXE DataLoader 或完整训练入口。仓库配置中网络是 42 层、hidden size 3072、48 attention heads，视频长度为 49；这能核对发布的推理模型规格，却不能独立复跑论文数据处理和训练报告。
+
+### 4.5 Inference
+
+**【Paper】** 每轮推理只输入当前观测：编码首帧后，模型从噪声中同时去噪出视频 latent 和 6 步动作；部署时只执行前 3 步，获取新图像后再次调用策略。论文默认使用 50 个 DDIM denoising steps；局限性实验为了实时性改为预测 4 个 future latents、以 10 steps 去噪，单张 H100 约 1.1 秒，有效控制频率约 3 Hz。
+
+<Algorithm
+  number={2}
+  title='VideoVLA Receding-Horizon Inference'
+  inputLabel='输入'
+  outputLabel='输出'
+>
+  <div slot='input'>当前 RGB 图像、语言指令、已训练模型</div>
+  <div slot='output'>低层控制器实际执行的动作</div>
+  <AlgorithmStep keyword='repeat'>直到任务完成</AlgorithmStep>
+  <AlgorithmStep indent={1}>将当前图像编码为首帧 latent，并编码语言指令</AlgorithmStep>
+  <AlgorithmStep indent={1}>从视频 latent 和 7D action 的随机噪声开始同步去噪</AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    得到 future-video latents 与 6 步 action chunk；视频 decoder 仅用于查看想象结果
+  </AlgorithmStep>
+  <AlgorithmStep indent={1}>仅执行 action chunk 的前 3 步，重新获取环境观测</AlgorithmStep>
+  <AlgorithmStep keyword='end repeat' />
+  <AlgorithmStep keyword='return'>完成任务时的执行轨迹</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+| 论文描述            | 官方代码位置                                    | 可确认的实际行为                                                                                               |
+| ------------------- | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Video-Action DiT    | `dit_video_concat_withact.py`                   | 用线性层将 7D 动作投影为 action token；最后一个 action head 输出 7D noise prediction。                         |
+| 多模态损失          | `config_use/action_config/videovla_config.yaml` | `VideoDiffusionLoss_withact`，视频与动作权重均为 1。                                                           |
+| 输入与 action shape | `sample_video_action.py`、`inference.yaml`      | 推理初始化 `[1, 6, 7]` 的零动作；`action_lenght`（仓库拼写）为 6。                                             |
+| 采样配置            | `videovla_config.yaml`                          | 配置列出 `VPSDEDPMPP2MSampler_withact`、50 steps、Dynamic CFG scale 6。                                        |
+| 输出                | `sample_video_action.py`                        | 代码取得 `samples_z, action_samples_z`，但示例脚本只把解码视频写为 MP4，未把动作样本序列化或接入机器人控制器。 |
+
+**【Analysis】** 论文写作中的“DDIM 50 steps”和发布 YAML 的 sampler 类名 / CFG scale 并不完全同名同值；在无训练、部署与评测脚本的情况下，不能把这份最小推理仓库视作论文全部实验的逐行复现。因此上表只报告能从公开文件直接确认的事实。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+**【Paper】** 仿真使用 SIMPLER：WidowX 在 Visual Matching（VM）下评 4 个任务；Google Robot 在 VM 与 Variant Aggregation（VA）下评 Pick Up Coke Can、Move Near、Open/Close Drawer、Open and Place。VA 会改变背景、光照和桌面纹理。所有仿真模型从 OXE 训练，指标为多次 trial 的 success rate。
+
+**【Paper】** 真实实验用配有 7-DoF 手臂与夹爪的 Realman；论文采集 5,824 个 pick、stack、place 样本，并对预训练模型进行微调。真实新物体测试使用 12 个训练未见物体，跨 embodiment 新技能则让 Realman 执行只在 WidowX 训练数据中出现过的动作技能。
+
+### 5.2 Main Results
+
+**【Paper】** 在 12 个 SIMPLER in-domain 任务的总体平均上，VideoVLA 为 **63.0%**，高于表中 CogACT 的 62.6%、$\pi_0$ 的 50.0%、SpatialVLA 的 47.1%、OpenVLA 的 26.0%。分组看，VideoVLA 的 WidowX-VM 平均为 53.1%，Google-VA 平均为 62.8%，Google-VM 为 73.1%（后者略低于 CogACT 的 75.2%）。
+
+**【Paper】** 真实 Realman 的 in-domain 三类任务总平均为 **64.6%**，高于 CogACT（58.4%）、$\pi_0$（50.7%）、SpatialVLA（22.9%）和 OpenVLA（9.7%）。在 12 个真实新物体上，VideoVLA 平均为 **50.6%**；相较 CogACT 的 26.9%、$\pi_0$ 的 21.8%，优势主要出现在 Clear Tape、Toy Duck 等多个物体，但不是每一项都第一。
+
+<img
+  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-videovla/videovla-qualitative-crop.4g58f9akk0.webp'
+  alt='VideoVLA 论文 Figure 5：动作实际执行与模型预测未来视频的定性对比'
+  class='zoomable'
+  width='2398'
+  height='968'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+**【Paper】** 上图的定性案例并列展示实际执行和 predicted video。论文把可执行动作带来的视频结果称为 visual imagination，并以此说明视频与动作在外观和运动上存在对应；定性图用于展示而非替代 success-rate 统计。
+
+### 5.3 Ablation Study
+
+| 消融（Google Robot, SIMPLER VM） | Pick Up | Move | Open/Close |     平均 |
+| -------------------------------- | ------: | ---: | ---------: | -------: |
+| CogVideoX-5B 预训练（默认）      |    92.3 | 82.9 |       66.2 | **80.4** |
+| CogVideoX-5B 从头训练            |    18.6 | 10.8 |        9.2 |     12.6 |
+| OpenSora-1.1 backbone            |    67.7 | 57.1 |       25.9 |     50.2 |
+
+**【Paper】** 预测更长未来也更好：49 / 25 / 13 个 future frames 的平均成功率依次为 80.4% / 77.4% / 75.2%。作者据此认为，更长的视觉时间视野能帮助动作预测提前考虑后果。
+
+### 5.4 Generalization
+
+**【Paper】** 在 SIMPLER 的 10 个新物体上，VideoVLA 平均 success rate 为 **65.2%**，对第二名 SpatialVLA（50.8%）领先 14.4 个点，并在 10 个物体中的 8 个上最好。Google Robot 的跨 embodiment 新技能迁移平均为 **48.6%**，高于 CogACT 的 20.4% 与 SpatialVLA 的 18.9%。
+
+**【Paper】** Realman 跨 embodiment 新技能迁移平均为 **58.0%**，超过 CogACT 的 35.1%。这些技能在 WidowX 的训练数据中存在、在 Realman 的训练数据中不存在；实验试图区分“换物体”与“换 embodiment 后学习未演示技能”。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** 预训练视频 DiT 已在大规模视频中学习“文本条件下可能发生什么”的统计规律。VideoVLA 将动作也放进同一去噪问题，迫使一个可用于 robot control 的低维输出与高维视觉后果同步。这比只用 action loss 多出两层约束：对象/指令的语义一致性，以及轨迹随时间的可见后果。
+
+### 6.2 核心创新
+
+**【Analysis】** 核心创新是 **joint visual-action diffusion**，而非仅使用 CogVideoX 初始化。若未来视频只由一个冻结模型离线打标签，动作模型未必能在 sampling 中获得视频 token 的逐步反馈；VideoVLA 的 token-level joint denoising 正是其同步策略优于异步策略的设计理由。
+
+### 6.3 与已有方法的本质区别
+
+| 方法范式                    | 主要预训练先验                      | 行为输出                          | VideoVLA 的差异                                              |
+| --------------------------- | ----------------------------------- | --------------------------------- | ------------------------------------------------------------ |
+| 理解型 VLA                  | VLM / vision-language understanding | 动作 token 或 action chunk        | VideoVLA 迁移视频生成能力，并预测动作的视觉后果。            |
+| 独立 video planner + policy | 未来视频与控制器分离                | planner 输出视频，policy 输出动作 | VideoVLA 让 future video 与 action 在同一个 DiT 内联合采样。 |
+| 纯 Diffusion Policy         | 机器人轨迹分布                      | 连续动作                          | VideoVLA 将视频 latent 作为联合目标和生成变量。              |
+
+### 6.4 关键假设
+
+**【Analysis】** 方法依赖三项假设：(1) 高质量通用视频先验能转移到相机视角下的机器人场景；(2) 训练数据中的 future video 与 action 已经时空对齐；(3) 联合生成学到的相关性足以跨越 embodiment 间不同的运动学和控制接口。第三项尤其强，因为同样的图像后果可能由不同 robot action 实现。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 最大限制是推理速度。面向真实部署时，预测 4 个 future latents（13 帧）和 6 个动作、执行其中 3 步，在单张 H100 上约需 1.1 秒，约 3 Hz。作者将瓶颈归于 CogVideoX-5B，建议后续使用更小的 robot-oriented video generator、one-step denoising 或模型蒸馏。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+1. **想象不是验证。** 模型生成的未来视频与动作来自同一个生成模型，二者自洽不必然代表二者都对真实环境正确；论文的相关性分析也没有把 imagined future 接入显式选择、拒绝或闭环纠错机制。
+2. **视觉后果未必可辨识动作。** 第三人称图像下，多种 action trajectory 可能产生相近未来帧；特别是接触力、精细夹爪状态、遮挡区域很难仅凭视频确定。
+3. **公开复现链尚不完整。** 官方仓库已发布模型和示例推理，但没有完整训练/数据加载/机器人部署流程；论文的训练数据变换与全部评测细节不能只靠当前代码仓库复现。
+4. **高成本限制控制频率与探索。** 3 Hz 对慢速 pick-and-place 可用，却难以应对快速接触、扰动恢复或需要大量 candidate sampling 的场景。
+
+## 8. 启发与研究思考
+
+**【Analysis】** VideoVLA 值得延伸的方向不是把视频长度一味加大，而是让 visual imagination 进入决策闭环：生成多个 action-video 样本，以视觉可达性、碰撞风险或目标进展为准则重排序；执行后比较真实观测和预测，检测模型失配并触发重规划。这样视频才从训练期 auxiliary target 升级为测试期的可用 world model。
+
+**【Analysis】** 跨 embodiment 的下一步也应显式引入 embodiment token、运动学约束或 action canonicalization。VideoVLA 目前用统一的 7D wrist rotation/translation/gripper 表示降低差异，但不同臂长、坐标系、夹爪与低层控制器仍会把同一“想象结果”映射到不同可行动作。
+
+<img
+  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-videovla/SIM_google.1apqgbg5si.webp'
+  alt='VideoVLA 论文 Figure 6a：Google Robot 上视觉想象与实际执行的运动相似度和任务成功率关系'
+  class='zoomable'
+  width='5168'
+  height='3353'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+**【Paper】** 作者以 SIFT、SAM、SAM-PT 与 Hungarian matching 比较 imagined video 和实际 execution 的前景关键点轨迹；Google 与 WidowX 图中更高的运动相似度对应更高成功概率。在新物体 / 新技能设置中，人工评定的 visual-imagination success rate 为 84.0% / 63.4%，实际执行 success rate 为 65.2% / 48.6%。这表明 imagination 有信息量，也同时显示从“看起来合理”到“真实执行成功”仍有明显落差。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。论文图片已裁剪并使用 GitHub Raw 回退链接：图床自定义域在发布时返回
+  404，Raw 链接已逐一确认 HTTP 200。
+</Aside>
