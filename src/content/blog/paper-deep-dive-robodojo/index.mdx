@@ -1,0 +1,293 @@
+---
+title: 'RoboDojo 论文精读：统一仿真与真实世界的通用机器人操作评测基准'
+publishDate: 2026-08-27
+updatedDate: 2026-08-27
+description: '精读 RoboDojo：用 42 个仿真任务、18 个真实任务和统一策略接口，系统诊断通用机器人操作策略的泛化、记忆、精度与部署可靠性。'
+heroImage:
+  { src: 'https://pic.hana0721.top/131135880_p0_master1200.9rjzqc0dp5.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '131135880'
+tags:
+  - 'paper deep dive'
+  - 'robot manipulation'
+  - 'benchmark'
+  - 'sim-to-real'
+paper:
+  arxivId: '2607.04434'
+  title: 'RoboDojo: A Unified Sim-and-Real Benchmark for Comprehensive Evaluation of Generalist Robot Manipulation Policies'
+  authors:
+    - 'Tianxing Chen'
+    - 'Yue Chen'
+    - 'Zixuan Li'
+    - 'Junyuan Tang'
+    - 'Kailun Su'
+    - 'Haoran Lu'
+    - 'Weijie Wan'
+    - 'Baijun Chen'
+    - 'Songling Liu'
+    - 'Haowen Yan'
+    - 'Yao Mu'
+    - 'Hao Dong'
+    - 'Wojciech Matusik'
+    - 'Mingyu Ding'
+    - 'Wenbo Ding'
+    - 'Ping Luo'
+    - 'Masayoshi Tomizuka'
+  venue: 'arXiv'
+  year: 2026
+  code: 'https://github.com/Luminis-Sim/Robodojo'
+  project: 'http://robodojo-benchmark.com/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2607.04434'
+  tldr='RoboDojo 把 42 个仿真任务、18 个真实任务、异构并行 Isaac Sim、远程真实机器人评测和统一策略接口组合成一个可诊断、可复现的通用操作基准。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+### 一句话总结
+
+**【Paper】** RoboDojo 不是一个新的 Policy，而是一套把“能力诊断”和“物理部署验证”连成闭环的评测基础设施：仿真侧覆盖 Generalization、Memory、Long-Horizon、Precision、Open 五个维度，真实侧用三种双臂机器人检验接触、噪声和执行稳定性。
+
+### 核心贡献
+
+**【Paper】** 论文的贡献可以拆成四层：
+
+1. **统一的 sim-and-real pipeline**：相同的 observation/action 接口连接 Isaac Sim 与真实机器人，减少从仿真到实体部署的策略侧改造。
+2. **RoboDojo Benchmark**：42 个仿真任务和 18 个真实任务；仿真任务覆盖五个能力维度，真实任务覆盖 ARX X5、Piper、Piper X 三种 embodiment。
+3. **RoboDojo-RealEval**：固定机械臂、相机、灯光、工作区、场景 reset 与评分协议，并支持远程云端评测。
+4. **XPolicyLab**：将 30 个机器人策略接入同一代码框架，配套训练、部署、转换和 leaderboard 流程。
+
+![RoboDojo overall teaser from paper](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-robodojo/teaser.41ysor4oja.webp)
+
+**【Analysis】** 这项工作的价值不在于“任务数量更多”本身，而在于把 benchmark 从一次性的成功率表格变成持续的诊断循环：仿真快速定位能力短板，真实平台检查这些改进是否真的能安全执行。
+
+## 2. 背景与相关工作
+
+**【Paper】** 现有操作 benchmark 往往有两个结构性问题。第一，任务虽然改变物体、布局或指令，但底层操作模式仍然相近，难以区分“看懂了新场景”和“真正学会了新能力”。第二，仿真与真实评测通常彼此割裂：仿真便宜且可扩展，却遗漏接触动力学、标定误差和执行噪声；真实机器人更接近部署，却昂贵、慢且难复现。
+
+RoboDojo 将相关工作中的互补思想组合起来：CALVIN 一类工作强调语言条件的长时序执行，RoboTwin 强调跨场景泛化，RMBench 关注记忆，精细操作工作关注精度，而 RoboDojo 试图在同一套协议下同时测量这些能力，并额外加入开放语义与真实世界部署。
+
+**【Analysis】** 因而它更像“能力剖面（capability profile）”而不是单一总分。一个策略可能在 Long-Horizon 得分较高，却在 Precision 或 Open 几乎失效；这种差异比一个平均成功率更适合指导下一轮模型设计。
+
+## 3. 问题定义
+
+**【Paper】** 给定一个带语言任务指令的双臂操作环境，策略接收同步的视觉与机器人状态观测，输出动作并完成 episode。RoboDojo 关心的不是某一个任务的最优策略，而是策略在多种能力维度和物理条件下的可靠性。
+
+| 项目 | RoboDojo 定义 |
+| --- | --- |
+| Observation | 仿真或真实环境的 RGB 相机流、机器人状态与语言指令；真实平台使用头部相机和双腕相机 |
+| Action | 由各策略实现负责的关节、末端位姿或其他控制表示，通过统一接口发送给环境 |
+| Simulation embodiment | ARX X5 双臂，双臂基座间距 0.6 m |
+| Real embodiments | ARX X5、Piper、Piper X |
+| Simulation tasks | 42 个，分为 Generalization 12、Memory 6、Long-Horizon 8、Precision 8、Open 8 |
+| Real tasks | 18 个，每种 embodiment 6 个 |
+| Metrics | Success Rate（完整成功）与 Score（允许中间步骤部分得分） |
+| Evaluation budget | 仿真每任务 50 episodes；真实世界每任务 10 trials |
+
+**【Paper】** 仿真训练数据包含 35 个任务目录、3,500 条轨迹、1,859,602 帧（约 20.66 小时，25 Hz）；真实示教包含 1,800 条轨迹、1,611,841 帧（约 17.91 小时，25 Hz）。Open 维度不进入仿真训练集，用于测试技能重组和开放语义迁移。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+RoboDojo 的系统架构由三部分组成：配置驱动的 Isaac Sim 仿真平台、标准化的 RoboDojo-RealEval 真实平台，以及承上启下的 XPolicyLab。策略只需实现 observation 更新、action 预测、reset 和批量 query 等接口，就能在两种环境中运行。
+
+![RoboDojo task coverage from paper](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-robodojo/tasks.robodojo.webp)
+
+**【Paper】** 数据流可概括为：任务配置与随机种子生成场景 → 环境输出统一 observation → XPolicyLab policy server 预测 action → 仿真或真实机器人执行 → success/score 记录并汇总到 leaderboard。
+
+### 4.2 核心模块
+
+#### 配置驱动仿真与数字资产
+
+- **输入**：YAML 任务配置、随机种子、资产元数据。
+- **中间模块**：Isaac Lab vectorized interface、MagicSim manager、场景构造器和 success checker。
+- **输出**：可复现的刚体、关节体或可变形物体场景，以及逐 episode 的观测和评分。
+- **作用**：任务定义与 simulator runtime 解耦，同一套执行器可以替换物体、布局、灯光和 reset 分布。
+
+**【Paper】** 资产库为每个物体记录类别、语言描述、放置区域、成功判定标注和 manipulation affordance。自动示教由 `grasp`、`place`、`handover`、`insert`、`open`、`close`、`stack`、`push_up` 等低层技能组合，并使用 cuRobo v2 规划；难以自动合成的任务则通过 VR teleoperation 收集。
+
+#### Heterogeneous Parallelism
+
+传统 vectorized simulation 克隆同一个场景模板，只改变 pose 或 seed。RoboDojo 让并行环境保留独立的对象类别、几何、干扰物数量、关节结构和布局，同时共享 stepping interface。
+
+**【Analysis】** 这一步的关键是把“并行”与“场景同质化”解耦。它既保持 GPU 吞吐，又避免策略只在重复的桌面模板上刷分。
+
+#### RoboDojo-RealEval
+
+![RoboDojo-RealEval hardware from paper](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-robodojo/real_world_hardware.robodojo.webp)
+
+- **固定因素**：机械臂和相机相对位姿、工作区几何、照明、桌面与场景布局。
+- **评测界面**：触屏网页用于 scene reset、运行策略、急停、视频采集和云端评分。
+- **布局复现**：把目标布局图与实时视频叠加，帮助评测者在每次 trial 前恢复一致初始状态。
+- **部署模式**：本地策略服务器或远程 policy server，通过统一通信协议连接真实机器人客户端。
+
+**【Paper】** 真实任务并不与仿真任务一一配对，因此 RealEval 不是严格的 paired sim-to-real transfer benchmark，而是对仿真能力的物理世界补充测试。
+
+#### XPolicyLab
+
+![XPolicyLab pipeline from paper](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-robodojo/xpolicylab_pipeline.robodojo.webp)
+
+XPolicyLab 统一数据转换、训练模板、部署流程、配置和评测脚本，同时保留每个 Policy 的内部架构。论文将 30 个策略接入共享代码库，使同一个实现可以先在仿真中快速迭代，再以很少的 policy-side adaptation 部署到 RealEval。
+
+### 4.3 关键公式
+
+#### 分维度聚合
+
+设五个能力维度为 $d\in\{G,P,L,M,O\}$，每个维度包含若干任务。论文最终的 overall 指标是维度均值：
+
+$$
+S_{\mathrm{overall}}=\frac{1}{5}\sum_{d}S_d,\qquad
+C_{\mathrm{overall}}=\frac{1}{5}\sum_{d}C_d.
+$$
+
+其中 $S_d$ 是维度 $d$ 的平均 Success Rate，$C_d$ 是平均 Score。**【Paper】** 采用维度均值而不是所有任务直接平均，避免任务数量较多的维度主导总分。
+
+#### 真实世界部分得分
+
+对一个 trial，三位 evaluator 分别给出包含中间子步骤的分数 $c_1,c_2,c_3$，最终分数为：
+
+$$
+C_{\mathrm{trial}}=\frac{c_1+c_2+c_3}{3}.
+$$
+
+Success Rate 则只统计完整任务是否成功。**【Analysis】** 这解释了为何真实世界常出现“Score 明显高于 Success Rate”：策略完成了部分动作，却在最后对齐、接触或阶段切换时失败。
+
+### 4.4 Training
+
+**【Paper】** RoboDojo 本身不是单一训练算法。仿真示教来自自动轨迹合成和 VR teleoperation，真实示教采用同 embodiment 的 leader-follower teleoperation；XPolicyLab 为不同模型提供统一训练入口。评测 leaderboard 中大多数仿真策略使用三个随机种子，每个任务每个 seed 运行 50 trials；真实策略按 embodiment 训练一个 seed。
+
+<Algorithm number={1} title='RoboDojo policy training and evaluation preparation' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>任务 YAML、数字资产、示教轨迹、策略实现与训练配置</div>
+  <div slot='output'>可通过 XPolicyLab 接口运行的 policy server 与 checkpoint</div>
+  <AlgorithmStep>读取任务配置和资产 affordance，按 seed 构造训练场景。</AlgorithmStep>
+  <AlgorithmStep>从自动合成或 teleoperation 数据中加载 RGB、机器人状态、语言和动作序列。</AlgorithmStep>
+  <AlgorithmStep>按策略原生 action representation 执行训练；优化器、batch size 与步数由各模型配置决定。</AlgorithmStep>
+  <AlgorithmStep>通过统一 observation/action adapter 检查策略能否在仿真和 RealEval 客户端运行。</AlgorithmStep>
+  <AlgorithmStep>保存 checkpoint、配置和复现说明，进入多 seed 仿真或三 embodiment 真实评测。</AlgorithmStep>
+</Algorithm>
+
+**【Code】** 官方仓库公开的是 benchmark、仿真环境和评测基础设施，具体 Policy 的训练超参数由 XPolicyLab 中各模型目录维护；论文附录列出代表性模型的 foundation checkpoint、batch size 和训练步数。论文未声称所有 30 个模型共享同一优化器或损失函数。
+
+### 4.5 Inference
+
+**【Paper】** 推理阶段只依赖当前环境 observation 和任务指令。仿真中多个异构环境并行 step；真实世界中 policy server 通过通信协议返回 action，客户端负责机器人执行、reset、视频记录和安全终止。
+
+<Algorithm number={2} title='Unified policy inference' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>任务指令、RGB/状态 observation、当前 episode 状态</div>
+  <div slot='output'>环境执行的 action、trial score 与 success 标记</div>
+  <AlgorithmStep>调用 `reset`，按固定布局或随机 seed 初始化环境。</AlgorithmStep>
+  <AlgorithmStep>将 observation 转成 XPolicyLab 标准格式并发送给 policy server。</AlgorithmStep>
+  <AlgorithmStep>接收 action，经过 embodiment 或 simulator adapter 后执行一步或一段控制。</AlgorithmStep>
+  <AlgorithmStep>循环更新 observation，直到成功、达到 horizon 或触发安全终止。</AlgorithmStep>
+  <AlgorithmStep>记录视频、部分步骤分数和最终成功率；真实评测由三位 evaluator 独立打分。</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** 论文给出的官方代码入口为 [Luminis-Sim/Robodojo](https://github.com/Luminis-Sim/Robodojo)，项目文档和 leaderboard 分别位于 [robodojo-benchmark.com](http://robodojo-benchmark.com/) 与 [XPolicyLab.github.io](https://XPolicyLab.github.io)。从论文与公开仓库的职责划分可确认：
+
+- benchmark 侧负责任务配置、资产、Isaac Sim/Isaac Lab 环境、异构并行、reset 与成功判定；
+- XPolicyLab 侧负责策略适配、数据转换、训练模板、policy server 和评测脚本；
+- RealEval 侧负责真实硬件客户端、布局复现、急停、视频和评分协议。
+
+**【Analysis】** 这是一种“薄适配层”设计：策略作者不需要重写每个 benchmark 的数据加载和部署逻辑，但仍需处理自身的相机预处理、动作空间和控制频率。论文没有给出一个所有策略共用的神经网络架构，因此不能把 RoboDojo 误读成新的 VLA 模型。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+**【Paper】** 仿真 benchmark 在 42 个任务、2,100 个 episodes 上评测（每任务 50 次），并报告五维 Success Rate 与 Score。Generalization 再拆为 25 个 standard 和 25 个 random episodes。真实 benchmark 在 18 个任务上运行 10 trials，共 180 次物理试验/策略，覆盖 ARX X5、Piper、Piper X。
+
+![Representative real-world tasks from paper](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-robodojo/real_highlight.robodojo.webp)
+
+**【Paper】** 仿真和渲染使用 8 张 RTX 4090；RealEval 的效率实验在同一局域网内用 RTX 4090 policy server。人类参考由有经验的 VR 或真实机器人 teleoperator 完成，并不参与策略排名。
+
+### 5.2 Main Results
+
+仿真 leaderboard（3 Jul. 2026 版本）最值得关注的不是某个模型夺冠，而是“整体仍处于低成功率区间”：
+
+| Policy | Overall Score | Overall Success | 最强维度 |
+| --- | ---: | ---: | --- |
+| Hy-Embodied-0.5-VLA | 13.07 | 8.80% | Long-Horizon 25.74 / 14.92% |
+| Spatial Forcing | 12.38 | 8.04% | Generalization 14.12 / 9.33% |
+| $\pi_{0.5}$ | 11.41 | 6.91% | Open 1.98 / 1.67% |
+| X-VLA | 10.13 | 6.52% | Precision 18.32 / 12.00% |
+| Human teleoperation | 80.42 | 76.03% | 参考上限 |
+
+**【Paper】** Hy-Embodied-0.5-VLA 在平均、Memory 和 Long-Horizon 领先；Spatial Forcing 在 Generalization 领先；X-VLA 在 Precision 领先；$\pi_{0.5}$ 在 Open 维度领先但仍只有 1.67% 成功率。维度间的领先者不同，说明“整体更强”不等于“每种能力都强”。
+
+真实世界的差距更大：$\pi_{0.5}$ 在 18 个任务上的 overall Score 为 22.9、Success Rate 为 12.8%；InternVLA-A1 为 12.0 / 7.2%，GalaxeaVLA 为 9.0 / 4.4%；人类 teleoperation 为 100 / 100。
+
+**【Analysis】** Score 与 Success Rate 的分离揭示了 physical execution bottleneck：策略往往能抓取、移动或放置其中几步，却无法稳定完成对齐、接触、阶段转换和错误恢复。
+
+### 5.3 Ablation Study
+
+论文没有把 RoboDojo 作为单一神经网络做传统“去掉某模块”的 ablation，而是对 benchmark 机制本身做受控比较：
+
+1. **异构并行**：零动作 rollout 吞吐从 40.0 提升到 77.4 interactions/s，约 1.94×；加入 $\pi_{0.5}$ 推理后从 39.2 提升到 64.0，约 1.63×。
+2. **Standard vs Random**：Hy-Embodied-0.5-VLA 从 21.98 降到 1.57（下降 92.9%）；Spatial Forcing 从 21.25 降到 6.98（下降 67.2%），说明空间 grounding 有帮助但仍不够。
+3. **跨 GPU 稳定性**：不同 RTX 4090 上 overall Success Rate 的最大标准差为 0.5 个百分点，Score 最大标准差为 0.49。
+4. **真实重复性**：$\pi_{0.5}$、InternVLA-A1、GalaxeaVLA 三轮复测的 overall Success Rate 标准差不超过 1.3 个百分点，Score 标准差不超过 1.2。
+
+### 5.4 Generalization
+
+**【Paper】** Generalization 维度最多包含 25 个干扰物、随机背景、灯光、布局和目标物体；作者还提供 100 条与评测任务独立的 DLC trajectories 作视觉数据增强。Open 维度则故意不提供对应示教，测试模型能否把训练中见过的基础技能重组到新语义目标。
+
+**【Analysis】** 结果显示，真正困难的是 scene-level shift 后的 metric grounding 与闭环控制，而不只是识别物体。Memory 任务要求记住已经离开视野的类别或演示顺序；Long-Horizon 要求保持阶段进度并处理双臂 handover；Precision 要求在狭窄接触空间中平滑修正；Open 则要求从语言意图落到可执行 affordance。这四类失败模式分别对应记忆检索、技能组合、接触控制和语义—动作对齐。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** RoboDojo 有效的第一原因是把可诊断性写进任务设计：五个维度近似正交，策略的强弱不会被一个大而杂的总分掩盖。第二原因是异构并行让高多样性场景的评测成本可接受。第三原因是 RealEval 把硬件、reset 和评分中的隐变量固定下来，使跨时间、跨用户比较更可信。第四原因是 XPolicyLab 降低接入成本，让 benchmark 能快速覆盖多种 action representation 和模型范式。
+
+### 6.2 核心创新
+
+1. **能力维度化**：从“任务集合”升级为 Generalization / Memory / Precision / Long-Horizon / Open 的诊断矩阵。
+2. **仿真异构并行**：并行环境不再要求场景同质化。
+3. **可复现真实评测**：远程硬件、布局 replay、双盲评分和视频发布形成完整闭环。
+4. **一次接入、两处评测**：统一 policy interface 连接 simulation 与 physical deployment。
+
+### 6.3 与已有方法的本质区别
+
+**【Analysis】** RoboDojo 与 VLA/Policy 方法的区别在于它不改变模型参数，而改变“模型如何被测量”。与只测仿真的 benchmark 相比，它加入真实世界的执行稳定性；与只测真实机器人的平台相比，它提供大规模、可重复、细分能力的仿真反馈；与只改变物体或语言的泛化测试相比，它显式构造记忆、精度、工具使用、双臂协同和开放语义等不同难点。
+
+### 6.4 关键假设
+
+- **【Paper】** 维度均值能比任务均值更公平地表示综合能力。
+- **【Paper】** 固定布局与隐藏验证布局能降低 leaderboard overfitting 和 gaming。
+- **【Analysis】** 真实任务虽不与仿真一一配对，但共享的能力信号足以支持定性比较；它不能直接给出严格的 sim-to-real transfer coefficient。
+- **【Analysis】** 统一接口减少工程差异，却无法消除各策略相机预处理、控制频率和 action horizon 的先验差别。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 真实世界评测受硬件成本、执行时间、人工 reset 和安全约束限制，因此只选取每种 embodiment 的 6 个任务，并非穷尽所有能力。Real benchmark 也刻意不构造仿真任务的一一对应版本。Leaderboard 仍需要隐藏布局、视频、checkpoint 与代码发布等治理流程来抵抗过拟合。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】** 第一，仿真数字资产和接触模型再丰富，也不能覆盖真实摩擦、柔性、传感器延迟和碰撞风险；因此高仿真分数不应被解释为部署保证。第二，真实每任务 10 trials 对低成功率策略的置信区间仍然较宽，任务级排名可能受偶然接触状态影响。第三，Score 的部分进度定义依赖 evaluator，跨任务的可加性弱于 Success Rate。第四，30 个策略的训练数据、算力和微调预算并不完全同质，leaderboard 更适合做系统诊断，不宜当作纯粹的模型架构竞赛。
+
+## 8. 启发与研究思考
+
+1. **从平均分转向能力曲线**：下一代 Policy 应报告五维 profile，并把 Precision、Memory、Open 的失败轨迹作为训练信号，而不是只优化熟悉的 pick-and-place。
+2. **把 execution stability 作为一等目标**：真实世界暴露的 jitter、oscillation、contact instability 和 unsafe behavior，提示 action smoothness、接触感知和 recovery policy 应进入训练目标。
+3. **让 benchmark 反过来驱动数据设计**：Generalization 的随机场景、Memory 的稀疏证据、Long-Horizon 的阶段切换和 Open 的新语义，都可以直接转化为针对性数据采集协议。
+4. **仿真—真实闭环而非单向迁移**：仿真用于高频实验，真实平台用于最终校验；两者共享接口和日志后，可以研究“哪些仿真指标最能预测物理失败”，而不只是追求 paired task 的 transfer ratio。
+5. **开放 leaderboard 需要治理**：隐藏布局、三随机种子、全 embodiment 覆盖、视频与代码发布，是让公开分数可复现、可审计的必要条件。
+
+**【Analysis】** RoboDojo 最重要的研究问题不是“谁在榜首”，而是：当一个策略在某个维度进步时，是否也改善了真实机器人上的安全性、平滑性和错误恢复？如果未来 benchmark 继续扩展任务并保持协议稳定，它可能成为连接 VLA 预训练、操作技能学习和真实部署工程的共同测量坐标系。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码或项目文档确认的实现，`【Analysis】` 表示基于论文和代码的分析推断。
+</Aside>
