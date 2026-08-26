@@ -1,0 +1,266 @@
+---
+title: 'T-Rex 论文精读：Tactile-Reactive Dexterous Manipulation'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 T-Rex：用 100 小时触觉同步数据、时间 VQ-VAE 与异步 MoT，让 VLA 在双手灵巧操作中以高频触觉闭环修正动作。'
+heroImage:
+  { src: 'https://pic.hana0721.top/69606244_p0_master1200.64eg2rlm3q.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '69606244'
+tags:
+  - 'paper deep dive'
+  - 'tactile manipulation'
+  - 'VLA'
+  - 'dexterous manipulation'
+paper:
+  arxivId: '2606.17055'
+  title: 'T-Rex: Tactile-Reactive Dexterous Manipulation'
+  authors:
+    - 'Dantong Niu'
+    - 'Zhuoyang Liu'
+    - 'Zekai Wang'
+    - 'Boning Shao'
+    - 'Zhao-Heng Yin'
+    - 'Anirudh Pai'
+    - 'Yuvan Sharma'
+    - 'Stefano Saravalle'
+    - 'Ruijie Zheng'
+    - 'Jing Wang'
+    - 'Ryan Punamiya'
+    - 'Mengda Xu'
+    - 'Yuqi Xie'
+    - 'Yunfan Jiang'
+    - 'Letian Fu'
+    - 'Konstantinos Kallidromitis'
+    - 'Matteo Gioia'
+    - 'Junyi Zhang'
+    - 'Jiaxin Ge'
+    - 'Haiwen Feng'
+    - 'Fabio Galasso'
+    - 'Wei Zhan'
+    - 'David M. Chan'
+    - 'Yutong Bai'
+    - 'Roei Herzig'
+    - 'Jiahui Lei'
+    - 'Li Fei-Fei'
+    - 'Ken Goldberg'
+    - 'Jitendra Malik'
+    - 'Pieter Abbeel'
+    - 'Yuke Zhu'
+    - 'Danfei Xu'
+    - 'Linxi Fan'
+    - 'Trevor Darrell'
+  venue: 'arXiv'
+  year: 2026
+  code: 'https://github.com/ZhuoyangLiu2005/T-Rex'
+  project: 'https://tactile-reactive-dexterous.github.io/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2606.17055'
+  tldr='T-Rex 在 Qwen3-VL-2B 上加入异步 MoT 触觉专家与时间 VQ-VAE，用 100 小时触觉同步中训数据把 VLA 变成可高频闭环修正的双手灵巧策略。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**【Paper】**《T-Rex: Tactile-Reactive Dexterous Manipulation》针对一个常被忽略的事实：视觉可以告诉机器人“物体在哪里”，但在插入、擦拭、翻页、拧灯泡等接触丰富任务中，真正决定成败的是力、滑移和局部形变。论文同时解决数据、表示和推理频率三个瓶颈：构建 100 小时触觉同步数据集；在 Qwen3-VL-2B 上设计具有 latent/action/tactile 三个专家的 Mixture-of-Transformers（MoT）；用时间触觉 VQ-VAE 压缩高频力历史。
+
+![T-Rex 系统总览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-t-rex/teaser_v6_0609.2rvvi62vex.webp)
+
+### 一句话总结
+
+**【Analysis】** T-Rex 的关键不是“把触觉拼到视觉 token 后面”，而是把控制时间尺度拆开：低频视觉语言流负责语义和动作先验，高频触觉流只在需要时继续 flow matching 的末端去噪。
+
+### 核心贡献
+
+**【Paper】**
+
+1. **T-Rex Dataset**：207 个日常物体、22 个 motor primitives，筛选出 502 个可行组合，累计 7,755 条轨迹和 100 小时示教；官方代码仓库说明约 50 小时以 LeRobot v3.0 格式开放。
+2. **T-Rex Model**：变量速率 MoT。latent expert 建模视觉语言上下文，action expert 生成低频动作，tactile expert 复用 KV cache 做高频修正。
+3. **Temporal tactile VQ-VAE**：把每个指尖 16 帧、6 维力历史离散成 codebook token，同时保留当前力向量和形变图，兼顾动态与瞬时接触。
+4. **Benchmark**：12 个真实双手任务，覆盖力敏感、形变、插入和双手协调；平均成功率 65%，比最强基线高约 30 个百分点。
+
+## 2. 背景与相关工作
+
+**【Paper】** 现有 VLA 通常以 RGB 和语言为主，触觉工作又常停留在单任务、单臂或静态 encoder。直接从零学习同步视觉—触觉—动作需要昂贵的长时遥操作数据；而让标准 VLM 以视觉频率运行，也无法跟上触觉信号的高频变化。
+
+相关路线大致有三类：ACT/ViTacFormer 一类的视觉触觉模仿学习、RDP 一类的 slow-fast diffusion policy，以及通过大规模人类视频预训练获得通用动作先验的 VLA。T-Rex 的区别在于把三者组合为一个 foundation-model recipe：先用 22,889 小时人类第一视角视频获得语义和运动先验，再用触觉同步机器人数据做 mid-training，最后只需约 100 条任务示教做 post-training。
+
+## 3. 问题定义
+
+在控制时刻 $t$，策略接收三路 $640\times360$ RGB、语言指令、双手十个指尖的力/力矩历史和形变图，输出长度为 16 的动作 chunk：
+
+$$
+\mathbf A_{t:t+H}=\pi_\theta(\mathbf o_t,\ell,\mathbf f_{t-15:t},\mathbf d_t),\qquad H=16.
+$$
+
+**【Paper】** 平台是固定基座 Dexmate Vega-1，双臂各 7 个关节，配两只 22-DoF Sharpa Wave 手。手臂使用相对 end-effector delta 控制，手指使用绝对关节控制；低层控制线程以 300 Hz 跟踪高层策略目标。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![T-Rex MoT 架构：latent、action、tactile 三专家（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-t-rex/model_v2_0524.1sfs5001vs.webp)
+
+**【Paper】** 视觉语言上下文先进入 latent expert 和 action expert，action expert 从噪声去噪到 $\tau_{\mathrm{split}}=0.4$ 并缓存 KV；随后 tactile expert 读取实时触觉 token，在不重跑视觉塔的情况下完成剩余去噪并输出动作 chunk。
+
+### 4.2 核心模块
+
+#### Mixture-of-Transformer-Experts
+
+- **Latent expert**：Qwen3-VL-2B 的视觉语言主干，预测未来视觉 latent，提供语义和时间上下文。
+- **Action expert**：1.41B 参数、62 维动作、chunk 长度 16；使用 flow matching 产生低频基础动作。
+- **Tactile expert**：约 0.62B 参数，FFN intermediate size 1536；只处理 $[0,\tau_{\mathrm{split}}]$ 的末端轨迹，适合高频调用。
+
+三个专家共享 self-attention 的 token 空间，但拥有独立的 $Q/K/V/O$ 投影、FFN 和输出 head。**【Analysis】** 这样既保留跨模态信息交换，又避免用一个统一 head 同时拟合“看懂任务”和“瞬时反射”两种统计性质不同的信号。
+
+#### Spatial-temporal tactile encoder
+
+**【Paper】** 每个指尖取最近 16 帧、每帧 6 维力向量。共享卷积权重的 1D temporal encoder 下采样后得到 256 维 embedding，再用大小为 64 的 EMA codebook 量化；另一路把当前力向量线性投影；第三路用冻结的轻量 ResNet 风格网络编码单通道形变图。三路 token 拼接为：
+
+$$
+\mathbf z_t^\tau=\left[\operatorname{Emb}_{vq}(E_f(\mathbf f_{t-15:t}));\operatorname{Proj}_f(\mathbf f_t);\operatorname{Proj}_d(E_d(\mathbf d_t))\right].
+$$
+
+**【Code】** 官方 `tactile_vqvae/models/` 实现 VQ-VAE，训练时以 magnitude-weighted MSE 重建高力接触，并通过 EMA 重置低使用率 code；`qwen_vla/modeling_vla.py` 支持将 VQ-VAE 嵌入 checkpoint，在训练和推理中 on-the-fly 编码，不要求离线预烘焙 codes。
+
+### 4.3 关键公式
+
+给定示教动作 $\mathbf A^{demo}$ 和高斯噪声 $\boldsymbol\epsilon$，线性路径及共享速度目标为：
+
+$$
+\mathbf x_\tau=(1-\tau)\mathbf A^{demo}+\tau\boldsymbol\epsilon,\qquad v^\star=\boldsymbol\epsilon-\mathbf A^{demo}.
+$$
+
+其中 $\tau=1$ 是噪声端，$\tau=0$ 是动作端。action 和 tactile 两个专家在不重叠的时间区间回归同一个 $v^\star$：
+
+$$
+\mathcal L=\mathcal L_{act}+\lambda_{tac}\mathcal L_{tac}+\lambda_{future}\mathcal L_{future},
+\quad \lambda_{tac}=1,\ \lambda_{future}=0.5.
+$$
+
+**【Analysis】** 共享目标让 tactile expert 学到的是“如何修正同一条动作轨迹”，而非另一个独立 policy；KV cache 则把视觉语义固定在 slow tick 的边界状态。
+
+### 4.4 Training
+
+**【Paper】** 训练分三阶段：
+
+1. **Human-video pretraining**：22,889 小时第一视角视频，训练 latent/action experts，学习视觉语义与粗粒度运动先验。
+2. **Tactile-grounded mid-training**：100 小时触觉同步双手数据，训练 tactile expert 并把动作先验对齐到 Vega-1 的多视角和动作空间。
+3. **Task post-training**：每个下游任务约 100 条示教，保留已获得的触觉反应能力。
+
+优化器是 AdamW，峰值学习率 $10^{-4}$，cosine schedule，bf16，24 张 H100，per-device batch size 16，梯度裁剪 1.0。两个 flow expert 的时间从 $\operatorname{Beta}(1.5,1.0)$ 采样；tactile expert 的采样区间缩放到 $(0,0.4]$。
+
+<Algorithm number={1} title='T-Rex Training' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>人类视频、触觉同步机器人数据、任务示教；chunk 长度 $H=16$</div>
+  <div slot='output'>带 tactile expert 和 VQ-VAE 的策略 $\pi_\theta$</div>
+  <AlgorithmStep keyword='Given'>初始化 Qwen3-VL latent/action experts、tactile expert 与冻结的形变 encoder</AlgorithmStep>
+  <AlgorithmStep>在人类视频上预训练 latent/action experts</AlgorithmStep>
+  <AlgorithmStep>从触觉同步数据采样 $\mathbf A^{demo}$、视觉语言上下文和 $\mathbf z_t^\tau$</AlgorithmStep>
+  <AlgorithmStep>采样噪声与两个区间内的 flow timestep，计算共享目标 $v^\star$</AlgorithmStep>
+  <AlgorithmStep>联合最小化 $\mathcal L_{act}+\mathcal L_{tac}+0.5\mathcal L_{future}$</AlgorithmStep>
+  <AlgorithmStep keyword='return'>在约 100 条任务示教上 post-train 后的策略</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+慢流每个 chunk 运行一次：action expert 用 6 个 Euler steps 从 $\tau=1$ 到 $0.4$；快流在 chunk 内偏移 $\{0,4,8,12\}$ 处触发，每次用 4 个 Euler steps 从 $0.4$ 到 $0$。快流复制缓存的视觉 KV，加入新触觉 token，输出更新后的完整动作 chunk。
+
+<Algorithm number={2} title='Asynchronous Tactile-Reactive Inference' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前 RGB、语言、触觉流；预训练的 action/tactile experts</div>
+  <div slot='output'>执行中的 16 步动作 chunk</div>
+  <AlgorithmStep>slow tick 编码视觉语言上下文，从噪声执行 6 步 action denoising</AlgorithmStep>
+  <AlgorithmStep>在 $\tau=0.4$ 重新编码 action token，缓存 $\mathrm{KV}_{0.4}$</AlgorithmStep>
+  <AlgorithmStep keyword='for'>对 chunk 内偏移 $0,4,8,12$ 的每个 fast tick</AlgorithmStep>
+  <AlgorithmStep indent={1}>读取最新十指触觉，复制 $\mathrm{KV}_{0.4}$</AlgorithmStep>
+  <AlgorithmStep indent={1}>tactile expert 执行 4 步末端 Euler integration</AlgorithmStep>
+  <AlgorithmStep indent={1}>将 refined chunk 交给 300 Hz 低层控制器</AlgorithmStep>
+  <AlgorithmStep keyword='end for' />
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** 官方仓库 `scripts/train.py`/`scripts/test.py` 对应 post-train 和 ZMQ 推理；`qwen_vla/modeling_vla.py` 明确实现 `forward_flow_action_partial` 与 `tactile_flow_continue` 两段式接口。`scripts/train.sh` 使用 `action_dim=62`、`action_chunk=16`、`use_tactile_vec=1`、`use_tactile_deform=1`、`use_tactile_vqvae=1`，并设置 tactile loss weight 1.0、cascaded tactile dropout 0.1。推理脚本说明 fast 请求直接返回最终 action chunk，而不是把一个独立的 $\hat A$ 与残差相加。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![Vega-1、Sharpa Wave 双手与遥操作采集系统（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-t-rex/setup_v3_0528.9kgx4mt181.webp)
+
+**【Paper】** 每个任务评估 16 次，随机化物体位置和朝向；多阶段任务使用 progress-based rubric。基线包括 ViTacFormer、RDP、Tactile-VLA、EgoScale、$\pi_{0.5}$ 和 $\pi_{0.5}$ + tactile。
+
+### 5.2 Main Results
+
+12 个任务的平均成功率如下（百分比）：
+
+| 方法 | 平均成功率 |
+| --- | ---: |
+| ViTacFormer | 3 |
+| RDP | 6 |
+| Tactile-VLA | 15 |
+| $\pi_{0.5}$ | 17 |
+| EgoScale | 35 |
+| $\pi_{0.5}$ + tactile | 6 |
+| **T-Rex** | **65** |
+
+**【Paper】** T-Rex 在 Flip Page、Transfer Egg、Apply Paste 等任务分别达到 96、75、66；在 Acid-Base Neutralization、Extract Card 等同时依赖力和形变的任务也保持 70% 左右。最强基线 EgoScale 为 35%，因此提升超过 30 个百分点。简单把触觉拼到 $\pi_{0.5}$ 反而降到 6%，说明触觉融合方式比“是否增加触觉输入”更重要。
+
+### 5.3 Ablation Study
+
+![触觉表示、异步结构和数据效率消融（论文 Figures 6–8）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-t-rex/data_efficiency_v2_0529.3uvkt1yl2l.webp)
+
+六任务平均结果：完整模型 65%；去掉触觉 42%；用 MLP Force + Deform 58%；只用 Deform 54%；MLP Force + VQ-VAE Force 59%；去掉异步结构 60%。
+
+**【Analysis】** 这组结果把收益拆成三层：触觉本身约贡献 23 个百分点；时间 VQ-VAE 相比简单 MLP 仍有约 6–7 个百分点；异步 cascaded denoising 再贡献约 5 个百分点。VQ-VAE 的价值并非单纯降维，而是把力历史变成稳定的离散动态词汇。
+
+### 5.4 Generalization
+
+![T-Rex 数据集统计：物体、motor primitives 与长尾分布（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-t-rex/dataset_analysis_v2_0610.4n8gasf7k6.webp)
+
+**【Paper】** 数据集由 207 个物体与 22 个 primitive 组合，经可行性筛选得到 502 对、7,755 条轨迹。与同等 100 小时的 task-specific 数据相比，motor-primitive 组织方式带来更好的 zero-shot transfer；在下游示教数从 10 增加到 200 的曲线中，mid-training 版本在低数据区间明显更高。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** 第一，22,889 小时人类视频提供“怎么做”的先验，避免触觉数据承担语义学习；第二，触觉中训把先验绑定到真实接触动力学；第三，slow/fast 分工让高频闭环不必重复运行昂贵视觉塔。三者分别对应数据效率、表示质量和运行时延。
+
+### 6.2 核心创新
+
+- 将 variable-rate MoT 用于双手触觉 VLA，而非任务专用小网络。
+- 用 cascaded flow matching 在同一动作轨迹上拼接低频规划和高频 refinement。
+- 将 16 帧力历史离散化，并与当前力和空间形变并行编码。
+- 以 motor primitive × object 的覆盖策略构建中训数据，而不是只收集完整任务。
+
+### 6.3 与已有方法的本质区别
+
+RDP 是视觉扩散策略加触觉快速分支，ViTacFormer 是 ACT 式任务策略；T-Rex 的 action expert 保留 foundation VLA 的广泛先验，tactile expert 只学习末端去噪区间，并通过 KV cache 异步运行。**【Analysis】** 因此它不是“触觉版 ACT”，而是把触觉视为改变生成轨迹末端的条件变量。
+
+### 6.4 关键假设
+
+方法假设触觉修正主要发生在动作 chunk 的末端去噪区间；假设 slow tick 的视觉语言上下文在数个 fast tick 内仍然有效；还假设十个指尖的力/形变足以覆盖任务所需的接触状态。论文没有证明这些假设对全手掌接触或更长时程任务同样成立。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 长时程、精确接触协调任务仍受遥操作难度限制，未来可能需要 reinforcement learning 或 online interaction refinement。硬件方面存在传感器畸变、跨设备 calibration drift，以及缺少密集掌面触觉的问题。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】** 论文主要报告成功率，尚未公开 latency、能耗和 fast tick 失步时的安全边界；固定 $\tau_{split}=0.4$ 也可能无法适应不同任务的接触阶段。数据集虽有 207 个物体，但 502 个可行组合仍来自单一 Vega-1/Sharpa Wave embodiment，跨硬件迁移需要新的触觉标定和 action mapping。
+
+## 8. 启发与研究思考
+
+T-Rex 给触觉 VLA 的启发是：不要强迫所有模态以同一频率、同一 token 形式和同一 head 处理。更可扩展的方向可能是让 split timestep 随接触状态自适应，让触觉 expert 预测 uncertainty 并在传感器漂移时退回视觉策略，或将掌面触觉、声音和关节电流统一为同一类高频 residual stream。另一个值得验证的问题是：当 fast expert 只修正 flow trajectory 的末端时，它能否覆盖真正需要重新规划的接触失败？
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】` 表示基于论文和代码的分析推断。
+</Aside>
