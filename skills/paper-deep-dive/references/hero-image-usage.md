@@ -56,6 +56,7 @@ Use only after the count-1 pool is exhausted.
 |         2 | `126903857` | `https://pic.hana0721.top/126903857_p0_master1200.2dpaix2l3u.webp` | `tmux-ssh-session-management`, `paper-deep-dive-internvla-m1`                 |
 |         2 | `86800103`  | `https://pic.hana0721.top/86800103_p0_master1200.4qrwyrtj6a.webp`  | `rl-note-14`, `paper-deep-dive-qwen-vla`                                      |
 |         2 | `92079701`  | `https://pic.hana0721.top/92079701_p0_master1200.64eg2t4l77.webp`  | `rl-note-15`, `paper-deep-dive-videovla`                                      |
+|         2 | `93990522`  | `https://pic.hana0721.top/93990522_p0_master1200.et40soxif.webp`   | `scp-upload-to-server`, `paper-deep-dive-lingbot-va`                          |
 
 ## Count 1 Pool
 
@@ -82,7 +83,6 @@ Preferred candidates for new posts.
 |         2 | `71875434`  | `https://pic.hana0721.top/71875434_p0_master1200.7pvvr603z.webp`   | `paper-reading-umllm1`, `paper-deep-dive-warp-rm`                               |
 |         2 | `90399055`  | `https://pic.hana0721.top/90399055_p0_master1200.4g535npbv6.webp`  | `rl-note-21`, `paper-deep-dive-internvla-a1`, `paper-deep-dive-cosmos-policy`, `paper-deep-dive-genie-envisioner` |
 |         2 | `91341540`  | `https://pic.hana0721.top/91341540_p0_master1200.7pw5duffp.webp`   | `rustdesk-cli-server-setup`, `paper-deep-dive-dreamvla`                         |
-|         1 | `93990522`  | `https://pic.hana0721.top/93990522_p0_master1200.et40soxif.webp`   | `scp-upload-to-server`                                                          |
 |         1 | `94819769`  | `https://pic.hana0721.top/94819769_p0_master1200.4xv4u7folx.webp`  | `rl-note-16`                                                                    |
 |         1 | `95619535`  | `https://pic.hana0721.top/95619535_p0_master1200.8okafg4jti.webp`  | `rl-note-17`                                                                    |
 |         1 | `98000873`  | `https://pic.hana0721.top/98000873_p0_master1200.491vjnsp6s.webp`  | `github-auth-local-setup`                                                       |
