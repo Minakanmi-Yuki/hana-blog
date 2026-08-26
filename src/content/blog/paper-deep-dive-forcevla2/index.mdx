@@ -1,0 +1,295 @@
+---
+title: 'ForceVLA2 论文精读：让 VLA 学会感知并控制接触力'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 ForceVLA2：用 Force Prompt、Cross-Scale MoE 与混合力位控制，把力觉从辅助观测变成接触丰富操作中的闭环控制信号。'
+heroImage:
+  { src: 'https://pic.hana0721.top/98000873_p0_master1200.491vjnsp6s.webp', color: '#7D766C' }
+category: 'research'
+pixivLink: '98000873'
+tags:
+  - 'paper deep dive'
+  - 'force-aware VLA'
+  - 'contact-rich manipulation'
+paper:
+  arxivId: '2603.15169'
+  title: 'ForceVLA2: Unleashing Hybrid Force-Position Control with Force Awareness for Contact-Rich Manipulation'
+  authors:
+    - 'Yang Li'
+    - 'Zhaxizhuoma'
+    - 'Hongru Jiang'
+    - 'Junjie Xia'
+    - 'Hongquan Zhang'
+    - 'Jinda Du'
+    - 'Yunsong Zhou'
+    - 'Jia Zeng'
+    - 'Ce Hao'
+    - 'Jieji Ren'
+    - 'Qiaojun Yu'
+    - 'Cewu Lu'
+    - 'Yu Qiao'
+    - 'Jiangmiao Pang'
+  venue: 'CVPR 2026'
+  year: 2026
+  code: ''
+  project: 'https://sites.google.com/view/force-vla2/home'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2603.15169'
+  tldr='ForceVLA2 将力觉同时注入 VLM 的任务分解和 Action Expert 的 Cross-Scale MoE，使 VLA 能在接触丰富任务中闭环调节力与位姿。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**【Paper】** 《ForceVLA2: Unleashing Hybrid Force-Position Control with Force Awareness for Contact-Rich Manipulation》发表于 arXiv，论文页面注明已被 CVPR 2026 接收。作者提出一个端到端的 force-aware VLA：高层用 force prompt 形成阶段性的任务概念，低层用 Cross-Scale Mixture-of-Experts（MoE）把视觉语言语义、末端位姿和实时力/力矩融合为混合力位动作。
+
+![ForceVLA2 的整体框架（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-forcevla2/2-crop.webp)
+
+### 一句话总结
+
+**【Analysis】** 这篇工作的关键不是“给 $\pi_0$ 多加一个力传感器输入”，而是把力觉拆成两个时间尺度：慢速的力感知任务分解，以及绕过高层融合、直接驱动 Action Expert 的快速反应回路。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出 ForceVLA2，将 Force Prompt、Cross-Scale MoE 和混合力位控制统一到 VLA 中。
+2. 构建 ForceVLA2-Dataset：5 个接触丰富任务、1,000 条轨迹、约 500K 个同步时间步，同时记录多视角图像、任务提示、末端状态和 6D 力/力矩。
+3. 在真实机器人上取得平均 66% 成功率；相较 $\pi_0$ 和 $\pi_{0.5}$ 的平均结果分别提升 48 和 35 个百分点，并在装配齿轮任务上比第二名高 50 个百分点。
+
+## 2. 背景与相关工作
+
+**【Paper】** 现有 VLA（例如 $\pi_0$、$\pi_{0.5}$、OpenVLA）擅长视觉语义对齐，却通常输出末端位姿或关节动作。对按压、擦拭、插入和装配这类任务，视觉很难判断“是否已经接触”“接触是否过大”，单纯追踪位置会导致卡死、过载或失去接触。
+
+ForceVLA 已经证明，把力作为输入可以提升接触任务表现，但论文认为这仍主要是感知层的增强：模型看到力，却不一定学会主动调节力。ForceVLA2 的问题设定因此更具体：如何让语言层理解当前接触阶段，同时让动作层在毫秒级别利用力反馈改变控制模式。
+
+**【Analysis】** 这也解释了为什么作者不把所有力 token 都塞进 VLM：高层语义推理需要稳定上下文，瞬时力信号则更像控制回路中的高频反馈，两者的延迟和职责不同。
+
+## 3. 问题定义
+
+**【Paper】** 在时间步 $t$，策略接收：
+
+- 三路 RGB 视角（两路第三人称、一路腕部相机）；
+- 全局任务提示 $T_t$；
+- 当前子任务对应的 Force Prompt $T_f$；
+- 末端执行器位姿 $mathbf p$ 与 6D 力/力矩 $mathbf f_{mathrm{raw}}$。
+
+策略输出混合力位控制命令，包括末端位姿变化、目标接触力和子任务进度信号。论文正文把位姿 token 写成 7 维（位置加四元数），而附录的控制分析又使用 6D 位姿；因此动作总维度在论文不同段落之间并不完全一致，**【Analysis】** 这里应把它理解为“位姿控制量 + 6D 力/力矩”，而不是依赖某个固定维度。
+
+机器人平台是 7-DoF Flexiv Rizon 4s，配 DH Robotics AG-95 夹爪和末端 6D F/T 传感器。评测覆盖 press bottle、clean vase、clean board、retrieve plate、assemble gears 五项任务。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+**【Paper】** ForceVLA2 的数据流可以压缩为一句话：多视角图像、任务提示和 Force Prompt 进入 VLM 形成长时程任务概念；末端位姿经多模态编码器与 VLM 对齐，而实时力信号保留一条旁路直接进入 Cross-Scale MoE；MoE 再条件化 flow-matching Action Expert，生成混合力位动作。
+
+**【Analysis】** 这是一种“语义规划 + 反应控制”的双时间尺度结构，而不是把 VLM 和控制器简单串联。
+
+### 4.2 核心模块
+
+#### Force Prompt：把力觉变成阶段语义
+
+**【Paper】** 每个任务预先拆成 3–5 个子任务。Force Prompt 是描述当前子任务和物理上下文的文本提示，例如提示机器人保持当前阶段，或在满足接触条件后切换到下一阶段。它像一个离散状态机，把“当前需要按压、擦拭还是探索”显式交给 VLM。
+
+输入是多视角视觉 token、全局任务文本和阶段性力提示，输出是带有子任务进度和空间语义的 VLM contextual tokens。它的作用不是直接输出力，而是为 Action Expert 提供“这一刻力应该服务于哪个阶段”的语义先验。
+
+#### Proprioceptive-force Encoding：位姿与力的不同路径
+
+**【Paper】** 末端位姿 $mathbf p$ 经线性层 $phi_P$ 投影为 $mathbf E_P$，原始 6D 力/力矩 $mathbf f_{mathrm{raw}}$ 经 $phi_F$ 投影为 $mathbf E_F$。位姿和力 token 先组成状态表示，并通过 Cross-Attention 从 VLM token 中取得任务上下文。
+
+关键区别是：慢变化的位姿进入多模态编码器，而快速变化的力保留 bypass，直接送入 MoE。这样既能让力理解任务语境，又避免高层融合抹平接触瞬态。
+
+#### Cross-Scale MoE：按阶段选择主导模态
+
+**【Paper】** MoE 包含视觉、状态和力三个轻量 MLP expert。门控网络为每个 token 产生 $w_V,w_S,w_F$，再按 token 动态加权。自由空间运动时，视觉和位姿可以占主导；接触、擦拭或插入时，力 expert 的权重可以上升。
+
+![ForceVLA2-Dataset 的任务与模态示意（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-forcevla2/3_rename-crop.webp)
+
+#### Flow-matching Action Expert
+
+**【Paper】** MoE 表示被送入 conditional flow-matching policy。模型从高斯噪声动作开始，在条件向量引导下逐步去噪，最终得到位姿变化、目标力和进度信号。论文将其建立在 $\pi_0$ 的 VLM + flow-matching 结构之上。
+
+### 4.3 关键公式
+
+视觉与文本融合为：
+
+$$
+\mathbf E = \mathrm{VLM}([f(\mathbf E_v);g([\mathbf T_t;\mathbf T_f])])
+$$
+
+其中 $f$、$g$ 分别是视觉和文本编码器，$mathbf T_t$ 是任务提示，$mathbf T_f$ 是 Force Prompt。
+
+状态条件化为：
+
+$$
+\mathbf E'_{state}=\mathrm{CrossAttn}(\mathbf E_{state},\mathbf E),\qquad
+\mathbf E_{cond}=[\mathbf E;\mathbf E'_{state};\mathbf E_F]
+$$
+
+Cross-Scale MoE 为：
+
+$$
+\mathbf E_{MoE}=\sum_{m\in\{V,S,F\}}w_m\,\mathrm{Expert}_m(\mathbf E_{cond})
+$$
+
+其中 $m$ 表示视觉、状态和力三个 expert，$w_m$ 是 token 级动态门控权重。
+
+Flow matching 的连续形式为：
+
+$$
+\frac{d\mathbf a_t^{(\tau)}}{d\tau}=F_\theta(\mathbf a_t^{(\tau)},\mathbf E_{MoE},\tau),\quad \tau\in[0,1]
+$$
+
+离散实现从 $mathbf a_t^{(0)}\sim\mathcal N(0,I)$ 开始迭代更新。**【Paper】** 论文还用 $Theta$（姿态对齐）、$L$（到目标距离）和 $F$（力幅值）构造子任务转移概率：
+
+$$
+\hat s_t=\theta^\alpha e^{-\lambda l}\frac{f-n}{m-n},\qquad \alpha=2,\ \lambda=2
+$$
+
+它把“姿态接近目标、距离缩短、接触力达到条件”组合为阶段进度信号；超过阈值后切换子任务并重置。
+
+### 4.4 Training
+
+**【Paper】** 数据采集使用 force-feedback GELLO 遥操作。三路相机同步记录，F/T 传感器以 300 Hz 记录，视觉统一缩放到 480×640。模型在 8 张 A100 上训练 30,000 steps，batch size 为 32，优化器为 AdamW，学习率采用 cosine decay，EMA decay 为 0.99；论文报告训练约 10 小时。
+
+**【Code】** 项目主页当前只提供论文、演示视频和 “code and dataset is coming soon” 占位链接，没有公开可核验的模型定义、DataLoader、训练脚本或 checkpoint。因此下面的训练流程是论文级描述，不应被误称为官方代码行为。
+
+<Algorithm number={1} title='ForceVLA2 Training' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>ForceVLA2-Dataset、任务提示、Force Prompt、位姿与 6D 力/力矩</div>
+  <div slot='output'>训练后的 force-aware VLA policy</div>
+  <AlgorithmStep>同步读取多视角图像、任务文本、阶段性 Force Prompt、末端位姿和力信号</AlgorithmStep>
+  <AlgorithmStep>将图像与两类文本送入 VLM，获得长时程 force-aware task concepts</AlgorithmStep>
+  <AlgorithmStep>将位姿和力编码，并通过 Cross-Attention 与 VLM 表示对齐</AlgorithmStep>
+  <AlgorithmStep>把瞬时力旁路与视觉、状态 token 一起送入 Cross-Scale MoE</AlgorithmStep>
+  <AlgorithmStep>用 flow-matching head 预测混合力位动作和子任务进度</AlgorithmStep>
+  <AlgorithmStep>根据示教动作计算 flow-matching / 行为克隆损失，使用 AdamW 更新参数</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 推理时，机器人持续读取三路图像、当前任务提示、阶段性 Force Prompt、末端位姿和实时 F/T。VLM 负责判断当前阶段与空间语义；Cross-Scale MoE 根据 token 级门控融合高层概念和瞬时力；flow-matching Action Expert 生成下一段混合力位命令，并由底层机器人控制器执行。达到进度阈值后，Force Prompt 切换到下一个子任务。
+
+**【Analysis】** 旁路的意义在于缩短“力变化 → 动作修正”的路径。它不需要等待历史轨迹或高层 VLM 重新组织全部上下文，因此更适合处理突然改变的接触几何。
+
+<Algorithm number={2} title='Force-aware Inference' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前多视角观察、任务提示、Force Prompt、位姿和实时 F/T</div>
+  <div slot='output'>执行的混合力位动作与下一阶段提示</div>
+  <AlgorithmStep>编码图像、任务提示和当前 Force Prompt，更新 VLM task concepts</AlgorithmStep>
+  <AlgorithmStep>编码末端位姿，并通过 Cross-Attention 注入视觉语言上下文</AlgorithmStep>
+  <AlgorithmStep>将瞬时力信号直接注入 Cross-Scale MoE，动态选择视觉、状态或力 expert</AlgorithmStep>
+  <AlgorithmStep>从噪声初始化并迭代 flow-matching action，得到位姿变化和目标力</AlgorithmStep>
+  <AlgorithmStep>执行动作并计算子任务进度；超过阈值则切换 Force Prompt</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** 截至本文写作，项目主页明确标注代码和数据集“coming soon”，GitHub 链接仍是通用占位地址，GitHub API 也没有找到名为 ForceVLA2 的公开仓库。因此无法核对模型类、损失实现、采样步数、动作归一化或部署接口；本文不虚构这些实现细节。后续若官方仓库公开，最值得优先核查的是：Force Prompt 的生成器、MoE gate 的输入输出、力旁路是否共享参数，以及 flow-matching action 的实际维度。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+**【Paper】** 实验使用 7-DoF Flexiv Rizon 4s、AG-95 夹爪、两台 RealSense D455 第三人称相机和一台 D435 腕部相机；每项任务进行 20 次独立试验，指标为成功率。基线包括 ACP、$\pi_0$、$\pi_{0.5}$、ForceVLA 和带朴素力输入的 $\pi_0$。
+
+![数据采集系统：Flexiv、GELLO、相机与末端力传感器（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-forcevla2/4-crop.webp)
+
+### 5.2 Main Results
+
+| 方法                 | Press bottle | Clean vase | Clean board | Retrieve plate | Assemble gears |   平均 |
+| -------------------- | -----------: | ---------: | ----------: | -------------: | -------------: | -----: |
+| $π_0$                |           35 |         20 |          35 |              0 |              0 |     18 |
+| $π_{0.5}$            |           45 |         30 |          45 |             15 |             20 |     31 |
+| ACP                  |           25 |         30 |          25 |              0 |              0 |     16 |
+| $π_0$ w/ naive force |           30 |         25 |          20 |             10 |              0 |     17 |
+| ForceVLA             |           70 |         25 |          55 |             15 |             10 |     35 |
+| **ForceVLA2**        |       **80** |     **75** |      **70** |         **35** |         **70** | **66** |
+
+**【Paper】** ForceVLA2 在五项任务上平均 66%，尤其在 Assemble gears 上达到 70%，比第二名高 50 个百分点。朴素地把力拼到 $\pi_0$ 输入中只有 17%，说明“有力信号”不等于“会使用力信号”。
+
+![典型任务的定性结果与过载规避（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-forcevla2/5-crop.webp)
+
+### 5.3 Ablation Study
+
+组件逐步消融结果为：$\pi_0$ 基线 18%，加入 Force Prompt 后 27%，再加入多模态编码器后 40%，最后加入 Cross-Scale MoE 达到 66%。**【Paper】** 其中 MoE 带来的增益最大，说明动态路由比静态拼接更重要。
+
+| Cross-Scale MoE 输入 | 平均成功率 |
+| -------------------- | ---------: |
+| 仅状态（基线）       |         36 |
+| 视觉模态             |         50 |
+| 视觉 + 力模态        |     **66** |
+
+视觉和力大致贡献相当，但 Press bottle 与 Clean board 加入额外力 token 后略有下降。**【Analysis】** 这些任务的控制模式较简单，过多自由度可能扰动本来稳定的位姿策略。
+
+![Cross-Scale MoE 与 Force Prompt 的组件消融（论文 Table 2 / Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-forcevla2/6_2-crop.webp)
+
+### 5.4 Generalization
+
+**【Paper】** 作者额外测试了突然改变桌面高度、改变花瓶倾角和视觉失效后的重新抓取。ForceVLA2 能通过力反馈重新建立接触、沿花瓶表面滑动，或在沙盒中进行力引导探索；纯位姿基线往往继续追踪旧轨迹并触发过载。
+
+**【Analysis】** 这些实验更像“分布外扰动下的闭环恢复”而不是传统静态泛化，验证重点是反应速度和可恢复性。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** 有三层原因：
+
+1. Force Prompt 把连续的接触信息压缩为可解释的阶段概念，减少 VLM 在长任务中丢失阶段状态的风险。
+2. 位姿走多模态上下文路径、瞬时力走旁路，分别满足语义一致性和低延迟反馈。
+3. MoE 允许模型在自由空间、接触和探索阶段切换主导模态，而不是假设所有时刻都应使用相同的融合比例。
+
+### 6.2 核心创新
+
+**【Analysis】** 真正的创新是“力觉在层级上的多尺度分工”：高层 force-aware task concept 决定当前要完成哪一种接触阶段，低层 Cross-Scale MoE 决定当前动作更应该听视觉、位姿还是力。混合力位动作只是这个分工最终落到控制接口上的表现。
+
+### 6.3 与已有方法的本质区别
+
+| 路线                | 力的角色                                | 闭环粒度                   |
+| ------------------- | --------------------------------------- | -------------------------- |
+| $π_0$ / $π_{0.5}$   | 通常没有显式力控制                      | 主要是视觉-位姿            |
+| $π_0$ + naive force | 将力作为额外输入拼接                    | 静态融合                   |
+| ForceVLA            | 将力作为 VLA 感知模态                   | 力参与感知，但控制耦合较弱 |
+| ForceVLA2           | Force Prompt + 力旁路 + Cross-Scale MoE | 任务阶段与瞬时接触双闭环   |
+
+### 6.4 关键假设
+
+**【Paper】** 方法依赖若干前提：任务可以拆成 3–5 个阶段；每个阶段的 Force Prompt 可以预先定义；末端有可靠的 6D F/T 传感器；训练示教覆盖足够多的接触变化。
+
+**【Analysis】** 这些假设限制了它对未知任务的零样本能力。Force Prompt 目前更像“结构化任务先验”，而不是完全自动发现的子任务规划器。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 论文没有在主文中给出一个单独的 limitations 小节，但附录与讨论承认：真实力控制受硬件、摩擦和接触建模影响，作者因此主要采用真实机器人评测；现有公开数据集缺少统一的力模态，数据规模也远小于通用 VLA 数据集。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+- 五个任务、单一 Flexiv 平台和 20 次试验仍不足以证明跨机器人、跨传感器迁移。
+- Force Prompt 依赖人工子任务列表和离线阶段标注，标注成本及错误传播没有单独量化。
+- 论文报告成功率，但没有系统报告力跟踪误差、峰值接触力、延迟或安全约束，因而难以判断“成功”是否同时代表柔顺和高精度。
+- 论文正文对 6D/7D 位姿及动作维度的表述存在不一致，公开代码缺失也使复现和接口核验暂时受限。
+
+## 8. 启发与研究思考
+
+**【Analysis】** ForceVLA2 给 VLA 研究的启发不是再添加一种传感器，而是重新划分“谁负责理解、谁负责反应”：
+
+1. 可以把触觉、力觉或关节电流视为高频控制信号，而不是必须经过语言模型的普通 token。
+2. 未来的 VLA 数据集应同时标注接触阶段、目标力和失败恢复事件，让模型学习“何时切换控制模式”。
+3. MoE gate 的权重可以成为可解释的控制诊断信号：如果模型在接触阶段仍长期依赖视觉 expert，可能意味着传感器、标定或数据覆盖存在问题。
+4. 下一步值得研究自动发现 Force Prompt、跨机器人力标定，以及把成功率之外的力跟踪误差和安全约束纳入训练目标。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码或项目页信息，`【Analysis】`
+  表示基于论文和可核验资料的分析推断。项目页目前标注代码和数据集即将公开，本文没有把占位链接当作代码来源。
+</Aside>
