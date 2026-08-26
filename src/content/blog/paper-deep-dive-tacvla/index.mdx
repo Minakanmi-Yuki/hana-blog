@@ -1,0 +1,247 @@
+---
+title: 'TacVLA 论文精读：接触感知触觉融合 VLA'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 TacVLA：用低维触觉 token 与接触感知门控，让 VLA 在遮挡、拆解和盒内抓取中的接触控制更可靠。'
+heroImage:
+  { src: 'https://pic.hana0721.top/70434530_p0_master1200.b9htgy5uw.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '70434530'
+tags:
+  - 'paper deep dive'
+  - 'tactile VLA'
+  - 'contact-rich manipulation'
+  - 'multimodal fusion'
+paper:
+  arxivId: '2603.12665'
+  title: 'TacVLA: Contact-Aware Tactile Fusion for Robust Vision-Language-Action Manipulation'
+  authors:
+    - 'Kaidi Zhang'
+    - 'Heng Zhang'
+    - 'Zhengtong Xu'
+    - 'Zhiyuan Zhang'
+    - 'Md Rakibul Islam Prince'
+    - 'Xiang Li'
+    - 'Xiaojing Han'
+    - 'Yuhao Zhou'
+    - 'Arash Ajoudani'
+    - 'Yu She'
+  venue: 'arXiv'
+  year: 2026
+  code: ''
+  project: 'https://sites.google.com/view/tacvla'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2603.12665'
+  tldr='TacVLA 将 15×8 触觉阵列压成 36 个 token，并以接触状态门控触觉注意力，使 VLA 只在真正接触时使用 touch。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《TacVLA: Contact-Aware Tactile Fusion for Robust Vision-Language-Action Manipulation》  
+**作者**：Kaidi Zhang、Heng Zhang、Zhengtong Xu、Zhiyuan Zhang、Md Rakibul Islam Prince、Xiang Li、Xiaojing Han、Yuhao Zhou、Arash Ajoudani、Yu She  
+**机构**：Purdue University、Istituto Italiano di Tecnologia  
+**论文链接**：[arXiv:2603.12665](https://arxiv.org/abs/2603.12665)  
+**项目主页**：[TacVLA](https://sites.google.com/view/tacvla)
+
+![TacVLA 总览：双目视觉、本体状态与触觉进入 VLM 和 Action Expert（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-tacvla/Main_figure_V2.4ubo67rx8w.webp)
+
+### 一句话总结
+
+**【Paper】** TacVLA 在 Pi0.5 风格的 VLA 中加入紧凑触觉编码器，并用二值接触标志控制触觉 token 的 embedding 与 attention mask；机器人在非接触阶段主要依赖视觉和语言，检测到接触后才让 touch 参与跨模态决策。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 把 15×8、每帧 120 个测量值的触觉阵列编码成 36 个 token，避免把触觉图像化后带来的长序列开销。
+2. 提出 contact-aware gating：接触时保留触觉 token，非接触时将其置零并屏蔽其注意力。
+3. 在四种 constraint-locked disassembly、in-box picking、相机遮挡和人类干扰下进行真实机器人评测。
+4. 在拆解任务上取得 83.75% 平均成功率，在盒内抓取上取得 70%，分别比微调 Pi0.5 的 63.75% 和 10% 更高。
+
+## 2. 背景与相关工作
+
+**【Paper】** 视觉擅长描述全局场景，却会在末端执行器遮挡、盒内弱光和接触瞬间失效；它也难以直接观测摩擦、滑移、压力分布与卡滞。VLA 如果只依赖 RGB 与语言，往往知道“应该抓什么”，却不知道“是否已经真正抓住”。
+
+已有 tactile VLA 工作通常把触觉作为持续输入，或把触觉图像经过视觉 backbone 后与视觉 token 直接拼接。论文的判断是：触觉是**状态依赖**的局部信号，在没有接触时可能只是噪声；静态拼接会让 token 竞争和 modality imbalance 变得更严重。TacVLA 因而把问题从“如何再加入一种传感器”改写成“何时让 touch 获得注意力”。
+
+## 3. 问题定义
+
+**【Paper】** 平台是一台 7-DoF Franka Emika Panda，配有平行夹爪、固定 front camera、wrist camera，以及安装在一根手指上的 15×8 触觉阵列。所有模态以 10 Hz 同步记录。
+
+| 项目 | 定义 |
+| --- | --- |
+| Observation | front/wrist RGB、语言指令、15×8 tactile map、robot proprioception |
+| Action | Pi0.5 action expert 预测的连续动作序列 |
+| 任务 | 四种锁定拆解动作与盒内探索抓取 |
+| 数据 | 每个任务 50 条人类 teleoperation demonstrations |
+| 目标 | 接触丰富、视觉遮挡下仍能完成定位、接触确认、调整和恢复 |
+
+四个拆解任务分别需要拉出紧轴、按压卡扣、旋转 90° 后拉出，以及向内滑动后拉出；盒内抓取则要求先探索直到建立接触，再抓取并放入碗中。
+
+![四种 constraint-locked disassembly 的几何约束（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-tacvla/Disassembly.8adzyb1k63.webp)
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+**【Paper】** front 与 wrist 图像由 SigLIP Vision Encoder 编码；语言和 proprioception 使用 PaliGemma tokenizer；触觉阵列经轻量 MLP 投影为 36 个 tactile tokens，并加入固定 2D sine-cosine positional embedding。经过门控的三类 token 拼接后进入 Gemma 2 6B VLM，融合表示再作为 prefix 送入 Pi0.5 风格的 flow-matching Action Expert，输出连续动作序列。
+
+数据流可以概括为：`RGB + language + proprio + tactile → modality tokenizers → contact-aware gating → VLM non-causal attention → action expert → action chunk`。
+
+### 4.2 核心模块
+
+#### Compact tactile tokenizer
+
+- **输入**：单帧 15×8 tactile map，共 120 个测量值。
+- **中间模块**：MLP encoder 将 map 投影到模型 hidden space，再附加固定二维位置编码。
+- **输出**：36 个 tactile tokens。
+- **作用**：保留局部接触分布、整体压力和接触几何，同时把 token 数控制在可与 VLM 共同处理的规模。
+
+**【Analysis】** 36 并不等价于恢复高分辨率接触图；它更像是一个“足够判断接触与调整方向”的低带宽接口，适合当前论文的短时域任务。
+
+#### Contact-aware gating
+
+论文用阈值规则检测接触：超过压力阈值的 taxel 数量超过固定 count 时，令接触标志 $c_t=1$。触觉 token 与 attention mask 随之变为：
+
+$$
+M_t^{\mathrm{tac}} = c_t \cdot \mathbf{1}, \qquad
+\tilde z_t^{\mathrm{tac}} = c_t \cdot z_t^{\mathrm{tac}}.
+$$
+
+当 $c_t=0$，触觉 embedding 被置零，且对应 token 不参与 attention；当 $c_t=1$，触觉 token 恢复并与视觉、语言进行 cross-modal interaction。固定 token 拓扑避免了动态插入/删除 token 带来的位置变化。
+
+#### VLM 与 Action Expert
+
+Gemma 2 6B 以 non-causal attention 处理拼接 prefix，让三种模态自由互相 attend。随后 Action Expert 按 Pi0.5 设计，用 flow matching 预测连续动作序列。论文没有公开每层 LoRA target、动作 horizon 或 action head 的代码实现。
+
+### 4.3 关键公式
+
+策略条件分布写为：
+
+$$
+ a_{t:t+H} \sim \pi_\theta(a_{t:t+H}\mid \tilde z_t),
+$$
+
+其中 $\tilde z_t=[z_t^{\mathrm{vis}},z_t^{\mathrm{lan+pro}},\tilde z_t^{\mathrm{tac}}]$ 是门控后的多模态 token，$H$ 是动作序列长度，$\pi_\theta$ 是 VLA policy。
+
+门控公式的关键不是学习一个连续权重，而是使用 $c_t\in\{0,1\}$ 做硬路由：
+
+$$
+ c_t=\mathbb{1}\left[\sum_{i=1}^{120}\mathbb{1}(p_{t,i}>\tau)>N\right],
+$$
+
+其中 $p_{t,i}$ 是第 $i$ 个 taxel 的压力读数，$\tau$ 是压力阈值，$N$ 是超过阈值的 taxel 数门槛。论文未明确给出 $\tau$ 与 $N$ 的具体数值。
+
+### 4.4 Training
+
+**【Paper】** 每个任务收集 50 条示教，所有模态按时间对齐。模型从 OpenPI 的 pi05 base checkpoint 出发，以 LoRA 微调 10,000 个 gradient steps；tactile encoder 在微调时冻结。扩散策略基线则训练 200 epochs。论文未明确说明 TacVLA 的 batch size、学习率、动作 horizon 和 LoRA target layers。
+
+<Algorithm number={1} title='TacVLA training' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>同步的 RGB、语言、proprioception、tactile map 与示教动作序列</div>
+  <div slot='output'>微调后的 TacVLA policy</div>
+  <AlgorithmStep>读取一段示教，在每个时间步计算压力阈值规则得到 contact flag。</AlgorithmStep>
+  <AlgorithmStep>用 SigLIP、PaliGemma tokenizer 和 MLP tactile encoder 生成三类 token。</AlgorithmStep>
+  <AlgorithmStep>根据 contact flag 对 tactile embedding 清零或解锁 attention mask。</AlgorithmStep>
+  <AlgorithmStep>将多模态 prefix 输入 Gemma 2 与 Action Expert，计算 flow-matching 动作损失。</AlgorithmStep>
+  <AlgorithmStep>仅更新 LoRA 与可训练策略参数，保持 tactile encoder 冻结，重复 10,000 steps。</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 推理时每个 10 Hz 时间步都重新判断接触状态。非接触阶段主要依赖视觉定位；一旦检测到接触，触觉 token 进入 VLM 上下文，帮助策略决定按压、旋转、滑动、重新抓取或继续抬升。盒内任务尤其依赖“只有确认接触后才进入 lifting/place 阶段”的状态转换。
+
+<Algorithm number={2} title='Contact-aware tactile inference' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前 front/wrist RGB、语言指令、proprioception 与 tactile map</div>
+  <div slot='output'>下一段连续机器人动作</div>
+  <AlgorithmStep>同步读取观测，并按压力阈值计算 contact flag。</AlgorithmStep>
+  <AlgorithmStep>编码视觉、语言、本体状态和触觉；无接触时屏蔽触觉 token。</AlgorithmStep>
+  <AlgorithmStep>将门控后的 prefix 输入 VLM 与 Action Expert，预测动作序列。</AlgorithmStep>
+  <AlgorithmStep>执行当前动作并在下一时间步重新感知；若接触或外部状态改变，策略可调整或 re-grasp。</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Paper】** 截至论文 v2（2026-03-24），项目主页只提供论文、演示视频和实验说明，论文写明“code will be released”。因此本节没有可核对的官方 model definition、DataLoader、loss 实现或 checkpoint。上文关于 Gemma 2 6B、SigLIP、MLP tactile encoder、LoRA 和冻结 tactile encoder 的描述均来自论文，而不是代码审计。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![TacVLA 的 Franka、双相机与手指触觉阵列硬件（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-tacvla/Hardware_image.51ew1ne2n3.webp)
+
+**【Paper】** 每个任务 50 条 teleoperation demonstrations，四个拆解任务和一个盒内抓取任务都在真实 Franka 平台上评测。对照方法包括 finetuned Pi0.5、直接拼接触觉的 Pi0.5（w/o gating）、image Diffusion Policy 与 3D Diffusion Policy。
+
+![拆解与盒内抓取的时序步骤（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-tacvla/Tasks_Description_V3.92qvg1i66m.webp)
+
+### 5.2 Main Results
+
+| 方法 | 拆解平均 | 盒内抓取 |
+| --- | ---: | ---: |
+| 3D Diffusion Policy + Tactile | 31.25% | 5% |
+| Diffusion Policy + Tactile | 48.75% | 0% |
+| Finetuned Pi0.5 | 63.75% | 10% |
+| **TacVLA** | **83.75%** | **70%** |
+
+**【Paper】** TacVLA 在四个拆解任务上分别达到 100%、90%、70%、75%，相对 Pi0.5 在最困难的 slide-pull Task 4 提升 45 个百分点。盒内抓取中，前置相机完全看不到箱内，wrist camera 还受到弱光和遮挡影响，TacVLA 仍能通过探索和多次 re-grasp 达到 14/20 成功。
+
+### 5.3 Ablation Study
+
+![相机遮挡下四个拆解任务的成功率（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-tacvla/robustness_bar_chart.4clmhmqjx1.webp)
+
+去掉门控、只把 tactile token 持续拼接时，拆解平均成功率从 83.75% 降到 71.25%，盒内抓取从 70% 降到 40%。Task 3 的 no-gating 版本只有 60%，甚至低于不使用触觉的 Pi0.5（65%）。**【Analysis】** 这说明增益并非来自“多一个传感器”这么简单，而来自触觉参与时机与接触状态的一致性。
+
+### 5.4 Generalization
+
+![遮挡与人类干扰的鲁棒性测试流程（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-tacvla/Robustness_Demonstration.1vze2pjnup.webp)
+
+**【Paper】** 阻挡 front camera 后，Pi0.5 在四个任务上的成功率为 40%、40%、5%、35%，TacVLA 为 70%、65%、45%、70%；平均成功率从约 30% 提升到约 62%。在人为把物体放回盒内的运行时干扰中，TacVLA 能检测状态变化、回到盒内并重新抓取，Pi0.5 则无法恢复。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** TacVLA 把“视觉定位”和“接触确认”拆成两个互补阶段：接触前，触觉噪声不会与视觉 token 争夺注意力；接触后，局部压力分布成为动作修正的直接证据。固定 token 拓扑又避免了动态 token 删除导致的 positional shift，因此门控只改变信息可见性，不改变 backbone 的序列结构。
+
+### 6.2 核心创新
+
+真正的创新点是 **state-dependent modality arbitration**：触觉不是始终在线的第三路视觉，而是由物理事件触发的条件输入。低维 tokenization 负责效率，硬门控负责时序上的信息隔离，两者共同服务于 contact-rich manipulation。
+
+### 6.3 与已有方法的本质区别
+
+与静态拼接的 visuotactile policy 相比，TacVLA 在 token level 选择“现在是否应该听 touch”；与从零训练的 Diffusion Policy 相比，它保留了预训练 VLM 的视觉-语言先验，再以 LoRA 注入触觉和任务数据。**【Analysis】** 因而它更像是在已有 VLA 的上下文路由上增加一个物理状态开关，而不是重新设计完整控制器。
+
+### 6.4 关键假设
+
+- 压力阈值和 taxel 数量可以可靠地区分接触与非接触。
+- 单指上的 15×8 阵列足以支持这些任务所需的接触判断。
+- 短时域动作序列与 10 Hz 观测足以覆盖拆解和盒内抓取的状态变化。
+- 预训练 Pi0.5 的视觉-语言表示可迁移到新增 tactile token。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** (1) 二值 threshold gating 不能连续、可学习地调节 modality importance；(2) 触觉阵列空间分辨率有限，限制了细粒度接触几何推理；(3) 当前只验证短时域、接触中心任务，尚未覆盖更长时域和更复杂任务。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】** 硬门控把接触检测错误直接传递给策略：漏检会让模型在关键接触阶段“失聪”，误检则会重新引入噪声。论文也没有报告阈值跨传感器、跨物体的校准方式，或不同接触材质下的稳定性。此外，实验每个任务只有 50 条示教，且主要在单一 Franka embodiment 上完成，泛化到不同夹爪、传感器和动作频率仍需验证。
+
+## 8. 启发与研究思考
+
+TacVLA 给出的启发不是“所有 VLA 都应加触觉”，而是应把每种传感器的**信息有效区间**显式建模。下一步可以让 gate 从二值规则升级为可校准的连续 routing policy，例如根据压力历史、滑移概率和视觉不确定性共同决定触觉权重；也可以把 contact flag 作为 auxiliary state prediction 训练信号，让模型学会预判即将发生的接触，而不是等阈值触发。
+
+另一个值得延伸的方向是长时域 memory：当前门控只回答“此刻是否接触”，却没有记录“接触发生过什么、是否滑移、上一次 re-grasp 是否成功”。将 tactile events 压缩成事件 token，再交给 VLM 的长上下文或层级 policy，可能比持续输入原始触觉更适合复杂装配。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和公开实验信息的分析推断。论文当前未公开官方代码，因此没有可引用的 `【Code】` 结论。
+</Aside>
