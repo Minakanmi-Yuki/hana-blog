@@ -21,8 +21,8 @@ Use only after the count-1 pool is exhausted.
 |         3 | `116834498` | `https://pic.hana0721.top/116834498_p0_master1200.1e974fnzok.webp` | `rl-note-26`, `paper-deep-dive-onetwovla`, `paper-deep-dive-starvla-alpha`                              |
 |         3 | `125160058` | `https://pic.hana0721.top/125160058_p0_master1200.6ikvtm0o6l.webp` | `sts-silent-cards-rating`, `paper-deep-dive-molmoact`, `paper-deep-dive-fast`, `paper-deep-dive-fd-vla` |
 |         3 | `133535742` | `https://pic.hana0721.top/133535742_p0_master1200.icpovr2id.webp`  | `paper-deep-dive-openvla`, `paper-reading-eba1`, `paper-deep-dive-ricl`                                 |
-|         2 | `57793944`  | `https://pic.hana0721.top/57793944_p0_master1200.4xv4u7fok2.webp`  | `paper-deep-dive-rt2`, `paper-reading-vlm2`                                                             |
-|         2 | `104724685` | `https://pic.hana0721.top/104724685_p0_master1200.7p472bcti3.webp` | `rl-note-23`, `paper-deep-dive-bagel`                                                                   |
+|         3 | `57793944`  | `https://pic.hana0721.top/57793944_p0_master1200.4xv4u7fok2.webp`  | `paper-deep-dive-rt2`, `paper-reading-vlm2`, `paper-deep-dive-evo-0`                                   |
+|         3 | `104724685` | `https://pic.hana0721.top/104724685_p0_master1200.7p472bcti3.webp` | `rl-note-23`, `paper-deep-dive-bagel`, `paper-deep-dive-mu0`                                            |
 |         2 | `104786218` | `https://pic.hana0721.top/104786218_p0_master1200.8vnievbkwk.webp` | `vibe-coding-2`, `paper-deep-dive-x-vla`                                                                |
 |         2 | `105886628` | `https://pic.hana0721.top/105886628_p0_master1200.5fl6its319.webp` | `paper-deep-dive-diffusion-policy`, `rl-note-24`                                                        |
 |         3 | `66119164`  | `https://pic.hana0721.top/66119164_p0_master1200.3d5duqih46.webp`  | `rl-note-2`, `robotic-grasp-detection-1`, `paper-deep-dive-rlinf-user`                                  |
@@ -71,7 +71,7 @@ Preferred candidates for new posts.
 |         2 | `42175762`  | `https://pic.hana0721.top/42175762_p0_master1200.6m4jay5vlg.webp`  | `paper-reading-eba5`, `paper-deep-dive-cot-vla`, `paper-deep-dive-pi05`                                                     |
 |         3 | `112236596` | `https://pic.hana0721.top/112236596_p0_master1200.232gogbiox.webp` | `rl-note-25`, `paper-deep-dive-qwen-robotmanip`, `paper-deep-dive-rlinf-vla`, `paper-deep-dive-what-matters-latent-actions` |
 |         3 | `133376054` | `https://pic.hana0721.top/133376054_p0_master1200.1ziuqmv790.webp` | `vscode-ssh-setup`, `paper-deep-dive-clap`, `paper-deep-dive-multiview-il`, `paper-deep-dive-lerobot`                       |
-|         3 | `56422576`  | `https://pic.hana0721.top/56422576_p0_master1200.7i0z6ufn65.webp`  | `paper-reading-vlm1`, `paper-deep-dive-chatvla-2`, `paper-deep-dive-touchworld`                                             |
+|         3 | `56422576`  | `https://pic.hana0721.top/56422576_p0_master1200.7i0z6ufn65.webp`  | `paper-reading-vlm1`, `paper-deep-dive-chatvla-2`, `paper-deep-dive-touchworld`, `paper-deep-dive-fast-in-slow`            |
 |         2 | `62258773`  | `https://pic.hana0721.top/62258773_p0_master1200.7zr0vfh0rf.webp`  | `paper-reading-cv1`, `paper-deep-dive-ace-ego-0`                                                                            |
 |         2 | `64131498`  | `https://pic.hana0721.top/64131498_p0_master1200.45i9cfg3rk.webp`  | `paper-reading-eba2`, `paper-deep-dive-lap`                                                                                 |
 |         2 | `62423081`  | `https://pic.hana0721.top/62423081_p0_master1200.3ns7nvxp9b.webp`  | `paper-reading-bm1`, `paper-deep-dive-rdt2`                                                                                 |
@@ -79,7 +79,7 @@ Preferred candidates for new posts.
 |         3 | `69461006`  | `https://pic.hana0721.top/69461006_p0_master1200.1e974ctzq9.webp`  | `paper-reading-llm2`, `paper-deep-dive-actioncodec`, `paper-deep-dive-gr00t-n1`, `paper-deep-dive-learning-while-deploying` |
 |         3 | `69606244`  | `https://pic.hana0721.top/69606244_p0_master1200.64eg2rlm3q.webp`  | `paper-reading-marl1`, `paper-deep-dive-lapa`, `paper-deep-dive-t-rex`                                                      |
 |         3 | `70434530`  | `https://pic.hana0721.top/70434530_p0_master1200.b9htgy5uw.webp`   | `paper-reading-mllm1`, `paper-deep-dive-villa-x`, `paper-deep-dive-vla-opd`, `paper-deep-dive-tacvla`                       |
-|         3 | `70937229`  | `https://pic.hana0721.top/70937229_p0_master1200.6bhnz4ob71.webp`  | `matlab-ubuntu-24-04-install`, `paper-deep-dive-pi07`, `paper-deep-dive-omnivta`                                           |
+|         3 | `70937229`  | `https://pic.hana0721.top/70937229_p0_master1200.6bhnz4ob71.webp`  | `matlab-ubuntu-24-04-install`, `paper-deep-dive-pi07`, `paper-deep-dive-omnivta`                                            |
 |         2 | `71187447`  | `https://pic.hana0721.top/71187447_p0_master1200.13mdb6lism.webp`  | `galgame-1`, `paper-deep-dive-dreamzero`                                                                                    |
 |         2 | `71875434`  | `https://pic.hana0721.top/71875434_p0_master1200.7pvvr603z.webp`   | `paper-reading-umllm1`, `paper-deep-dive-warp-rm`                                                                           |
 |         2 | `90399055`  | `https://pic.hana0721.top/90399055_p0_master1200.4g535npbv6.webp`  | `rl-note-21`, `paper-deep-dive-internvla-a1`, `paper-deep-dive-cosmos-policy`, `paper-deep-dive-genie-envisioner`           |

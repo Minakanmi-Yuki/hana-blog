@@ -1,0 +1,241 @@
+---
+title: 'Evo-0 论文精读：让 VLA 从 RGB 中获得隐式空间理解'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 Evo-0：用 VGGT 的几何 token 和轻量 Cross-Attention 融合模块，为现有 VLA 注入无需深度传感器的隐式 3D 先验。'
+heroImage:
+  { src: 'https://pic.hana0721.top/57793944_p0_master1200.4xv4u7fok2.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '57793944'
+tags:
+  - 'paper deep dive'
+  - 'VLA'
+  - 'spatial understanding'
+  - 'robot manipulation'
+paper:
+  arxivId: '2507.00416'
+  title: 'Evo-0: Vision-Language-Action Model with Implicit Spatial Understanding'
+  authors:
+    - 'Tao Lin'
+    - 'Gen Li'
+    - 'Yilei Zhong'
+    - 'Yanwen Zou'
+    - 'Yuxin Du'
+    - 'Jiting Liu'
+    - 'Encheng Gu'
+    - 'Bo Zhao'
+  venue: 'arXiv'
+  year: 2025
+  code: 'https://github.com/MINT-SJTU/Evo-0'
+  project: 'https://mint-sjtu.github.io/Evo-0.io/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2507.00416'
+  tldr='Evo-0 在不增加深度传感器的前提下，把 VGGT 的 3D 几何 token 通过单层 Cross-Attention 融入 π₀ 的视觉流，使 VLA 在精细定位、抓取和扰动泛化任务上更可靠。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《Evo-0: Vision-Language-Action Model with Implicit Spatial Understanding》  
+**作者**：Tao Lin、Gen Li、Yilei Zhong、Yanwen Zou、Yuxin Du、Jiting Liu、Encheng Gu、Bo Zhao  
+**链接**：[arXiv](https://arxiv.org/abs/2507.00416) · [项目主页](https://mint-sjtu.github.io/Evo-0.io/) · [官方代码](https://github.com/MINT-SJTU/Evo-0)
+
+![Evo-0 系统总览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-evo-0/Evo0-model.1764ip8bc1.webp)
+
+### 一句话总结
+
+**【Paper】** Evo-0 把一个冻结的 Visual Geometry Foundation Model（VGGT）当作空间先验提取器，再用轻量的 Cross-Attention 将几何 token 注入现有 VLA 的 2D visual token；机器人仍只接收 RGB、多视角图像和状态，却能获得更强的深度、布局与空间关系感知。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出 plug-and-play 的隐式 3D 融合模块，不依赖深度相机、点云输入或显式深度估计。
+2. 基于 VGGT 的 3D token 改造 π₀ 的视觉流，仅训练 fuser、LoRA 和 flow-matching action expert，尽量保持 VLM 先验。
+3. 在 5 个 RLBench 任务、5 个真实任务和 5 类真实扰动上验证空间理解与泛化能力。
+
+**【Analysis】** 论文的关键不是“把 RGB 变成一个深度图”，而是把 VGGT 已经学到的几何关系作为 token 级上下文交给 VLA；动作头仍然学习控制，因此改动集中在感知接口。
+
+## 2. 背景与相关工作
+
+**【Paper】** OpenVLA、π₀、GR00T 等 VLA 复用预训练 VLM 的语义知识，但 VLM 的主要预训练信号来自 2D 图像—文本对，机器人微调数据也通常只有 RGB。结果是模型能认出“哪个是杯子”，却不一定能判断杯子与夹爪的精确深度、孔洞的轴向或货架上的相对位置。
+
+已有 PointVLA、SpatialVLA、3D-VLA 等工作显式加入点云或深度图。这类方法空间信息更直接，却引入深度传感器、标定和深度估计误差。Evo-0 选择另一条折中路线：输入仍为 RGB，多视角几何由 VGGT 的 feed-forward 网络隐式编码，再与 VLM 的 2D token 融合。
+
+## 3. 问题定义
+
+**【Paper】** 在时间步 $t$，模型接收 $N$ 个 RGB 视图 ${I_t^i}_{i=1}^{N}$、语言指令 $L$ 和机器人状态 $S_t$（如关节角与夹爪状态），输出动作 chunk $A_t$：
+
+$$
+p(A_t \mid \{I_t^i\}_{i=1}^{N}, L, S_t).
+$$
+
+实验中使用三个 $224\times224$ RGB 视图，输入状态和输出均采用绝对关节角。仿真使用 Franka Panda 与 CoppeliaSim/RLBench；真实实验使用五类低空间容错操作。每个任务收集 100 条示教，评估时每个仿真任务执行 20 次 rollout。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+**【Paper】** RGB 图像同时经过原 VLA 的 ViT 和 VGGT；fuser 以 ViT token 为 Query、VGGT 的 3D token 为 Key/Value，得到空间增强 token，随后送入 PaliGemma 与 π₀ 的 action expert 产生关节动作。训练和运行的细节分别见 4.4 与 4.5。
+
+### 4.2 核心模块
+
+#### VGGT spatial encoder
+
+- **输入**：多视角 RGB 图像。
+- **输出**：每个视图的 camera、register 与 3D token；Evo-0 只取最后一层的 $t_{3D}$。
+- **作用**：VGGT 在大规模 2D–3D 配对数据上学习了深度、点图、相机姿态和跨视图对应关系，因此 token 携带比普通 ViT 更强的几何上下文。
+
+#### Lightweight fuser
+
+2D token $t_{2D}\in\mathbb{R}^{N\times M_{2D}\times d_{2D}}$ 作为 Query，3D token $t_{3D}\in\mathbb{R}^{N\times M_{3D}\times d_{3D}}$ 作为 Key 和 Value。每个视图独立计算 Cross-Attention，再拼接所有视图。它只增加一层注意力和投影矩阵，避免重写 VLM。
+
+#### PaliGemma、LoRA 与 action expert
+
+融合后的视觉 token 与语言 token 一起进入 PaliGemma。**【Paper】** VLM 主体冻结，只插入 LoRA；flow-matching action expert 负责把上下文和状态映射到连续关节动作。**【Analysis】** 这让几何信息影响感知表示，而不必把 3D 坐标设计成新的动作接口。
+
+### 4.3 关键公式
+
+VGGT 的几何提取可写为：
+
+$$
+\mathcal{E}_{l}(\{I_i\}_{i=1}^{N}) = t_c, t_r, t_{3D}.
+$$
+
+$l$ 是层索引，$t_c$、$t_r$ 和 $t_{3D}$ 分别是 camera、register 和 3D token；Evo-0 使用 $t_{3D}$。
+
+对第 $i$ 个视图，fuser 计算：
+
+$$
+Q^i=t_{2D}^iW_Q,\quad K^i=t_{3D}^iW_K,\quad V^i=t_{3D}^iW_V,
+$$
+$$
+t^i=\operatorname{softmax}\left(\frac{Q^i(K^i)^\top}{\sqrt d}\right)V^i,\qquad
+t=\operatorname{Concat}_{i=1}^{N}(t^i).
+$$
+
+$W_Q\in\mathbb{R}^{d_{2D}\times d}$、$W_K,W_V\in\mathbb{R}^{d_{3D}\times d}$ 是跨视图共享的可训练投影；$d$ 是注意力隐空间维度。Query 决定哪些 2D 位置需要几何信息，Key/Value 则提供对应的空间证据。
+
+### 4.4 Training
+
+**【Paper】** Evo-0 建立在 π₀ 上，使用 AdamW，weight decay 为 $10^{-10}$；学习率从 $2.5\times10^{-5}$ 经过 1000 步 warm-up 后衰减至 $2.5\times10^{-6}$。训练使用单张 80 GB NVIDIA A800、bfloat16 和 batch size 32。可训练部分为 fuser、LoRA 和 flow-matching action expert，核心 VLM 冻结。
+
+<Algorithm number={1} title='Evo-0 Training' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>RGB 多视图、语言指令、机器人状态与示教动作</div>
+  <div slot='output'>带隐式几何先验的策略参数</div>
+  <AlgorithmStep keyword='Given'>从示教集采样 $(\{I_t^i\},L,S_t,A_t)$</AlgorithmStep>
+  <AlgorithmStep>用 ViT 得到 $t_{2D}$，用 VGGT 得到 $t_{3D}$</AlgorithmStep>
+  <AlgorithmStep>以 $t_{2D}$ 为 Query、$t_{3D}$ 为 Key/Value，计算 fuser 输出 $t$</AlgorithmStep>
+  <AlgorithmStep>将 $t$、语言和状态送入 PaliGemma 与 action expert，预测动作</AlgorithmStep>
+  <AlgorithmStep>仅更新 fuser、LoRA 和 action expert，使用 flow-matching 目标优化</AlgorithmStep>
+  <AlgorithmStep keyword='return'>验证集表现最好的策略</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 推理时不需要显式深度图或点云：每次读取三个 RGB 视图，VGGT 提取 3D token，fuser 产生空间增强视觉表示，π₀ action expert 输出绝对关节角动作并执行。**【Paper】** RTX 4090 上 π₀ 控制频率为 11.3 Hz，Evo-0 为 6.94 Hz，额外开销主要来自 VGGT 图像编码。
+
+<Algorithm number={2} title='Evo-0 Inference' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前多视角 RGB、语言指令和机器人状态</div>
+  <div slot='output'>当前动作 chunk / 绝对关节角</div>
+  <AlgorithmStep>采集并 resize 三个 RGB 视图</AlgorithmStep>
+  <AlgorithmStep>并行运行 ViT 与 VGGT，取 2D token 和 3D token</AlgorithmStep>
+  <AlgorithmStep>通过 Cross-Attention 融合，连同语言和状态输入 π₀</AlgorithmStep>
+  <AlgorithmStep>由 flow-matching action expert 生成动作并交给机器人控制器</AlgorithmStep>
+  <AlgorithmStep>循环读取新观测，形成闭环控制</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** 官方仓库 [MINT-SJTU/Evo-0](https://github.com/MINT-SJTU/Evo-0) 当前只有 README、许可证和论文/项目链接，README 明确写着 **“Coming Soon”**。因此无法从官方代码核验模型定义、DataLoader、loss、配置、checkpoint 或 inference 脚本。本文涉及的实现细节仅采用论文正文；后续代码公开后，应重点检查 VGGT 是否冻结、fuser 的张量布局、动作 chunk 的 horizon，以及 flow-matching 的具体参数。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![RLBench 五个空间精细操作任务（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-evo-0/rlbench2_cropped.8l0trgszfy.webp)
+
+**【Paper】** 仿真任务为 PlayJenga、PutKnifeOnChoppingBoard、TakeUmbrellaOutOfUmbrellaStand、PlaceHangerOnRack 和 MoveHanger，覆盖抓取运输、精确放置以及高度/平移变化。真实任务包括圆柱居中、peg-in-hole、中间瓶抓取、罐子取放和透明物体取放。
+
+![真实世界五类任务设置（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-evo-0/task_setup_realworld.9rk502hw2y.webp)
+
+### 5.2 Main Results
+
+仿真成功率如下（**【Paper】**）：
+
+| 任务 | OpenVLA-OFT | π₀ | Evo-0 |
+| --- | ---: | ---: | ---: |
+| PlayJenga | 55% | 55% | **65%** |
+| PutKnifeOnChoppingBoard | 15% | 20% | **35%** |
+| TakeUmbrellaOutOfUmbrellaStand | 55% | 60% | **85%** |
+| PlaceHangerOnRack | 0% | 25% | **45%** |
+| MoveHanger | 0% | 45% | **50%** |
+| 平均 | 25% | 41% | **56%** |
+
+相对 π₀，平均提升 15 个百分点；最明显的增益出现在雨伞取出和衣架放置，分别提升 25 和 20 个百分点。**【Analysis】** 这些任务都要求接触前的精确定位或避碰，因此更像是在验证几何表示，而不只是验证语义识别。
+
+真实世界结果（**【Paper】**）为 π₀ 28.53% 对 Evo-0 57.41%；五个任务均有提升，peg-in-hole 从 20% 提升到 66.67%，透明物体取放从 30% 提升到 65%。
+
+### 5.3 Ablation Study
+
+![训练步数与执行 horizon 实验（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-evo-0/chart1_cropped.5j4xq8rql0.webp)
+
+![执行 horizon 对成功率的影响（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-evo-0/chart2_cropped.4xva3xxab1.webp)
+
+**【Paper】** 训练 15k 步的 Evo-0 已超过训练 20k 步的 π₀。执行 horizon 取 15、17、20、22、25 时，平均成功率分别为 49%、52%、56%、52%、55%，说明在该范围内对 horizon 不敏感。论文没有提供“移除 fuser / 移除 VGGT”的严格组件消融，因此不能把所有增益归因到某个单独层。
+
+### 5.4 Generalization
+
+![五类真实扰动设置（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-evo-0/distractor.et90yrq5c.webp)
+
+**【Paper】** 在未见干扰物、背景颜色、目标位置（后移 10/20/30 mm）、目标高度（增加 5/10/15 mm）和相机俯仰（±10°）五类 OOD 条件下，Evo-0 整体更稳健。未见干扰物时，正确选物率为 100%（π₀ 为 60%），完整取放成功率为 70%（π₀ 为 20%）；高度增加 10 mm 时为 30% 对 10%，相机向上 10° 时为 60% 对 40%。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** 普通 ViT token 擅长外观和语义，但对“这个像素在场景中离另一个物体多远”没有显式约束。VGGT token 经过 2D–3D 监督，提供跨视图对应、深度和结构线索；Cross-Attention 让每个 2D token 按需检索这些线索。这样，语言条件仍由 VLM 处理，几何关系则由 VGGT 补足，形成互补而非替代。
+
+### 6.2 核心创新
+
+真正的创新是**接口设计**：不改动作空间、不要求深度输入，只在 VLA 的视觉 token 流中插入一个可训练的小 fuser，并利用冻结的几何 foundation model 迁移空间先验。
+
+### 6.3 与已有方法的本质区别
+
+PointVLA/SpatialVLA 把显式 3D 数据作为额外模态；Evo-0 把几何编码成隐式 token。前者可解释性更直接但依赖传感器或估计器，后者部署更简单但空间精度取决于 VGGT 的推断质量和多视角配置。
+
+### 6.4 关键假设
+
+1. 多视角 RGB 足以让 VGGT 恢复对操作有用的几何线索。
+2. VGGT 的 token 与 VLM token 可以通过单层 Cross-Attention 对齐。
+3. 预训练几何先验在机器人相机、物体材质和扰动分布上仍然有效。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** Evo-0 的主要代价是推理速度下降：VGGT 增加了图像编码成本，控制频率从 π₀ 的 11.3 Hz 降至 6.94 Hz。论文还只在五个仿真、五个真实任务和有限扰动上评估，尚未证明对更大规模任务和 embodiment 的普适性。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】** 官方代码尚未公开，复现实验和核对训练细节受限。论文没有报告 VGGT 冻结与否、fuser 参数量、显存/延迟分解，也缺少移除 3D token、替换层位或改变视图数量的组件消融。透明物体、强反光和严重遮挡仍可能让 VGGT 的几何 token 失真；此外，6.94 Hz 是否足够取决于底层控制器和任务动态，不能直接等同于所有机器人都能实时部署。
+
+## 8. 启发与研究思考
+
+**【Analysis】** Evo-0 提供了一条很实用的 VLA 增强路线：先寻找已经具备目标能力的 foundation model，再设计低成本 token 接口，而不是重新训练一个“既懂语言又懂几何”的大模型。后续值得验证：
+
+- 用可学习门控决定何时信任 VGGT、何时回退到原始 2D token；
+- 联合蒸馏 VGGT 与 VLA，降低 6.94 Hz 的推理开销；
+- 将 3D token 的置信度与碰撞/抓取不确定性结合，形成风险敏感的 action expert；
+- 在单目、视图缺失和跨机器人 embodiment 上测试“隐式 3D”是否仍成立。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】` 表示基于论文和代码状态的分析推断。
+</Aside>
