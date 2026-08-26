@@ -1,0 +1,341 @@
+---
+title: 'Do World Action Models Generalize Better than VLAs? 论文精读'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 WAM 与 VLA 的鲁棒性对比：RoboTwin 2.0-Plus 和 LIBERO-Plus 如何用 7 类扰动检验视频时空先验、训练数据多样性与推理效率。'
+heroImage:
+  { src: 'https://pic.hana0721.top/68232005_p0_master1200.60uu51sjdo.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '68232005'
+tags:
+  - 'paper deep dive'
+  - 'world action model'
+  - 'VLA'
+  - 'robot robustness'
+  - 'robot benchmark'
+paper:
+  arxivId: '2603.22078'
+  title: 'Do World Action Models Generalize Better than VLAs? A Robustness Study'
+  authors:
+    - 'Zhanguang Zhang'
+    - 'Zhiyuan Li'
+    - 'Behnam Rahmati'
+    - 'Rui Heng Yang'
+    - 'Yintao Ma'
+    - 'Amir Rasouli'
+    - 'Sajjad Pakdamansavoji'
+    - 'Yangzheng Wu'
+    - 'Lingfeng Zhang'
+    - 'Tongtong Cao'
+    - 'Feng Wen'
+    - 'Xinyu Wang'
+    - 'Xingyue Quan'
+    - 'Yingxue Zhang'
+  venue: 'arXiv'
+  year: 2026
+  code: 'https://github.com/Robot-Robustness/RoboTwin2.0-Plus'
+  project: 'https://robot-robustness.github.io/RoboTwin2.0-Plus/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2603.22078'
+  tldr='这是一项系统比较：WAM 的视频时空先验通常提升噪声、光照和布局鲁棒性，但相机/机器人几何变化仍困难，且扩散推理至少比 π₀.₅ 慢 4.8 倍。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**【Paper】** 论文不提出一个新的 policy，而是回答一个很具体的问题：把视频生成 world model 改造成 World Action Model（WAM）之后，是否真的比典型 Vision-Language-Action（VLA）更能应对训练分布之外的视觉、语言和机器人状态？作者在单臂 LIBERO-Plus 与双臂 RoboTwin 2.0-Plus 上，统一测试公开 checkpoint，并把扰动拆成可复现的维度。
+
+### 一句话总结
+
+**【Analysis】** WAM 的优势更像是“预训练时已经学过视频中的运动规律”，而不是“推理时多算几步就必然更强”：它们在噪声、光照、干扰物布局上经常领先，但在相机视角和初始关节状态改变时并不稳；$π_{0.5}$ 依靠更丰富的机器人与网页数据也能达到相近甚至更好的结果。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出 **RoboTwin 2.0-Plus**：在 50 个双臂任务上沿 7 个维度、21 个子维度施加结构化扰动，并给出 1 个 clean baseline 加 7 个正交分支的评测协议。
+2. 将 WAM、经典 VLA 和混合方法（如 MOTUS、VLA-JEPA）放在 LIBERO-Plus 与 RoboTwin 2.0-Plus 上比较，而不是只报告单一干净测试集。
+3. 分析视频 backbone 的时空先验、task-specific 数据多样性、action 生成方式与 inference latency 各自对鲁棒性的影响。
+4. 给出可复用的 benchmark 代码与配置，官方仓库同时支持数据采集、扰动开关和策略评估。
+
+**【Paper】** 论文最后的结论是有条件的：WAM 通常对视觉扰动更鲁棒，但不是所有扰动都受益；推理开销则是现实部署的主要障碍。
+
+## 2. 背景与相关工作
+
+**【Paper】** 典型 VLA 以 VLM 为 backbone，学习从当前历史状态 $h_t$ 到动作的条件分布：
+
+$$
+\pi(a_t\mid h_t).
+$$
+
+VLM 的 next-token 或 action diffusion 训练擅长语义和空间 grounding，却未必显式预测“执行动作后画面会怎样”。当测试环境改变光照、背景、杂物或相机时，策略可能依赖训练集中的外观捷径。
+
+**【Paper】** WAM 则从视频生成模型出发。其视频 backbone 在互联网视频上学习时空变化，机器人微调阶段再让 latent 表示与动作关联。论文讨论的代表包括 Cosmos-Policy、GE-Act、LingBot-VA、Fast-WAM 和 DreamZero；MOTUS、VLA-JEPA 作为部分加入 world modeling 的混合路线单独分析。
+
+**【Analysis】** 这里的对照不是“有 world model / 没有 world model”的二元实验。模型同时改变了 backbone、action representation、训练数据、是否做 embodied pre-training、扩散步数和 action chunk，因此论文更准确的定位是**系统性 robustness study**。它能发现设计的关联，但不能把所有差异归因于单一模块。
+
+## 3. 问题定义
+
+### 3.1 评测对象
+
+**【Paper】** 对每个候选 policy，在相同任务和初始条件下执行 clean 与扰动分支，记录 episode success rate。论文主要关心四个问题：
+
+| 问题 | 需要回答的证据 |
+| --- | --- |
+| RQ1：WAM 是否鲁棒？ | 两个 benchmark 的总体与分维度成功率 |
+| RQ2：优势是否普遍？ | camera、robot、language、light、background、noise、layout 的分项结果 |
+| RQ3：为何有差异？ | backbone 先验、训练数据与 action/world coupling 的对照 |
+| RQ4：代价是什么？ | 相同设备上的每次 inference wall-clock |
+
+### 3.2 扰动与成功率
+
+**【Paper】** RoboTwin 2.0-Plus 覆盖 50 个 Aloha-AgileX 双臂任务。完整评测是每任务 8 个配置：clean，以及 Camera、Robot、Language、Light、Background、Noise、Layout 七个只激活一个维度的分支；每个配置运行 50 episodes。总体分数是各扰动分支的平均成功率，而不是只看 clean baseline。
+
+**【Analysis】** 这种设计把“场景变了所以失败”和“策略本来就不会做任务”尽量分离：同一任务、同一模型、一次只打开一个开关。它仍然不是现实世界所有 shift 的分布，因为扰动幅度、组合方式和 simulator 物理都被预先规定。
+
+### 3.3 WAM 与 VLA 的条件分解
+
+**【Paper】** 论文用两种抽象描述差别。VLA 直接估计：
+
+$$
+\pi_\theta(a_t\mid h_t).
+$$
+
+WAM 可能联合生成未来状态与动作：
+
+$$
+p_\phi(h_{t+1},a_t\mid h_t),
+$$
+
+或先生成未来视觉状态、再由 inverse-dynamics model（IDM）解码动作：
+
+$$
+p_\phi(h_{t+1}\mid h_t)\,g_\psi(a_t\mid h_t,h_{t+1}).
+$$
+
+有些方法（如 GigaWorld-Policy）采取相反的 action-first 因果方向。
+
+**【Analysis】** 这不是声称两类 policy 在理论上不可互相表达；在有限数据、有限算力和不完美目标下，它们把学习难点放在不同位置：VLA 更依赖 embodied data 学动态，WAM 把一部分动态先验交给视频预训练，再学习 action 与未来状态之间的关系。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![RoboTwin 2.0-Plus 的七类结构化扰动示例（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-world-action-model-robustness/perturbation-strip-crop.8dxlvzs3s9.webp)
+
+**【Paper】** 论文的方法主体是“benchmark + comparative protocol”：环境生成器从 clean episode 出发，只打开一个 YAML perturbation branch，候选 policy 读取被扰动的 observation 和 instruction，随后以 success rate 汇总。代码侧的核心数据流是 `task_config/*.yml → RoboTwin task setup → render-time / scene-time perturbation → policy rollout → success check`。
+
+### 4.2 核心模块
+
+#### 七维扰动 taxonomy
+
+**【Paper】** 七个维度与实际子维度如下：
+
+| 维度 | 子维度 | 具体变化 |
+| --- | --- | --- |
+| Sensor Noise | N1–N5 | motion / Gaussian / zoom / fog / glass blur |
+| Light Conditions | L1–L4 | diffuse color、方向、specular、shadow |
+| Camera Viewpoints | C1–C3 | 距离、球面位置、yaw/pitch/roll |
+| Robot Initial States | 1 项 | 关节噪声与夹爪极端初值 |
+| Background Textures | B1–B2 | 场景主题、桌面材质 |
+| Objects Layout | O1–O2 | 干扰物数量、目标物位姿 |
+| Language Instructions | R1–R3 | 对话包裹、常识改写、目标状态描述 |
+
+**【Code】** 官方仓库在 `task_config/` 中把分支声明为 YAML。`demo_vision_noise.yml` 让每帧 RGB 以 1.0 probability 注入五类噪声；`demo_light.yml` 仅打开 lighting ablation；`demo_camera.yml` 默认启用 C1/C3、关闭 C2 以避免仿真不稳定；`demo_language_plus.yml` 组合 R1/R2/R3；`demo_background_plus.yml` 和 `demo_objects_plus.yml` 分别启用增强背景与目标位姿扰动。
+
+#### LIBERO-Plus 与 RoboTwin 2.0-Plus
+
+**【Paper】** 两套 benchmark 互补：LIBERO-Plus 是 MuJoCo/robosuite 上的单臂 Franka Panda，2 路 $256\times256$ 相机、7-dim delta EEF；RoboTwin 2.0-Plus 是 SAPIEN/ManiSkill3 上的 Aloha-AgileX 双臂，3 路 $320\times240$ 相机、14-dim joint position，控制频率约 25–30 Hz。
+
+**【Analysis】** 如果某个模型在两者都稳定，证据比单一 simulator 更强；但两者 action space、camera 数量和训练 demo 数都不同，所以跨 benchmark 的绝对分数不能直接横向排序。
+
+#### WAM 家族的设计分叉
+
+**【Paper】**
+
+- **Cosmos-Policy** 把 robot state、future image 和 value estimates 编成 latent frames，在同一个 diffusion 过程中做 policy、world model 和 value prediction。
+- **GE-Act** 从 Genie Envisioner 的视频 latent 经轻量 flow-matching action decoder 产生 action trajectory。
+- **LingBot-VA** 在交错序列中自回归生成 future visual state 与 action，动作可看作 IDM 输出。
+- **Fast-WAM** 联合去噪 state/action，但测试时可以省略显式视觉状态生成；它因此更快且不需要 task-agnostic embodied pre-training。
+
+**【Analysis】** 这些不是论文重新实现的统一模型；作者使用公开 checkpoint 或公开实现，因而结论应理解为“当前可用实现的 robustness profile”，而不是控制变量完全相同的架构竞赛。
+
+### 4.3 关键公式
+
+**【Paper】** 若把视觉历史、语言和动作都纳入状态 $h_t$，VLA 的直接策略为：
+
+$$
+\pi(a_t\mid h_t).
+$$
+
+WAM 的 IDM 形式为：
+
+$$
+p(h_{t+1},a_t\mid h_t)=p(h_{t+1}\mid h_t)g(a_t\mid h_t,h_{t+1}).
+$$
+
+其中 $p(h_{t+1}\mid h_t)$ 是视频 backbone 对未来视觉状态的分布，$g$ 将状态变化解码为 robot action。联合去噪方法则直接拟合 $p(h_{t+1},a_t\mid h_t)$。
+
+**【Analysis】** 公式揭示了实验假设：若未来状态预测的时空先验能在噪声、光照和 clutter 下保持稳定，$g$ 就可以从较可靠的状态变化中生成动作；但相机位姿和 robot initial state 改变的是几何对应关系，单纯的视频先验未必足够。
+
+### 4.4 Training
+
+**【Paper】** 作者整理了不同模型的训练数据阶段。经典 VLA（如 $π_0$、OpenVLA-OFT、X-VLA）通常需要 cross-embodiment robot data；$π_{0.5}$ 还加入 high-level planning、VQA、captioning、grounding 和 mobile manipulation 数据。WAM 中 Cosmos-Policy 主要做 task-specific trajectories，LingBot-VA 使用约 16k 小时 cross-embodiment data，Fast-WAM 则只做 task-specific finetuning。
+
+**【Paper】** 为了在 RoboTwin 上比较 $π_{0.5}$，作者从预训练 checkpoint 出发，在完整 27.5k RoboTwin demonstrations 上训练 60k gradient steps：AdamW（$β_1=0.9,β_2=0.95$）、gradient clipping 1.0、cosine learning-rate decay（$2.5\times10^{-5}$ 到 $2.5\times10^{-6}$）、batch size 64，并采用 delta joint actions。
+
+<Algorithm number={1} title='RoboTwin 2.0-Plus 单维度鲁棒性评测' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>任务集合、候选 policy、clean 配置与 7 个 perturbation YAML 分支</div>
+  <div slot='output'>各维度 success rate 与总体 robustness score</div>
+  <AlgorithmStep keyword='for'>对每个 task 和每个配置创建仿真 episode</AlgorithmStep>
+  <AlgorithmStep indent={1}>只打开当前分支的扰动，保留其他环境参数为 clean 默认值</AlgorithmStep>
+  <AlgorithmStep indent={1}>运行 policy rollout，按任务的 `check_success()` 判断成功或失败</AlgorithmStep>
+  <AlgorithmStep indent={1}>每配置累计 50 episodes，计算该维度成功率</AlgorithmStep>
+  <AlgorithmStep keyword='end for' />
+  <AlgorithmStep keyword='return'>clean、7 个扰动维度及其平均成功率</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 评测时模型都处于 closed-loop rollout：policy 根据当前 observation 和 language instruction 输出 action chunk，环境执行后返回下一 observation。WAM 可能还要扩散生成 future visual state；因此其 runtime 不仅包含 action decoder，还包含 state denoising、VAE 与 autoregressive/KV-cache 等开销。
+
+**【Paper】** 同一设备的 wall-clock 对比如下：$π_{0.5}$ 为 63 ms/chunk，X-VLA 195 ms，Fast-WAM 190 ms，GE-Act 300 ms，Cosmos-Policy 390 ms，LingBot-VA 在 real-world 配置 480 ms、RoboTwin 配置 5230 ms；后者相对 $π_{0.5}$ 慢 83 倍。
+
+<Algorithm number={2} title='候选 policy 的闭环 rollout' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前 observation、任务 instruction、候选 policy 与已选 perturbation config</div>
+  <div slot='output'>episode success 与动作执行日志</div>
+  <AlgorithmStep>用 config 初始化 scene、camera、robot state 与语言 instruction</AlgorithmStep>
+  <AlgorithmStep keyword='for'>在 episode horizon 内读取 observation</AlgorithmStep>
+  <AlgorithmStep indent={1}>policy 输出 action chunk，并按该模型的 action representation 解码</AlgorithmStep>
+  <AlgorithmStep indent={1}>执行动作、更新仿真状态，必要时进行 WAM 的 future-state denoising</AlgorithmStep>
+  <AlgorithmStep keyword='end for' />
+  <AlgorithmStep keyword='return'>由任务 `check_success()` 得到的 success/failure</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** 官方仓库 [RoboTwin2.0-Plus](https://github.com/Robot-Robustness/RoboTwin2.0-Plus) 是 benchmark 与数据采集实现，不是论文中所有 VLA/WAM 的统一训练仓库。`script/collect_data.py` 读取 `task_config/<name>.yml`，构造 task class，调用 `setup_demo()`、`play_once()` 和 `check_success()`；成功 episode 才保存 trajectory。
+
+**【Code】** 关键实现位置包括：
+
+| 代码位置 | 实际职责 |
+| --- | --- |
+| `task_config/demo_*.yml` | 选择 clean 或单一扰动分支、episode 数和相机/数据字段 |
+| `envs/_base_task.py` | 解析 sensor noise、camera、background、object、language 等开关 |
+| `envs/camera/camera.py` | 创建 head / wrist cameras 与相机配置 |
+| `script/collect_data.py` | 采集 episode、写 seed、保存成功 trajectory |
+| `description/task_instruction_plus/` | 提供 50 tasks × 50 variants 的语言 JSON |
+
+**【Code】** 例如 `demo_objects_plus.yml` 将 distractor 数量设为 3–15，并以 2 cm 的 x/y Gaussian noise 与 $±15^\circ$ yaw 扰动目标位姿；`demo_vision_noise.yml` 让五种噪声在 episode 间循环。代码支持逐子维度开关，但论文主协议只汇报七个聚合分支。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![RoboTwin 2.0-Plus 中 Camera、Robot、Language、Light、Background、Noise、Layout 的示例（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-world-action-model-robustness/perturbation-strip-crop.8dxlvzs3s9.webp)
+
+**【Paper】** RoboTwin 2.0-Plus 的 50 个双臂任务使用 clean + domain-randomized demonstrations；LIBERO-Plus 则是 40 个任务（4 suites × 10），两套 benchmark 的训练和控制频率不同。RoboTwin 评测统一使用单个模型覆盖所有任务；LIBERO 汇报更多公开 checkpoint。
+
+**【Paper】** RoboTwin 上评估 X-VLA、MOTUS、LingBot-VA、Fast-WAM 以及重新 finetune 的 $π_{0.5}$。DreamZero 因 cross-embodiment 不兼容、Wan2.1-14B 重新训练成本高和超过 15 分钟 warm-up 被排除；GigaWorld-Policy 因 checkpoint 尚未公开，只进入架构比较。
+
+### 5.2 Main Results
+
+**【Paper】** RoboTwin 2.0-Plus 结果（成功率 %）：
+
+| Model | Original | Camera | Robot | Language | Light | Background | Noise | Layout | Total |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| $π_{0.5}$ | 78.4 | 45.6 | 27.6 | 74.4 | 49.6 | 71.7 | 64.9 | 56.8 | 58.6 |
+| X-VLA | 65.6 | 23.2 | 65.2 | 64.4 | 63.1 | 58.6 | 49.7 | 34.8 | 53.1 |
+| MOTUS | 87.0 | 21.6 | **85.0** | 83.2 | 84.6 | 84.4 | 43.1 | 82.8 | 71.5 |
+| LingBot-VA | **92.1** | 28.9 | 36.2 | **87.3** | **89.0** | **91.3** | **80.9** | **87.9** | **74.2** |
+| Fast-WAM | 91.2 | 30.4 | 53.2 | 86.7 | 88.8 | 90.0 | 76.4 | 83.2 | 72.7 |
+
+**【Paper】** LingBot-VA 总体 74.2%，在七个扰动维度中的五个排名第一；Fast-WAM 72.7% 排第二。$π_{0.5}$ 的 clean 成功率只有 78.4%，扰动平均降至 58.6%，而 LingBot-VA 在 noise、light、layout 上分别为 80.9%、89.0%、87.9%。
+
+**【Paper】** LIBERO-Plus 的关键总分是：$π_{0.5}$ 85.7%、Cosmos-Policy 82.2%、GE-Act 80.3%、VLA-JEPA 77.9%、Fast-WAM 51.5%。因此“WAM 必然超过 VLA”并不成立：在单臂 LIBERO 上，$π_{0.5}$ 既是最快的模型，也获得最高总体成功率。
+
+![RoboTwin 2.0-Plus 中 $π_{0.5}$ 与 LingBot-VA 的三组失败/成功案例（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-world-action-model-robustness/case-study-crop.7i14gjifek.webp)
+
+**【Paper】** 案例显示，噪声下 $π_{0.5}$ 可能撞上 hammer，layout 下会撞到红色干扰块，强光下抓取对齐失败；对应的 LingBot-VA 在图中三例均完成任务。案例是定性证据，不能替代表格中的全量 episode 统计。
+
+### 5.3 Ablation Study
+
+**【Paper】** 最有信息量的“自然消融”来自同一 Fast-WAM 架构的两个 checkpoint：RoboTwin checkpoint 在 clean + domain-randomized 27.5k demonstrations 上训练，LIBERO checkpoint 只用 clean demonstrations。前者从原始 91.2% 降到扰动总分 72.7%；后者从原始 97.6% 暴跌到 51.5%，camera 16.4%、background 53.7%、noise 37.7%。
+
+**【Analysis】** 由于 backbone 与 architecture 相同，这个对照强烈提示 task-specific data diversity 是必要条件；但它仍不是严格的随机种子消融，两个 checkpoint 还跨 benchmark、embodiment 和数据生成器，不能把 21.2 个百分点的差距全部归因于“是否 domain randomization”。
+
+**【Paper】** 论文也通过模型家族做结构性对照：MOTUS 使用 video backbone 但由额外 VLM 生成动作，在 RoboTwin 的 robot initial state 维度达到 85.0%；VLA-JEPA 用 human video 的 future-state objective 增强 VLA，在 LIBERO 达到 77.9%。这些中间结果说明，时空先验“如何接入”与“是否存在”同样重要。
+
+### 5.4 Generalization
+
+![Cosmos-Policy 在噪声、光照和背景变化下预测未来图像的示例（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-world-action-model-robustness/cosmos-pred-crop.13miky0j6h.webp)
+
+**【Paper】** WAM 的优势主要集中在视觉外观扰动。Cosmos-Policy 在 LIBERO 的 noise、light 和 layout 取得 92.7%、96.5% 和 82.2%；未来图像在噪声输入下仍能恢复运动中的机械臂。相反，异常高饱和背景可能造成空间扭曲和颜色不一致。
+
+**【Paper】** 两个 benchmark 共同显示 camera viewpoint 与 robot initial state 是较难的维度。它们改变的不只是像素统计，而是视角到动作坐标、初始几何和接触轨迹的映射；视频预训练学到的自然运动先验不自动解决 embodiment calibration。
+
+**【Paper】** 推理速度表明 robustness 与 inference compute 不成正比：$π_{0.5}$ 63 ms/chunk 却在 LIBERO 取得 85.7%；LingBot-VA 在 RoboTwin 配置为 5230 ms/chunk 才取得 74.2%。Fast-WAM 省略测试时的显式状态生成后为 190 ms，但仍约为 $π_{0.5}$ 的 3 倍。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** 论文证据支持三条相互作用的因果链：
+
+1. **时空先验**：视频 backbone 见过大量物体运动、手部运动和镜头变化，因此对 blur、light 等视觉扰动更不容易丢失动态线索。
+2. **动态—动作耦合**：IDM-style WAM 先问“未来状态应该是什么”，再解释“动作怎样造成它”，比只从当前像素回归动作多了一个结构化中间变量。
+3. **数据多样性**：Fast-WAM 的跨 benchmark 对照说明先验不是万能的；若 task-specific demonstrations 只有 clean 场景，video prior 仍可能在未见背景和 camera 上失败。
+
+### 6.2 核心创新
+
+**【Analysis】** 这篇工作的真正创新在于把 robustness 从“某个模型在 clean benchmark 的一个数字”变成可诊断的 profile：扰动 taxonomy、正交配置、两个 embodiment、模型训练数据表和 runtime 表被放在同一个分析框架里。RoboTwin 2.0-Plus 的代码还把 benchmark 变成可扩展的 declarative test suite，而不是一次性脚本。
+
+### 6.3 与已有方法的本质区别
+
+| 维度 | 经典 VLA | WAM / hybrid |
+| --- | --- | --- |
+| Backbone | VLM，常以 next-token/action objective 预训练 | 视频生成 world model 或附加 video objective |
+| 核心条件 | 当前观测直接到 action | 联合生成 future state/action，或 IDM 解码 |
+| 鲁棒性来源 | 更丰富的 robot/web/human data | web-scale video 的 spatiotemporal prior + embodied/task finetune |
+| 推理代价 | 通常较低 | diffusion denoising、VAE、AR/KV cache 额外开销 |
+| 失败模式 | 对外观/遮挡分布敏感 | 对几何、语言推理和异常背景仍可能敏感 |
+
+**【Analysis】** 所以工程选择不是“WAM 取代 VLA”，而是权衡：如果部署预算容许 diffusion、且目标是视觉扰动下的泛化，WAM 值得考虑；如果需要高频控制、已有大量多样机器人数据或 action latency 更重要，$π_{0.5}$ 一类 VLA 可能更合适。
+
+### 6.4 关键假设
+
+**【Paper】** 实验隐含的关键假设包括：成功率足够代表 policy quality；单维度扰动可以隔离 failure cause；公开 checkpoint 的训练数据和实现差异可以通过说明进行公平比较；视频预训练中的动态先验与机器人操作存在可迁移关系。
+
+**【Analysis】** 这些假设对 benchmark 很实用，但要谨慎外推到真实机器人：连续轨迹质量、接触力、安全性、恢复行为和长尾组合扰动都没有被 success rate 完整刻画。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 论文的评测以 simulation benchmark 为主，没有在本文中系统报告真实机器人实验；DreamZero 因 checkpoint、算力和 warm-up 限制无法纳入量化比较；RoboTwin 训练时已有一定 background/language randomization，可能与 Plus 分支重叠；主要指标是 success rate，未详细分析 failure mode 或 trajectory quality。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】** 第一，WAM、VLA 的 action representation、chunk size 和控制频率不同，例如 LingBot-VA 使用 30-dim absolute EEF + joints、chunk 4，而 $π_{0.5}$ 使用 50-step chunk；这会影响扰动敏感性与 latency，不能只看 architecture 标签。
+
+**【Analysis】** 第二，LIBERO 与 RoboTwin 的总分不是同一数据分布上的 paired measurement。第三，camera C2 默认关闭，完整的 3D viewpoint shift 尚未成为主结果。第四，语言 R1/R2/R3 的组合分支把不同难度混在一起，若要研究 language reasoning，应该使用仓库提供的 `demo_language_r2.yml` / `demo_language_r3.yml` 做细分。
+
+## 8. 启发与研究思考
+
+**【Analysis】** 这篇论文最值得带走的不是某个冠军数字，而是三条研究路线：
+
+1. **把 robustness 当作训练目标的分解，而不是最后的测试标签。** noise、light、layout 与 camera、robot state 应分别建模，模型可能在前者变强、后者变弱。
+2. **将视频先验与 calibration 先验结合。** WAM 擅长外观与动态，但几何变化需要 camera-to-action、proprioception 和 embodiment-specific adaptation；两者结合可能比继续增大视频 backbone 更划算。
+3. **同时优化鲁棒性与 latency。** Fast-WAM 的“训练时预测、测试时省略视觉生成”说明 world-model supervision 不必等于每一步都生成完整视频；蒸馏、少步 denoising、action-only heads 和 asynchronous execution 是自然方向。
+4. **扩展 benchmark 的因果诊断。** 除 success rate 外加入 recovery、collision、trajectory smoothness、contact stability，并测试组合扰动和真实 camera/robot calibration shift，才能判断时空先验是否真的提升了可部署性。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方 RoboTwin 2.0-Plus 仓库实现，`【Analysis】` 表示基于论文和代码的分析推断。论文图床 CDN 在上传后暂时返回 404，本文使用已验证 HTTP 200 的 GitHub Raw fallback；待 CDN 缓存刷新后可切回 `pic.hana0721.top`。
+</Aside>
