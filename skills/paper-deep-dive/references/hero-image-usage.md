@@ -41,7 +41,7 @@ Use only after the count-1 pool is exhausted.
 |         3 | `78391247`  | `https://pic.hana0721.top/78391247_p0_master1200.5j4sgia4wg.webp`  | `rl-note-13`, `robotic-grasp-detection-12`, `paper-deep-dive-libero-plus`                              |
 |         3 | `139369087` | `https://pic.hana0721.top/139369087_p0_master1200.9gx5x7w6ei.webp` | `rl-note-28`, `paper-deep-dive-cogact`, `paper-deep-dive-dp3`                                            |
 |         3 | `142350190` | `https://pic.hana0721.top/142350190_p0_master1200.2yyy3wl757.webp` | `rl-note-29`, `paper-deep-dive-tinyvla`, `paper-deep-dive-vp-vla`                                       |
-|         2 | `143484250` | `https://pic.hana0721.top/143484250_p0_master1200.9ddjzdu0z1.webp` | `linux-dl-env-setup`, `paper-deep-dive-pi0`                                                             |
+|         3 | `143484250` | `https://pic.hana0721.top/143484250_p0_master1200.9ddjzdu0z1.webp` | `linux-dl-env-setup`, `paper-deep-dive-pi0`, `paper-deep-dive-robotwin-2`                              |
 |         2 | `131135880` | `https://pic.hana0721.top/131135880_p0_master1200.9rjzqc0dp5.webp` | `rl-note-20`, `paper-deep-dive-robodual`                                                                |
 |         2 | `103975128` | `https://pic.hana0721.top/103975128_p0_master1200.8vniavqp93.webp` | `rl-note-19`, `paper-deep-dive-smolvla`                                                                 |
 |         2 | `102841826` | `https://pic.hana0721.top/102841826_p0_master1200.4clh7xw95k.webp` | `rl-note-22`, `paper-deep-dive-inspire`                                                                 |

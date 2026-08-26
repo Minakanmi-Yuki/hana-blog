@@ -1,0 +1,341 @@
+---
+title: 'SONIC 论文精读：自然人形机器人全身控制的规模化动作跟踪'
+publishDate: 2026-08-27
+updatedDate: 2026-08-27
+description: '精读 SONIC：以大规模物理动作跟踪为 humanoid foundation task，用多编码器与 FSQ universal token 统一遥操作、规划和 VLA 全身控制。'
+heroImage:
+  { src: 'https://pic.hana0721.top/76117294_p0_master1200.2rvq8fo0ul.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '76117294'
+tags:
+  - 'paper deep dive'
+  - 'humanoid'
+  - 'motion tracking'
+  - 'VLA'
+paper:
+  arxivId: '2511.07820'
+  title: 'SONIC: Supersizing Motion Tracking for Natural Humanoid Whole-Body Control'
+  authors:
+    - 'Zhengyi Luo'
+    - 'Ye Yuan'
+    - 'Tingwu Wang'
+    - 'Chenran Li'
+    - 'Fernando Castañeda'
+    - 'Sirui Chen'
+    - 'Zi-Ang Cao'
+    - 'Jiefeng Li'
+    - 'David Minor'
+    - 'Qingwei Ben'
+    - 'Jinhyung Park'
+    - 'David Sami'
+    - 'Zi Wang'
+    - 'Xingye Da'
+    - 'Runyu Ding'
+    - 'Cyrus Hogg'
+    - 'Lina Song'
+    - 'Edy Lim'
+    - 'Eugene Jeong'
+    - 'Tairan He'
+    - 'Haoru Xue'
+    - 'Wenli Xiao'
+    - 'Simon Yuen'
+    - 'Jan Kautz'
+    - 'Yan Chang'
+    - 'Umar Iqbal'
+    - 'Linxi Fan'
+    - 'Yuke Zhu'
+  venue: 'arXiv'
+  year: 2026
+  code: 'https://github.com/NVlabs/GR00T-WholeBodyControl'
+  project: 'https://nvlabs.github.io/GEAR-SONIC/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2511.07820'
+  tldr='SONIC 把 100M+ 帧人类动作的物理跟踪训练扩展到 42M 参数和 21k GPU 小时，并用 FSQ universal token 连接规划、遥操作和 VLA 全身 loco-manipulation。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**【Paper】** SONIC（Supersizing mOtion tracking for Natural humanoId Control）提出一个反直觉但很实用的观点：humanoid 的可扩展基础任务不一定是为“走路”“起身”等行为分别设计 reward，而可以是逐帧监督的 physics-based motion tracking。作者在 Unitree G1 上训练 42M 参数策略，使用 100M+ 帧（约 611 小时、50 Hz）动作数据和 21k GPU 小时，展示从动作跟踪到交互规划、VR/视频遥操作以及 GR00T VLA 全身操作的一体化链路。
+
+![SONIC 的多任务 teaser（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-sonic/fig1_teaser.2a5ttrr4h8.webp)
+
+### 一句话总结
+
+**【Analysis】** SONIC 的真正产品形态不是一个“会模仿动作的策略”，而是一个把不同动作来源压到同一 64 维 token 接口的运动操作系统：上游可以是规划器、SMPL、VR 或 VLA，下游始终是同一个 G1 控制器。
+
+### 核心贡献
+
+**【Paper】**
+
+1. **把 motion tracking 作为可 scaling 的 foundation task。** 数据从 4M 扩到 100M 帧、模型从 1.2M 扩到 42M 参数、训练从 2k 扩到 21k GPU 小时，test-content 和 test-repetition 的成功率都稳定上升。
+2. **Universal control policy。** 三个专用 encoder（robot、human、hybrid）映射到共享 latent，经 Finite Scalar Quantization（FSQ）得到 universal token，再由 robot control decoder 输出关节目标；robot motion decoder 提供重建辅助监督。
+3. **Generative kinematic motion planner。** 在同一动作数据上学习 latent motion in-betweening，按用户速度、方向、风格和技能 keyframe 实时生成 0.8–2.4 秒参考片段。
+4. **统一下游接口。** 视频、文本、音乐经 GEM 生成的人体动作、VR 遥操作和 VLA 都可以通过同一 token 空间驱动 G1；VLA 在五类 loco-manipulation 任务上平均成功率为 75%。
+
+## 2. 背景与相关工作
+
+**【Paper】** 传统 humanoid 控制通常是小型 MLP + 手工 reward：每个新技能都要重新设计速度、姿态、接触和稳定性项。AMP、ASE、CALM 等 adversarial imitation 虽然共享一个 imitation objective，但当动作分布变得多样时，判别器的学习信号容易变弱并出现 mode collapse。
+
+SONIC 选择 motion tracking，是因为每一帧都有明确的参考姿态，监督密度不会随着行为类别增加而稀释。动作捕捉领域已经积累了步行、舞蹈、运动、战斗和物体交互数据，因此“扩大数据和计算”比为每种行为编写 reward 更直接。
+
+**【Analysis】** 这也解释了 SONIC 与单任务 locomotion specialist 的关系：SONIC 并没有牺牲稳定性来换多样性。论文中的 OpenHomie 对照显示，在 0–5 m/s 速度跟踪测试中，SONIC survival rate 为 98.5%，而专用控制器为 43.0%。
+
+## 3. 问题定义
+
+**【Paper】** 目标是在 Unitree G1（29 个 actuated joints）上学习策略 `π(a_t | s_t)`，跟踪来自机器人、人体或混合接口的未来动作命令。
+
+| 项目           | SONIC 定义                                                                                                                  |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Observation    | 10-step proprioception history：关节位置/速度、root angular velocity、root-frame gravity、上一动作；全部在 local frame 表达 |
+| Motion command | `g_r` robot motion、`g_h` SMPL human motion、`g_m` hybrid（稀疏头手 keypoint + 机器人下肢）                                 |
+| Action         | 目标关节位置，由每个关节的 PD controller 跟踪                                                                               |
+| Robot          | Unitree G1，29 DoF；仿真 Isaac Lab / MuJoCo，真实部署 Jetson Orin                                                           |
+| Dataset        | 约 700 小时原始 mocap；过滤不可执行片段后 611 小时、317,189 clips、100M+ frames                                             |
+| Evaluation     | test-content（182 个训练未见子类）、test-repetition（已见子类的新 take）和外部 PHUMA                                        |
+
+成功判定不是全局轨迹误差，而是 root height 或 end-effector height 偏离参考超过 0.25 m 即失败；MPJPE-L 在 14 个 body links 上计算，强调局部姿态与物理稳定性。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![SONIC universal control policy 总览（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-sonic/fig6_method_overview.13mil628fv.webp)
+
+**【Paper】** robot、human、hybrid 三类 motion command 分别编码，经过 FSQ quantizer 得到共享 universal token；control decoder 结合 token 与 proprioception 输出关节目标，motion decoder 重建 robot motion。不同应用只切换上游 motion generator 或 encoder，不重新训练控制器。
+
+### 4.2 核心模块
+
+#### Proprioception 与 motion encoder
+
+- **输入：** actor 可获得的 noisy proprioception 历史和一个 motion command。
+- **Robot encoder `E_r`：** 编码未来 `F_r` 帧机器人关节位置/速度。
+- **Human encoder `E_h`：** 编码未来 `F_h` 帧 3D human joints（SMPL）。它隐式学习 human-to-robot retargeting，而不是在运行时显式求逆运动学。
+- **Hybrid encoder `E_m`：** 当前帧的头/手稀疏 keypoint 加未来机器人下肢动作，适配三点 VR 遥操作。
+
+三个 encoder 都是 MLP，但输入 schema 不同；多帧 lookahead 为策略提供 anticipatory context。
+
+#### FSQ universal token
+
+**【Paper】** 编码后的 latent 通过 FSQ 离散化为两个 token，每个 token 32 维、每维 32 levels，展平后是 64 维 universal token。相比 VQ-VAE，FSQ 不需要可坍缩的 codebook，更适合 33 类、8,447 子类的高多样性动作分布。
+
+#### Control decoder 与 motion decoder
+
+- `D_c(z, s_p) → a_t`：将 token 和 proprioception 解码成目标关节位置，供 PD 控制器执行。
+- `D_r(z) → ĝ_r`：只依赖 token 重建 robot motion；对 human token 而言，这个分支就是训练期的隐式 retargeting 监督。
+
+**【Code】** 仓库 `gear_sonic/trl/modules/universal_token_modules.py` 的 `UniversalTokenModule` 实现了 encoder → FSQ → decoder 流程，支持 `g1`、`smpl`、`teleop` 命名 encoder、可选 latent residual，以及 29 DoF body / 14 DoF hand 的层级动作拆分。默认配置 `all_mlp_v1.yaml` 将 `num_fsq_levels=32`、`fsq_level_list=32`、`max_num_tokens=2` 写死为 64 维 token。
+
+#### Kinematic motion planner
+
+**【Paper】** planner 把当前 pose 和目标 keyframe 之间的 in-betweening 变成 latent token 预测。输入被下采样 4 倍，网络用 masked-token prediction 迭代确定高置信度 token；关键帧可以来自速度/方向/风格命令，也可以来自 squatting、crawling、boxing 等技能片段。root 的 x、y 位移与 heading 由 critically damped spring 生成，避免瞬时反向或过大速度命令。
+
+### 4.3 关键公式
+
+#### Motion tracking MDP
+
+$$
+\mathcal{M}=\langle\mathcal{S},\mathcal{A},\mathcal{T},\mathcal{R},\gamma\rangle,\qquad
+r_t=\mathcal{R}(s^p_t,s^g_t)+\mathcal{P}(s^p_t,a_t)
+$$
+
+`s^p_t` 是 proprioception，`s^g_t` 是 motion command；`R` 同时约束 root、body-link、末端位姿和速度误差，`P` 惩罚不平滑或不稳定动作。策略输出目标关节位置，低层 PD 完成力矩级跟踪。
+
+#### Universal token 的联合损失
+
+$$
+\mathcal{L}=\mathcal{L}_{\mathrm{PPO}}+\mathcal{L}_{\mathrm{recon}}+\mathcal{L}_{\mathrm{token}}+\mathcal{L}_{\mathrm{cycle}}
+$$
+
+$$
+\mathcal{L}_{\mathrm{recon}}=\sum_{x\in\{r,h,m\}}\left\|D_r(z_x)-g_r\right\|_2^2
+$$
+
+$$
+\mathcal{L}_{\mathrm{token}}=\|z_r-z_h\|_2^2+\|z_r-z_m\|_2^2+\|z_m-z_h\|_2^2
+$$
+
+$$
+\mathcal{L}_{\mathrm{cycle}}=\left\|E_r\big(D_r(z_h)\big)-z_r\right\|_2^2
+$$
+
+`z_r,z_h,z_m` 分别是三类 encoder 的 token。`L_recon` 让不同输入都能还原同一个 robot motion，`L_token` 直接拉近跨模态 token，`L_cycle` 约束 human→robot→robot encoder 的闭环一致性。FSQ 的梯度通过 straight-through estimator 传回 encoder；PPO 更新 encoder、quantizer、control decoder，辅助损失更新 encoder 和 motion decoder。
+
+#### Critically damped root spring
+
+$$
+x(t)=x_T-\left[x_T-x_0+\left(v_0+\frac{c}{2}(x_T-x_0)\right)t\right]e^{-\frac{c}{2}t}
+$$
+
+`x_0,v_0` 是当前状态，`x_T` 是目标 keyframe，`c` 是阻尼系数。论文对 pelvis x、y 和 heading 使用不同 `c`，将速度命令转换为约 1 秒后的平滑目标。
+
+### 4.4 Training
+
+**【Paper】** 训练在 Isaac Lab 中用 PPO，critic 可以看到 privileged simulator state，而 actor 只看到部署时可用的 noisy observation。每个 rollout 同时产生三类 command 的 token，并联合优化四项损失；domain randomization 覆盖物理参数、外部 push 和 motion command 扰动。数据采样采用按固定时长分 bin、按 capped failure rate 加权的 adaptive sampler。
+
+**【Code】** `config/trainer/trl_ppo_aux.yaml` 与 `UniversalTokenModule` 的 auxiliary-loss 接口将 PPO 和 token/reconstruction/cycle loss 放到一个 trainer；`config/exp/manager/universal_token/all_modes/sonic_release.yaml` 则组合 G1、teleop、SMPL 三种 encoder。代码仓库还提供 `train_agent_trl.py`、checkpoint 配置和 Isaac Lab evaluation 脚本。
+
+<Algorithm number={1} title='SONIC 联合 PPO 训练' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>动作片段、三类 motion command、仿真状态与 domain-randomization 配置</div>
+  <div slot='output'>共享 universal token policy、motion decoder 与 critic</div>
+  <AlgorithmStep>
+    从 bin-based sampler 采样 motion clip，并构造 robot、human、hybrid command。
+  </AlgorithmStep>
+  <AlgorithmStep>各 encoder 产生 latent，经 FSQ 量化为 z_r、z_h、z_m。</AlgorithmStep>
+  <AlgorithmStep>
+    control decoder 输出关节目标，仿真环境执行若干步并计算 tracking reward。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    计算 PPO、reconstruction、token alignment 和 cycle consistency loss。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    用 privileged critic 更新 PPO，用 straight-through gradient 联合更新 encoder、FSQ 与 decoders。
+  </AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 运行时以 50 Hz 执行 policy、500 Hz 下发命令、100 Hz 接收操作者输入、10 Hz 运行 planner。planner 每 100 ms 或命令变化时重规划，生成 0.8–2.4 秒参考片段；control decoder 每次读取最新 proprioception 和 token。Jetson Orin 上 policy forward 为 1–2 ms，motion generation 约 12 ms。
+
+**【Code】** C++ TensorRT 部署位于 `gear_sonic_deploy`，Python 启动器是 `gear_sonic/scripts/launch_inference.py`。默认 checkpoint 需要 200 ms 左右的 10-frame lookahead；仓库还提供 80 ms、4-frame 的 low-latency teleoperation checkpoint。VLA 输出的 64 维 token 可与手部动作拼成 meta action，再由控制器解码。
+
+<Algorithm number={2} title='SONIC 实时推理' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>
+    键盘/gamepad、VR、视频/文本/音乐生成的 motion 或 VLA universal token，以及 proprioception
+  </div>
+  <div slot='output'>G1 目标关节位置与手部动作</div>
+  <AlgorithmStep>选择对应 encoder，或直接接收 VLA 预测的 64 维 token。</AlgorithmStep>
+  <AlgorithmStep>
+    对上游参考做 local-frame 变换；planner 输入先经过 spring filter 和 in-betweening。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    control decoder 将 token 与 actor observation 合并，输出 body joint targets。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    在 50 Hz policy loop 中更新目标，并由 500 Hz command writer 发送给 PD/电机控制器。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    安全线程检查数据新鲜度、关节速度、电机错误、温度与 CRC；异常时停止或进入 idle。
+  </AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+| 论文概念                  | 官方代码位置                                                                        | 对照结论                                                               |
+| ------------------------- | ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| 多 encoder + FSQ          | `gear_sonic/trl/modules/universal_token_modules.py`                                 | `UniversalTokenModule` 明确实现命名 encoder、FSQ 和多 decoder          |
+| 32×32×2 token             | `config/actor_critic/universal_token/all_mlp_v1.yaml`                               | 两个 token、每 token 32 维，展平为 64 维                               |
+| PPO + auxiliary losses    | `trl/trainer/ppo_trainer_aux_loss.py`、`trl/losses/token_losses.py`                 | PPO 与 recon/token/cycle 辅助目标联合训练                              |
+| observation/action schema | `config/manager_env/observations/`、`config/manager_env/commands/terms/motion.yaml` | 命令按 tokenizer observation 组装，action 可拆 body/hand               |
+| 部署                      | `gear_sonic_deploy/`、`gear_sonic/scripts/launch_inference.py`                      | TensorRT/C++ 控制环与 Python VLA/相机接口分离                          |
+| checkpoint                | README Model Card、`download_from_hf.py`                                            | 默认、low-latency、SONIC v1.1 三种 G1 checkpoint；论文实验对应最大模型 |
+
+**【Analysis】** 当前仓库比论文更像一个持续演进的工程平台，包含 checkpoint 兼容、VLA launcher、数据采集和多 embodiment 配置；不能把 README 中后来发布的 v1.1 或 low-latency 结果倒推为论文实验结果。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![SONIC 的 deployment 多速率架构（论文 Supplementary Figure S1）](https://pic.hana0721.top/blog/paper-deep-dive-sonic/figS1_deployment_architecture.1zj00mbx2q.webp)
+
+**【Paper】** 训练数据覆盖 33 个大类、8,447 个子类；test-content 的子类与训练完全不重叠，test-repetition 只更换表演者和 take。真实世界评估使用 124 条动作序列；VLA 任务按严格 binary success 统计，每任务 10–20 次试验。
+
+### 5.2 Main Results
+
+![SONIC 的 scaling、基线比较与 sim-to-real 结果（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-sonic/fig2_scaling_benchmark.5mojo57oy7.webp)
+
+**【Paper】**
+
+- 数据从 4M 扩到 100M 帧、模型从 1.2M 扩到 42M 参数、compute 从 2k 扩到 21k GPU 小时，success rate 沿三条轴均显著提高；42M 模型在 test-content 达到 99.6% success、23.8 mm MPJPE-L。
+- 与 BeyondMimic、Any2Track、GMT 比较时，SONIC 在 test-content / test-repetition / PHUMA 上分别达到 98.5% / 99.2% / 97.2% success；在 test-content 上 MPJPE-L 为 23.7 mm，比 BeyondMimic 的 40.9 mm 低约 42%。
+- 与 OpenHomie 速度 specialist 对比，SONIC survival rate 为 197/200（98.5%），OpenHomie 为 86/200（43.0%），并在约 4 m/s 前保持稳定。
+- 124 条动作的真实部署成功率为 123/124（99.2%），整体 MPJPE-L 为 25.7 mm；脚部 sim-to-real gap 最大（53.7 mm real vs. 29.0 mm sim）。
+
+### 5.3 Ablation Study
+
+![多 encoder latent consistency 的消融（论文 Supplementary Figure S7）](https://pic.hana0721.top/blog/paper-deep-dive-sonic/figS7_latent_alignment.64elcq93e6.webp)
+
+**【Paper】**
+
+| 配置           | test-content SR | MPJPE-L |
+| -------------- | --------------: | ------: |
+| FSQ            |           99.3% | 26.6 mm |
+| VQ-VAE         |           98.7% | 35.3 mm |
+| FSQ-16-16      |           96.9% | 35.7 mm |
+| FSQ-32-32      |           98.8% | 27.5 mm |
+| Robot encoder  |           99.6% | 23.8 mm |
+| Human encoder  |           99.6% | 24.4 mm |
+| Hybrid encoder |           99.2% | 26.5 mm |
+
+FSQ 比 VQ-VAE 少 8.7 mm MPJPE-L；增加 token dimension 的收益大于单纯增加 quantization levels。移除 `L_token` 与 `L_cycle` 后跨 encoder divergence 增加约 8 倍，说明共享 token 不是自然出现的，需要显式一致性损失。
+
+VLA action-space ablation 更直接：universal token + hands 的平均成功率为 68%，显式 SMPL pose + hands 只有 27%；soda-can-to-trash-can 从 0% 提升到 60%。
+
+### 5.4 Generalization
+
+**【Paper】** 泛化有三层：未见子类（test-content）、已见类别的新表演（test-repetition）和不同 retargeting pipeline 的 PHUMA。三者都保持高成功率，说明策略学到的是局部人体运动与物理稳定性先验，而非记忆固定轨迹。
+
+**【Analysis】** 不过 baseline 使用了不同数据集和 retargeting pipeline，因此跨方法数字同时混入了数据规模、数据质量和评测协议差异；论文也明确提醒这不是严格 data-matched benchmark。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** 首先，逐帧目标姿态让每个时间步都有低方差监督，数据增加不会像 adversarial discriminator 那样把任务变成“区分整个动作分布”。其次，10-step proprioception history 与 future reference 让策略能提前准备接触和支撑脚。最后，FSQ token 把 VLA 的动作预测从连续高维 SMPL 姿态变成结构化 latent；小误差不会直接破坏整条运动学链。
+
+### 6.2 核心创新
+
+1. **训练任务的 scaling 设计**：把 humanoid control 的扩展瓶颈从 reward engineering 转移到数据、模型和 GPU 计算。
+2. **Universal token interface**：一个离散瓶颈同时服务机器人、人体和 hybrid command，并为 VLA 提供稳定 action space。
+3. **Tracking + planner 的分层组合**：planner 负责“想做什么”和连续过渡，tracker 负责物理执行；两者共享动作分布而不需要每个技能重训。
+4. **全身 loco-manipulation**：token 覆盖脚和手，使 VLA 能在一个 action sequence 中同时抓取、行走、踩踏和投掷。
+
+### 6.3 与已有方法的本质区别
+
+**【Analysis】** SONIC 不是“更大的 locomotion policy”，也不是传统 retargeting + tracking 的简单串联。它把 retargeting 变成训练期的 latent alignment，把 planner 变成可替换的上游，把动作空间变成跨接口共享的 token；因此新增应用主要是接入新的 motion generator，而非修改控制器 reward。
+
+### 6.4 关键假设
+
+- 人类 mocap 经 GMR/PyRoki retarget 后仍保留足够多的可执行运动信息。
+- 未来若干帧 reference 和 10-step proprioception history 足以应对接触与平衡的短期不确定性。
+- 不同 encoder 的“同一动作”可以被配对，因而 `L_token`/`L_cycle` 有明确监督。
+- 64 维 FSQ token 的容量足够表达 33 类、8,447 子类动作，而不牺牲控制精度。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 论文没有对长时间运行的安全性和能耗给出形式化分析。极端外力或非常动态的动作仍可能导致失衡；domain randomization 和 spring filter 只能缓解而不能保证安全。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+1. 100M 帧和 21k GPU 小时的训练成本仍然很高，数据清洗、retargeting 和多演员覆盖也是隐性工程门槛。
+2. 成功率定义偏向“是否摔倒/是否偏离”，并不等价于接触力、能耗、舒适度或任务完成质量。
+3. real-world 足部误差明显高于上肢，说明脚端接触和地面模型仍是 sim-to-real 的主要薄弱点。
+4. VLA 实验训练轨迹数量从 200 到 3,900 不等，且每个任务只有 10–20 次测试；跨机器人、跨场景的统计稳定性尚未证明。
+5. 共享 token 依赖动作配对和固定 embodiment decoder；换机器人形态时，是否能保留同一 token 语义仍需额外实验。
+
+## 8. 启发与研究思考
+
+**【Analysis】** SONIC 给出的研究路线是“先学会稳定地执行人类动作，再在其上学习意图和任务”。这比让 VLA 直接回归每个关节的连续姿态更模块化：高层模型只需预测 token，低层控制器负责物理可行性。
+
+对后续工作，我认为有三个值得验证的方向：
+
+1. **Token 的跨 embodiment 预训练。** 如果 token 真的是运动语义而不只是 G1-specific latent，可以冻结 token space，只替换 robot decoder。
+2. **安全与能耗进入 universal objective。** 在保持逐帧 tracking supervision 的同时加入接触风险、温升和能耗约束，可能比事后 safety filter 更有效。
+3. **从动作跟踪到闭环世界模型。** planner 目前主要在运动空间 in-between；若再加入视觉状态和物体 affordance，token 可以成为连接“身体如何动”和“任务需要什么”的中间语言。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方仓库实现，`【Analysis】`
+  表示基于论文和代码的分析推断。论文版本为 arXiv v4（2026-08-13）；仓库持续更新，README 中的后续
+  checkpoint 不应当被视为论文原始实验结果。
+</Aside>
