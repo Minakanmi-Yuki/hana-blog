@@ -1,0 +1,329 @@
+---
+title: 'MMaDA-VLA 论文精读：统一多模态指令与生成的离散扩散 VLA'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 MMaDA-VLA：把语言、图像、动作放进同一离散 token 空间，用并行迭代去噪共同生成目标观测与动作块。'
+heroImage:
+  { src: 'https://pic.hana0721.top/62423081_p0_master1200.3ns7nvxp9b.webp', color: '#7B8496' }
+category: 'research'
+pixivLink: '62423081'
+tags:
+  - 'paper deep dive'
+  - 'VLA'
+  - 'discrete diffusion'
+  - 'world model'
+paper:
+  arxivId: '2603.25406'
+  title: 'MMaDA-VLA: Large Diffusion Vision-Language-Action Model with Unified Multi-Modal Instruction and Generation'
+  authors:
+    - 'Yang Liu'
+    - 'Pengxiang Ding'
+    - 'Tengyue Jiang'
+    - 'Xudong Wang'
+    - 'Minghui Lin'
+    - 'Wenxuan Song'
+    - 'Hongyin Zhang'
+    - 'Zifeng Zhuang'
+    - 'Han Zhao'
+    - 'Wei Zhao'
+    - 'Siteng Huang'
+    - 'Jinkui Shi'
+    - 'Donglin Wang'
+  venue: 'ACM Multimedia 2026'
+  year: 2026
+  code: 'https://github.com/yliu-cs/MMaDA-VLA'
+  project: 'https://yliu-cs.github.io/MMaDA-VLA/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2603.25406'
+  tldr='MMaDA-VLA 用原生离散扩散 backbone 在同一 token 空间中并行生成未来目标观测和动作块，以更少的架构拼接获得更好的长时域控制。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**【Paper】** MMaDA-VLA（MM ’26）提出一种 fully native、pretrained 的离散扩散 VLA：当前观测与语言指令作为条件，模型同时预测未来 goal observation 和一段 action chunk。它不再把 VLM、world model、inverse dynamics 或 policy head 串成多个阶段，而是让这些信息在一个共享的离散 token 序列中被联合去噪。
+
+![MMaDA-VLA 与传统 VLA、world-model VLA 的比较（论文 Figure 1）](/images/paper-deep-dive-mmada-vla/figure-1.webp)
+
+### 一句话总结
+
+**【Analysis】** 这篇工作的关键不是“把 diffusion 加到动作头上”，而是把“未来会看到什么”和“接下来怎么动”变成同一个生成问题：模型在每次去噪时反复对齐两者，因而可以把动作块放在任务状态演化的上下文里修正。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 将语言、图像和连续机器人控制统一离散化，使用单一 masked-token objective 训练一个 8B 级 MMaDA-VLA。
+2. 用 goal-observation generation 注入类似 world model 的动力学信息，但不依赖外部 world model 或 inverse dynamics module。
+3. 设计 hybrid attention：模态内 full attention、模态间 causal attention；在同一迭代中并行 refinement goal image 与 action chunk。
+4. 用大规模 cross-embodiment 预训练（约 5,300 万样本）再进行 LIBERO、CALVIN 和真实机器人微调，取得 LIBERO 98.0% 平均成功率与 CALVIN 4.78 平均完成子任务数。
+
+**【Code】** 官方仓库提供训练、数据预处理、action tokenizer、推理和 dLLM cache 实现；但 README 没有给出真实机器人控制器的完整开源实现，真实部署细节仍以论文为准。
+
+## 2. 背景与相关工作
+
+**【Paper】** 现有 VLA 大致有三条路线：
+
+- **Hierarchical VLA**：VLM 输出语义，再由 policy head 或 action expert 预测动作。模块边界带来额外训练和信息损失。
+- **Autoregressive discrete VLA**：把动作离散成 token 后按固定顺序生成，动作维度之间并没有天然的先后关系，却会承受 token-by-token 的误差传播。
+- **World-model VLA**：额外生成未来图像，或先生成 goal image 再通过 inverse dynamics 得到动作，代价是阶段增多、训练和推理不一致。
+
+**【Analysis】** 动作 chunk 中的 7 个自由度更像一个“集合”而非自然语言句子。对它施加左到右顺序，会引入不必要的 inductive bias；而单纯并行一次预测又缺少修正机会。离散扩散提供了折中：先全部 mask，再用多个 denoising step 逐步确认 token。
+
+## 3. 问题定义
+
+**【Paper】** 给定当前视觉观测 $o_t$ 和语言指令 $\ell$，传统策略建模 $\hat a_t \sim \pi_\theta(a_t \mid o_t,\ell)$。MMaDA-VLA 进一步预测 $t'=t+k$ 时的目标观测以及长度为 $k$ 的动作块：
+
+$$
+(\hat o_{t'};\hat a_{t:t'-1}) \sim \pi_\theta(o_{t'},a_{t:t'-1}\mid o_t,\ell).
+$$
+
+其中 $k$ 是 action chunk size；论文在 LIBERO 使用 $k=5$，CALVIN 使用 $k=10$。机器人执行动作块后获得新观测，策略重新生成下一块，因此控制仍然是 closed loop。
+
+**Embodied AI 对照：**
+
+| 项目                  | MMaDA-VLA 实现                                                                                    |
+| --------------------- | ------------------------------------------------------------------------------------------------- |
+| Observation           | 第三视角与 wrist-view RGB，竖直拼接后 resize 到 $256\times256$；proprioception 以文本追加在指令后 |
+| Vision Encoder        | MAGVIT-v2 image quantizer，输出离散视觉 token                                                     |
+| Language              | LLaDA tokenizer                                                                                   |
+| Action Representation | 每个动作维度量化为 256 bins；7-DoF 动作按 chunk 展平                                              |
+| Policy                | 8B MMaDA backbone 上的 masked-token diffusion policy                                              |
+| Goal / World Model    | 与 action chunk 并行生成 future goal observation                                                  |
+| Robot                 | 仿真 LIBERO、CALVIN；真实 AgileX PiPER 6-DoF + 1-DoF gripper                                      |
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![MMaDA-VLA 框架与训练流水线（论文 Figure 2）](/images/paper-deep-dive-mmada-vla/figure-2.webp)
+
+**【Paper】** 统一序列写成：
+
+$$
+x=[\text{SOO}]\tilde o_t[\text{EOO}][\text{SOL}]\tilde\ell[\text{EOL}][\text{SOO}]\tilde o_{t'}[\text{EOO}][\text{SOA}]\tilde a_{t:t'-1}[\text{EOA}].
+$$
+
+前半段是 instruction，后半段是 generation。训练时只对未来观测和动作 token 做随机 mask；推理时把这两段全部替换为 `[M]`，再迭代恢复。
+
+### 4.2 核心模块
+
+#### 统一离散 tokenization
+
+**【Paper】** 文本使用 LLaDA tokenizer，图像使用 MAGVIT-v2，动作使用 256-bin tokenizer。三种 token 被映射到共享 vocabulary，模型因此只需要一个输出 head 和一个 masked-token loss。
+
+**【Code】** `mmadavla/models/action_tokenizer.py` 将动作裁剪到 $[-1,1]$，通过 `np.digitize` 映射到 256 个 bin；`decode` 使用 bin center 还原连续值。`action_num_vq_tokens = action_chunk_size × 7`，所以 LIBERO 的 action 区域是 35 token，CALVIN 是 70 token。
+
+#### Multi-modal prompting
+
+**【Code】** `mmadavla/utils/prompt.py` 固定拼接 `[ti2ia] → current image → text → goal image → action`。机器人状态被格式化为文本，和 task instruction 一起进入语言 token 区域；标签只保留 goal image 与 action 的被 mask 位置，其余位置使用 `ignore_id=-100`。
+
+#### Hybrid attention
+
+**【Paper】** 同一模态内部使用 bidirectional full attention，让 goal image 或 action chunk 的 token 可以全局交换信息；不同模态之间使用 causal attention，保持从 current observation / instruction 流向 generation 的方向性。这样既避免 action dimension 的人为顺序，又避免完全双向的跨模态信息泄漏。
+
+**【Code】** `construct_attention(..., AttnType.hybrid)` 以区域编号 1–5 构造布尔 attention bias，并用 `query_mask >= key_mask` 实现跨区域的因果约束。
+
+#### Goal observation generation
+
+**【Analysis】** goal image 并不是最终要显示给机器人的“照片”，而是一个预测的未来状态 latent。它提供“完成这一段动作后环境应处于什么状态”的中间约束；动作 token 可以在 denoising 过程中持续读取这部分中间表示，而不必等整张 goal image 完成后再单独调用 inverse dynamics。
+
+#### Key-value cache
+
+**【Paper】** 指令在所有 denoising step 中不变，因此论文缓存每层的 $K_l,V_l,$ attention output 和 FFN output；generation 区域只刷新与缓存 value 向量 cosine similarity 最低的 $\lfloor\rho n'\rfloor$ 个 token，每 $\lambda$ 个 step 刷新一次。
+
+**【Code】** `mmadavla/utils/dllm_cache.py` 把 prompt/gen 分开缓存，并通过 `refresh_index` 选择低相似度位置。它是 training-free 的推理优化，不改变模型参数。
+
+### 4.3 关键公式
+
+#### Masked-token 训练目标
+
+**【Paper】** 从 clean sequence $x$ 采样 diffusion step $s$，得到被 mask 的 $x^{(s)}\sim q_s(\cdot\mid x)$。令 $N_s$ 为 mask token 数量，训练目标为：
+
+$$
+\mathcal L(\theta)=-\mathbb E\left[\frac{1}{N_s}\sum_{i=1}^{n}\mathbf 1[x_i^{(s)}=\text{[M]}]\log \pi_\theta(x_i\mid x^{(s)})\right].
+$$
+
+其中 $\mathbf 1$ 只选择被破坏的位置，避免未 mask 的条件 token 主导损失；代码中对应 `F.cross_entropy`，并用 `ignore_id` 忽略其他位置。
+
+#### Cosine mask schedule
+
+**【Paper / Code】** mask 比例采用 cosine schedule：
+
+$$
+\gamma(r)=\cos\left(\frac{\pi r}{2}\right),\quad r\in[0,1].
+$$
+
+训练中随机采样 $r$；代码中 `cosine_mask_schedule` 返回该比例，并对 image token 与 action token 使用相同的 mask probability。
+
+#### 迭代去噪与 confidence remasking
+
+**【Paper】** 第 $d$ 步先得到每个位置的 clean-token 预测 $\hat x^{(0)}$，再按预测置信度保留一部分 token、重新 mask 其余 token：
+
+$$
+x_i^{(d-1)}=\begin{cases}
+[M],&c_i<\operatorname{sort}(c)[\beta],\\
+\hat x_i^{(0)},&\text{otherwise}.
+\end{cases}
+$$
+
+这里 $c_i$ 是采样 token 的置信度，$\beta=\gamma(d/D)n'$ 是下一步需要保留的 mask 数量。
+
+**【Code】** `generate` 使用 softmax 概率采样 token，再通过 `mask_by_random_topk` 加入 Gumbel noise；随着 `ratio` 增大，temperature 线性降到 0，使后期决策更确定。
+
+### 4.4 Training
+
+**【Paper】** 预训练使用约 5,300 万跨 embodiment 样本，混合 DROID、BC-Z、Language Table、Furniture Bench、Fractal、Bridge V2、Kuka、CALVIN、LIBERO 等数据。backbone 是 8B 的 MMaDA-8B-Base；全局 batch size 640，AdamW，learning rate $10^{-4}$，weight decay 0.01，cosine decay，warm-up ratio 0.01，文本长度 128。8 节点、每节点 8 张 H800 上预训练约 30 小时。
+
+**【Code】** `train/train_mmadavla.py` 的训练步骤是：读取 parquet → 拼接 robot state 文本 → 对 goal image 与 action 同步 mask → 用 `Prompting` 生成 attention bias 和 labels → 前向交叉熵 → gradient clipping、AdamW 更新与 cosine scheduler。默认 mixed precision 为 bfloat16；从 base MMaDA 初始化时会扩展 action vocabulary。
+
+<Algorithm number={1} title='MMaDA-VLA masked-token training' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>跨 embodiment 轨迹 $(o_t,\ell,o_{t'},a_{t:t'-1})$、视觉/文本/动作 tokenizers。</div>
+  <div slot='output'>训练好的统一离散扩散策略 $\pi_\theta$。</div>
+  <AlgorithmStep>将 current image、instruction、goal image 和 action chunk token 化并拼接。</AlgorithmStep>
+  <AlgorithmStep>采样 cosine mask rate，同时 mask goal-image token 与 action token。</AlgorithmStep>
+  <AlgorithmStep>用 hybrid attention 构造区域 attention bias，只在被 mask 的 generation 位置计算 loss。</AlgorithmStep>
+  <AlgorithmStep>以 masked-token cross entropy 反向传播，执行 AdamW、梯度裁剪和学习率调度。</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 推理时 current observation 和 instruction 固定，goal observation 与 action chunk 全部初始化为 `[M]`。模型执行 $D$ 次 denoising，在每次迭代中并行更新两段 token；最终分别用 MAGVIT-v2 decoder 和 action tokenizer 解码，机器人执行 action chunk，再回到下一轮闭环。
+
+**【Code】** `MMaDAVLAModelLM.generate` 默认 `timesteps=18`，每步对 action / vision 两个区域分别采样、计算置信度、按 schedule 重新 mask。论文效率实验最终选择 24 denoising steps、6 cache-refresh steps；README 的命令没有覆盖这些推理参数，部署时需按评测脚本配置。
+
+<Algorithm number={2} title='MMaDA-VLA iterative closed-loop inference' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前 RGB 观测、proprioception、语言指令，以及 denoising steps $D$。</div>
+  <div slot='output'>连续机器人动作块 $a_{t:t+k-1}$。</div>
+  <AlgorithmStep>将 current observation 和 instruction 固定编码，把 goal / action 区域设为 mask token。</AlgorithmStep>
+  <AlgorithmStep>对 $d=D,\ldots,1$ 重复前向计算，分别采样 goal-image 与 action token。</AlgorithmStep>
+  <AlgorithmStep>依据 token confidence 和 cosine schedule 只保留高置信度 token，其余位置重新 mask；可使用 KV cache。</AlgorithmStep>
+  <AlgorithmStep>最终 action token 反量化为 7-DoF 连续动作，执行 chunk 并取得新观测。</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+| 论文概念           | 官方代码位置                                             | 代码行为                                                                      |
+| ------------------ | -------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Action tokenizer   | `mmadavla/models/action_tokenizer.py`                    | 256 bins，动作范围 $[-1,1]$，按 chunk 展平                                    |
+| Prompt / attention | `mmadavla/utils/prompt.py`                               | current image、text、goal image、action 的固定区域编号与 hybrid bias          |
+| Training loss      | `mmadavla/models/mmadavla.py`、`train/train_mmadavla.py` | 全序列 cross entropy，但 labels 只保留 masked generation token                |
+| Diffusion schedule | `mmadavla/utils/diffusion.py`                            | cosine mask、随机 mask、Gumbel top-k remasking                                |
+| Inference          | `mmadavla/models/mmadavla.py`                            | vision/action 两个区域并行采样，多步更新                                      |
+| Cache              | `mmadavla/utils/dllm_cache.py`                           | prompt/gen 分区 KV、attention、FFN cache；选择低 cosine similarity token 刷新 |
+| Data               | `mmadavla/data/lerobot.py`、`data/preprocess.py`         | LeRobot episode、视频帧、状态和 action chunk 的读取与归一化                   |
+
+**【Analysis】** 论文中的“world-model-like”是目标观测生成目标，不等同于一个可以任意 rollout 的显式 simulator。官方代码也没有单独的 inverse dynamics 网络；动作直接由同一 backbone 的 action vocabulary 解码。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+**【Paper】** LIBERO 报告 Spatial、Object、Goal、Long 四个 suite；CALVIN 使用 ABC→D 设置，在 A/B/C 训练、D 测试，并统计连续五个子任务的成功率与平均完成长度。真实实验使用 AgileX PiPER、第三视角 RealSense D435 和腕部 DX200-2.8mm 相机；四类任务各收集 300 条 demonstration，每类评估 30 次。
+
+![真实机器人设置、任务示例与成功率（论文 Figure 3）](/images/paper-deep-dive-mmada-vla/figure-3.webp)
+
+### 5.2 Main Results
+
+**【Paper】**
+
+| Benchmark              |                             MMaDA-VLA |                               最强对比方法 |                差值 |
+| ---------------------- | ------------------------------------: | -----------------------------------------: | ------------------: |
+| LIBERO average success |                             **98.0%** |                          VLA-Adapter 97.3% |             +0.7 pp |
+| CALVIN 1/5 → 5/5       | 99.8 / 98.6 / 96.3 / 93.5 / **89.7%** | DreamVLA 98.2 / 94.6 / 89.5 / 83.4 / 78.1% | 第五子任务 +11.6 pp |
+| CALVIN average length  |                              **4.78** |                              DreamVLA 4.44 |               +0.34 |
+| Real-world success     |                           83.3%–93.3% |                       GR00T N1 56.7%–70.0% |       +23.3–26.6 pp |
+
+**【Analysis】** 最有说服力的不是 LIBERO 的小幅平均提升，而是 CALVIN 后续子任务成功率：当错误必须跨多个动作块传播时，goal observation 约束与并行 refinement 的组合更能维持轨迹一致性。
+
+### 5.3 Ablation Study
+
+![生成目标观测与 ground truth 对比（论文 Figure 5）](/images/paper-deep-dive-mmada-vla/figure-5.webp)
+
+**【Paper】** 在不使用预训练的 CALVIN 设置中，完整模型平均长度为 4.56；去掉 world-model 目标观测后降到 4.08，去掉 parallel denoising 后为 4.38，改为 causal attention 为 4.49，改为完全 bidirectional attention 为 4.52。
+
+这些结果区分了三个因素：
+
+- **World-model objective** 带来最大收益（−0.48），说明未来视觉状态确实提供了动作规划信号。
+- **Parallel denoising** 比“先完整生成图像、再预测动作”更好（−0.18），动作可以读取图像生成过程中的中间 hidden states。
+- **Attention 形式** 的影响较小（均小于 0.1），但 hybrid attention 同时保留了模态内全局交互和模态间方向性。
+
+### 5.4 Generalization
+
+**【Paper】** 预训练将 LIBERO 平均成功率从 94.5% 提升到 98.0%，将 CALVIN 平均长度从 4.56 提升到 4.78。目标观测可视化显示，模型能保留“任务是否完成”的高层状态变化，但 gripper 几何和小物体细节较模糊。
+
+**【Analysis】** 这表明 compact visual code 更像 dynamics abstraction，而不是像素级 world model：它对控制有用的原因可能是状态可辨识性，而非图像重建保真度。
+
+![不同去噪步数与 cache 刷新设置下的延迟—性能折中（论文 Figure 7）](/images/paper-deep-dive-mmada-vla/figure-7.webp)
+
+**【Paper】** 在单张 A100 上，KV cache 将平均延迟从约 2.0 s 降到 1.4 s；去噪步数增加时性能先升后降，24 steps 达到最佳平均长度 4.65。论文最终采用 24 steps、6 refresh steps 作为速度与成功率的折中。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** 可以把它理解成三个互补的归纳偏置：
+
+1. **Shared token space** 让 vision、language、action 使用同一套 denoising 计算，减少模块边界的信息损失。
+2. **Goal observation** 把长时域动作变成“到达一个可预测状态”，给 action chunk 一个可检查的中间目标。
+3. **Iterative parallel refinement** 允许动作各维度互相参考并反复改写，避免 AR 顺序和早期错误锁死后续 token。
+
+### 6.2 核心创新
+
+**【Paper】** 真正的创新组合是“原生离散扩散 backbone + goal observation/action 联合生成 + hybrid attention + 大规模 cross-embodiment pre-training”。单独拿出任何一个部件，都能在已有工作中找到相近思想；贡献在于把训练和推理统一到一个可扩展的生成框架中。
+
+### 6.3 与已有方法的本质区别
+
+| 路线             | 生成关系                               | 主要代价                     |
+| ---------------- | -------------------------------------- | ---------------------------- |
+| Vanilla AR VLA   | 按顺序生成 action token                | 顺序偏置、误差累积           |
+| Hierarchical VLA | VLM → policy head                      | 额外模块与接口失真           |
+| World-model VLA  | goal image → inverse dynamics → action | 多阶段、训练/推理错配        |
+| MMaDA-VLA        | goal image 与 action 同一序列并行去噪  | 多次前向带来延迟，需要 cache |
+
+### 6.4 关键假设
+
+**【Analysis】** 方法隐含了四个假设：
+
+- 离散视觉 token 足以表达与控制相关的未来状态；
+- action chunk 的维度可被无序并行 refinement 有效建模；
+- 当前指令在一个 denoising cycle 内保持不变，因此 prompt cache 稳定；
+- 大规模跨 embodiment 数据学到的 token-level correspondence 能迁移到新机器人和新相机布局。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 生成目标观测的细粒度视觉保真度有限，gripper 和小型复杂物体可能模糊；迭代去噪天然重复计算，实时控制需要 KV cache；真实实验中的失败仍集中在窄开口抓取、抽屉位移不足和高杯堆叠不稳定等精细接触问题。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+1. **代码与论文的部署鸿沟**：仓库公开了训练与模型推理，但真实 AgileX PiPER 的完整控制、相机同步和安全策略没有作为可复现实验脚本提供。
+2. **离散化误差**：256 bins 对 7-DoF 每个维度独立量化，bin range 由训练数据决定；超出数据分布的精细动作可能被截断。
+3. **延迟仍高于单次 forward policy**：24 次去噪即使有 cache 也需要约 1.4 s 量级，快速接触或高频控制场景可能无法直接使用。
+4. **目标观测不是可验证的真实动力学**：生成图像只需在 token 空间合理，不保证满足碰撞、摩擦、关节极限等物理约束。
+5. **实验对比的统计不确定性未充分展开**：论文报告成功率和平均长度，但没有系统给出多随机种子置信区间或不同 chunk size 的完整敏感性曲线。
+
+## 8. 启发与研究思考
+
+**【Analysis】** 这篇工作给后续 VLA 研究的启发是：
+
+- 可以把 action chunk 看成需要全局修正的 structured sequence，而不是语言式 token stream；
+- world model 不一定要独立存在，预测一个短 horizon 的可控目标状态也能作为 policy 的辅助坐标系；
+- 预训练的价值不仅是视觉语义迁移，也在于让模型看到不同 embodiment 下“动作 token 如何改变视觉 token”；
+- cache 不应只是工程补丁，未来可以把“哪些 token 值得刷新”作为可学习的 computation allocation 问题；
+- 下一步值得研究连续 action diffusion 与离散视觉生成的混合表示，以及带物理约束的 goal-state token。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。论文与代码若有差异，以对应标注为准。
+</Aside>
