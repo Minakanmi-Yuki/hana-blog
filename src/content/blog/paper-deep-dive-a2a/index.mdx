@@ -1,0 +1,284 @@
+---
+title: 'A2A 论文精读：用历史动作替代高斯噪声的 Flow Matching 策略'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 A2A：把历史本体动作编码为 Flow Matching 的起点，以轻量 MLP 生成未来动作，在单步推理下兼顾低延迟与视觉鲁棒性。'
+heroImage:
+  { src: 'https://pic.hana0721.top/74502138_p0_master1200.7i0z6ufn7r.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '74502138'
+tags:
+  - 'paper deep dive'
+  - 'robot learning'
+  - 'flow matching'
+  - 'imitation learning'
+paper:
+  arxivId: '2602.07322'
+  title: 'Action-to-Action Flow Matching'
+  authors:
+    - 'Jindou Jia'
+    - 'Gen Li'
+    - 'Xiangyu Chen'
+    - 'Tuo An'
+    - 'Yuxuan Hu'
+    - 'Jingliang Li'
+    - 'Xinying Guo'
+    - 'Jianfei Yang'
+  venue: 'arXiv'
+  year: 2026
+  code: 'https://github.com/JIAjindou/A2A_Flow_Matching'
+  project: 'https://lorenzo-0-0.github.io/A2A_Flow_Matching/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2602.07322'
+  tldr='A2A 不从随机高斯噪声生成动作，而是将已执行动作的历史编码为 Flow Matching 起点，直接流向未来 action chunk。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《Action-to-Action Flow Matching》
+
+**作者与机构**：Jindou Jia、Gen Li 等，Nanyang Technological University MARS Lab。
+
+**论文链接**：[arXiv](https://arxiv.org/abs/2602.07322) · **代码**：[JIAjindou/A2A_Flow_Matching](https://github.com/JIAjindou/A2A_Flow_Matching) · **项目主页**：[A2A](https://lorenzo-0-0.github.io/A2A_Flow_Matching/)
+
+![回归、noise-to-action 与 A2A action-to-action 策略的比较（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-a2a/a2a-framework-crop.4joud72m0p.webp)
+
+### 一句话总结
+
+**【Paper】** A2A（Action-to-Action Flow Matching）把机器人最近执行的本体感知动作序列当作生成起点，而非从 $\mathcal N(0,I)$ 采样；在共享的动作 latent 空间中学习从历史 chunk 到未来 chunk 的条件流，因此可用轻量 MLP 在最少一次 Euler step 中产生动作。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出 action-to-action 的条件 Flow Matching：从历史动作分布运输到未来动作分布，利用相邻控制片段的物理连续性缩短生成路径。
+2. 以 CNN action autoencoder 建立 512 维统一 latent space，并以视觉条件驱动 AdaLN-MLP Flow Net；训练时联合 flow matching、动作重建和 inference consistency。
+3. 在五个仿真任务、Franka 的 Pick Cube 与 Open Drawer 真机任务上与八种方法比较，并报告单步平均推理延迟 0.56 ms。
+4. 研究视觉扰动、初始状态不确定性与历史动作加噪；此外把同一“历史到未来”的思路扩展为 F2F 视频预测。
+
+## 2. 背景与相关工作
+
+**【Paper】** Diffusion Policy 与 flow-based policy 能够建模示教动作的多模态性，但通常以随机高斯噪声为初始状态，须经过多轮反向去噪或 ODE 积分。对图像生成这很自然；对连续控制，机器人却持续拥有当前姿态、低层跟踪后的执行结果和最近运动趋势。
+
+**【Paper】** 既有方法往往将当前 proprioception 与图像特征简单拼接，使它只是静态 condition；A2A 的问题更强：能否让一个时间窗口内的历史动作成为生成分布的 source，并显式学习它到未来动作分布的 transport？
+
+**【Analysis】** 这里的改变不等于“多输入一个 state”。它更改了生成问题的边界条件：标准 Flow Matching 学习 noise $\rightarrow$ action；A2A 学习 history-action $\rightarrow$ future-action。若相邻 chunk 的动力学确实平滑，后者的起点天然更靠近终点，少步积分才有成立的空间。
+
+## 3. 问题定义
+
+**【Paper】** 记历史动作为 $\mathbf a_{\le t}=\{\mathbf a_{t-n+1},\ldots,\mathbf a_t\}$，历史图像为 $\mathbf I_{\le t}=\{\mathbf I_{t-m+1},\ldots,\mathbf I_t\}$，预测目标为 $\mathbf a_{>t}=\{\mathbf a_{t+1},\ldots,\mathbf a_{t+n}\}$。$n$ 是 action horizon，$m$ 是 observation horizon；论文实验取 $n=m=8$。
+
+**【Paper】** 动作定义随任务而变：仿真使用 joint angles，真机使用 end-effector states。论文特别说明 source 应来自本体反馈所反映的**已执行**动作，而不是仅使用上一个 policy command，以吸收低层跟踪误差。
+
+| 要素                                  | A2A 中的角色                                               |
+| ------------------------------------- | ---------------------------------------------------------- |
+| RGB observation                       | 经过 ResNet-18 和线性投影，形成全局条件 $\mathbf c$        |
+| 历史 action / proprioceptive feedback | 经 CNN 压缩为流的起点 $\mathbf z_0$                        |
+| 未来 action chunk                     | 经另一个 CNN 编码为目标 $\mathbf z_1$，最后由 decoder 还原 |
+| Policy output                         | 长度为 $n$ 的连续 future action sequence                   |
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![A2A 的视觉条件路径、历史动作 source path 与 latent Flow Net（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-a2a/a2a-pipeline-crop.1apqgjf4ph.webp)
+
+**【Paper】** 图像序列经 ResNet-18 得到条件 $\mathbf c$；历史动作经三层 1D CNN 得到起点 $\mathbf z_0$；Flow Net 在 $\mathbf c$ 条件下把它运输为 $\mathbf z_1$，残差 MLP decoder 输出未来 action chunk。
+
+### 4.2 核心模块
+
+#### 历史—未来动作的共享 latent
+
+**【Paper】** A2A 用 action encoder $E_a$ 将历史序列压缩为 $\mathbf z_0=E_a(\mathbf a_{\le t})$，并将未来目标编码到同一空间；decoder $D_a$ 将生成后的 $\mathbf z_1$ 还原为 $\hat{\mathbf a}_{>t}$。论文的动机是：动作原空间中的近邻关系未必利于 transport，而高维 latent 可让起点和终点的分布对齐得更好。
+
+**【Code】** `roboverse_learn/il/policies/a2a/action_ae.py` 的 `CNNActionEncoder` 使用 3 个 kernel size 5、stride 2 的 `Conv1d + ReLU` 层，默认配置的 encoder / decoder hidden dimension 和 latent dimension 都为 512。decoder 是输入投影、4 个 MLP block 与输出投影组成的残差式 MLP。
+
+#### 视觉条件与 Flow Net
+
+**【Paper】** 视觉条件路径先提取最近 $m$ 帧视觉特征，再经 MLP 投影为全局 $\mathbf c$。Flow Net 使用 4 个 AdaLN-MLP block 预测时间相关的向量场 $\mathbf v_\tau$，不需要 U-Net 或 Transformer 的序列注意力。
+
+**【Code】** `a2a_policy.py` 将每帧特征拼接后用 `obs_projector` 投到 512 维；`utils/models/flow_net.py::SimpleFlowNet` 为 timestep 添加 sinusoidal embedding，再将 `global_cond` 加到时间 embedding 上，经过 4 个 `FlowNetLayer` 预测速度。论文图中的 AdaLN-MLP 与该实现一致。
+
+#### 可控随机性：A2A-Noise
+
+**【Paper】** 纯历史 source 带来很强的确定性，但在动作本身有多个可行模式时可能塌缩到单一轨迹。论文在 encode 前向历史动作注入小幅 Gaussian noise，以保留一定多模态性。
+
+**【Code】** `a2a_noise_policy.py` 提供 `A2ANoiseImagePolicy`，在训练和 `predict_action` 中都调用 `_add_history_noise`；这不是对 Flow Net 输入的重新采样，而是先扰动 history state，再编码为 $\mathbf z_0$。
+
+### 4.3 关键公式
+
+**【Paper】** 对一般 Flow Matching，概率路径满足：
+
+$$
+\frac{d\mathbf x_\tau}{d\tau}=\mathbf v_\tau(\mathbf x_\tau),\qquad
+\mathbf x_\tau=(1-\tau)\mathbf x_0+\tau\mathbf x_1,
+$$
+
+其中 $\tau\in[0,1]$，$\mathbf x_0$ 为 source，$\mathbf x_1$ 为 data target。A2A 以 $\mathbf z_0$ 和 $\mathbf z_1$ 代替 noise 与 raw action，拟合条件 vector field $f_\theta$：
+
+$$
+\mathcal L_{FM}=\mathbb E_{\tau,\mathbf z_0,\mathbf z_1}
+\left\|f_\theta(\mathbf z_\tau,\tau,\mathbf c)-\mathbf v_\tau(\mathbf z_\tau,\tau,\mathbf c)\right\|_2^2.
+$$
+
+**【Paper】** 为保证 latent 可解码且少步 ODE 的落点可执行，论文再加入：
+
+$$
+\mathcal L_{AE}=\mathbb E\left\|\mathbf a_{>t}-D_a(E_a(\mathbf a_{>t}))\right\|_1,
+$$
+
+$$
+\mathcal L_{IC}=
+\left\|\hat{\mathbf z}_1-E_a(\mathbf a_{>t})\right\|_1+
+\lambda_0\left\|D_a(\hat{\mathbf z}_1)-\mathbf a_{>t}\right\|_1,
+\qquad
+\mathcal L_{total}=\lambda_1\mathcal L_{FM}+\lambda_2\mathcal L_{AE}+\lambda_3\mathcal L_{IC}.
+$$
+
+这里 $\hat{\mathbf z}_1$ 是从 $\mathbf z_0$ 经离散 ODE 得到的 prediction，$\lambda_0$ 平衡 latent 与动作空间的一致性；实验中取 $\lambda_0=0.5,\lambda_1=1,\lambda_2=0.5,\lambda_3=1$。
+
+### 4.4 Training
+
+**【Paper】** 每个 batch 抽取历史动作、图像序列和未来 action chunk，在 $\tau\sim\mathcal U[0,1]$ 处构造线性路径，训练 vector field；同时让 autoencoder 重建未来 chunk，并将有限步 ODE 的输出拉回 target latent / action。所有实验采用 batch size 32，仿真表格的主比较使用 100 demonstrations、30 epochs。
+
+**【Code】** `A2AImagePolicy.compute_loss` 先对 observation 与 action normalization；视觉走 `obs_encoder`，历史部分取 `nobs['agent_pos'][:, :n_obs_steps]`，未来部分取从 `n_obs_steps - 1` 开始的 `n_action_steps` 个 action。配置 `a2a.yaml` 默认 6 个 sampling steps、`consistency_weight=1`、encoder reconstruction weight 0.5、flow reconstruction weight 0.5；代码还可选 InfoNCE contrastive loss，但默认配置将其设为 0。
+
+<Algorithm number={1} title='A2A 的联合训练' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>示教 batch $(\mathbf I_{\le t},\mathbf a_{\le t},\mathbf a_{>t})$，权重 $\lambda_0,\ldots,\lambda_3$</div>
+  <div slot='output'>训练好的 $E_a,D_a,f_\theta$ 与视觉编码器</div>
+  <AlgorithmStep>编码图像序列为条件 $\mathbf c$，编码历史与未来动作为 $\mathbf z_0,\mathbf z_1$</AlgorithmStep>
+  <AlgorithmStep>采样 $\tau\sim\mathcal U[0,1)$，构造 $\mathbf z_\tau=(1-\tau)\mathbf z_0+\tau\mathbf z_1$</AlgorithmStep>
+  <AlgorithmStep>令 Flow Net 拟合从 $\mathbf z_0$ 指向 $\mathbf z_1$ 的条件速度，得到 $\mathcal L_{FM}$</AlgorithmStep>
+  <AlgorithmStep>重建 future actions 并以有限步 Euler 采样得到 $\hat{\mathbf z}_1$，计算 $\mathcal L_{AE}$ 与 $\mathcal L_{IC}$</AlgorithmStep>
+  <AlgorithmStep keyword='return'>最小化 $\mathcal L_{total}$，保存验证表现最佳的策略</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 推理从当前已执行动作历史得到 $\mathbf z_0$，而非采样 Gaussian noise。以 $K$ 个 Euler step 迭代 $\mathbf z\leftarrow\mathbf z+f_\theta(\mathbf z,\tau,\mathbf c)/K$，最后 decode 成未来动作。论文报告多步通常更稳，但 A2A 在单步也可得到高质量动作。
+
+**【Code】** `TorchFlowMatcher.sample` 的实现从传入的 `start` 开始，以 `dt=1/K` 循环调用 Flow Net；`predict_action` 随后 `action_decoder`、反归一化，并返回整个预测 chunk。仓库的真实部署说明再次强调应把机器人反馈的 executed actions 放入 history buffer。
+
+<Algorithm number={2} title='A2A 的闭环 action-to-action 推理' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>最新 $m$ 帧图像、最新 $n$ 个已执行 action / proprioception、Euler steps $K$</div>
+  <div slot='output'>未来连续动作 chunk $\hat{\mathbf a}_{>t}$</div>
+  <AlgorithmStep>编码视觉历史为 $\mathbf c$，编码执行动作历史为 source $\mathbf z\leftarrow\mathbf z_0$</AlgorithmStep>
+  <AlgorithmStep keyword='for'>$k=0,\ldots,K-1$，令 $\tau=k/K$</AlgorithmStep>
+  <AlgorithmStep indent={1}>计算 $\mathbf v=f_\theta(\mathbf z,\tau,\mathbf c)$ 并更新 $\mathbf z\leftarrow\mathbf z+\mathbf v/K$</AlgorithmStep>
+  <AlgorithmStep keyword='end for' />
+  <AlgorithmStep>输出 $D_a(\mathbf z)$，在下一个闭环周期将实际执行反馈写回 history</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** 官方实现与论文的主要映射如下；其中 `agent_pos` 命名为 state，与论文中“executed action / proprioceptive feedback”的概念应在具体机器人接口中对齐。
+
+| 论文模块               | 代码位置                                        | 实际实现                                                        |
+| ---------------------- | ----------------------------------------------- | --------------------------------------------------------------- |
+| A2A policy             | `roboverse_learn/il/policies/a2a/a2a_policy.py` | `compute_loss`、`predict_action` 与 latent 可视化入口           |
+| 动作 encoder / decoder | `.../a2a/action_ae.py`                          | CNN 压缩 8 帧时间序列，4-layer MLP 解码 action chunk            |
+| 条件 Flow Matching     | `il/utils/flow/flow_matchers.py`                | `ConditionalFlowMatcher` 训练速度场、Euler 采样                 |
+| AdaLN-MLP Flow Net     | `il/utils/models/flow_net.py`                   | `SimpleFlowNet` 将时间与 visual condition 调制进 4 个 MLP block |
+| A2A-Noise              | `.../a2a/a2a_noise_policy.py`                   | 对 history states 先加 Gaussian noise，再编码和采样             |
+| 默认超参数             | `il/configs/policy_config/a2a.yaml`             | latent 512、6 步采样、ResNet-18、512 hidden dim                 |
+
+**【Analysis】** 代码让“论文的单步能力”与“默认可复现实验设置”分开：默认是 6 步，而非 1 步。这是合理的性能—稳健性选择，也意味着 0.56 ms 不是所有配置的默认端到端延迟承诺。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![Roboverse 中的五个仿真操控任务（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-a2a/a2a-experiments-crop.99u3blu8xj.webp)
+
+**【Paper】** 仿真评估覆盖 Roboverse 中五个任务：ManiSkill 的 Stack Cube、Pick Cube，RLBench 的 Close Box，以及 LIBERO 的 Open Drawer、Pick-Place Bowl；另在 Franka 上做 Pick Cube 和 Open Drawer 真机实验。对比对象包括 DDPM-UNet / DiT、DDIM-UNet、FM-UNet / DiT、Score-UNet、ACT 和 VITA。
+
+**【Paper】** 主表控制模型规模、chunk size 与 batch size 尽可能一致。五任务成功率的比较采用 100 demonstrations、30 epochs；真机 Pick Cube 用 30 条轨迹训练 100 epochs，Open Drawer 用 30 条轨迹训练 300 epochs，均以 10 次 trial 评估。
+
+### 5.2 Main Results
+
+**【Paper】** 在五个仿真任务的主表中，A2A（6 steps）的成功率为 Close Box 92%、Pick Cube 92%、Stack Cube 86%、Open Drawer 92%、Pick-Place Bowl 90%；它在前四项最高，后者略低于 VITA 的 92%。作为比较，ACT（1 step）为 82%、86%、32%、80%、60%。
+
+![Close Box 上的步数—成功率、单步训练收敛与各方法推理耗时（论文 Figure 7）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-a2a/a2a-inference-cost-crop.54yhzhx3aq.webp)
+
+**【Paper】** Close Box 的推理成本图显示，固定 30 epochs 时，4 steps 已达到约 80% 成功率、6 steps 为约 88%，继续增加步数的边际收益趋小；单步设置在约 32 epochs 后超过 90%。在同一 RTX 5090 32GB 上测得，A2A 单步平均 0.56 ms，6 步仍低于 1 ms；论文将这个优势归因于较短 transport 与纯 MLP 运算。
+
+**【Paper】** 真机实验中，A2A 在 30 条训练轨迹下的 in-distribution Pick Cube 与 Open Drawer 均报告 100% 成功率；替换为未见发光方块时，A2A 为 80%，两种 UNet 基线为 0%。这些数值来自每种设置 10 次 trial，应理解为小样本实验的估计值。
+
+### 5.3 Ablation Study
+
+![Flow / regression 与 latent / raw action space 的结构消融（论文 Figure 10）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-a2a/a2a-structure-ablation-crop.8hh7tvdo6z.webp)
+
+**【Paper】** 结构消融固定 Close Box、100 demonstrations、30 epochs，flow 方法使用 6 steps。Flow-latent（A2A）与 Reg-latent 在训练分布上都能达到较高成功率，但在环境扰动下前者更稳；直接在 raw action space 做 Flow Matching，无论采用 UNet 还是 MLP，都弱于 latent-space flow。
+
+**【Analysis】** 该消融支持的不是“生成必然优于回归”，而是一个更具体的结论：在本实验的轻量结构、少数据和视觉扰动下，history-informed latent flow 的组合比匹配的 latent regression 更能保留泛化。论文也观察到 ACT 在某些标准任务上很有竞争力。
+
+### 5.4 Generalization
+
+**【Paper】** Close Box 的分级随机化中，Level 0 只有初始物体位姿变化；Level 1 再加背景，Level 2 再加光照，Level 3 再加相机视角。六步 A2A 在 Level 0–3 分别为 100%、38%、42%、38%，均高于表中的基线；单步 A2A 为 100%、20%、16%、22%。
+
+**【Paper】** 方法同时暴露出对 action history 偏差的敏感性：初始关节位姿被扰动时性能下降。论文发现向历史动作加入小噪声能改善这种不确定性下的表现，并报告在 Level 1 上，STD 0.02 的历史噪声可将结果从 20% 提升到 52%。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** A2A 的关键先验是局部连续性：在一次短 action horizon 内，未来控制序列通常不是与刚执行序列无关的样本。因此 encoder 可以学习使 $p(\mathbf z_0)$ 和 $p(\mathbf z_1)$ 接近的表征，Flow Net 要解决的是“沿当前运动趋势转弯多少”，而不是“从全空间任意高斯点找到可执行轨迹”。
+
+**【Analysis】** 与直接回归相比，flow 仍保留了可积分的连续生成过程；与噪声初始化的生成相比，source 又带有机器人刚刚发生的真实动态。inference consistency 将训练时的 vector-field 拟合和推理时的有限步 Euler 落点绑定，正好针对少步部署的误差来源。
+
+### 6.2 核心创新
+
+1. **source distribution 的替换**：用历史 executed actions，而非 Gaussian noise，定义生成起点。
+2. **latent-space action transport**：历史与未来各自编码，却在同一 512 维空间中对齐。
+3. **面向采样的监督**：除 flow loss 外，直接约束有限步 ODE 后的 latent 与 decoded action。
+4. **噪声作为策略旋钮**：不是放弃 history prior，而是在它上面注入小扰动，换回多模态性和初始状态鲁棒性。
+
+### 6.3 与已有方法的本质区别
+
+| 方法范式           | 起点                         | 本体信息的作用   | A2A 的差异                                   |
+| ------------------ | ---------------------------- | ---------------- | -------------------------------------------- |
+| Regression / ACT   | observation 到动作的确定映射 | 常与视觉特征拼接 | A2A 保留显式连续 transport，而非一次直接预测 |
+| Diffusion Policy   | 高斯噪声                     | 多作为条件       | A2A 将历史序列提升为 source distribution     |
+| 常规 Flow Matching | 多为噪声或简单 source        | 常作为条件       | A2A 用 action-to-action 的相邻动力学缩短路径 |
+| VITA               | 视觉到动作 flow              | 主要依赖视觉     | A2A 用可反馈的历史动作提供物理连续先验       |
+
+### 6.4 关键假设
+
+**【Analysis】** A2A 隐含以下条件：控制信号在局部时间内平滑；反馈 history 与当前视觉时间对齐；过去 chunk 对未来 chunk 有预测性；低层控制能及时报告已执行结果。若任务需要突发切换、离散决策或接触后快速反向，source 与 target 不再邻近，单步优势就会变弱。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** A2A 依赖动作的物理连续性，因此对以平滑连续控制为主的任务最适合；binary gripper open / close 等离散、开关式动作维度从该 prior 获益有限。总损失还包含多个人工设置的权重；论文将自适应 loss weighting 和连续—离散混合动作视为未来方向。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+1. 论文的少步结论建立在短 horizon、特定模型规模和任务集上；当 action chunk 变长、存在遮挡或需要重规划时，历史 source 与未来 target 的距离可能明显增加。
+2. 使用历史 executed actions 要求实时反馈可靠、时间戳一致；真实硬件的滤波、延迟或丢包会把 source 推离论文设定的分布。
+3. 真机每种条件 10 次 trial，虽然展示了趋势，但对 100% / 80% 这类比例的统计不确定性仍较大；还缺少更长时程、多接触与安全约束任务的报告。
+4. 小噪声可恢复多模态性，却引入 noise scale 这一新的部署超参数；不同动作尺度、机器人和扰动水平下很难预先保证同一 STD 合适。
+
+## 8. 启发与研究思考
+
+**【Analysis】** A2A 值得带走的不是“永远不用高斯噪声”，而是一个 source design 原则：生成式机器人策略应优先寻找任务中已有、可测量且与目标分布相邻的状态，而不是机械复用视觉生成的初始化方式。
+
+- 可学习 source mixer：由网络在 history latent、Gaussian noise 和 task-plan latent 间自适应插值，以应对连续与突变动作并存的任务。
+- 时序可信度建模：按反馈延迟、接触事件和视觉变化估计 history 的可信度，必要时增加积分步数或回退到更保守策略。
+- 长时程分层：高层生成 subgoal / constraint，低层使用 A2A 完成短的 physically continuous transport。
+- 将 F2F 的未来观测预测接入 policy，检验“状态—动作—观测”是否能共享同一种邻近 source 到 future target 的表征。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。
+</Aside>
