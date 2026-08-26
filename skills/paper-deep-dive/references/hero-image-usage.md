@@ -44,7 +44,7 @@ Use only after the count-1 pool is exhausted.
 |         3 | `143484250` | `https://pic.hana0721.top/143484250_p0_master1200.9ddjzdu0z1.webp` | `linux-dl-env-setup`, `paper-deep-dive-pi0`, `paper-deep-dive-robotwin-2`                               |
 |         3 | `131135880` | `https://pic.hana0721.top/131135880_p0_master1200.9rjzqc0dp5.webp` | `rl-note-20`, `paper-deep-dive-robodual`, `paper-deep-dive-robodojo`                                    |
 |         3 | `103975128` | `https://pic.hana0721.top/103975128_p0_master1200.8vniavqp93.webp` | `rl-note-19`, `paper-deep-dive-smolvla`, `paper-deep-dive-ebench`                                       |
-|         2 | `102841826` | `https://pic.hana0721.top/102841826_p0_master1200.4clh7xw95k.webp` | `rl-note-22`, `paper-deep-dive-inspire`                                                                 |
+|         3 | `102841826` | `https://pic.hana0721.top/102841826_p0_master1200.4clh7xw95k.webp` | `rl-note-22`, `paper-deep-dive-inspire`, `paper-deep-dive-egoscale`                                  |
 |         3 | `120188807` | `https://pic.hana0721.top/120188807_p0_master1200.1lcf3tjzx5.webp` | `vibe-coding-3`, `paper-deep-dive-vista`, `paper-deep-dive-umi-bench`                                  |
 |         2 | `101003773` | `https://pic.hana0721.top/101003773_p0_master1200.3uvfruqg2c.webp` | `shared-server-git-ssh-workflow`, `paper-deep-dive-robochallenge`                                       |
 |         3 | `120269913` | `https://pic.hana0721.top/120269913_p0_master1200.3k8lu5pi8s.webp` | `vibe-coding-4`, `paper-deep-dive-unidex`, `paper-deep-dive-la4vla`                                     |

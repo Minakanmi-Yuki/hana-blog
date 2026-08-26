@@ -1,0 +1,286 @@
+---
+title: 'EgoScale 论文精读：用 2 万小时人类视频扩展灵巧操作'
+publishDate: 2026-08-27
+updatedDate: 2026-08-27
+description: '精读 NVIDIA EgoScale：把大规模第一视角人类视频、动作缩放律与人机对齐 mid-training 组合起来，迁移到 22-DoF 灵巧手。'
+heroImage:
+  { src: 'https://pic.hana0721.top/102841826_p0_master1200.4clh7xw95k.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '102841826'
+tags:
+  - 'paper deep dive'
+  - 'EgoScale'
+  - 'dexterous manipulation'
+  - 'VLA'
+paper:
+  arxivId: '2602.16710'
+  title: 'EgoScale: Scaling Dexterous Manipulation with Diverse Egocentric Human Data'
+  authors:
+    - 'Ruijie Zheng'
+    - 'Dantong Niu'
+    - 'Yuqi Xie'
+    - 'Jing Wang'
+    - 'Mengda Xu'
+    - 'Yunfan Jiang'
+    - 'Fernando Castañeda'
+    - 'Fengyuan Hu'
+    - 'You Liang Tan'
+    - 'Letian Fu'
+    - 'Trevor Darrell'
+    - 'Furong Huang'
+    - 'Yuke Zhu'
+    - 'Danfei Xu'
+    - 'Linxi Fan'
+  venue: 'arXiv'
+  year: 2026
+  code: ''
+  project: 'https://research.nvidia.com/labs/gear/egoscale/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2602.16710'
+  tldr='EgoScale 用 20,854 小时第一视角人类视频预训练带有手部动作监督的 flow-based VLA，再用约 50 小时人类和 4 小时机器人对齐数据 mid-training，把可缩放的人类运动先验落到灵巧机器人控制。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《EgoScale: Scaling Dexterous Manipulation with Diverse Egocentric Human Data》
+
+**作者**：Ruijie Zheng、Dantong Niu、Yuqi Xie、Jing Wang、Mengda Xu、Yunfan Jiang、Fernando Castañeda、Fengyuan Hu、You Liang Tan、Letian Fu、Trevor Darrell、Furong Huang、Yuke Zhu、Danfei Xu、Linxi Fan
+
+**机构**：NVIDIA、University of California, Berkeley、University of Maryland
+
+**论文 / 项目**：[arXiv](https://arxiv.org/abs/2602.16710) · [EgoScale project page](https://research.nvidia.com/labs/gear/egoscale/)
+
+**代码状态**：项目页截至论文发布时标注 “GitHub (Coming Soon!)”，没有可供本文核对的公开官方代码。
+
+![EgoScale 两阶段人类到机器人学习流程（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egoscale/pull_figure-egoscale.webp)
+
+### 一句话总结
+
+**【Paper】** EgoScale 把人类视为一个可扩展的“数据 embodiment”：先在 20,854 小时第一视角视频上预测相对 wrist motion 与 retargeted hand joints，再用少量严格对齐的人机 play data 做 mid-training，最后只需少量机器人示教就能学习长时程的 22-DoF 灵巧操作。
+
+### 核心贡献
+
+**【Paper】**
+
+1. **Human-data scaling law**：在 1k–20k 小时范围内，人类动作验证损失与数据量呈近似 log-linear 关系，拟合式为 $L=0.024-0.003\ln(D)$，$R^2=0.9983$。
+2. **两阶段迁移 recipe**：大规模但有噪声的人类预训练负责学习通用运动结构；约 50 小时人类 + 4 小时机器人组成的 aligned mid-training 负责把结构锚定到机器人传感和控制接口。
+3. **灵巧操作收益**：在 Galaxea R1 Pro + 22-DoF Sharpa 手上，完整方法相对无预训练基线的平均成功率提升 54%（论文摘要口径）。
+4. **少样本与跨 embodiment**：Fold Shirt 单个机器人示教达到 0.88 成功率；在 Unitree G1 的 7-DoF tri-finger 手上也观察到明显收益。
+
+## 2. 背景与相关工作
+
+**【Paper】** 机器人示教数据昂贵，尤其是需要接触、手指协调和长时程规划的 dexterous manipulation。第一视角人类视频的数量和场景覆盖远大于机器人 teleoperation，但存在两个错配：视频中的人手不是目标机器人，且 in-the-wild 手部追踪和相机位姿估计带有噪声。
+
+已有 human-to-robot 方法通常依赖几十到几百小时的人类数据，或只迁移 wrist / fingertip 轨迹。EgoScale 的问题意识是：如果把规模扩大到两万小时，并显式监督高自由度 hand articulation，噪声是否会被多样性抵消？以及，是否只需要一个小的“人类—机器人对齐层”就能完成 embodiment grounding？
+
+**【Analysis】** 这把问题拆成了两个可独立测量的因素：数据规模决定表示是否丰富，对齐数据决定表示是否可执行。若两者混在一个数据集里，就很难知道性能来自“更多视频”还是“更接近目标机器人的示教”。
+
+## 3. 问题定义
+
+**【Paper】** 每个时间步的输入为第一视角图像、语言指令，以及机器人数据可用的 proprioceptive state。模型输出一个未来动作 chunk：
+
+$$
+ A_t=(a_t,\ldots,a_{t+H}),\qquad a_t=(\Delta W_t, a_{\text{hand},t}).
+$$
+
+- **Observation**：30 FPS 的 egocentric RGB；对机器人还包括关节状态。人类样本没有 proprioception，因此输入 learnable placeholder token。
+- **Arm action**：相对 wrist 变换 $\Delta W_t\in SE(3)$，消除绝对相机位姿和工作空间差异。
+- **Hand action**：把 21 个手部 keypoints retarget 到 Sharpa 的 22-DoF joint space。
+- **主要 embodiment**：Galaxea R1 Pro 双臂轮式 humanoid，固定底座和躯干，双手为 Sharpa Wave 22-DoF。
+- **目标任务**：Shirt Rolling、Card Sorting、Tongs for Fruit Transfer、Bottle Unscrewing、Syringe Liquid Transfer。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![EgoScale flow-based VLA 架构（论文 Figure 2b）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egoscale/architecture-egoscale.webp)
+
+**【Paper】** 图像和语言先由 VLM backbone 编码，DiT action expert 在 flow-matching 目标下生成动作 chunk；共享的 wrist action abstraction 连接人类和机器人，embodiment-conditioned MLP adapters 只处理各平台的 state 输入和 hand action 输出。
+
+### 4.2 核心模块
+
+#### 人类动作重表示
+
+**【Paper】** 相机位姿为 $T^t_{w\leftarrow c}\in SE(3)$，第 $i$ 个手部 keypoint 为 $H^t_{c,i}$，腕部世界坐标为 $W^t_w=T^t_{w\leftarrow c}H^t_{c,1}$。在一个 action chunk 内使用 $\Delta W^t=(W^0_w)^{-1}W^t_w$，因此模型学习的是局部运动而非“人在房间中的绝对位置”。
+
+手部 keypoints 通过带 joint limits 和 kinematic constraints 的优化程序映射到 22 个 Sharpa 关节。**【Analysis】** 这一步不是为了让 Sharpa 模拟人的全部动力学，而是把“手指如何协同弯曲、夹捏和保持接触”变成与机器人控制接口同构的监督信号。
+
+#### 数据层：scale 与 alignment 解耦
+
+![EgoScale 人类数据采集与模型输入（论文 Figure 2a）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egoscale/ego_data_collection-egoscale.webp)
+
+**【Paper】** Stage I 混合了多种 egocentric datasets，总计 20,854 小时，覆盖 9,869 个场景、6,015 个任务和 43,237 个物体；其中额外加入 829 小时高精度 EgoDex。Stage II 的 aligned play data 有约 50 小时人类轨迹和 4 小时机器人轨迹，344 个 tabletop tasks，每个任务约 30 条人类和 5 条机器人轨迹，并使用与机器人匹配的头戴及腕部相机、Vive trackers 和 Manus gloves。
+
+#### Flow-based VLA 与 embodiment adapters
+
+- **输入**：视觉—语言 embedding、机器人 proprioception（人类样本用可学习 placeholder）。
+- **共享模块**：VLM backbone、相对 wrist motion 预测头、DiT action expert。
+- **平台特定模块**：state encoder 和 hand-action decoder 的轻量 MLP adapters。
+- **输出**：与当前 embodiment 匹配的 wrist motion 和 hand joint action chunk。
+
+**【Paper】** 对 G1，7-DoF tri-finger 的 state / hand action 经过自己的 adapter，主干仍复用人类预训练结构。**【Analysis】** 这比把所有 embodiment 映射到统一关节向量更稳妥：共享的是操控语义和 wrist-level motion，真正受硬件约束的部分留在接口层。
+
+### 4.3 关键公式
+
+#### Wrist motion
+
+$$
+W^t_w=T^t_{w\leftarrow c}H^t_{c,1},\qquad
+\Delta W^t=(W^0_w)^{-1}W^t_w.
+$$
+
+其中 $T^t_{w\leftarrow c}$ 是相机到世界的刚体变换，$H^t_{c,1}$ 是 wrist keypoint，$\Delta W^t$ 是相对腕部位姿。它把 global camera motion 从动作标签中剥离出来。
+
+#### Flow matching action prediction
+
+**【Paper】** 给定 observation embedding $\phi_t$、state token 和噪声动作 $x_\tau$，DiT 学习从噪声路径到真实动作 chunk 的向量场 $v_\theta(x_\tau,\tau\mid\phi_t)$。论文没有公开完整的采样离散化细节，因此这里不补写具体 solver 或步数。
+
+#### Human-data scaling law
+
+$$
+L(D)=0.024-0.003\ln(D),
+$$
+
+其中 $D$ 是人类预训练小时数，$L$ 是收敛时 held-out human-video validation loss。**【Paper】** 该拟合只覆盖 1k–20k 小时，不能据此断言无限外推；它的重要性在于 offline loss 与真实机器人 task completion 同步提升。
+
+### 4.4 Training
+
+**【Paper】** 训练分三阶段：
+
+1. **Stage I human pretraining**：20k 小时人类数据，100k steps，global batch size 8,192，learning rate $5\times10^{-5}$，全量解冻 VLA。
+2. **Stage II aligned mid-training**：50k steps，batch size 2,048，learning rate $3\times10^{-5}$；冻结 vision-language backbone，只更新 vision encoder、DiT 和 state/action adapters。
+3. **Stage III post-training**：任务级机器人示教上 fine-tune 10k steps，batch size 512，learning rate $3\times10^{-5}$；若使用 mid-training，post-training 时冻结 vision encoder。
+
+<Algorithm number={1} title='EgoScale 三阶段训练' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>第一视角人类视频及动作标签、aligned human–robot play data、任务级机器人示教</div>
+  <div slot='output'>可在目标 embodiment 上执行的 flow-based VLA policy</div>
+  <AlgorithmStep>从人类视频恢复相机运动、wrist pose 和 21-keypoint hand pose。</AlgorithmStep>
+  <AlgorithmStep>计算相对 wrist motion，并将 hand pose retarget 到 22-DoF Sharpa joints。</AlgorithmStep>
+  <AlgorithmStep>用 action chunk 和 flow-matching loss 预训练 VLA，学习通用视觉—运动表示。</AlgorithmStep>
+  <AlgorithmStep>混合匹配视角的人类与机器人 play data，冻结 VLM backbone，更新接口和 DiT 以完成 embodiment grounding。</AlgorithmStep>
+  <AlgorithmStep>使用下游任务机器人示教进行 post-training，并在真实机器人上评估。</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 推理时输入当前视觉、语言和 proprioception，flow-based action expert 生成未来动作 chunk。相对 wrist action 送入双臂末端执行器控制，hand action decoder 输出对应手的关节目标；G1 的下肢平衡和 locomotion 由独立 Homie policy 处理。
+
+<Algorithm number={2} title='EgoScale 实时推理' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前头戴 / 腕部 RGB、语言指令、embodiment state</div>
+  <div slot='output'>一段 wrist 和 hand actions，并执行当前控制周期动作</div>
+  <AlgorithmStep>按当前平台的 state adapter 编码 proprioceptive state；人类输入路径使用 placeholder token。</AlgorithmStep>
+  <AlgorithmStep>VLM 编码图像与语言，DiT 在 flow-matching 采样路径上生成动作 chunk。</AlgorithmStep>
+  <AlgorithmStep>通过平台特定 decoder 将共享表示转换为目标手的关节动作，同时保留共享的相对 wrist motion。</AlgorithmStep>
+  <AlgorithmStep>执行当前 chunk 的控制动作，在下一帧 observation 到来后滚动重规划。</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Paper】** NVIDIA 项目页提供了论文、视频和交互式图表，但 GitHub 链接仍是 “Coming Soon!”。因此没有可核对的 model definition、DataLoader、loss 实现、checkpoint 或 inference script。
+
+**【Analysis】** 这意味着本文只能对照论文中的训练配方和架构图，不能声称某个公开仓库实现了 20,854 小时数据管线，也不能验证 flow sampler、retargeting 权重或 adapter 的具体代码细节。后续代码发布后，最值得复核的是：动作 chunk 长度、flow solver、手部 retargeting 的目标项、数据混合比例和 G1 adapter 的参数量。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![EgoScale 的五个灵巧操作评测任务（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egoscale/dexterous_manipulation_tasks_v2-egoscale.webp)
+
+**【Paper】** 主要平台是 Galaxea R1 Pro + 22-DoF Sharpa hands，使用头戴相机和两台腕部相机。五个任务分别是双手卷衣服、从牌堆分离并插入指定卡片、用 tongs 夹水果、拧开瓶盖，以及抽取—注入液体的 syringe 长时程任务。除 Shirt Rolling 使用 20 条示教外，其余任务各使用 100 条 teleoperation demonstrations；每个方法使用两个随机种子，每个 checkpoint 通常评估 10 次，Tongs 在四种瓶子上共 16 次。
+
+### 5.2 Main Results
+
+![主要任务完成分数与成功率（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egoscale/success_rate_task_completion_bar_plot-egoscale.webp)
+
+**【Paper】** 论文比较 No Pretrain、Midtrain Only、Human Pretrain 和 Human Pretrain + Midtrain。完整方法在五个任务上总体最好；摘要报告平均 success rate 相对无预训练提升 54%，正文则报告平均 task-completion score 提升超过 55%。两种口径分别对应二值成功率与细粒度完成分数，不能混为同一个指标。
+
+**【Analysis】** 结果支持一种互补关系：人类预训练提供广覆盖的动作先验，aligned mid-training 则解决“这些动作如何被当前机器人看见和执行”。仅增加少量对齐数据不能替代规模化人类预训练。
+
+### 5.3 Ablation Study
+
+#### 数据规模
+
+![人类数据规模、验证损失和机器人性能的关系（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egoscale/human_data_scaling_combined-egoscale.webp)
+
+**【Paper】** 预训练数据从 1k、2k、4k、10k 增加到 20k 小时，平均 task-completion score 从 0.30 单调上升到 0.71；小数据模型更早过拟合，大数据模型在训练过程中持续改善。held-out human validation set 含 2,000 个 egocentric episodes，每条轨迹采样 20 个时间步，每步从 flow policy 采样 16 个 action chunks 后计算 wrist 与 hand action MSE。
+
+#### 手部动作空间
+
+![不同人类手部动作表示的消融（论文 Figure 8）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egoscale/human_action_space_completion_barplot-egoscale.webp)
+
+**【Paper】** 对比 wrist-only、fingertip-based 和 retargeted joint-space。wrist-only 在 Cards、Tongs 等需要接触时序的任务上明显较差；fingertip-based 虽然几何信息更多，但映射到关节后可能产生不稳定构型；retargeted joints 在各任务上最稳定。这里说明的是监督空间的物理可执行性，而不是 retargeting 算法本身被宣称为论文核心创新。
+
+### 5.4 Generalization
+
+#### One-shot task transfer
+
+![Aligned mid-training 带来的 one-shot transfer（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egoscale/midtraining_v2-egoscale.webp)
+
+**【Paper】** Fold Shirt 和 Unscrewing Water Bottles 都不在 mid-training task 中。post-training 每个任务只给 1 条机器人示教，并配合每个物体 100 条 aligned human demonstrations；Pretrain + Midtrain 分别达到 0.88 和 0.55 成功率，而缺少任一阶段的模型在该设置下失败。
+
+**【Analysis】** 这不是“零样本完成新任务”：模型仍看到了目标任务的一条机器人示教和配对人类示教。更准确的说法是，mid-training 让共享的 motion primitives 能在极低机器人数据量下被重新绑定。
+
+#### Cross-embodiment transfer
+
+![Unitree G1 tri-finger 跨 embodiment 结果（论文 Figure 7）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egoscale/g1taskandsuccess_v3-egoscale.webp)
+
+**【Paper】** Unitree G1 使用较短手臂和 7-DoF tri-finger hand，评测 Pen in Bin 与 Dish in Rack。加入包含 G1 play data 的 mid-training 后，两项任务都优于只在 G1 数据上训练的模型；论文还观察到人类预训练策略的行为更平滑。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** 第一，20k 小时数据覆盖更多物体、场景和手指构型，使模型在看到目标机器人任务前就学到“抓取—保持—操作”的统计结构。第二，relative wrist + joint-space hand action 同时保留了跨 embodiment 的运动不变量和接触所需的细粒度关节信息。第三，mid-training 通过匹配视角和同步动作，把抽象先验接到真实传感器与执行器，而不是要求海量成对人机数据。
+
+### 6.2 核心创新
+
+**【Paper】** 真正的创新组合是“规模化人类动作预训练 + 小规模对齐 mid-training + 灵巧手动作监督 + scaling-law 验证”。单独的 flow-based VLA、动作 retargeting 或 MLP adapter 都不是该工作的唯一新组件。
+
+### 6.3 与已有方法的本质区别
+
+**【Analysis】** 许多 human-to-robot 方法把人类视频当作视觉表示或高层意图来源，EgoScale 则把它直接当作 wrist 与 hand action supervision；许多 dexterous 工作只在小规模、受控数据上验证，EgoScale 把问题推进到“数据规模本身是否可预测地提升真实机器人性能”。因此它更像一个数据与训练 recipe 的论证，而不是一个全新的 policy backbone。
+
+### 6.4 关键假设
+
+- **【Paper】** 人类 hand pose 和相机运动可以由现成 perception pipelines 估计到足够有用的程度。
+- **【Paper】** relative wrist motion 能跨相机、机械臂和工作空间共享。
+- **【Analysis】** 目标机器人最好拥有与人手相近的可操作自由度，或至少能通过 adapter 保留关键 motion primitives；若硬件无法表达夹捏和独立手指控制，迁移收益可能下降。
+- **【Analysis】** aligned mid-training 的视角、标定和任务分布必须足够接近部署域；这一步并非对任意 embodiment 都能免标注泛化。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 作者没有在正文列出单独的 limitation section，但结论承认：实验只覆盖 1k–20k 小时，不能外推到无限数据；更大收益可能需要同时扩展 model capacity；更长时程规划和 compositional generalization 仍是开放问题；无标签视频如何通过 self-supervised objectives 加入，也尚未解决。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+1. **动作标签成本仍高**：20,854 小时并非原始视频直接训练，而是依赖 SLAM、hand-pose estimation 和 retargeting，数据清洗与算力门槛很高。
+2. **模型—硬件耦合**：22-DoF Sharpa joint space 是强监督来源，也是潜在瓶颈；对欠驱动或软体手，adapter 能否保留同样的接触结构仍未充分验证。
+3. **评测规模有限**：主要真实任务数量、随机种子和每任务试验次数仍小于互联网规模数据论文的统计标准，成功率对初始化和人工 overlay 也较敏感。
+4. **代码不可复现**：官方实现尚未公开，外部研究者无法核对数据混合、动作 retargeting 目标和 flow sampling 的细节。
+
+## 8. 启发与研究思考
+
+**【Analysis】** EgoScale 最值得借鉴的不是“再收集一个更大的视频集”，而是把数据路线拆成可诊断的三层：
+
+1. 用 offline human-action loss 监控表示是否随数据规模改善，并检查它是否真的预测真实机器人收益。
+2. 用显式 action representation 把视觉学习导向可执行的 wrist / hand motion，而非只学习任务语义。
+3. 用极小但高质量的 aligned play data 做 embodiment grounding，把昂贵的机器人数据花在“接口对齐”而不是重复覆盖人类已经展示过的运动。
+
+**【Analysis】** 后续研究可以沿三条线推进：将 retargeted joint labels 与无标签视频的时序预训练结合；研究 scaling law 是否同时受模型容量、动作 chunk horizon 和 embodiment diversity 控制；以及把 one-shot transfer 的“共享 motion structure”显式表示成可检索的 skill primitives。若代码发布，首先应复现实验 Figure 5 的 loss—data—robot performance 三联关系，因为它是论文从经验结果走向可预测数据工程的关键证据。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文或官方项目页明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和公开资料的分析推断。本文没有使用 `【Code】` 事实，因为 EgoScale 官方 GitHub 仍未公开。
+</Aside>
