@@ -65,7 +65,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** SONIC（Supersizing mOtion tracking for Natural humanoId Control）提出一个反直觉但很实用的观点：humanoid 的可扩展基础任务不一定是为“走路”“起身”等行为分别设计 reward，而可以是逐帧监督的 physics-based motion tracking。作者在 Unitree G1 上训练 42M 参数策略，使用 100M+ 帧（约 611 小时、50 Hz）动作数据和 21k GPU 小时，展示从动作跟踪到交互规划、VR/视频遥操作以及 GR00T VLA 全身操作的一体化链路。
 
-![SONIC 的多任务 teaser（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-sonic/fig1_teaser.2a5ttrr4h8.webp)
+![SONIC 的多任务 teaser（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-sonic/fig1_teaser.2a5ttrr4h8.webp)
 
 ### 一句话总结
 
@@ -107,7 +107,7 @@ SONIC 选择 motion tracking，是因为每一帧都有明确的参考姿态，�
 
 ### 4.1 Overall Architecture
 
-![SONIC universal control policy 总览（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-sonic/fig6_method_overview.13mil628fv.webp)
+![SONIC universal control policy 总览（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-sonic/fig6_method_overview.13mil628fv.webp)
 
 **【Paper】** robot、human、hybrid 三类 motion command 分别编码，经过 FSQ quantizer 得到共享 universal token；control decoder 结合 token 与 proprioception 输出关节目标，motion decoder 重建 robot motion。不同应用只切换上游 motion generator 或 encoder，不重新训练控制器。
 
@@ -243,13 +243,13 @@ $$
 
 ### 5.1 Experimental Setup
 
-![SONIC 的 deployment 多速率架构（论文 Supplementary Figure S1）](https://pic.hana0721.top/blog/paper-deep-dive-sonic/figS1_deployment_architecture.1zj00mbx2q.webp)
+![SONIC 的 deployment 多速率架构（论文 Supplementary Figure S1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-sonic/figS1_deployment_architecture.1zj00mbx2q.webp)
 
 **【Paper】** 训练数据覆盖 33 个大类、8,447 个子类；test-content 的子类与训练完全不重叠，test-repetition 只更换表演者和 take。真实世界评估使用 124 条动作序列；VLA 任务按严格 binary success 统计，每任务 10–20 次试验。
 
 ### 5.2 Main Results
 
-![SONIC 的 scaling、基线比较与 sim-to-real 结果（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-sonic/fig2_scaling_benchmark.5mojo57oy7.webp)
+![SONIC 的 scaling、基线比较与 sim-to-real 结果（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-sonic/fig2_scaling_benchmark.5mojo57oy7.webp)
 
 **【Paper】**
 
@@ -260,7 +260,7 @@ $$
 
 ### 5.3 Ablation Study
 
-![多 encoder latent consistency 的消融（论文 Supplementary Figure S7）](https://pic.hana0721.top/blog/paper-deep-dive-sonic/figS7_latent_alignment.64elcq93e6.webp)
+![多 encoder latent consistency 的消融（论文 Supplementary Figure S7）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-sonic/figS7_latent_alignment.64elcq93e6.webp)
 
 **【Paper】**
 
