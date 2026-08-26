@@ -1,0 +1,225 @@
+---
+title: 'OmniUMI 论文精读：让机器人从人类对接触的感觉中学习'
+publishDate: 2026-08-27
+updatedDate: 2026-08-27
+description: 'OmniUMI 把 RGB、深度、轨迹、触觉、抓取力和外部力矩放进同一个手持 UMI，并用双边反馈与阻抗控制学习接触丰富的操作。'
+heroImage:
+  { src: 'https://pic.hana0721.top/103975128_p0_master1200.8vniavqp93.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '103975128'
+tags:
+  - 'paper deep dive'
+  - 'multimodal robot learning'
+  - 'tactile sensing'
+  - 'UMI'
+paper:
+  arxivId: '2604.10647'
+  title: 'OmniUMI: Towards Physically Grounded Robot Learning via Human-Aligned Multimodal Interaction'
+  authors:
+    - 'Shaqi Luo'
+    - 'Yuanyuan Li'
+    - 'Youhao Hu'
+    - 'Chenhao Yu'
+    - 'Chaoran Xu'
+    - 'Jiachen Zhang'
+    - 'Guocai Yao'
+    - 'Tiejun Huang'
+    - 'Ran He'
+    - 'Zhongyuan Wang'
+  venue: 'arXiv'
+  year: 2026
+  code: ''
+  project: 'https://baai-aether.github.io/OmniUMI'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating id='2604.10647' tldr='OmniUMI 用共享手持 embodiment 同步采集视觉、触觉、抓取力与外部力矩，再以多模态 Diffusion Policy 和阻抗兼容执行完成接触丰富操作。' rank={4} />
+
+## 1. 论文概述
+
+**【Paper】** UMI（Universal Manipulation Interface）让人类在机器人不在场的地方采集示教，但传统 UMI 主要记录 RGB 与轨迹。OmniUMI 认为，擦除、插入、脆弱物体抓取等任务的关键不是几何位置，而是“接触发生了什么”：手指施加了多大抓取力、末端承受了什么外部力矩、触觉表面如何变形。
+
+![OmniUMI 系统总览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-omniumi/fig1-crop.73uopzidux.webp)
+
+### 一句话总结
+
+**【Analysis】** OmniUMI 的真正贡献是把 sensing、human demonstration、policy interface 和 controller 一起设计：同一个可换夹爪 embodiment 既采集多模态物理交互，也尽量原样出现在部署端。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 一个同步采集 RGB、深度、轨迹、触觉、内部抓取力和外部 interaction wrench 的紧凑手持接口。
+2. 通过电机化 gripper 的 bilateral feedback 让操作者感受到抓取阻力；手持 embodiment 同时保留外部接触和触觉的自然感知。
+3. 将多模态观测接入 Diffusion Policy，并把预测的力编译成 virtual target pose，用 Cartesian-to-joint impedance 执行，避免显式切换位置/力控制模式。
+
+## 2. 背景与相关工作
+
+**【Paper】** 机器人在环的 teleoperation 数据质量高，但需要昂贵硬件和受限场景；UMI、FastUMI 等 robot-free interface 降低了采集成本，却主要是 visuomotor。触觉、内部力和外部力矩工作分别证明了各自价值，但通常是“向已有接口外挂一个传感器”。
+
+**【Analysis】** OmniUMI 把问题从“再加一个 modality”提升为系统级一致性问题：多种传感器有不同协议、频率和坐标系；机械触发的夹爪还会污染力矩传感器；如果示教和部署的末端 embodiment 不同，触觉与力观测的分布会一起漂移。
+
+## 3. 问题定义
+
+**【Paper】** 给定手持接口记录的同步序列，学习一个策略将视觉、局部接触和力相关观测映射为未来 action chunk，并在机器人端以阻抗控制执行。
+
+- **Observation**：鱼眼 RGB、深度、轨迹/proprioception、触觉 embedding、内部抓取力 $f_t^{int}$、外部 wrench $f_t^{ext}$。
+- **Action**：末端平移增量 $(\Delta x,\Delta y,\Delta z)$、6D 旋转、预测 Cartesian force $f_t$ 和 virtual gripper width。
+- **Embodiment**：共享的电机化 quick-swap gripper；采集与部署复用 gripper-side 结构。
+- **目标**：在 force-sensitive pick-and-place、wrench-informed wiping、tactile-informed selective release 中验证数据和控制链路。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![OmniUMI 硬件架构（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-omniumi/fig2-crop.3yf6r1o041.webp)
+
+**【Paper】** custom hub 把相机、深度、6 轴力传感器、运动跟踪、电机夹爪和触觉模块接到一条主机链路；同步观测进入多模态 policy，输出再经过 virtual-target 与 impedance controller 执行。
+
+### 4.2 核心模块
+
+#### Custom hub 与共享夹爪
+
+**【Paper】** hub 负责通信、协议转换、电压调节和设备管理，避免每个传感器各自接线。motorized quick-swap gripper 同时服务于示教和执行，降低几何、接触和传感上下文的 collection–deployment gap。电机化驱动还避免机械触发对外部力/矩读数的扰动。
+
+#### 内部抓取力与 bilateral feedback
+
+**【Paper】** 电机电流 $i_t$ 经电机力矩常数 $k_\tau$ 和传动有效半径 $r_g$ 换算抓取力：
+
+$$F_t^{int}\approx\frac{k_\tau i_t}{r_g}$$
+
+主端 gripper 通过 bilateral control 感受从端的接触阻力，因此操作者能在拿起、保持和释放物体时直接调节抓取强度，而不是只看画面猜测。
+
+#### 外部 interaction wrench
+
+**【Paper】** 6 轴传感器的原始读数先减去姿态相关重力/静态偏置，再从 sensor frame 变换到 end-effector frame：
+
+$$w_t^{ee}=T_{s\rightarrow ee}(w_t^{raw}-w_t^{grav})$$
+
+这一步把“传感器姿态变化造成的假力”与真实环境接触分开。手持过程中操作者的本体感觉与传感器读数还形成了额外的人机对齐。
+
+#### 生物仿生触觉手指与视觉
+
+**【Paper】** 触觉被整合到受保护的 finger 结构中，尽量保留小物体操作能力。RGB/深度提供场景和几何上下文，触觉记录局部变形，轨迹提供运动参考；触觉图像先经 encoder 压成低维 embedding，再与 wrench 和 proprioception 拼接。
+
+### 4.3 关键公式
+
+观测和动作接口分别为：
+
+$$o_t=\{I_t^{rgb},I_t^{depth},z_t^{tac},p_t,f_t^{int},f_t^{ext}\}$$
+
+$$a_t=[\Delta x_t,\Delta y_t,\Delta z_t,r_t^{6D},f_t^x,f_t^y,f_t^z,g_t^w]$$
+
+其中 $z_t^{tac}=\phi_{tac}(I_t^{tac})$ 是触觉 embedding，$r^{6D}$ 是连续旋转表示，$g^w$ 是 gripper width。
+
+**【Paper】** 预测力不作为独立 force-control 分支，而是调节 Cartesian stiffness：
+
+$$\Delta p_t=K_{p,t}^{-1}f_t,\qquad p_t^v=p_t^{ref}-\Delta p_t$$
+
+小力对应高刚度、较大力对应低刚度；由 $T_t^{vt}=(R_t^{ref},p_t^v)$ 得到 virtual target pose。随后 operational-space gain 经 Jacobian 映射到 joint-space：
+
+$$K_{p,t}^{(q)}=J^\top K_{x,t}J+K_q,\quad K_{d,t}^{(q)}=J^\top K_{xd,t}J+K_{qd}$$
+
+**【Analysis】** 这个接口的关键是把“想保持的位置”和“愿意让开的程度”写在同一个目标里，避免控制器在位置模式和力模式之间跳变。
+
+### 4.4 Training
+
+**【Paper】** 采用 Diffusion Policy 风格的 conditional U-Net。视觉输入和低维触觉/力观测共同形成 observation condition，再与 diffusion-step embedding 组成全局条件；训练时对 action chunk 加噪并学习去噪轨迹。
+
+<Algorithm number={1} title='OmniUMI 多模态策略训练' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>同步 RGB、深度、触觉、wrench、proprioception 与 action chunk</div>
+  <div slot='output'>多模态 Diffusion Policy checkpoint</div>
+  <AlgorithmStep>用 custom hub 时间戳对齐各传感器，并完成重力补偿与坐标变换</AlgorithmStep>
+  <AlgorithmStep>将触觉图像编码为低维 embedding，与其他低维观测及视觉特征融合</AlgorithmStep>
+  <AlgorithmStep>从真实 action chunk 采样噪声，输入 conditional U-Net 预测去噪结果</AlgorithmStep>
+  <AlgorithmStep keyword='return'>保存验证集最优策略及其 action/stiffness 参数</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 推理使用 DDIM 生成未来 action chunk，并采用 receding horizon 执行。每个 action chunk 的位姿与预测力先转为 virtual target，再经 damped-least-squares IK 和 joint impedance controller 下发。
+
+<Algorithm number={2} title='阻抗兼容的多模态推理' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前多模态观测、策略与机器人状态</div>
+  <div slot='output'>按时间执行的 joint impedance targets</div>
+  <AlgorithmStep>编码 RGB/深度与触觉、wrench、proprioception，构造 observation condition</AlgorithmStep>
+  <AlgorithmStep>用 DDIM 采样未来末端位姿、gripper width 与 Cartesian force chunk</AlgorithmStep>
+  <AlgorithmStep>按预测力调节 stiffness，计算 virtual target pose</AlgorithmStep>
+  <AlgorithmStep>通过 IK 得到期望关节状态，并以 impedance torque 执行；下一时刻滚动更新</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** 项目页目前只提供论文、视频和演示，GitHub 按钮标记为 “Code (Coming Soon)”。因此没有可核对的 model、DataLoader、训练脚本或 evaluation 实现；上文关于代码行为的描述均不适用，本文只对照论文公式和系统图，不虚构官方实现细节。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+**【Paper】** 实验分三层：先在 10 个静态姿态下验证外部 wrench 的重力补偿；再在同一个白板擦除任务中比较 direct human、无 bilateral feedback 的 teleoperation 和 OmniUMI 的三种示教信号；最后测试三类下游接触任务。
+
+![重力补偿前后的外部力测量（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-omniumi/fig4-crop.5mojo8ebwa.webp)
+
+### 5.2 Main Results
+
+**【Paper】**
+
+| 任务 | 对照 | OmniUMI | 指标 |
+| --- | ---: | ---: | --- |
+| 满瓶矿泉水抓取放置 | 无抓取力 0% | 100% | 成功率；滑落率由 100% 降至 0% |
+| 白板交互擦除 | 无 wrench：5% 残留标准 0% | 100% | 50% 残留标准：60% → 100% |
+| 嵌套透明杯选择性释放 | 无 tactile：20% | 100% | 双杯同时保留率 80% → 0% |
+
+![力相关接触任务定性结果（论文 Figure 8）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-omniumi/fig9-crop.26m7w54p45.webp)
+
+**【Paper】** 白板擦除中，加入 wrench 的策略能维持 $F_z>7\,N$，而无 wrench 的策略出现高频接触振荡并留下红色痕迹。
+
+### 5.3 Ablation Study
+
+**【Paper】** 三种示教信号在同一白板任务上都更接近 direct human：OmniUMI 的抓取力时间曲线幅值和节奏更稳定，擦除阶段 $F_z$ 的振荡更小，触觉 marker-offset 的 ℓ₂ 轨迹也更接近人类；无 bilateral feedback 的 teleoperation 在三者上都更噪。
+
+![触觉选择性释放结果（论文 Figure 9）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-omniumi/fig10-crop.7ehij4xmi7.webp)
+
+### 5.4 Generalization
+
+**【Paper】** 论文未报告大规模跨机器人 benchmark，而是用三类 interaction capability 证明物理信号的针对性价值：内部力帮助负载抓取，wrench 帮助持续表面接触，触觉帮助透明嵌套杯的低力释放。作者同时承认，当前评测任务和 embodiment 仍然有限。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** 视觉只能间接推断接触状态，且同一像素变化可能对应不同摩擦、载荷或滑移。OmniUMI 直接记录这些低维物理变量，并让操作者在采集时感知它们，减少了“示教者想做什么”和“数据里记录了什么”的错位。共享夹爪又让部署端看到相似的触觉与力学上下文。
+
+### 6.2 核心创新
+
+**【Paper】** 创新是三者耦合而非新 backbone：统一硬件 hub、human-aligned interaction acquisition、multimodal Diffusion Policy 和 impedance-compatible virtual target。论文把系统工程约束提升为学习接口的一部分。
+
+### 6.3 与已有方法的本质区别
+
+**【Analysis】** 传统 UMI 主要把“人的运动”记录下来；OmniUMI 还记录“人如何调节接触”。与单独加入 tactile 或 force 的 modality-centric 方法相比，它同时处理传感器共存、示教感知、跨阶段一致性和控制落地。
+
+### 6.4 关键假设
+
+**【Analysis】** 方法假设 gripper-side embodiment 能在采集与部署间复用，目标机器人具备足够的可达性和阻抗控制接口，并且重力模型、坐标变换和触觉编码足够稳定。若机器人换用完全不同的手指或相机位置，物理观测分布仍可能发生明显变化。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 作者指出，当前还没有系统隔离“human alignment → 数据质量 → 最终任务成功率”的因果链；实验覆盖的接触条件、任务时长和 embodiment 也有限。更丰富的 dexterous manipulation、长时序任务、更多机器人和更原则化的 impedance-aware policy 是后续方向。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】** 预测力通过 stiffness schedule 间接实现，依赖增益、IK 阻尼和机器人动力学的联合调参；论文暂未给出稳定性或 passivity 的完整证明。触觉 embedding 目前是低维压缩，细粒度滑移和剪切力信息可能在压缩中丢失。没有公开代码也使硬件标定、同步频率和训练超参难以复现。
+
+## 8. 启发与研究思考
+
+**【Analysis】** OmniUMI 暗示，接触丰富的 VLA 不应只把触觉当作额外图像 token。更有价值的方向包括：把内部力、外部 wrench 和触觉事件编码成可解释的 interaction token；把 stiffness、执行时间和失败恢复作为 policy 输出；用同一套 calibration/metadata 让基础模型学习“何时该坚持轨迹、何时该让开”。在代码公开后，最值得复核的是多模态时间同步、触觉 encoder 的训练方式，以及 virtual target 在不同机器人阻抗参数下是否保持一致。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】` 表示基于论文和代码的分析推断。
+</Aside>
