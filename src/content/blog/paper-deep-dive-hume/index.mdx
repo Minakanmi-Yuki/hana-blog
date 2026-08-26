@@ -1,0 +1,257 @@
+---
+title: 'Hume 论文精读：让 VLA 先思考，再流畅行动'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 Hume 的 value-guided System-2 thinking 与 cascaded action denoising，并对照官方代码分析双系统异步控制。'
+heroImage:
+  { src: 'https://pic.hana0721.top/105886628_p0_master1200.5fl6its319.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '105886628'
+tags:
+  - 'paper deep dive'
+  - 'VLA'
+  - 'robot learning'
+  - 'diffusion policy'
+paper:
+  arxivId: '2505.21432'
+  title: 'Hume: Introducing System-2 Thinking in Visual-Language-Action Model'
+  authors:
+    - 'Haoming Song'
+    - 'Delin Qu'
+    - 'Yuanqi Yao'
+    - 'Qizhi Chen'
+    - 'Qi Lv'
+    - 'Yiwen Tang'
+    - 'Modi Shi'
+    - 'Guanghui Ren'
+    - 'Maoqing Yao'
+    - 'Bin Zhao'
+    - 'Dong Wang'
+    - 'Xuelong Li'
+  venue: 'arXiv'
+  year: 2025
+  code: 'https://github.com/hume-vla/hume'
+  project: 'https://hume-vla.github.io'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2505.21432'
+  tldr='Hume 用价值引导的多候选 System 2 规划，再由轻量 System 1 做级联动作去噪，在低频思考与高频执行之间取得平衡。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**【Paper】**《Hume: Introducing System-2 Thinking in Visual-Language-Action Model》把 VLA 控制拆成两个异步系统：System 2 是较慢但能反复采样、用 state-action value 选择动作的规划器；System 1 是轻量、快速的 visuomotor policy，负责把尚未完全去噪的动作片段变成流畅控制信号。论文在 3 个仿真环境、3 种真实机器人平台和 21 个真实任务上评估这一设计。
+
+![Hume 双系统总览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-hume/pipeline-crop.8vnnkq28ao.webp)
+
+### 一句话总结
+
+**【Analysis】** Hume 把“是否值得执行”的判断从动作生成中分离出来：System 2 用多次采样换取候选多样性，System 1 用级联去噪换取实时性与精度。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 在预训练 VLA 上增加 value-query head，估计 observation 与候选 action chunk 的 state-action value，并用 Best-of-N 选择。
+2. 提出 cascaded dual-system action denoising：System 2 输出长时域、带残余噪声的 chunk，System 1 接力完成局部去噪。
+3. 设计低频 System 2 / 高频 System 1 的异步部署机制，使慢思考不会直接牺牲控制频率。
+4. 在 LIBERO、SimplerEnv、WidowX、Franka 与 AgiBot G-1 上验证，并报告消融收益。
+
+## 2. 背景与相关工作
+
+**【Paper】** 现有 VLA 往往直接预测动作或 action chunk。Diffusion/flow-matching policy 能表达多模态动作，但采样成本高；单次采样又可能把偶然的坏轨迹交给机器人。纯粹增加采样次数则会降低闭环控制频率。
+
+Hume 借用了 LLM 中 System 1/System 2 的分工：System 2 进行低频、计算密集的候选评估，System 1 进行高频、反应式执行。**【Analysis】** Hume 用学习到的 Q 函数排序候选，并显式保留长时域动作选择。
+
+## 3. 问题定义
+
+**【Paper】** 在时刻 $t$，给定多视角 RGB 图像、自然语言指令和机器人状态：
+
+- **Observation**：$\mathbf{o}_t=(\mathbf{i}_t,\ell_t,\mathbf{s}_t)$。
+- **Action**：长度为 $H$ 的连续 action chunk，$\mathbf A_t=[\mathbf a_t,\ldots,\mathbf a_{t+H-1}]$。
+- **目标**：从同一观测生成多个候选，选出价值最高者，再以高控制频率输出平滑动作。
+- **Embodiment**：仿真中的 WidowX/Google robot，以及真实 WidowX、Franka、AgiBot G-1。
+- **奖励**：离线 RL 中每条 episode 的最后 3 个 transition 奖励为 $+1$，其余为 $0$。
+
+**【Code】** 官方仓库提供 LIBERO 评估与训练代码，同时发布 Hume-System2 权重；README 标注真实世界和 SimplerEnv 评估代码仍未发布。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+**【Paper】** System 2 读取 observation，经 VLM、flow-matching action head 和 value-query head 得到 $N$ 个不同噪声水平的候选；最高 Q 值的长 chunk 被切成短片段，送入 System 1 的 DINOv2-small + lightweight transformer 做连续去噪。数据流见 Figure 1。
+
+### 4.2 核心模块
+
+#### System 2：候选动作生成
+
+**【Paper】** action denoising head 学习 $p(\mathbf A_t\mid\mathbf o_t)$。从高斯噪声 $\mathbf A_t^0$ 出发，用 flow vector field $\mathbf v_\theta$ 积分到不同终点 $1-(n-1)\xi$，得到既有完全去噪动作、也有残余噪声的候选。
+
+#### Value-query head
+
+**【Paper】** VLM 输入序列末尾附加可学习 query token $\mathbf q_t$。它与候选 action chunk 一起输入两个 critic 网络和一个 actor 网络组成的 Cal-QL 结构，输出 $Q_\theta(\mathbf q_t,\mathbf A_t)$：
+
+$$
+\mathbf A_t^{\tau^*}=\arg\max_{n\in\{1,\ldots,N\}}Q_\theta(\mathbf q_t,\mathbf A_t^{\tau_n}).
+$$
+
+![候选 action 与 Q 值的 PCA value map（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-hume/pca_map-crop.6m4n18hhsf.webp)
+
+**【Analysis】** 这个 head 把当前 observation、语言条件和整段 action chunk 联合编码，因此能偏好更可能完成长时域任务的候选，而不是只判断单步动作。
+
+#### System 1：级联动作去噪
+
+**【Paper】** System 2 的 chunk 被切成 $K=H/h$ 个子 chunk。System 1 输入当前视觉、机器人状态和带残余噪声的子 chunk，从 $\omega=0$ 积分到 $\omega=1$，输出最终动作。
+
+**【Code】** FastVisuoExpertModel 使用 DINOv2-small 和轻量 transformer；HumePolicy.select_action 先调用 s2_model.sample_actions，再由 value_query_head.select_q_actions 选中，最后调用 s1_model.sample_actions。HumePolicy.infer 维护 action_plan 队列和 history_state。
+
+### 4.3 关键公式
+
+#### Flow matching
+
+**【Paper】** 构造 $\mathbf A_t^\tau=\tau\mathbf A_t+(1-\tau)\epsilon$，其中 $\epsilon\sim\mathcal N(0,I)$，最小化：
+
+$$
+\mathcal L_{FM}=\mathbb E\left[\|\mathbf v_\theta(\mathbf A_t^\tau,\mathbf o_t)-(\epsilon-\mathbf A_t)\|_2^2\right].
+$$
+
+$\tau$ 表示噪声插值位置；推理使用 forward Euler，论文设置 10 个去噪步。
+
+#### Cal-QL value objective
+
+$$
+\min_\theta\;\alpha\mathcal R(\theta)+\frac12\mathbb E\left[(Q_\theta(\mathbf q_t,\mathbf A_t)-\mathcal B^\pi\bar Q(\mathbf q_t,\mathbf A_t))^2\right].
+$$
+
+**【Paper】** $\mathcal R$ 是 calibrated conservative regularizer，用于抑制分布外动作的 Q 值过估计；$\bar Q$ 是延迟 target network。
+
+#### Cascaded denoising
+
+$$
+\widetilde{\mathbf A}_{t+kh}^{\omega}=\widetilde{\mathbf A}_{t+kh}^{\tau^*}+\int_0^\omega\mathbf v_\theta(\widetilde{\mathbf A}_{t+kh}^{\omega},\widetilde{\mathbf o}_{t+kh})d\omega.
+$$
+
+**【Analysis】** System 1 的初值是被选中的“半成品”动作，因此级联阶段更像 refinement，而不是重新规划。
+
+### 4.4 Training
+
+**【Paper】** 训练分两阶段：第一阶段训练 VLM backbone 与 System 2 action head；第二阶段冻结这两部分，从头训练 System 1 和 value-query head。Q head 使用离线 demonstrations、稀疏终点奖励和 Cal-QL；System 1 使用 flow-matching loss。
+
+<Algorithm number={1} title='Hume 两阶段训练' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>示教轨迹与离线奖励</div>
+  <div slot='output'>System 2、value-query head、System 1 参数</div>
+  <AlgorithmStep>阶段一：对示教 action 加噪，优化 System 2 的 flow-matching loss。</AlgorithmStep>
+  <AlgorithmStep>阶段二：冻结 System 2，生成候选并构造 Q 学习样本。</AlgorithmStep>
+  <AlgorithmStep>用 Cal-QL 更新 actor、双 critic、temperature 和 target critic。</AlgorithmStep>
+  <AlgorithmStep>切分示教 chunk，训练 System 1 从带噪子 chunk 恢复真实子动作。</AlgorithmStep>
+</Algorithm>
+
+**【Code】** train_s2.py 对应阶段一；train_vqh_s1.py 管理 trunk、actor、critic、temperature 四个 optimizer，并按 soft_target_critic_update_rate=5e-3 更新 target critics。代码默认 s1_chunk_size=8、s2_chunk_size=8、vqh_chunk_size=10，与论文正文的 $H=30,h=15$ 不完全相同。
+
+### 4.5 Inference
+
+**【Paper】** 示例中 System 2 以 4 Hz 生成 $N=5$ 个长度 $H=30$ 的候选，System 1 以 6 Hz 处理长度 $h=15$ 的子 chunk，执行频率可达到 90 Hz。两个系统通过共享队列异步协作。
+
+<Algorithm number={2} title='异步双系统推理' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前图像、语言指令、机器人状态</div>
+  <div slot='output'>下一步已去噪机器人动作</div>
+  <AlgorithmStep>System 2 采样 $N$ 个不同噪声水平的 action chunks。</AlgorithmStep>
+  <AlgorithmStep>Value-query head 计算 Q 值，选择最大者并放入共享队列。</AlgorithmStep>
+  <AlgorithmStep>System 1 取下一个子 chunk，结合新观测进行 10 步级联去噪。</AlgorithmStep>
+  <AlgorithmStep>执行子 chunk；队列耗尽或达到重规划步数时，再请求 System 2。</AlgorithmStep>
+</Algorithm>
+
+**【Code】** README 示例使用 s2_candidates_num=5、replan_steps=8、s2_replan_steps=16。select_action 缓存 noise_action，用 stamp 计算滑动窗口，说明代码不必每个控制周期重新运行 System 2。
+
+### 4.6 代码实现对照
+
+| 论文概念         | 官方代码位置                          | 实际行为                                          |
+| ---------------- | ------------------------------------- | ------------------------------------------------- |
+| System 2 VLA     | src/hume/models/modeling_hume.py      | PaliGemma-with-expert 的 action flow matching     |
+| Value-query head | src/hume/models/value_query.py        | VQH backbone + CalQL actor/双 critic              |
+| System 1         | src/hume/models/fast_visuo_expert.py  | DINOv2-small + lightweight transformer            |
+| 异步/缓存        | HumePolicy.infer、select_action       | action_plan 队列、stamp 滑窗、候选 action/Q cache |
+| 训练             | training/train_s2.py、train_vqh_s1.py | 分阶段训练与 target critic 更新                   |
+
+**【Code】** README 的 TODO 仍把真实世界与 SimplerEnv 评估标为未发布，因此本文不把未公开脚本行为当作代码事实。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![Hume 实验平台：WidowX、AgiBot G-1 与 Franka（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-hume/exp_setup-crop.4clmhqwr82.webp)
+
+**【Paper】** 实验覆盖 SimplerEnv 和 LIBERO 仿真，以及 WidowX、Franka、AgiBot G-1 三个平台；真实测试共 21 个 manipulation tasks，包含视角/纹理/光照变化、未见物体、可变形物体、工具使用和 humanoid 控制。
+
+### 5.2 Main Results
+
+**【Paper】** LIBERO 平均成功率为 **98.6%**，四个 suite 均排名第一；LIBERO-Long 为 **96.7%**，高于 $\pi_0$ 的 85.2%。SimplerEnv WidowX 平均 **72.6%**，Google robot 的 variant aggregation 平均 **74.1%**、visual matching 平均 **78.7%**。
+
+![WidowX 真实任务结果（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-hume/exp_widowx-crop.2ksnmudedl.webp)
+
+**【Paper】** WidowX 真实任务平均成功率为 91%，相对 $\pi_0$ 提升 12 个百分点；Franka 平均 87%，相对 $\pi_0$ 提升 14.75 个百分点。AgiBot 的 Fold Shorts 成功率 88%，Pour Water 为 82%。
+
+![Franka 与 AgiBot G-1 真实任务结果（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-hume/exp_franka_agibot-crop.7zr659sjo1.webp)
+
+### 5.3 Ablation Study
+
+![Hume 真实平台消融结果（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-hume/ablation_bar-crop.mta7dfn1.webp)
+
+**【Paper】** LIBERO 平均成功率从完整模型的 98.6% 降至：去掉 cascaded denoising 为 95.9%，去掉 repeat sampling 为 93.8%，去掉 System 1 为 89.8%，去掉 value-query head 为 84.9%。SimplerEnv WidowX 对应平均值为 72.6%、68.7%、65.6%、61.6%、56.3%。
+
+**【Analysis】** value head 决定“选谁”，repeat sampling 决定“有没有可选项”，System 1 决定“选中的半成品能否被精确执行”。
+
+### 5.4 Generalization
+
+**【Paper】** 泛化测试覆盖环境外观、相机位姿、语言描述、物体与布局变化，以及跨 embodiment 的真实部署。**【Analysis】** 目前证据主要是任务内训练、跨外观/平台测试；论文没有证明完全未见任务语义上的 zero-shot planning。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** flow-matching policy 的单次输出包含采样噪声。Hume 先保留多样性，再用 Q head 把它转化为候选间的可选择性；System 1 避免把全部去噪步骤堆到慢速 VLA 上。System 2 解决选择问题，System 1 解决执行问题。
+
+### 6.2 核心创新
+
+1. **Value-guided repeat sampling**：Q 值对 action chunk 排序。
+2. **Cascaded action denoising**：把未完成的 flow trajectory 作为快策略输入。
+3. **Asynchronous dual frequency**：慢模块只在重规划时运行，快模块持续消费动作队列。
+
+### 6.3 与已有方法的本质区别
+
+**【Analysis】** 相比普通 Best-of-N，候选来自不同 flow 时间终点；相比 diffusion policy refinement，Hume 额外学习离线 RL value function；相比单体 VLA，规划频率和执行频率可以独立设置。
+
+### 6.4 关键假设
+
+- **【Paper】** Q head 能从离线 demonstration 学到可靠的 state-action value。
+- **【Analysis】** 候选 action 的 Q 排序在分布外状态仍然有效。
+- **【Analysis】** System 1 能在下一个 System 2 chunk 到来前完成去噪。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 论文正文没有单独的 limitations 小节，也没有报告完整的推理显存、功耗或端到端延迟分解；论文未明确说明这些部署成本。
+
+### 7.2 自己分析得到的局限
+
+1. Q head 依赖稀疏终点奖励，可能难以细致估计中间状态的可恢复性。
+2. $N$ 次 System 2 采样带来近似 $N$ 倍的 backbone/action-head 计算。
+3. critic 偏差可能反过来影响候选选择，Cal-QL 只能缓解而不能消除耦合风险。
+4. 论文的 $H=30,h=15$ 与公开代码默认 chunk 配置不同，复现必须锁定 config、checkpoint 和数据处理流程。
+
+## 8. 启发与研究思考
+
+**【Analysis】** Hume 给出的可迁移范式是“粗粒度候选 + 细粒度执行”。后续值得追问：能否用 uncertainty-aware value 让 $N$ 自适应？能否让 System 1 预测执行风险并主动请求 System 2？能否把高层 subgoal 或 world model rollout 接入 value-query head，减少对稀疏终点奖励的依赖？
+
+<Aside type='note' title='阅读提示'>
+  本精读中 【Paper】 表示论文明确内容，【Code】 表示官方代码实现，【Analysis】
+  表示基于论文和代码的分析推断。
+</Aside>

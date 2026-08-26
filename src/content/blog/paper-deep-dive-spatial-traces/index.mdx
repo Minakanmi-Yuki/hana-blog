@@ -1,0 +1,283 @@
+---
+title: 'Spatial Traces 论文精读：把时间轨迹写进深度图的 ST-VLA'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 Spatial Traces：将关键点历史轨迹投影到预测深度图，让 SpatialVLA 同时利用三维位置与运动历史；分析其少样本 SimplerEnv 实验、消融与局限。'
+heroImage:
+  { src: 'https://pic.hana0721.top/104786218_p0_master1200.8vnievbkwk.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '104786218'
+tags:
+  - 'paper deep dive'
+  - 'VLA'
+  - 'spatial-temporal understanding'
+  - 'visual prompting'
+  - 'robot manipulation'
+paper:
+  arxivId: '2508.09032'
+  title: 'Spatial Traces: Enhancing VLA Models with Spatial-Temporal Understanding'
+  authors:
+    - 'Maxim A. Patratskiy'
+    - 'Alexey K. Kovalev'
+    - 'Aleksandr I. Panov'
+  venue: 'arXiv'
+  year: 2025
+  code: 'https://github.com/AmpiroMax/ST-VLA'
+  project: 'https://ampiromax.github.io/ST-VLA'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2508.09032'
+  tldr='Spatial Traces 将历史关键点轨迹绘制到当前深度图，并与原始 RGB 特征相加，使基于 SpatialVLA 的策略能在单次视觉提示中同时读取空间位置和运动历史。'
+  rank={3}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《Spatial Traces: Enhancing VLA Models with Spatial-Temporal Understanding》
+
+**作者**：Maxim A. Patratskiy、Alexey K. Kovalev、Aleksandr I. Panov
+
+**发表形式**：arXiv 预印本（2025）
+
+**论文链接**：[arXiv](https://arxiv.org/abs/2508.09032)
+
+**项目页**：[ST-VLA](https://ampiromax.github.io/ST-VLA)
+
+![ST-VLA 总体架构：轨迹与深度图融合后同 RGB、语言一并送入 VLA（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-spatial-traces/st-vla-architecture.webp)
+
+### 一句话总结
+
+**【Paper】** Spatial Traces 不改变 VLA 的动作头，而是将过去观测中追踪到的关键点轨迹覆盖到当前预测的深度图，再将这个带轨迹的深度表征与当前 RGB 表征相加。它试图让模型在同一个视觉提示中回答两个互补问题：末端与物体在三维上“在哪里”，以及刚才“怎样运动过来”。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出 Spatial Traces visual prompting：用 Co-Tracker 从历史帧构造关键点轨迹，并按深度写入当前深度图，统一编码时间与空间信息。
+2. 在 SpatialVLA 的组件组合上构建 ST-VLA：SigLIP 编码当前 RGB，ZoeDepth 预测深度，Ego3D Positional Encoder 编码带轨迹的深度，二者的视觉 embedding 相加后条件化 PaliGemma2 风格的 VLA。
+3. 只用 Bridge 训练集中的 52 条轨迹（1,969 个真实环境步骤）作 LoRA 微调，在 SimplerEnv 四项任务上报告相对 SpatialVLA 平均 SR 高 4 个百分点、相对 TraceVLA 高约 19 个百分点。
+
+**【Analysis】** 这篇工作的要点不是“记住更多帧”，而是把历史压缩成一个与当前视角对齐的中间表征。与将多帧原样堆叠相比，这会控制 token 和上下文长度；代价是把有效信息的上限交给了深度估计与点追踪质量。
+
+## 2. 背景与相关工作
+
+**【Paper】** 许多 VLA 以当前视觉观测与语言指令预测动作，即 $a_t = \operatorname{VLA}(o_t, I)$。这类单帧条件化策略可以辨识场景，但很难从当前一张图分辨“静止的错误姿态”和“正沿正确方向移动的过程”。操控中的旋转、抓取后校正、遮挡恢复，常常需要这种时间上下文。
+
+**【Paper】** 空间路线以 SpatialVLA 为代表：利用 RGB-D、egocentric geometry 和 Ego3D positional encoding，使模型获得位置和几何线索；但它主要处理静态观测。时间路线如 TraceVLA 则把 Co-Tracker 轨迹绘到 RGB 图上，额外保留原图输入，以轨迹提示历史运动；但它没有显式的深度定位。Spatial Traces 的定位正是把两条路线放到同一张 depth prompt 中。
+
+**【Analysis】** 这里“空间 + 时间”不是简单地多加一个模态。轨迹只有二维像素坐标时，模型知道它移动过，却未必知道其与桌面、目标物的前后关系；单独的深度图反过来只描述此刻。将轨迹写入深度图，相当于让每个轨迹像素携带一个可被空间编码器读取的位置线索。
+
+## 3. 问题定义
+
+**【Paper】** 论文把语言条件下的操控任务写作
+
+$$
+\mathcal P = (S, O, A, T_F, S_I, S_G, I),
+$$
+
+其中 $S$、$O$、$A$ 分别是状态、观测与动作空间，$T_F$ 是状态转移，$S_I$ 和 $S_G$ 是初始与目标状态，$I$ 是文本指令。策略需输出动作序列，使 $T_F(S_I, [a_0, \ldots, a_N]) = S_G$。
+
+**【Paper】** 该方法在时刻 $t$ 使用大小为 $b$ 的观测缓冲区 $[o_{t-b+1}, \ldots, o_t]$ 与指令 $I$ 预测相对三维位移动作 $a_t$。Figure 1 的实验配置使用 30 张历史观测；$b$ 也是实验中改变的消融变量。
+
+**【Paper】** 论文文字称以动作预测与训练集真值之间的 MSE 为目标，但紧随其后的写法是 $\theta^* = \arg\max_\theta \mathbb E[\operatorname{MSE}(\operatorname{VLA}_\theta)]$。最大化 MSE 与前一句“minimize”相冲突；将其理解为最小化监督误差才与问题设定一致，论文未给出更精确的损失展开。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+**【Paper】** 输入由当前 RGB 观测、最近 $b$ 个观测构成的缓存，以及语言指令组成。缓存分别流向轨迹预测器 $M_T$，当前帧流向深度预测器 $M_D$ 和 RGB 图像处理器 $P_I$；带轨迹的深度经空间处理器 $P_D$ 编码。两条视觉 embedding 相加后，与语言 embedding 一起输入 VLA 并输出下一动作。
+
+整体数据流可概括为：`历史 RGB → 轨迹；当前 RGB → 深度；轨迹写入深度 → 深度/RGB 特征相加 → VLA 动作`。训练与在线执行的逐步流程分别见 4.4、4.5。
+
+### 4.2 核心模块
+
+#### 轨迹与深度提示（Spatial Traces）
+
+**【Paper】** Co-Tracker 根据缓冲区内的图像追踪 $m$ 个关键点，得到
+
+$$
+T_t = [t_1, \ldots, t_m], \qquad
+t_i = [(x_0, y_0), \ldots, (x_b, y_b)].
+$$
+
+每条 $t_i$ 是同一点跨时间的二维坐标序列。ZoeDepth 从当前观测估计深度图 $D_t$。将轨迹坐标对齐到当前深度图并写入后得到 $D_t^T$；论文将该操作记为 $D_t^T = D_t \leftarrow T_t$。
+
+**【Paper】** 为减少相邻帧几乎不变时 Co-Tracker 不能立即找到显著点的影响，前五个环境步骤不提供 trace。这个设计意味着方法在 episode 开始时退化为不含时间提示的空间/视觉输入，而不是假装有可靠历史。
+
+![三种轨迹写入深度图的方式：自身帧深度（A）、前一帧深度（B）、当前帧最近物体深度（C），论文 Figure 7）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-spatial-traces/st-vla-trace-variants.webp)
+
+#### 双路视觉编码与融合
+
+**【Paper】** 原始 RGB 由 SigLIP 图像处理器 $P_I$ 得到 $E_{O_t}$；带轨迹深度图由 SpatialVLA 引入的 Ego3D Positional Encoder 得到 $E_{D_t^T}$。二者逐元素相加：
+
+$$
+E_V = E_{O_t} + E_{D_t^T}.
+$$
+
+随后模型将 $E_V$ 与文本指令 embedding $E_I$ 送入 VLA。论文的具体动作模型基于 PaliGemma2，并从 SpatialVLA 实验所用 checkpoint 初始化。
+
+**【Analysis】** 加和融合是一个很强的结构假设：两条 encoder 的输出必须位于可直接叠加的表示空间。它带来低改动、低 token 开销的优势，但不像 cross-attention 那样能显式决定“此时更信 RGB 还是深度轨迹”。后文的失败案例表明，轨迹弱时该假设无法自动补回缺失的时间证据。
+
+#### 轨迹深度的 Type A / B / C
+
+**【Paper】** Type A 把轨迹像素赋为其对应历史观测中的深度；Type B 使用前一观察的深度，往往接近背景深度；Type C 则取当前深度图中最近物体的深度。论文因 Type B 不够有信息量而未将它纳入后续测试，比较 A 与 C。
+
+![当前深度图、原始轨迹与写入后的轨迹深度示例（论文 Figure 8）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-spatial-traces/st-vla-depth-traces.webp)
+
+### 4.3 关键公式
+
+**【Paper】** 因此策略从单帧条件化
+
+$$
+a_t = \operatorname{VLA}(o_t, I)
+$$
+
+改写为带历史的条件化：
+
+$$
+a_t = \operatorname{VLA}([o_{t-b+1}, \ldots, o_t], I)
+= \operatorname{VLA}(E_V, E_I).
+$$
+
+其中 $o_t$ 为当前观测，$I$ 为自然语言任务，$E_V$ 为融合视觉特征，$E_I$ 为语言特征。等号左侧表达“历史作为输入”，右侧表达其在实现中先被压缩为视觉 embedding；它们不是要求 VLA 接收原始 30 帧 token 的两种并行输入。
+
+### 4.4 Training
+
+**【Paper】** 微调数据来自 Bridge 的训练切分：52 条真实机器人遥操作轨迹，共 1,969 步。所有模型使用相同随机种子与样本顺序，以维持与 SpatialVLA、TraceVLA 的可比性。训练在全部线性层插入 LoRA，rank 为 32；使用 AdamW、学习率 $5\times10^{-5}$、batch size 1、2 个 epoch。单个模型在一张 NVIDIA TITAN RTX 上训练约两小时。
+
+<Algorithm number={1} title='ST-VLA 的 LoRA 微调' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>
+    Bridge 轨迹数据集 $\mathcal D$、预训练 SpatialVLA checkpoint、缓冲区大小 $b$
+  </div>
+  <div slot='output'>带 LoRA 参数的 ST-VLA 策略</div>
+  <AlgorithmStep>
+    在所有线性层插入 rank 为 32 的 LoRA adapter，并从 SpatialVLA checkpoint 初始化
+  </AlgorithmStep>
+  <AlgorithmStep keyword='for'>每个训练 batch</AlgorithmStep>
+  <AlgorithmStep indent={1}>读取当前观测、指令、监督动作及其前 $b-1$ 个观测</AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    由 Co-Tracker 生成 $T_t$，由 ZoeDepth 生成 $D_t$；前五步不使用轨迹
+  </AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    生成 $D_t^T$，编码并相加得到 $E_V$，与 $E_I$ 条件化 VLA 预测动作
+  </AlgorithmStep>
+  <AlgorithmStep indent={1}>根据论文所述 MSE 监督目标反向传播，仅更新 adapter 参数</AlgorithmStep>
+  <AlgorithmStep keyword='end for' />
+</Algorithm>
+
+**【Analysis】** “仅更新 adapter 参数”来自 LoRA 的常规参数高效微调机制；论文明确给出 LoRA 施加位置，但未逐层列出冻结参数清单，也未公开训练脚本，因而无法进一步确认哪些非线性层或归一化参数是否可训练。
+
+### 4.5 Inference
+
+**【Paper】** 每个控制时刻，系统维护最近 $b$ 张观测，重新计算关键点轨迹与当前深度图，并通过同一融合路径预测相对三维位移动作。论文未明确说明控制频率、动作离散化细节或是否进行 action chunking；这些信息不能从论文中确定。
+
+<Algorithm number={2} title='ST-VLA 在线动作预测' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前观测 $o_t$、历史缓冲区 $B_t$、指令 $I$、训练后的 ST-VLA</div>
+  <div slot='output'>相对三维位移动作 $a_t$</div>
+  <AlgorithmStep>将 $o_t$ 写入长度为 $b$ 的观测缓冲区 $B_t$</AlgorithmStep>
+  <AlgorithmStep>用 $M_T(B_t)$ 追踪关键点，得到 $T_t$；若 $t \le 5$ 则不提供轨迹</AlgorithmStep>
+  <AlgorithmStep>以 $M_D(o_t)$ 生成 $D_t$，将 $T_t$ 写入得到 $D_t^T$</AlgorithmStep>
+  <AlgorithmStep>计算 $E_V=P_I(o_t)+P_D(D_t^T)$，并编码指令得到 $E_I$</AlgorithmStep>
+  <AlgorithmStep keyword='return'>$\operatorname{VLA}(E_V, E_I)$ 预测的 $a_t$</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** 官方仓库 [AmpiroMax/ST-VLA](https://github.com/AmpiroMax/ST-VLA) 的默认分支为 `master`，仓库仅有 `README.md` 与 `index.html` 两个文件：前者只写有 `# st-vla.github.io`，后者是项目页文本，说明 ST-VLA 是“augmented with spatial traces”的操控 VLA，并标注 “More details coming soon.”。截至本次核验，仓库没有模型、数据集、训练、推理、评测、配置或 checkpoint 文件。
+
+| 论文中应有的部分                                  | 官方仓库核验结果             | 可确认结论                                            |
+| ------------------------------------------------- | ---------------------------- | ----------------------------------------------------- |
+| Co-Tracker / ZoeDepth / Ego3D / PaliGemma2 的组装 | 未提供源码                   | 只能以论文描述为准，无法核对调用、版本或预后处理      |
+| LoRA 训练与 MSE 目标                              | 未提供训练脚本或配置         | 无法确认实际 loss、冻结参数、epoch 调度与随机种子实现 |
+| 缓冲区、前五步无 trace、Type A/C 渲染             | 未提供推理代码               | 无法确认边界条件、时延或实时控制频率                  |
+| SimplerEnv 评测与结果复现                         | 未提供 eval 脚本、数据或权重 | 无法由官方仓库独立复现文中数值                        |
+
+**【Analysis】** 因而本文的“代码对照”结论是代码发布尚未完成，而不是“代码与论文一致”。这一区别很重要：论文给出了足够清晰的系统层设计，但工程可复现性、依赖版本与训练细节仍是开放问题。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+**【Paper】** 评测环境是建立在 Robosuite 之上的 SimplerEnv。任务来自 Bridge 数据分布，包含 Put Spoon、Put Carrot、Stack Blocks、Put Eggplant 四项。GCS（Goal Condition Success）衡量是否达到基础完成条件，例如使目标物离开桌面；SR（Success Rate）要求完成所有任务阶段并达到最终目标状态，因此比 GCS 更严格。
+
+![SimplerEnv 中的四类 Bridge 任务与语言指令示例（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-spatial-traces/st-vla-simplerenv-tasks.webp)
+
+**【Paper】** 对比方法包括 OpenVLA、RT-1-X、Octo、Octo-Small、RoboVLM、SpatialVLA 和 TraceVLA。前五项 baseline 的数值取自 SpatialVLA 论文；SpatialVLA、TraceVLA 与 ST-VLA 在本文的相同训练和后处理流程下比较。因而跨越这两组的绝对比较需谨慎，而 ST-VLA 对 SpatialVLA / TraceVLA 的相对比较最直接。
+
+### 5.2 Main Results
+
+![各方法的平均 GCS 与 SR；ST-VLA 在图中最高（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-spatial-traces/st-vla-main-results.webp)
+
+**【Paper】** 四任务逐项结果中，ST-VLA 的 GCS 分别为 36.4、50.0、90.9、81.8；SR 分别为 36.4、25.0、36.4、54.5。SpatialVLA 的平均 GCS / SR 为 50.0 / 34.1，ST-VLA 在 Figure 4 中为 64.8 / 38.1，故对应提升为 14.8 与 4.0 个百分点。
+
+**【Paper】** ST-VLA 在 Put Spoon、Put Carrot 与 Stack Blocks 的 GCS 上最好；Put Eggplant 的 SR 为 54.5，低于 TraceVLA 的 72.7。也就是说，空间—时间融合并非每一项指标都占优，尤其在最后任务上 TraceVLA 的时间提示仍更强。
+
+**【Analysis】** 论文摘要把 ST-VLA 相对 TraceVLA 的 SR 提升概括为 19%。正文写为 18.7%，而 Figure 4 的数值为 $38.1-19.9=18.2$ 个百分点；这些四舍五入/汇总口径未完全一致。文章的稳妥结论应是“约 18–19 个百分点”，不应把它解释为精确的相对百分比增长。
+
+### 5.3 Ablation Study
+
+**【Paper】** 缓冲区消融比较 7、15、30 帧。30 帧在 Stack Blocks 与 Put Eggplant 上取得最高 GCS，也在 Put Spoon、Stack Blocks、Put Eggplant 上取得最高或并列最高 SR；7 帧在 Put Spoon 的 GCS 为 54.5，15 帧在 Put Carrot 的 SR 为 36.4。论文据此认为长历史更稳定，但没有声称 30 帧在每个单项指标都最优。
+
+**【Paper】** 轨迹深度渲染消融比较 Type A 与 Type C、buffer 15 与 30。作者解释 Type C 的统一深度值更易从背景中区分，结论是其优于 Type A；但表格内存在任务依赖性，例如 Type A、buffer 15 在 Stack Blocks 的 GCS / SR 为 90.9 / 36.4，优于 Type C、buffer 15 的 72.7 / 9.1。因此“Type C 更好”应理解为作者的整体偏好，而不是对每个格子都严格支配。
+
+**【Paper】** 为排除“小数据微调本身”带来的收益，论文还对比 base model、只微调、零样本 traces 与 ST-VLA。只在 Bridge 小样本上微调使平均 SR 下降 10 个百分点；零样本 traces 的平均 SR 下降 6.8 个百分点；ST-VLA 的联合方案最高。这支持 visual prompt 与微调协同、而非只由微调驱动收益的解释。
+
+### 5.4 Generalization
+
+**【Paper】** 论文展示的泛化证据是：用很小的 Bridge 子集微调，仍能在 SimplerEnv 的四种操控任务和不同初始物体状态下取得改善。Put Spoon 的案例中，ST-VLA 在中途受阻后仍完成抓取与放置。
+
+**【Analysis】** 这不等价于真实机器人、跨本体或开放世界泛化。实验没有报告实机闭环成功率，也没有报告跨相机、跨机械臂、跨场景或跨语言指令的独立测试；因此应将结论限定为受控模拟基准下的少样本适应性。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** 对相机而言，单帧中的夹爪位置、目标物关系常有歧义。轨迹提供运动方向和已走路径，深度则给出接近/远离、桌面层级与相对几何。把它们在像素对齐的 depth map 上结合，等于将“过去的运动”落在“当前的空间坐标系”中；这正适合放置、绕物旋转等需要判断状态变化的动作。
+
+### 6.2 核心创新
+
+**【Analysis】** 关键创新是 _depth-conditioned trace rendering_，而非引入新的大型 VLA 或将 Co-Tracker、ZoeDepth 本身训练得更好。它以 visual prompting 的方式复用 SpatialVLA 既有的深度编码接口，使时序信息在前端预处理阶段进入模型。
+
+### 6.3 与已有方法的本质区别
+
+| 方法       | 时间线索           | 空间线索       | 融合位置                                  |
+| ---------- | ------------------ | -------------- | ----------------------------------------- |
+| SpatialVLA | 当前帧为主         | RGB-D 与 Ego3D | 模型内部的空间表征                        |
+| TraceVLA   | RGB 上的关键点轨迹 | 无显式深度提示 | 原图与带轨迹图作为视觉提示                |
+| ST-VLA     | 历史关键点轨迹     | 当前预测深度图 | 先把轨迹写入深度，再与 RGB embedding 相加 |
+
+**【Analysis】** 因此 ST-VLA 是表示层的“对齐融合”：它不要求 VLA 学会从两套未对齐输入中自行关联轨迹与几何，而先以渲染规则固定对应关系。这也解释了为何渲染规则 Type A/C 是决定性能的关键超参数。
+
+### 6.4 关键假设
+
+**【Analysis】** 方法依赖四个假设：当前深度预测足够可靠；Co-Tracker 能找到稳定且有任务意义的点；二维轨迹写入的深度值不会严重遮挡目标；以及 RGB 与 Ego3D depth embeddings 可以安全相加。任一假设失效时，额外提示可能是噪声而不是记忆。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 论文指出效果依赖准确的深度预测与能够发现显著点的轨迹生成。当连续图像变化很小，Co-Tracker 可能生成很短甚至没有轨迹；Put Carrot 的失败案例中，夹爪慢速旋转就造成该问题。轨迹还可能遮挡目标物，妨碍可见性与距离估计；当机械臂直接向相机移动时，轨迹也未必提供足够的交互线索。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】** 第一，论文只在 SimplerEnv 验证，深度、相机运动模糊、追踪丢失在真实机器人上往往更难。第二，前五步禁用轨迹是务实但固定的 warm-up 策略，若任务在开局就要求快速决策，它没有自适应地判断“是否已有可信运动证据”。第三，论文没有报告每步追踪和深度估计的端到端时延，实时控制可行性仍未被量化。第四，少量 52 条轨迹对成本很友好，却也使统计稳定性与任务覆盖范围受限。
+
+## 8. 启发与研究思考
+
+**【Analysis】** 我认为 Spatial Traces 最值得延伸的方向有三条：
+
+1. 用置信度门控替代固定相加：让模型根据 depth uncertainty、轨迹长度和遮挡率，动态决定深度轨迹 embedding 的权重。
+2. 从 2D 绘制升级到可维护的 3D scene memory：论文也提出考虑 3D reconstructed observations。这样历史点不必每一步重新“贴”到当前图上，可更自然地处理视角变化与遮挡。
+3. 以任务相关关键点取代通用稠密追踪：抓取点、接触点、物体边界和夹爪 tip 对控制价值不同，若由语言/任务引导追踪点选择，提示可能更少但更有效。
+
+<Aside type='note' title='代码可用性说明'>
+  官方仓库已存在，但当前只包含项目页占位内容，未公开可运行实现。本文据此在 `4.6 代码实现对照`
+  中报告“未提供”的范围，而不以论文描述冒充 `【Code】` 事实。`【Paper】` 表示论文明确内容，`【Code】`
+  表示官方仓库可直接核验内容，`【Analysis】` 表示基于论文与仓库状态的分析推断。
+</Aside>
