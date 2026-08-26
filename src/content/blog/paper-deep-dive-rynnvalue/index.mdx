@@ -1,0 +1,386 @@
+---
+title: 'RynnValue 论文精读：用时间距离训练可扩展的机器人价值基础模型'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: 'RynnValue 用从观测到语言目标的剩余时间替代偏好与归一化进度，在 7,000+ 小时异构机器人数据上训练价值模型，并作为 VLA 的密集奖励接口。'
+heroImage:
+  { src: 'https://pic.hana0721.top/99749488_p0_master1200.83an1pr7zr.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '99749488'
+tags:
+  - 'paper deep dive'
+  - 'robotic value model'
+  - 'reward modeling'
+  - 'reinforcement learning'
+  - 'VLA'
+paper:
+  arxivId: '2608.09853'
+  title: 'RynnValue: Scaling Robotic Value Foundation Models with Temporal Distance'
+  authors:
+    - 'Dongchi Huang'
+    - 'Hongyin Zhang'
+    - 'Bohan Hou'
+    - 'Siteng Huang'
+    - 'Zhian Su'
+    - 'Hang Guo'
+    - 'Tong Lu'
+    - 'Zhaofeng Xu'
+    - 'Jiahao Tang'
+    - 'Jianfei Yang'
+    - 'Donglin Wang'
+    - 'Peixi Peng'
+    - 'Mingxiu Chen'
+    - 'Deli Zhao'
+    - 'Xin Li'
+  venue: 'arXiv'
+  year: 2026
+  code: 'https://github.com/alibaba-damo-academy/RynnValue'
+  project: 'https://alibaba-damo-academy.github.io/RynnValue.github.io'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2608.09853'
+  tldr='RynnValue 把“完成任务还要多久”作为跨数据集、跨 embodiment 的统一价值目标，并用随机时间采样、顺序打乱和 value-isolation attention 抑制时序捷径；8B 模型在 RBM-EVAL-OOD 上达到 0.675 的 Kendall tau_a，并提升真实机器人 RL 成功率。'
+  rank={5}
+/>
+
+## 1. 论文概述
+
+**【Paper】** RynnValue 研究的不是“机器人下一步该怎么动”，而是“当前观测距离语言指定的目标还有多远”。论文把这个距离定义为 temporal distance：从观测时间戳到重新标注的任务完成 cutoff 的剩余秒数。它因此是一个带语言条件的 cost-to-go，而不是轨迹内部归一化到 `[0, 1]` 的进度分数。
+
+![RynnValue architecture overview from paper Figure 1](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/d7e072598ee01db79a2f1df132c746a1daa4c366/blog/paper-deep-dive-rynnvalue/rynnvalue-architecture.3d5j4en7wy.webp)
+
+### 一句话总结
+
+**【Analysis】** RynnValue 的核心转变是把 reward model 从“给一段轨迹打分”改造成一个可复用的 value interface：输入语言、视觉序列和 embodiment metadata，输出每个观测到目标的剩余时间；再取其相反数作为 potential，就能直接接入策略评估、失败检测和 RL reward shaping。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 用 timestamp-derived temporal distance 替代 preference pair 和 normalized progress，统一 10 个来源、1.67M 原始 episode、3.09M instruction-conditioned segments（7,000+ 小时）上的监督。
+2. 提出 random temporal sampling、temporal-order shuffling 与 value-isolation attention，分别打破采样间隔、序列位置和跨 query value 泄漏造成的 shortcut。
+3. 使用 absolute / relative 两个 distributional value head，并以 symlog 256-bin、two-hot 目标稳定覆盖长尾时间范围。
+4. 保留 RynnBrain 的语言能力，联合训练视频描述、instruction matching 和 success 判断，增强语言-视觉 grounding。
+5. RynnValue-8B 在 RBM-EVAL-OOD 上达到平均 Kendall’s $\tau_a=0.675$，超过 preference-supervised Robometer 的 0.655；作为 dense reward 后，真实双臂 Franka 的 online / offline RL 平均成功率分别达到 72.5% / 82.5%。
+
+## 2. 背景与相关工作
+
+**【Paper】** 通用机器人策略越来越依赖 RL，但 reward supervision 比 policy capacity 更容易成为瓶颈。手工 reward 难以迁移到开放任务，成功/失败的 sparse signal 又无法为长时程行为提供方向。已有 reward model 通常依赖偏好比较、参考 demonstration 或局部状态比较；这些监督绑定了特定轨迹和比较集合，难以在不同 robot、视角和时长之间复用。
+
+归一化 progress 看似便宜，却只是“当前轨迹走了百分之多少”的坐标：不同任务的 0.5 可能对应完全不同的剩余工作量，也不能表达一次 regression。RynnValue 选择的 temporal distance 则具有明确的 goal-conditioned cost-to-go 解释：时间越少越接近目标，任务失败或回退时距离可以增加。
+
+**【Analysis】** 这不是把 progress 的回归器换成更大的 backbone，而是改变 supervision interface。只要数据有 instruction、时间戳和合理的 completion cutoff，就能生成标签；因此数据规模与任务多样性可以独立扩展，而不需要为每个数据集重新设计进度标尺或偏好标注协议。
+
+## 3. 问题定义
+
+**【Paper】** 给定语言指令 $\ell$、embodiment / camera metadata $m$ 和按时间采样的观测序列 $I=\{I_{t_i}\}_{i=1}^{K}$，模型同时预测：
+
+- **Absolute temporal distance**：$v_i^\star=\max(0,t_G-t_i)$，即观测到完成 cutoff $t_G$ 的剩余秒数。
+- **Relative temporal displacement**：$\Delta_i^\star=t_{i+1}-t_i$，描述呈现序列中相邻观测的前进或回退；负值代表 temporal regression。
+- **Language analysis**：视频描述、instruction-video Match、task Success。
+
+训练主设置为 $K=8$ 个观测。绝对值支持范围为 `[0, 512]` 秒，相对值范围为 `[-256, 256]` 秒。推理时把绝对距离变成更高更好的 potential：
+
+$$
+\Phi_t= -v_t
+$$
+
+再通过 potential-based shaping 接入 RL。这里 $v_t$ 越小越接近完成，$\Phi_t$ 越接近零。
+
+**Embodied AI Checklist**
+
+| 项目                  | RynnValue 的实现                                                                          |
+| --------------------- | ----------------------------------------------------------------------------------------- |
+| Vision Encoder        | RynnBrain / Qwen3-VL 视觉编码器，支持单视角、多视角与视频帧                               |
+| Language Model        | RynnBrain 的 multimodal language backbone；LM head 负责分析文本                           |
+| Multimodal Fusion     | instruction、metadata、图像和 temporal query 交错组成一条序列                             |
+| Action Representation | 模型本身不输出动作；输出 temporal value 作为 reward interface                             |
+| Policy / Decoder      | 由下游 π₀.₅、IQL 或 DSRL policy 消费 value potential                                      |
+| Dataset               | AgiBot、EgoDex、Galaxea、InternData-A1、OXE、RDT、RoboCOIN、RoboMIND、RoboTwin、Soft-FOLD |
+| Real-world Deployment | 双臂 Franka、四个 RGB 相机；zero-shot reward annotator                                    |
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+**【Paper】** RynnValue 以 RynnBrain 为 backbone。输入序列可写成：
+
+$$
+x=[m,\ell,I_{t_1},V_1,I_{t_2},R_1,V_2,\ldots,I_{t_K},R_{K-1},V_K,p_{ver}],
+$$
+
+其中 $V_i$ 是第 $i$ 个观测的 absolute-value query group，$R_i$ 是相邻观测的 relative-value query group，$p_{ver}$ 请求生成视频分析与验证结果。backbone 一次 forward 得到所有 query hidden states；两个 value head 读取对应位置，LM head 生成文本分析。
+
+**【Analysis】** 这个拆分让 value 预测和语言生成共享视觉-语言表征，但不共享数值输出头：时间距离由专门 distributional head 解码，文本仍由原始 LM head 自回归生成。
+
+### 4.2 核心模块
+
+#### Grouped temporal queries
+
+- **输入**：一个观测对应的视觉-语言上下文。
+- **输出**：$N$ 个重复 query 的 hidden states；论文和代码默认 $N=8$。
+- **作用**：单个 token 容易成为信息瓶颈，需要同时看物体状态、交互、子任务阶段和完成证据。模型将同组 hidden states 拼接，而不是平均，保留互补信息。
+- **【Code】** `modeling_rynn_value_lang.py` 在 `_compute_value_outputs` 中按 `value_token_repeat` 把重复 token reshape 成一个 slot，再送入 value head；relative slot 走同样逻辑。
+
+#### Dual distributional heads
+
+- **Absolute head** 输出 256 个 symlog bin 的 logits，学习剩余时间。
+- **Relative head** 输出 256 个 symlog bin 的 logits，学习相邻呈现观测的有符号时间差。
+- **为什么需要**：绝对目标提供到终点的全局锚点，相对目标提供局部变化信号，二者共同帮助模型识别回退和恢复。
+- **【Code】** `value_heads.py` 提供 `LinearValueHead` 与 `BroValueHead`；论文实验使用隐藏宽度 4096、深度 8 的 BRO-style residual MLP。
+
+#### Value-isolation attention
+
+**【Paper】** 不同观测的 value query group 不能互相 attend；同组重复 query 可以互相可见。context token 也不能 attend temporal query，避免早先的 value 预测通过后续语言或视觉 token 间接泄漏。这样每个 value 必须依据自己的观测、instruction 和 metadata 推断。
+
+**【Code】** `attention_impl.py` 注册 `pred_slot_isolated_eager`，根据 `pred_slot_id` 构造可见性 mask。推理脚本还显式把 `hf_config._attn_implementation` 设为该实现，以兼容旧 checkpoint。
+
+#### Language analysis and mismatch augmentation
+
+**【Paper】** 最后一个 verification prompt 要求模型依次生成 `Video Description`、`Match` 和 `Success`。训练中 10% 样本把 instruction 替换为另一条轨迹的 instruction，并监督 `Match: No` / `Success: No`；此时绝对距离 loss 被 mask，因为原 completion cutoff 不再适用，但 relative loss 仍保留。
+
+**【Analysis】** 这一步避免模型只根据“画面看起来越来越像完成”输出平滑曲线，也迫使它把 value 与语言目标绑定，而不是学习与任务无关的视觉活跃度。
+
+### 4.3 关键公式
+
+#### Symlog two-hot distributional readout
+
+绝对与相对连续目标先经过 symlog，再编码到相邻的两个 bin：
+
+$$
+\mathcal{L}_{abs}=-\frac{\omega}{K}\sum_{i=1}^{K}\sum_{b=1}^{|B_V|}
+\operatorname{TwoHot}_{B_V}(v_i^\star)_b\log\operatorname{softmax}(z_i^V)_b
+$$
+
+$$
+\mathcal{L}_{rel}=-\frac{1}{K-1}\sum_{i=1}^{K-1}\sum_{b=1}^{|B_R|}
+\operatorname{TwoHot}_{B_R}(\Delta_i^\star)_b\log\operatorname{softmax}(z_i^R)_b
+$$
+
+其中 $z_i^V,z_i^R$ 是两个 head 的 bin logits，$\omega$ 在 instruction mismatch 样本上为 0。two-hot 让连续值由相邻 bin 插值表达；symlog 压缩长尾时间，同时保持零附近的分辨率。
+
+推理时取 symlog 空间中的期望并做 inverse symlog：
+
+$$
+v_i=\operatorname{symexp}\left(\sum_b c_b^V\operatorname{softmax}(z_i^V)_b\right),\quad
+\Delta_i=\operatorname{symexp}\left(\sum_b c_b^R\operatorname{softmax}(z_i^R)_b\right).
+$$
+
+语言损失为标准 causal LM loss，最终目标是：
+
+$$
+\mathcal{L}=\mathcal{L}_{abs}+\mathcal{L}_{rel}+\lambda_{lang}\mathcal{L}_{lang},\qquad \lambda_{lang}=2.
+$$
+
+#### Potential-based reward shaping
+
+**【Paper】** 在策略学习中，value model 只提供 potential，保留人工确认的成功终止项：
+
+$$
+r_t=\kappa(\gamma\Phi_{t+1}-\Phi_t)+
+\begin{cases}0,&t=T\-1,&\text{otherwise}\end{cases}
+$$
+
+论文使用 $\kappa=0.1$（RynnValue）和 $\kappa=1.0$（Robometer）。这样 temporal distance 的物理秒数不会被压成任务特定的 `[0,1]`，却仍满足 reward shaping 的 policy-invariance 形式。
+
+### 4.4 Training
+
+**【Paper】** 数据先经过 source-aware curation：移除 malformed / placeholder instruction 和只描述移动、接近、转向的非操作片段；长轨迹按原生 temporal annotation 切分，没有 annotation 时保留 coarse segment；再设置 completion cutoff 并从时间戳生成标签。Qwen3-VL-27B 生成的片段描述用于语言监督。
+
+每条样本随机采 8 帧。50% 序列不排序，剩余序列采用带 rewind probability 0.3 的 forward-biased temporal walk；因此相对标签既可能为正也可能为负。优化器为 AdamW，学习率 $10^{-6}$，$\beta=(0.9,0.95)$，weight decay 0.1，gradient norm clip 100，bf16 + FSDP hybrid sharding，per-device batch size 2。
+
+<Algorithm number={1} title='RynnValue training' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>异构轨迹、语言 instruction、时间戳与 completion cutoff</div>
+  <div slot='output'>训练好的 absolute / relative value model 与语言分析能力</div>
+  <AlgorithmStep>
+    清洗 instruction，按原生标注或 coarse episode 生成 instruction-conditioned segments。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    根据 cutoff 计算每帧 absolute remaining time，并为相邻呈现观测计算 signed relative
+    displacement。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    以不规则时间采样 8 帧；以 0.5 概率打乱顺序，或使用带 rewind 的 forward-biased walk。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    以 10% 概率替换 instruction；对 mismatch 样本屏蔽 absolute loss，保留 relative 与 language
+    loss。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    通过 value-isolation attention 编码 multimodal sequence，计算两项 distributional value loss 与
+    causal LM loss。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    用 AdamW 更新 backbone 与 value heads；LM output projection 保持冻结。
+  </AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 推理时关闭训练期的随机采样和顺序扰动，按 chronological order 输入帧，但保留 value-isolation mask。模型解码每个观测的 $v_t$ 与相对值，并可额外生成描述、Match、Success。用于 RBM-EVAL-OOD 时只读取最后观测的 $-v_{end}$ 作为 trajectory score。
+
+**【Code】** `rynn_infer/inference.py` 对每个 prefix 均匀重采样视频帧，读取 prefix 最后一个 value slot，渲染 Remaining Time 曲线。真实 RL 的 reward service 则使用右侧 third-person RGB，历史前缀均匀抽 4 帧以匹配 Robometer 协议，且只调用 absolute head。
+
+<Algorithm
+  number={2}
+  title='Temporal-value inference and reward interface'
+  inputLabel='输入'
+  outputLabel='输出'
+>
+  <div slot='input'>语言 instruction、按时间排列的 RGB 观测与可选 metadata</div>
+  <div slot='output'>每一步的 remaining time、potential 和可选语言分析</div>
+  <AlgorithmStep>
+    按 chronological order 构造 multimodal sequence，插入每个观测的 value / relative query group。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    在 isolation attention 下单次 forward，分别从两个 distributional head 解码 $v_t$ 与 $\Delta_t$。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    将 $v_t$ 转为 $\Phi_t=-v_t$；需要时由 LM head 生成 Video Description、Match、Success。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    把 potential 序列按 policy action-chunk 边界采样，计算 $\gamma\Phi_{t + 1}-\Phi_t$
+    并叠加成功终止项。
+  </AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** 官方仓库 `alibaba-damo-academy/RynnValue` 不只是模型定义，还包含完整评测和 RL 工具链：
+
+| 代码位置                                      | 与论文对应的行为                                                                     |
+| --------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `rynn_value/configuration_rynn_value_lang.py` | Qwen3-VL 配置、256 bins、symlog 支持、query repeat 与 isolation attention 配置       |
+| `rynn_value/modeling_rynn_value_lang.py`      | hidden state gather、absolute / relative head、two-hot CE loss、mismatch fusion mask |
+| `rynn_value/value_tokenizer.py`               | scalar 与 symlog bin distribution 的 encode / decode                                 |
+| `rynn_value/attention_impl.py`                | `pred_slot_isolated_eager` 自定义 attention 实现                                     |
+| `rynn_value/processing_rynn_value_lang.py`    | special token、训练 target 构造与 `process_episode()` 推理 API                       |
+| `rynn_infer/inference.py`                     | prefix scoring、Remaining Time 曲线与分析文本解析                                    |
+| `robometer/`                                  | RBM-EVAL-OOD 的 policy ranking、alignment、confusion matrix 与 reward server         |
+| `pi-rl/`                                      | π₀.₅ 的 offline IQL 与 online DSRL-style latent SAC                                  |
+
+论文把 RynnValue 称为“开源 value foundation model”；代码还提供 HuggingFace `trust_remote_code=True` 的 checkpoint 转换脚本。**【Analysis】** 因此复现实验的关键不只在 backbone 权重，也在 processor 发出的 query token 排列和自定义 attention 注册；仅替换成普通 causal attention 会重新引入 value-token shortcut。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+**【Paper】** 内在 value 质量在 RBM-EVAL-OOD 上评测：976 条来自 6 个 OOD 数据集的轨迹，覆盖不同机构、robot embodiment、相机视角和任务族；指标是预测排序与真实质量排序之间的 Kendall’s $\tau_a$。此外，论文把模型部署到双臂 Franka，使用双腕相机与左右 third-person 相机，在四个任务上测试 offline IQL 和 online DSRL。
+
+任务包括 Bread Basket Placement、Steak Serving with a Spatula、Box-in-Drawer Placement、Bimanual Box Transfer。offline 使用固定初始状态；online 对前三个任务和双臂搬箱随机化物体初始位置。每个任务评估 20 次。
+
+![RynnValue training strategy and value isolation from paper Figure 2](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/d7e072598ee01db79a2f1df132c746a1daa4c366/blog/paper-deep-dive-rynnvalue/rynnvalue-training.1ow677wy7s.webp)
+
+### 5.2 Main Results
+
+**【Paper】** RBM-EVAL-OOD 结果如下（平均 Kendall’s $\tau_a$）：
+
+| 方法                      | 偏好监督 | 平均 $\tau_a$ |
+| ------------------------- | -------: | ------------: |
+| Robometer (RBM-1M)        |       是 |         0.655 |
+| Robometer (Progress only) |       否 |         0.292 |
+| RynnValue-4B              |       否 |         0.670 |
+| RynnValue-8B              |       否 |     **0.675** |
+
+RynnValue-8B 在 USC Franka、USC Koch、USC Trossen 上取得分项最好，4B 在 UTD SO101 上最好。4B 与 8B 差距很小，说明收益主要来自 temporal-distance target、数据多样性和 shortcut suppression，而不是单纯增大 backbone。
+
+![Instruction-trajectory confusion matrices from paper Figure 3](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/d7e072598ee01db79a2f1df132c746a1daa4c366/blog/paper-deep-dive-rynnvalue/rynnvalue-matrix.5trrjbu3x0.webp)
+
+RynnValue 的 instruction-trajectory confusion matrix 对角线最清晰，normalized diagonal margin 为 0.79，高于最强 baseline 的 0.67。这验证了它在给定语言目标下区分匹配和不匹配轨迹的能力，而不只是识别“画面是否总体更接近完成”。
+
+### 5.3 Ablation Study
+
+![Scaling and design analysis for RynnValue from paper Figure 4](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/d7e072598ee01db79a2f1df132c746a1daa4c366/blog/paper-deep-dive-rynnvalue/rynnvalue-scaling.13mikx2huy.webp)
+
+**【Paper】** 完整模型平均为 0.675。去掉不同组件后的平均分：
+
+| 变体             | 平均 $\tau_a$ | 下降原因（论文解释）                        |
+| ---------------- | ------------: | ------------------------------------------- |
+| w/o Shuffle      |         0.189 | 序列位置重新成为进度 proxy                  |
+| Uniform Sampling |         0.379 | 固定间隔诱导 stereotypical value curve      |
+| w/o Isolation    |         0.482 | value query 可跨组外推                      |
+| w/o Language     |         0.537 | 缺少视频语义与 instruction grounding        |
+| w/o Relative     |         0.627 | 缺少局部 forward / backward temporal signal |
+| Full Model       |     **0.675** | —                                           |
+
+**【Analysis】** 顺序打乱与 isolation 是互补约束：前者阻断“第几个 token 就代表第几阶段”，后者阻断“看前一个 value 就能猜下一个 value”。两者同时存在时，模型才必须重新读取当前观测中的物体关系和失败迹象。
+
+### 5.4 Generalization
+
+**【Paper】** scaling 分析把“episode 数量”和“task diversity”拆开控制。固定任务、增加 episode 时误差很快饱和；固定每任务 episode 数、增加任务数量时，held-out unseen tasks 的 temporal-distance error 持续下降。这说明异构数据的价值主要来自 goal structure、视觉配置和执行方式的覆盖，而非同一任务的重复观测。
+
+![Temporal-value curve comparison from paper Figure 5](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/d7e072598ee01db79a2f1df132c746a1daa4c366/blog/paper-deep-dive-rynnvalue/rynnvalue-value-case.2yz3djexnf.webp)
+
+在真实轨迹案例中，RynnValue 能在 trial-and-error 区间明显降低 potential，恢复后再次上升，并在接近完成时对扰动保持敏感；Robometer 的 normalized progress 则更容易出现平台和突跳。真实 RL 平均成功率：online 为 72.5%（Robometer 52.5%），offline 为 82.5%（Robometer 63.8%）。
+
+### 5.5 Real-world policy learning
+
+**【Paper】** RynnValue 没有看到目标任务、物体或工作空间，作为 zero-shot reward annotator 使用。offline IQL 中，Bread Basket Placement 达到 100%，Steak Serving 与 Box-in-Drawer 均为 90%；online DSRL 平均 72.5%，在 Steak Serving 和 Bimanual Box Transfer 上分别比 Robometer 高 30 和 35 个百分点。
+
+Box-in-Drawer 的 online 提升有限：任务对夹爪稳定性和盒-抽屉几何对齐非常敏感，而 reward model 只看 third-person RGB，视觉相似状态可能对应不同的抓取稳定性。论文把这视为视觉观测下的 calibration 难点，而不是 value interface 已经解决的问题。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** 有三层原因：
+
+1. **目标有控制语义**：剩余时间天然是到目标的 cost-to-go，跨任务共享“越快完成越好”的方向；progress 的分母却随轨迹变化。
+2. **标签几乎免费**：时间戳和 cutoff 足以生成每帧 dense label，数据规模不被偏好标注吞吐限制。
+3. **训练主动破除捷径**：随机间隔破除 arithmetic pattern，顺序打乱破除位置 proxy，isolation 破除跨帧 value extrapolation，语言辅助任务补足 goal grounding。
+
+### 6.2 核心创新
+
+**【Paper】** 真正的新意不是“预测秒数”这一回归形式，而是把 temporal distance 设计成跨 embodiment 的统一接口，并围绕它配套数据 relabeling、distributional readout、relative supervision、mismatch augmentation 与 attention mask。**【Analysis】** 这些组件共同解决了一个实际问题：如果没有 shortcut suppression，时间标签越便宜，模型越可能学会数据采样协议而非任务状态。
+
+### 6.3 与已有方法的本质区别
+
+| 维度                 | Preference / progress reward model     | RynnValue                                       |
+| -------------------- | -------------------------------------- | ----------------------------------------------- |
+| 监督                 | 偏好 pair、参考轨迹或 `[0,1]` progress | 时间戳到 completion cutoff 的 cost-to-go        |
+| 标尺                 | 往往是任务/数据集内部坐标              | 物理时间，带方向与目标条件                      |
+| 跨数据集迁移         | 需要重新校准比较集或进度定义           | 共享同一 temporal-distance interface            |
+| 对 regression 的响应 | 可能被序列先验抹平                     | relative target + shuffled order 显式提供负变化 |
+| 下游接口             | score / progress                       | $\Phi=-v$，可直接 potential shaping             |
+
+### 6.4 关键假设
+
+**【Paper】** 论文的 temporal distance 对应近似 minimum-time objective；completion cutoff 能代表语义上的完成点；RGB 和 instruction 足以估计中间价值。**【Analysis】** 因而它隐含了几个边界：耗能、安全、接触力和精度成本没有进入标签；若同一任务存在“更慢但更安全”的策略，最短时间未必是最优 value。模型也只看短窗口观测，长时程遮挡或不可观测状态会造成误判。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】**
+
+- 当前模型从短窗口采样观测，尚未覆盖更长 horizon 和真正 streaming 的在线推理。
+- temporal-distance target 近似 minimum-time objective，尚未表达 energy、safety、precision 等任务特定成本。
+- 未来需要扩展到更多 end-effector（尤其 dexterous hand）和 mobile manipulation，把导航与交互纳入同一接口。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+- cutoff relabeling 是监督质量的关键；若数据含有 post-completion motion 或失败轨迹缺少清晰终点，零值边界会偏移。
+- physical seconds 仍受执行速度和控制器影响。相同视觉状态在不同硬件上的剩余时间可能不同，metadata 只能部分缓解这一点。
+- 真实 RL 中 reward service 使用历史前缀重采样和第三人称 RGB，与训练期 8 帧、多视角输入存在 protocol gap。
+- 论文展示了四个真实任务，尚不能据此推断对接触丰富、遮挡严重或需要 proprioception 的任务同样可靠；作者也明确指出 Box-in-Drawer 的视觉歧义。
+
+## 8. 启发与研究思考
+
+**【Analysis】** RynnValue 给 VLA 研究的启发，是把“策略学习”和“价值监督”重新拆开：一个通用 value model 不必输出动作，却可以成为多个 policy、多个 embodiment 和多个 RL 算法之间的共享接口。对后续工作，我认为有三条值得继续验证：
+
+1. 把 scalar temporal distance 扩展成向量成本，例如 `(time, energy, safety risk, contact precision)`，再研究如何做 Pareto 或任务条件化 shaping。
+2. 将 value-isolation 从静态 mask 扩展到 streaming memory，让模型在不泄漏预测的前提下利用更长历史。
+3. 让 policy 反过来查询 value uncertainty，而不是只使用期望 bin center；在视觉歧义状态主动收集数据，可能比继续扩大无标签视频更有效。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。
+</Aside>

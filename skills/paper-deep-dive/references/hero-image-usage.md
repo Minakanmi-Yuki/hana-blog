@@ -51,14 +51,14 @@ Use only after the count-1 pool is exhausted.
 |         2 | `49383596`  | `https://pic.hana0721.top/49383596_p0_master1200.6t7pmts45l.webp`  | `paper-reading-umllm2`, `paper-deep-dive-rdt-1b`                              |
 |         2 | `139063757` | `https://pic.hana0721.top/139063757_p0_master1200.2yyzxgr9fg.webp` | `paper-reading-cv2`, `paper-deep-dive-g05`                                    |
 |         2 | `66497987`  | `https://pic.hana0721.top/66497987_p0_master1200.58hynbbxn8.webp`  | `paper-reading-eba3`, `paper-deep-dive-vla-0`                                 |
-|         2 | `134041716` | `https://pic.hana0721.top/134041716_p0_master1200.5q80bz7b6v.webp` | `rl-note-27`, `paper-deep-dive-caip`                                          |
+|         3 | `134041716` | `https://pic.hana0721.top/134041716_p0_master1200.5q80bz7b6v.webp` | `rl-note-27`, `paper-deep-dive-caip`, `paper-deep-dive-gr-rl`                 |
 |         2 | `126839080` | `https://pic.hana0721.top/126839080_p0_master1200.232gprncye.webp` | `upload-project-to-github`, `paper-deep-dive-knowledge-insulating-vla`        |
 |         2 | `126903857` | `https://pic.hana0721.top/126903857_p0_master1200.2dpaix2l3u.webp` | `tmux-ssh-session-management`, `paper-deep-dive-internvla-m1`                 |
 |         2 | `86800103`  | `https://pic.hana0721.top/86800103_p0_master1200.4qrwyrtj6a.webp`  | `rl-note-14`, `paper-deep-dive-qwen-vla`                                      |
 |         2 | `92079701`  | `https://pic.hana0721.top/92079701_p0_master1200.64eg2t4l77.webp`  | `rl-note-15`, `paper-deep-dive-videovla`                                      |
 |         2 | `93990522`  | `https://pic.hana0721.top/93990522_p0_master1200.et40soxif.webp`   | `scp-upload-to-server`, `paper-deep-dive-lingbot-va`                          |
 |         2 | `98259515`  | `https://pic.hana0721.top/98259515_p0_master1200.3ns7nvxpav.webp`  | `rl-note-18`, `paper-deep-dive-dworldeval`, `paper-deep-dive-vlac`            |
-|         2 | `145491169` | `https://pic.hana0721.top/145491169_p0_master1200.2dpccm5v9t.webp` | `openssh-server-setup`, `paper-deep-dive-pi-rl`                               |
+|         3 | `145491169` | `https://pic.hana0721.top/145491169_p0_master1200.2dpccm5v9t.webp` | `openssh-server-setup`, `paper-deep-dive-pi-rl`, `paper-deep-dive-aim`         |
 
 ## Count 1 Pool
 
@@ -89,7 +89,7 @@ Preferred candidates for new posts.
 |         2 | `98000873`  | `https://pic.hana0721.top/98000873_p0_master1200.491vjnsp6s.webp`  | `github-auth-local-setup`, `paper-deep-dive-ctrl-world`                                                           |
 |         2 | `139063757` | `https://pic.hana0721.top/98073480.3rbvmy4uvn.webp`                | `paper-reading-cv3`, `paper-deep-dive-viva`                                                                       |
 |         3 | `99213551`  | `https://pic.hana0721.top/99213551_p0_master1200.4jopcsx1ya.webp`  | `vim-detailed-guide`, `paper-deep-dive-simplevla-rl`, `paper-deep-dive-rl-100`                                    |
-|         2 | ``          | `https://pic.hana0721.top/99749488_p0_master1200.83an1pr7zr.webp`  | `linux-server-clash-verge-proxy`, `paper-deep-dive-omnivla-rl`                                                    |
+|         3 | `99749488`  | `https://pic.hana0721.top/99749488_p0_master1200.83an1pr7zr.webp`  | `linux-server-clash-verge-proxy`, `paper-deep-dive-omnivla-rl`, `paper-deep-dive-rynnvalue`                       |
 
 ## Maintenance
 
