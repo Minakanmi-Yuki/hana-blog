@@ -59,7 +59,7 @@ Use only after the count-1 pool is exhausted.
 |         2 | `93990522`  | `https://pic.hana0721.top/93990522_p0_master1200.et40soxif.webp`   | `scp-upload-to-server`, `paper-deep-dive-lingbot-va`                                                    |
 |         2 | `98259515`  | `https://pic.hana0721.top/98259515_p0_master1200.3ns7nvxpav.webp`  | `rl-note-18`, `paper-deep-dive-dworldeval`, `paper-deep-dive-vlac`                                      |
 |         3 | `145491169` | `https://pic.hana0721.top/145491169_p0_master1200.2dpccm5v9t.webp` | `openssh-server-setup`, `paper-deep-dive-pi-rl`, `paper-deep-dive-aim`                                  |
-|         3 | `70977889`  | `https://pic.hana0721.top/70977889_p0_master1200.9gx5x526gc.webp`  | `paper-reading-mllm2`, `paper-deep-dive-faster`, `paper-deep-dive-ftp-1`                                |
+|         3 | `70977889`  | `https://pic.hana0721.top/70977889_p0_master1200.9gx5x526gc.webp`  | `paper-reading-mllm2`, `paper-deep-dive-faster`, `paper-deep-dive-ftp-1`, `paper-deep-dive-vtam`         |
 
 ## Count 1 Pool
 

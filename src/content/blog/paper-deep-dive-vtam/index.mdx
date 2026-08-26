@@ -1,0 +1,236 @@
+---
+title: 'VTAM 论文精读：让机器人用触觉预测接触动力学'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 VTAM：把 GelSight 触觉流纳入视频世界模型，并用虚拟力正则抑制视觉主导，在薯片抓取、黄瓜削皮和白板擦拭上实现稳健接触控制。'
+heroImage: { src: 'https://pic.hana0721.top/70977889_p0_master1200.9gx5x526gc.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '70977889'
+tags:
+  - 'paper deep dive'
+  - 'visuo-tactile learning'
+  - 'world model'
+  - 'robot manipulation'
+paper:
+  arxivId: '2603.23481'
+  title: 'VTAM: Video-Tactile-Action Models for Complex Physical Interaction Beyond VLAs'
+  authors:
+    - 'Haoran Yuan'
+    - 'Weigang Yi'
+    - 'Zhenyu Zhang'
+    - 'Wendi Chen'
+    - 'Yuchen Mo'
+    - 'Jiashi Yin'
+    - 'Xinzhuo Li'
+    - 'Xiangyu Zeng'
+    - 'Chuan Wen'
+    - 'Cewu Lu'
+    - 'Katherine Driggs-Campbell'
+    - 'Ismini Lourentzou'
+  venue: 'arXiv'
+  year: 2026
+  code: 'https://github.com/haorany7/VTAM'
+  project: 'https://plan-lab.github.io/projects/vtam/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2603.23481'
+  tldr='VTAM 将多视角视频与 GelSight 触觉共同纳入预测式世界模型，并以虚拟力正则保持触觉梯度，在接触丰富操作中显著超过视觉策略。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+![VTAM system overview from paper Figure 1](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-vtam/overview.webp)
+
+### 一句话总结
+
+**【Paper】** VTAM（Video-Tactile Action Model）把第三人称相机、腕部相机和 GelSight 触觉图像编码到同一个视频 latent 空间，预测未来视觉与触觉变化，再由条件 Diffusion Policy 联合生成动作、状态和虚拟力。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 以预训练 video transformer 为 backbone，通过轻量 modality-transfer finetuning 接入触觉，不需要 tactile-language paired data 或独立触觉预训练。
+2. 用交替的 in-view self-attention 与 cross-view attention 建模视觉—触觉的时空动力学，而不是把触觉当作策略末端的额外 token。
+3. 从 GelSight 形变光流构造三维 virtual force proxy，并把它放进动作去噪目标，缓解训练中的 modality collapse。
+4. 在薯片抓取放置、黄瓜削皮、不同高度与倾角的白板擦拭上，分别达到 90%、85% 和 95% 成功率。
+
+## 2. 背景与相关工作
+
+**【Paper】** 视觉适合识别物体和几何，但在抓取遮挡、滑移、柔性物体变形等场景中，关键接触状态并不可靠地出现在视觉 token 里。已有 tactile-augmented VLA 多采用语义空间投影或 policy 末端拼接，模型必须在面向静态语义对齐的 latent 中间接学习接触物理；高频触觉梯度很容易被视觉梯度压制。
+
+生成式 world model 提供了另一条路线：用未来观测约束模型学习动力学。VTAM 的问题是如何把局部、高频、接触界面的形变动态纳入视频世界模型，同时保证这些信号真的影响动作生成。
+
+**【Analysis】** 因此 VTAM 的关键不只是“多一个传感器”，而是把触觉提升为可预测的状态变量，再用辅助目标把它与控制梯度绑定。
+
+## 3. 问题定义
+
+**【Paper】** 在时间 $t$，模型接收两路 RGB-D 视觉流、GelSight tactile stream、语言指令以及机器人 proprioceptive state。每个视图经 VAE 编码为连续 latent $z_t^v$，其中 $v=1,2$ 是两路相机，$v=3$ 是触觉。
+
+输出包含未来视频 latent、未来触觉 latent，以及长度为 $H$ 的动作、状态和虚拟力序列。动作 $a\in\mathbb{R}^7$ 表示 6-DoF 末端位姿与 1D 夹爪宽度，状态 $s\in\mathbb{R}^{16}$，虚拟力 $f\in\mathbb{R}^3$。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![VTAM architecture from paper Figure 2](https://pic.hana0721.top/blog/paper-deep-dive-vtam/model-arch.45iem79e0v.webp)
+
+**【Paper】** 三路 VAE latent 经过 28 个交替注意力块形成 visuo-tactile representation；该表示通过 cross-attention 条件化 action diffusion head，同时预测 future actions、future states 与 future forces。
+
+### 4.2 核心模块
+
+#### 多视图视频—触觉世界模型
+
+**【Paper】** 每个 block 先在单一视图内做 self-attention，保留相机画面或触觉形变的空间结构；再把三路 token 拼接后做 cross-view attention，让视觉运动与接触变形交换信息。这样既能表达同一帧内的局部压力分布，也能表达跨帧的滑移与接触转变。
+
+#### 虚拟力正则
+
+**【Paper】** 令 $I_0$ 为无接触触觉参考帧，$I_t$ 为当前帧。由稠密光流 $u_t=(u_x,u_y)$ 计算：
+
+$$
+f_x=\mathbb{E}[u_x],\qquad f_y=\mathbb{E}[u_y],\qquad f_z=\mathbb{E}[\nabla\cdot u_t].
+$$
+
+$f_x,f_y$ 近似切向剪切，$f_z$ 用形变场散度近似法向压缩。它不是标定后的物理力，而是与接触形变几何相关的低维 proxy；预测它比重建整张高分辨率触觉图更容易稳定训练。
+
+### 4.3 关键公式
+
+**【Paper】** Stage I 在未来多视图 latent 上做 flow matching：
+
+$$
+\mathcal{L}_{\mathrm{stage1}}=\mathbb{E}\left[\|v_\theta(z_t,t)-v^*\|_2^2\right].
+$$
+
+Stage II 把动作、虚拟力和状态拼成联合目标 $z_0=[a;f;s]$，条件 token 为 $c=[0_{10};s_t]$。最终目标是：
+
+$$
+\mathcal{L}_{\mathrm{stage2}}=\mathcal{L}_{\mathrm{action}}+\lambda_1\mathcal{L}_{\mathrm{state}}+\lambda_2\mathcal{L}_{\mathrm{force}}.
+$$
+
+其中三项分别匹配动作、状态和虚拟力的 velocity field；$\lambda_1,\lambda_2$ 控制状态与触觉监督强度。联合去噪让动作不仅拟合历史轨迹，还要与可预测的物理状态转移一致。
+
+### 4.4 Training
+
+**【Paper】** 作者采用两阶段训练。Stage I 只微调预训练视觉 backbone，使其先学会未来视觉—触觉 latent dynamics；Stage II 固定这一对齐后的世界表示，引入 action/state/force 联合 flow matching。真实数据由人工 teleoperation 收集，包含 100 条薯片、105 条擦拭和 61 条削皮轨迹。
+
+<Algorithm number={1} title='VTAM 两阶段训练' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>同步视觉、触觉、状态序列与动作示范</div>
+  <div slot='output'>具备触觉感知的世界模型与动作策略</div>
+  <AlgorithmStep>用预训练 VAE 编码两路视频和 GelSight 帧，得到三路 latent。</AlgorithmStep>
+  <AlgorithmStep>Stage I 对未来 latent 加噪并做 flow matching，更新多视图视频 backbone。</AlgorithmStep>
+  <AlgorithmStep>由触觉光流计算 virtual force，构造 $[a;f;s]$ 联合去噪目标。</AlgorithmStep>
+  <AlgorithmStep>Stage II 最小化动作、状态和虚拟力损失，更新条件 action diffusion head。</AlgorithmStep>
+</Algorithm>
+
+**【Analysis】** 先对齐世界表示再学习控制，隔离了“模态迁移”和“动作优化”造成的分布漂移；这是比端到端同时训练更易收敛的工程选择。
+
+### 4.5 Inference
+
+**【Paper】** 推理时，当前视觉—触觉观测进入世界模型，action diffusion head 预测未来动作 chunk；控制器执行动作并在下一次更新时读取新的真实观测。论文报告数据采集与执行频率为 30 Hz，策略推理频率为 1 Hz。
+
+<Algorithm number={2} title='VTAM 接触感知推理' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前两路视觉、GelSight 帧、语言指令和 proprioception</div>
+  <div slot='output'>动作、状态与虚拟力预测</div>
+  <AlgorithmStep>编码最新多模态观测，并通过交替注意力融合三路 latent。</AlgorithmStep>
+  <AlgorithmStep>以当前状态 token 为条件，对动作—状态—虚拟力联合变量执行 flow-matching denoising。</AlgorithmStep>
+  <AlgorithmStep>执行动作 chunk；下一轮用真实触觉反馈修正视觉遮挡造成的接触估计。</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** 项目页链接到 `https://github.com/haorany7/VTAM`，但截至本文写作该地址返回 HTTP 404，未能获得官方模型定义、数据加载器、训练配置或推理脚本。因此下表只列出论文中可确认的接口，代码行为均标记为“论文未明确说明”。
+
+| 组件 | 论文可确认内容 | 官方代码状态 |
+| --- | --- | --- |
+| 感知输入 | 两路相机 + GelSight + proprioception | 仓库 404，无法核验 |
+| 世界模型 | 预训练 video transformer，28 个交替注意力块 | 仓库 404，无法核验 |
+| 动作头 | 条件 diffusion，联合预测 action/state/force | 仓库 404，无法核验 |
+| 数据 | 100/105/61 条三类任务 teleoperation 轨迹 | 仓库 404，无法核验 |
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![VTAM robot experiment setup from paper Figure 3](https://pic.hana0721.top/blog/paper-deep-dive-vtam/experiment-setup.1ow67a7hgi.webp)
+
+**【Paper】** 平台是 6-DoF xArm6 平行夹爪，夹爪手指安装 GelSight Mini；两台 Intel RealSense D455 组成双头视觉。每个模型在四类真实试验上评估，每项 20 次，总计 80 次；基线包括 Genie Envisioner、视觉版 $\pi_{0.5}$ 和简单 tactile injection。
+
+### 5.2 Main Results
+
+| 模型 | Chip | Peel | Wipe |
+| --- | ---: | ---: | ---: |
+| Genie Envisioner | 0% | 0% | 2.5% |
+| $\pi_{0.5}$（Vision） | 10% | 0% | 0% |
+| $\pi_{0.5}$ + Tactile | 5% | 0% | 0% |
+| **VTAM** | **90%** | **85%** | **95%** |
+
+**【Paper】** VTAM 在薯片任务中能根据触觉确认是否真正夹住；削皮时保持连续剪切力；擦拭时适应平面与倾斜白板。视觉基线常在抓取失败后仍继续放置，或在倾斜表面施加过大法向力。
+
+![Qualitative comparison from paper Figure 4](https://pic.hana0721.top/blog/paper-deep-dive-vtam/compare-full.webp)
+
+### 5.3 Ablation Study
+
+**【Paper】** 薯片任务上的 10 次消融结果如下：
+
+| 变体 | 触觉集成方式 | 成功率 |
+| --- | --- | ---: |
+| Vision-only | 无 | 0% |
+| Late-Fusion Tactile | 仅下游注入 | 0% |
+| No Virtual-Force Reg. | Joint latent | 10% |
+| VTAM | Hierarchical world model | 90% |
+
+这组结果同时回答两个问题：只在动作头拼接触觉不足以学习接触动力学；没有 virtual-force regularization 时，视觉梯度会重新占主导。
+
+### 5.4 Generalization
+
+![Tactile stream prediction from paper Figure 5](https://pic.hana0721.top/blog/paper-deep-dive-vtam/tactile-prediction.webp)
+
+**【Paper】** 视频 backbone 的预测可保持两路相机的时间一致性，并生成合理的触觉演化；细节有轻微模糊，但作者认为不影响操作相关信息。论文未报告跨机器人本体或大规模未见任务的额外数字，因此不能把该结果外推成通用 zero-shot 能力。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** 视觉 latent 负责全局几何与语义，触觉 latent 负责接触界面的高频变化；预测未来而非被动拼接，使模型必须解释“当前形变将如何演化”。virtual force 又给触觉路径提供直接梯度，避免 action loss 仅靠视觉就达到局部最优。
+
+### 6.2 核心创新
+
+**【Paper】** 创新是三个机制的组合：共享视频 latent 的 visuo-tactile dynamics、联合 action/state/force flow matching，以及由形变推导的 virtual-force regularization。任一机制单独存在都不能解释完整的消融差距。
+
+### 6.3 与已有方法的本质区别
+
+| 维度 | 典型 tactile-VLA | VTAM |
+| --- | --- | --- |
+| 触觉角色 | 额外语义 token 或末端特征 | 可预测的世界状态 |
+| 融合位置 | 反应式 late fusion | 视频 backbone 内的 cross-view attention |
+| 物理监督 | 通常无显式目标 | virtual force velocity matching |
+| 控制约束 | 直接回归动作 | action/state/force 联合去噪 |
+
+### 6.4 关键假设
+
+**【Analysis】** 方法假设 GelSight 形变光流与接触力单调相关，且预训练视频 VAE 能保留触觉图像所需的局部细节；同时假设两路视觉、触觉和状态在时间上可以精确同步。论文没有给出标定误差、传感器失效或不同 tactile hardware 的系统评估。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 论文主要展示三类任务和单一 xArm6/GelSight 组合；作者没有报告大规模跨本体、跨传感器或长时部署结果。virtual force 是 proxy 而非真实 3D 力，不能直接替代力矩传感器的物理标定。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】** 形变光流对材质、光照和接触面积敏感，换用不同弹性体可能需要重新校准；28 层多视图 transformer 与 diffusion head 的实时成本也未公开。更重要的是，触觉只在发生接触后提供强信号，模型仍需视觉完成接近、搜索和脱离阶段的状态估计。
+
+## 8. 启发与研究思考
+
+**【Analysis】** VTAM 提示，下一代 VLA 的 multimodality 不应止于“把传感器 token 拼起来”，而应让每种传感器都进入可预测的 world model。一个直接方向是把 virtual force 扩展成 slip、contact mode 和 deformation phase 的离散 latent，再用真实力传感器或自监督事件标签校准 proxy。另一个方向是研究触觉缺失时的 modality dropout，使策略能在传感器污染或延迟下优雅退化。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断；官方代码仓库当前不可访问的事实也已单独说明。
+</Aside>
