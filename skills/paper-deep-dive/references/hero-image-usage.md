@@ -56,7 +56,7 @@ Use only after the count-1 pool is exhausted.
 |         3 | `126839080` | `https://pic.hana0721.top/126839080_p0_master1200.232gprncye.webp` | `upload-project-to-github`, `paper-deep-dive-knowledge-insulating-vla`, `paper-deep-dive-worldarena`, `paper-deep-dive-hifi-umi` |
 |         3 | `126903857` | `https://pic.hana0721.top/126903857_p0_master1200.2dpaix2l3u.webp` | `tmux-ssh-session-management`, `paper-deep-dive-internvla-m1`, `paper-deep-dive-mimicgen`                                        |
 |         3 | `86800103`  | `https://pic.hana0721.top/86800103_p0_master1200.4qrwyrtj6a.webp`  | `rl-note-14`, `paper-deep-dive-qwen-vla`, `paper-deep-dive-robocasa`                                                             |
-|         3 | `92079701`  | `https://pic.hana0721.top/92079701_p0_master1200.64eg2t4l77.webp`  | `rl-note-15`, `paper-deep-dive-videovla`, `paper-deep-dive-open-aoe`                                                              |
+|         3 | `92079701`  | `https://pic.hana0721.top/92079701_p0_master1200.64eg2t4l77.webp`  | `rl-note-15`, `paper-deep-dive-videovla`, `paper-deep-dive-open-aoe`                                                             |
 |         2 | `93990522`  | `https://pic.hana0721.top/93990522_p0_master1200.et40soxif.webp`   | `scp-upload-to-server`, `paper-deep-dive-lingbot-va`                                                                             |
 |         2 | `98259515`  | `https://pic.hana0721.top/98259515_p0_master1200.3ns7nvxpav.webp`  | `rl-note-18`, `paper-deep-dive-dworldeval`, `paper-deep-dive-vlac`                                                               |
 |         3 | `145491169` | `https://pic.hana0721.top/145491169_p0_master1200.2dpccm5v9t.webp` | `openssh-server-setup`, `paper-deep-dive-pi-rl`, `paper-deep-dive-aim`                                                           |
@@ -66,13 +66,13 @@ Use only after the count-1 pool is exhausted.
 
 Preferred candidates for new posts.
 
-| Use Count | Pixiv ID  | URL                                                              | Current Posts                   |
-| --------: | --------- | ---------------------------------------------------------------- | ------------------------------- |
-|         1 | `3602563` | `https://pic.hana0721.top/3602563_p0_master1200.8hh43k1p88.webp` | `paper-deep-dive-interndata-a1` |
+| Use Count | Pixiv ID  | URL                                                              | Current Posts                                         |
+| --------: | --------- | ---------------------------------------------------------------- | ----------------------------------------------------- |
+|         2 | `3602563` | `https://pic.hana0721.top/3602563_p0_master1200.8hh43k1p88.webp` | `paper-deep-dive-interndata-a1`, `paper-deep-dive-a1` |
 
 | Use Count | Pixiv ID    | URL                                                                | Current Posts                                                                                                                                 |
 | --------: | ----------- | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
-|         3 | `65089776`  | `https://pic.hana0721.top/65089776_p0_master1200.5c1kl2nzfo.webp`  | `rl-note-1`, `paper-deep-dive-pld`, `paper-deep-dive-sim1`                                                                                  |
+|         3 | `65089776`  | `https://pic.hana0721.top/65089776_p0_master1200.5c1kl2nzfo.webp`  | `rl-note-1`, `paper-deep-dive-pld`, `paper-deep-dive-sim1`                                                                                    |
 |         3 | `42175762`  | `https://pic.hana0721.top/42175762_p0_master1200.6m4jay5vlg.webp`  | `paper-reading-eba5`, `paper-deep-dive-cot-vla`, `paper-deep-dive-pi05`, `paper-deep-dive-fastumi`                                            |
 |         3 | `112236596` | `https://pic.hana0721.top/112236596_p0_master1200.232gogbiox.webp` | `rl-note-25`, `paper-deep-dive-qwen-robotmanip`, `paper-deep-dive-rlinf-vla`, `paper-deep-dive-what-matters-latent-actions`                   |
 |         3 | `133376054` | `https://pic.hana0721.top/133376054_p0_master1200.1ziuqmv790.webp` | `vscode-ssh-setup`, `paper-deep-dive-clap`, `paper-deep-dive-multiview-il`, `paper-deep-dive-lerobot`                                         |

@@ -1,0 +1,368 @@
+---
+title: 'A1 论文精读：Fully Transparent、Adaptive、Efficient 的 Truncated VLA'
+publishDate: 2026-08-27
+updatedDate: 2026-08-27
+description: '精读 A1：用多出口 VLM 与跨层 Truncated Flow Matching 同时压缩 backbone 和 action head 的推理成本，并对照官方代码分析实现。'
+heroImage:
+  { src: 'https://pic.hana0721.top/3602563_p0_master1200.8hh43k1p88.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '3602563'
+tags:
+  - 'paper deep dive'
+  - 'A1'
+  - 'efficient VLA'
+  - 'early exit'
+paper:
+  arxivId: '2604.05672'
+  title: 'A1: A Fully Transparent Open-Source, Adaptive and Efficient Truncated Vision-Language-Action Model'
+  authors:
+    - 'Kaidong Zhang'
+    - 'Jian Zhang'
+    - 'Rongtao Xu'
+    - 'Yu Sun'
+    - 'Shuoshuo Xue'
+    - 'Youpeng Wen'
+    - 'Xiaoyu Guo'
+    - 'Minghao Guo'
+    - 'Weijia Liufu'
+    - 'Liu Zihou'
+    - 'Kangyi Ji'
+    - 'Yangsong Zhang'
+    - 'Jiarun Zhu'
+    - 'Jingzhi Liu'
+    - 'Zihang Li'
+    - 'Ruiyi Chen'
+    - 'Meng Cao'
+    - 'Jingming Zhang'
+    - 'Shen Zhao'
+    - 'Xiaojun Chang'
+    - 'Feng Zheng'
+    - 'Ivan Laptev'
+    - 'Xiaodan Liang'
+  venue: 'arXiv'
+  year: 2026
+  code: 'https://github.com/ATeam-Research/A1'
+  project: 'http://www.ateam.xin/#/research/A1'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2604.05672'
+  tldr='A1 通过 action consistency 驱动的多出口 VLM 与跨层 warm-start Truncated Flow Matching，让 backbone 和 flow action head 一起按需计算。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**【Paper】** A1 面向一个很实际的部署矛盾：VLA 的大 VLM backbone 提供了泛化能力，但 7B 级模型和需要 10–20 次 denoising 的 diffusion/flow action head 很难在普通硬件上实时运行。论文提出一个完整开源的 VLA stack，并把“省算力”定义为端到端问题，而不是只压缩语言模型。
+
+**论文链接**：[arXiv:2604.05672](https://arxiv.org/abs/2604.05672)　**代码**：[ATeam-Research/A1](https://github.com/ATeam-Research/A1)　**项目页**：[A1](http://www.ateam.xin/#/research/A1)
+
+<img
+  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-a1/framework.7lkqemb6wx.webp'
+  alt='A1 的 VLM、action head 与自适应推理总览（论文 Figure 1）'
+  class='zoomable'
+  width='3031'
+  height='974'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+### 一句话总结
+
+**【Analysis】** A1 的关键不是发明一个更大的 policy，而是把每个控制时刻的计算预算变成可调旋钮：动作在浅层已经稳定时立即退出；若使用 Flow Matching，则把上一层的 action chunk 当作下一层的初值，避免每层重新从随机噪声开始。
+
+### 核心贡献
+
+**【Paper】**
+
+1. **联合加速两个瓶颈**：用 action-consistency early exit 减少 VLM 层数，用 Inter-Layer Truncated Flow Matching 减少每层 denoising 次数。
+2. **共享 action head 的多出口训练**：训练时对随机层或所有层的动作同时监督，推理时可以在中间层直接接 action head。
+3. **跨 embodiment 预训练**：混合 DROID、AgiBot、RoboCOIN、RoboMind、GM-100、RoboChallenge，以及 15,951 条自采轨迹。
+4. **完整开源**：论文承诺公开权重、训练与推理代码、数据处理脚本/清单和评测协议。
+5. **性能与效率并重**：LIBERO 平均 96.6%、VLABench 平均 53.5%、RoboChallenge 29.00%；Flow Matching episode latency 最多下降 72.3%，MLP 版本 backbone 计算量最多下降 76.6%。
+
+## 2. 背景与相关工作
+
+**【Paper】** 典型 VLA 由两部分组成：VLM 将图像、语言和 proprioception 压成语义表示，action head 再把表示解码成连续动作。大 backbone 的问题是每个 token 都要经过全部层；Flow/Diffusion action head 的问题是一次动作还要重复多次 denoising。只优化其中一项，另一项就会成为新的瓶颈。
+
+A1 依赖三个经验观察：
+
+- **Trajectory convergence**：Flow Matching 轨迹通常在少于三步时已经靠近正确 mode，后续步骤主要做精修。
+- **Action redundancy**：相邻控制时刻的 action chunk 大多平滑，不需要每次都做同等强度的更新。
+- **Layer-wise coupling**：中间 VLM hidden state 已包含足够的空间与视觉特征，可以先产生一个可用动作。
+
+**【Analysis】** DeeR-VLA 也使用 dynamic early exit，但 A1 的边界更宽：它把 action head 的迭代开销纳入同一个预算控制器，并且保留一个共享 head，而不是为每个出口各自维护完整 head。
+
+## 3. 问题定义
+
+**【Paper】** 在时刻 $t$，观测为多相机图像、语言指令和机器人状态：
+
+$$o_t=[I^1_t,ldots,I^n_t,q_t],$$
+
+其中 $q_t$ 包含关节角、夹爪位姿等 proprioceptive state。策略输出长度为 $H$、动作维度为 $D$ 的 chunk：
+
+$$A_t=[a_t,a_{t+1},ldots,a_{t+H-1}]in\mathbb{R}^{H\times D}.$$
+
+论文同时实现两种 head：A1-MLP 用 L1 回归直接预测 chunk；A1-FM 学习条件 vector field，生成多模态连续动作。
+
+| 要素         | A1 设定                                                       |
+| ------------ | ------------------------------------------------------------- |
+| Observation  | 多视角 RGB、语言、proprioception（具体相机随数据集而变）      |
+| VLM          | Molmo 初始化的 Vision-Language Model                          |
+| Action head  | 400M 级 Qwen2 Flow Matching，或轻量 MLP                       |
+| Action chunk | 仿真配置通常为 10 步；预训练配置为 50 步，具体由 YAML 决定    |
+| Robot        | ARX、Franka、UR5、AgiBot、OpenArm、Dobot 等多种 embodiment    |
+| Benchmarks   | LIBERO、VLABench、LIBERO-Plus、RoboChallenge 与真实机器人任务 |
+
+**【Code】** `configs/models/pretrain.yaml` 将 `fixed_action_dim` 设为 32、`num_actions_chunk` 设为 50；LIBERO 配置则使用 10 步 chunk。代码因此支持论文表格之外的不同动作维度与 horizon，而不是把 7D/8-step 写死。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+<img
+  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-a1/adaptive_inference.8l0trsdy7y.webp'
+  alt='A1 多出口训练与自适应推理（论文 Figure 2）'
+  class='zoomable'
+  width='1230'
+  height='321'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+**【Paper】** 数据流是 `image + language + state → VLM layer i → shared action head → action chunk`。训练阶段让多个层都产生可监督动作；推理阶段逐层执行并比较相邻层的动作差异，满足阈值即退出。
+
+### 4.2 核心模块
+
+#### Molmo VLM backbone 与多出口
+
+- **输入**：多相机图像、语言 token、state token。
+- **输出**：每个候选层的 prefix KV cache 或 hidden state。
+- **作用**：提供视觉语义和 implicit affordance prior。
+- **为什么需要**：A1 的目标不是把 VLM 换成小模型，而是让强 VLM 只计算到“已经足够”的深度。
+
+**【Code】** `AffordVLAEarlyExit` 继承 `Molmo`。模型 forward 返回 `exit_layer` 与 `exit_action`；候选层的 KV cache 会传入 Flow Matching head。`a1/model.py` 中主干层数由配置决定，因而出口集合可以按实验设置取每两层一个出口。
+
+#### MLP action head
+
+- **输入**：指定层的 action-token hidden states。
+- **输出**：连续 action chunk。
+- **作用**：并行回归动作，计算量相对 VLM 可忽略。
+- **训练**：对中间层动作施加 L1 loss。
+
+它适合作为“只加速 backbone”的基线：由于 head 很小，即使每层都调用一次，也不会像 FM head 那样把节省的 VLM 计算重新花掉。
+
+#### Flow Matching action head
+
+- **输入**：主 VLM 的 prefix KV、当前 proprioception、噪声动作 $x_t$ 和时间 $t$。
+- **中间模块**：state/action/time projection → Qwen2 decoder-only expert → MLPResNet vector-field head。
+- **输出**：$H\times D$ 的 vector field 或最终 action chunk。
+- **作用**：表达一对多的连续动作分布，并通过 KV-conditioned self-attention 读取 VLM 语义。
+
+**【Code】** `FlowMatchingActionHead` 默认使用约 896 hidden size 的 Qwen2 expert；其 `predict_vector_field` 支持 2D 或 4D attention mask。代码动态把 `qwen2.model.config.num_hidden_layers` 设成当前缓存层数，使同一个 expert 能配合不同深度的 VLM prefix。
+
+#### Action-consistency threshold
+
+相邻出口产生 $A_t^{(i-1)}$ 与 $A_t^{(i)}$ 后，使用 cosine similarity、L2 distance 或 mean absolute deviation 等指标计算差异。每层阈值不是手工拍脑袋设置，而是从训练集的 discrepancy 分布离线校准，并通过目标 exit distribution 控制平均计算量。
+
+### 4.3 关键公式
+
+#### Flow Matching 训练目标
+
+**【Paper】** 采样噪声 $\epsilon\sim\mathcal N(0,I)$ 与 $\tau\in[0,1]$，构造：
+
+$$A_t^\tau=\tau A_t+(1-\tau)\epsilon,$$
+
+并回归条件 vector field：
+
+$$\mathcal L_\tau(\theta)=\mathbb E\left[\|v_\theta(A_t^\tau,o_t)-u(A_t^\tau\mid A_t)\|_2^2\right],\quad u=\epsilon-A_t.$$
+
+$v_\theta$ 是 action head 预测的速度场，$u$ 是连接噪声与真实动作的监督方向；论文使用偏向低噪声阶段的 Beta 分布采样时间。
+
+#### Euler action integration
+
+$$A_t^{\tau+\delta}=A_t^\tau+\delta v_\theta(A_t^\tau,o_t).$$
+
+$\delta$ 是积分步长；标准推理中总步数为 10。**【Code】** `AffordVLAEarlyExit.predict_actions_flow_matching` 从 $t=1$、`dt=-1/steps` 反向积分到 0，这与论文正文的时间方向写法相反，但和代码训练时的 $A^\tau=\tau\epsilon+(1-\tau)A$ 约定一致，实际含义都是从噪声走向动作。
+
+#### Early exit criterion
+
+$$\Delta_t^i=d\left(A_t^{(i)},A_t^{(i-1)}\right)<\eta_i.$$
+
+$d$ 是动作差异度量，$\eta_i$ 是第 $i$ 个出口的阈值。训练集收集每层差异矩阵 $V\in\mathbb R^{K\times N}$，再根据目标概率 $p_k\propto\rho^k$ 对尚未分配的样本做 filtered quantile，从而得到互斥的出口比例。
+
+#### Inter-Layer warm start
+
+$$A_{t,0}^{(i+1)}=A_{t,1}^{(i)}.$$
+
+右侧是上一层经过截断 denoising 的结果。它把“每层重新采样”的 FM 变成跨层传播的 refinement，既减少步数，也让浅层输出更接近下一层的稳定 mode。
+
+### 4.4 Training
+
+**【Paper】** 训练分为两阶段：先用公开与自采多机器人轨迹预训练，再针对具体 robot/task fine-tune。数据统一为同步的 $(o_t,s_t,\ell,a_t)$ episode，过滤缺帧、时间戳异常、极端 outlier、长时间静止段，并做 dataset-level 与 embodiment-level balanced sampling。图像使用 sharpening、random erasing；state 使用随机维度 zero-out。
+
+优化时冻结 ViT；VLM 学习率为 $5\times10^{-5}$，action head 为 $5\times10^{-4}$，前 1,000 步 warm-up，随后 cosine annealing。**【Code】** 训练入口是 `a1/train.py` 与 `launch_scripts/train_vla.py`，具体数据混合和模型类型由 `configs/experiments/*.yaml`、`configs/datasets/*.yaml` 注入，而非写死在脚本中。
+
+<Algorithm number={1} title='A1 多出口训练' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>多机器人 episode、语言指令、模型层索引集合与 action head 配置</div>
+  <div slot='output'>共享 action head 与可在多个层退出的 VLA checkpoint</div>
+  <AlgorithmStep>
+    从混合数据集中采样图像、语言、state 和未来 action chunk，并执行统一预处理。
+  </AlgorithmStep>
+  <AlgorithmStep>运行 VLM；随机选择一个出口层，或保留所有出口层的 hidden/KV 表示。</AlgorithmStep>
+  <AlgorithmStep>
+    用共享 MLP 或 Flow Matching head 预测该层 action；FM 路径采样噪声与时间并计算 vector-field
+    loss。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    对一个或多个层的动作同时监督，叠加正则项，反向更新 VLM（ViT 除外）与 action head。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    在训练集上收集相邻层 discrepancy，按目标 exit distribution 计算每个出口的 filtered quantile
+    阈值。
+  </AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 推理时从浅层开始逐层计算。MLP head 在每层快速得到 action；FM head 则每层只执行 $\delta$ 次截断 denoising，并用上一层输出 warm-start。若差异小于阈值，立即返回当前 chunk，否则继续到下一出口；最后一层是必然退出的 fallback。
+
+<Algorithm number={2} title='Adaptive Truncated FM 推理' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前多视角观测、语言、proprioception、阈值表 $\{\eta_i\}$、截断步数 $\delta$</div>
+  <div slot='output'>当前控制周期的 action chunk</div>
+  <AlgorithmStep>运行 VLM 到第一个候选出口，建立 prefix KV cache；初始 action 从高斯噪声采样。</AlgorithmStep>
+  <AlgorithmStep>用当前层 KV 和 state 执行 $\delta$ 次 Euler vector-field update。</AlgorithmStep>
+  <AlgorithmStep>将当前 chunk 与上一层 chunk 比较；若 $d(A^{(i)},A^{(i-1)})<\eta_i$，返回当前动作。</AlgorithmStep>
+  <AlgorithmStep>否则把当前 chunk 作为下一层的初值，继续执行 VLM 与 action head。</AlgorithmStep>
+  <AlgorithmStep>动作送入机器人控制器；下一控制周期重新观测并重复流程。</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+| 论文概念          | 官方代码位置与行为                                                                                            |
+| ----------------- | ------------------------------------------------------------------------------------------------------------- |
+| VLM + action head | `a1/vla/affordvla.py`；普通模型支持 `l1_regression`、`diffusion`、`flow_matching`                             |
+| Early-exit 模型   | `a1/vla/affordvla_early_exit.py`；forward 输出 `exit_layer/exit_action`                                       |
+| Flow Matching     | `a1/vla/action_heads.py` 的 `FlowMatchingActionHead`，Qwen2 expert 读取主干 KV                                |
+| 多层计算          | 通过 `len(past_key_values)` 动态设置 Qwen2 expert 的有效层数                                                  |
+| Warm start        | `predict_actions_flow_matching(..., input_x=...)` 接收上一层 action 作为初值                                  |
+| 数据管线          | `a1/data/vla/` 下的 RLDS、LeRobot、RoboChallenge 等 builder 与 batch transform                                |
+| 评测入口          | `eval_libero_exit.sh`、`robot_experiments/libero/eval_libero_exit_fm_truncated_anchor.py`、`eval_vlabench.sh` |
+
+**【Analysis】** 代码层面最重要的实现细节是 KV cache：中间层输出并不是重新编码成一个静态向量，而是直接作为 Qwen2 action expert 的 past keys/values。这让 action head 能看到与当前 VLM 深度一致的 prefix，同时避免重复计算已完成的主干层。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+**【Paper】** 仿真包含 LIBERO 四个 suite（Spatial、Object、Goal、Long）和 VLABench 四类任务；真实实验覆盖 Franka、AgiBot、OpenArm、Dobot-Arm，并在 UR5 等平台收集训练数据。RoboChallenge 使用 Table30 的 30 个真实机器人任务，每项任务测试 10 次；LIBERO-Plus 用于 zero-shot distribution shift。
+
+<img
+  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-a1/real_demo.2rvvihqi49.webp'
+  alt='A1 与 pi0.5 的真实机器人执行示例（论文 Figure 3）'
+  class='zoomable'
+  width='4001'
+  height='2250'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+### 5.2 Main Results
+
+**【Paper】** 主要结果如下：
+
+| Benchmark             |    A1 结果 | 对比                                        |
+| --------------------- | ---------: | ------------------------------------------- |
+| LIBERO average        |  **96.6%** | $\pi_0.5$ 96.9%，A1 在 Object 达 99.8%      |
+| VLABench average      |  **53.5%** | $\pi_0.5$ 49.5%                             |
+| Real-world mean       |  **56.7%** | $\pi_0.5$ 47.5%，$\pi_0$ 40.8%              |
+| RoboChallenge Table30 | **29.00%** | $\pi_0$ 28.33%，X-VLA 21.33%，RDT-1B 15.00% |
+| LIBERO-Plus zero-shot |  **75.3%** | 高于 OpenVLA-OFT、$\pi_0$、$\pi_0$-FAST     |
+
+真实任务中，A1 在 AgiBot 的 pick glue 和 clean table 分别达到 80% 与 20%；fruit arrangement 只用 50 条样本仍达到 50%。这些结果说明多机器人预训练带来的并非单一轨迹记忆，而是一定程度的跨硬件迁移。
+
+### 5.3 Ablation Study
+
+<img
+  src='https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-a1/exit_vis2.362b9cysuz.webp'
+  alt='LIBERO-Long 中不同动作阶段选择不同 VLM 出口层（论文 Figure 4）'
+  class='zoomable'
+  width='2532'
+  height='1125'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+**【Paper】** A1-MLP 的 early exit 展现出清晰的 compute–accuracy 曲线：
+
+| exit criterion $c$ | 计算量下降 | 平均成功率 |       推理时间 |
+| -----------------: | ---------: | ---------: | -------------: |
+|                1.0 |      15.6% |      96.6% | 20.6 s（上升） |
+|                0.7 |      39.1% |      96.3% |         16.5 s |
+|                0.4 |      58.5% |      94.0% |          6.8 s |
+|                0.1 |      76.6% |      92.3% |          5.6 s |
+
+**【Paper】** A1-FM 中，`c=1.0, δ=2` 且 warm-start 时，LIBERO 平均成功率为 96.4%，episode latency 从 37.8 s 降到 10.5 s（72.3%）；没有 warm-start 时同样 `δ=2` 仍需 27.5 s。单纯把每层 denoising 设为 10 步甚至会让 early exit 的时间升到 40.9 s，说明“减少 VLM 层数”并不自动等于端到端加速。
+
+### 5.4 Generalization
+
+**【Paper】** 在未见过的 LIBERO-Plus 上，标准 LIBERO 训练的 A1-FM 达到 75.3% 平均成功率（Spatial 86.6%、Object 80.0%、Goal 66.8%、Long 58.0%）。**【Analysis】** 这项实验把效率方法和表征泛化分开检验：A1 并不是只在熟悉布局里靠提前退出取得高分，而是保留了 Molmo 的跨场景视觉语义能力。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** A1 同时利用了两种冗余。VLM 深层的表示变化在简单动作上很小，层间 action consistency 可以把这些“无效深度”跳过；Flow trajectory 在当前层已经接近正确 mode 时，下一层不必从噪声重新开始。前者减少 $L$，后者减少每层的 $\delta$，所以收益近似作用在端到端乘积上，而不是单独优化某个模块。
+
+### 6.2 核心创新
+
+**【Paper】** 真正的新组合是“共享多出口训练 + 训练集校准阈值 + 跨层截断 FM”。其中阈值校准把抽象的预算 $c$ 变成可执行的每层 quantile；warm-start 则避免 early-exit 把计算转移给 action head。
+
+### 6.3 与已有方法的本质区别
+
+- 与静态 pruning 不同：A1 对每个控制时刻动态选择深度。
+- 与只做 VLM early exit 的方法不同：A1 同时控制 flow denoising。
+- 与为每个出口复制 head 不同：A1 训练一个共享 action head，减少参数和维护成本。
+- 与单纯减少 FM steps 不同：A1 还跨层复用上一层的 action state，因此少步数不会从随机初值开始。
+
+### 6.4 关键假设
+
+**【Paper】** 方法依赖中间层已经携带可用 affordance，以及相邻层的动作差异能预测“是否值得继续计算”。**【Analysis】** 这两个假设在训练分布外可能失效：动作可能看起来稳定但尚未完成接触细节，或者层间差异小却共同偏离目标。因此最终 fallback 和阈值校准不可省略。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+论文结论强调的是效率与开放性，没有单独列出完整的 limitation 清单。论文未明确说明不同 backbone、不同阈值指标在更广泛机器人上的失效边界，也未报告训练数据去重、各数据源规模占比对结果的独立贡献。
+
+### 7.2 自己分析得到的局限
+
+1. **Early exit 可能增加 wall-clock 开销**：MLP 的 `c=1.0` 和 FM 的 `δ=10` 已显示计算量下降但时间上升，真实收益依赖 kernel、KV cache 和通信实现。
+2. **阈值需要离线校准**：换 robot、相机、动作归一化或任务分布后，原有 discrepancy quantile 未必仍对应目标 exit ratio。
+3. **跨层 action head 的训练成本更高**：同时监督多层会增加 forward/head 调用；论文没有给出相对单出口训练的总训练时间和显存曲线。
+4. **Flow Matching 的时间约定存在文稿/代码差异**：正文写作是 $0\rightarrow1$，代码以 $t=1$、负步长反向积分；复现时必须以 checkpoint 与实现的约定为准。
+5. **RoboChallenge 平均分仍有限**：29.00% 虽超过若干开源基线，但距离闭源强基线还有明显差距，复杂长时序和接触任务仍是瓶颈。
+
+## 8. 启发与研究思考
+
+**【Analysis】** A1 给出的重要研究视角是：VLA 的效率不应只用参数量或单次 FLOPs 衡量，而应问“这一次控制决策到底需要多少计算”。从这个视角可以继续探索：
+
+- 用不确定性、接触事件或 value model 替代单一 action discrepancy，减少“稳定但错误”的早退；
+- 让 exit budget 随任务阶段、剩余时间和能耗动态变化，而不是固定指数分布；
+- 将 warm-start 从 FM action chunk 扩展到视觉 token、KV cache 或 latent world model；
+- 把训练时的多出口监督与 real-time scheduler 联合优化，直接最小化 success–latency–energy 的 Pareto 前沿；
+- 对每个 embodiment 学习可迁移的阈值校准器，避免换硬件后重新收集大规模 calibration set。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。
+</Aside>
