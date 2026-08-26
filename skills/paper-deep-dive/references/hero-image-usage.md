@@ -66,6 +66,10 @@ Use only after the count-1 pool is exhausted.
 
 Preferred candidates for new posts.
 
+| Use Count | Pixiv ID  | URL                                                              | Current Posts                   |
+| --------: | --------- | ---------------------------------------------------------------- | ------------------------------- |
+|         1 | `3602563` | `https://pic.hana0721.top/3602563_p0_master1200.8hh43k1p88.webp` | `paper-deep-dive-interndata-a1` |
+
 | Use Count | Pixiv ID    | URL                                                                | Current Posts                                                                                                                                 |
 | --------: | ----------- | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
 |         2 | `65089776`  | `https://pic.hana0721.top/65089776_p0_master1200.5c1kl2nzfo.webp`  | `rl-note-1`, `paper-deep-dive-pld`                                                                                                            |
