@@ -1,0 +1,295 @@
+---
+title: 'DreamZero 论文精读：World Action Models are Zero-shot Policies'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 DreamZero：把 14B 视频扩散模型改造成同时预测未来视频与动作的 World Action Model，并分析其零样本泛化、跨本体迁移与 7Hz 实时控制。'
+heroImage:
+  { src: 'https://pic.hana0721.top/71187447_p0_master1200.13mdb6lism.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '71187447'
+tags:
+  - 'paper deep dive'
+  - 'World Action Model'
+  - 'VLA'
+  - 'robot learning'
+  - 'video diffusion'
+paper:
+  arxivId: '2602.15922'
+  title: 'World Action Models are Zero-shot Policies'
+  authors:
+    - 'Seonghyeon Ye'
+    - 'Yunhao Ge'
+    - 'Kaiyuan Zheng'
+    - 'Shenyuan Gao'
+    - 'Sihyun Yu'
+    - 'Scott Reed'
+    - 'Yuke Zhu'
+    - 'Linxi “Jim” Fan'
+    - 'Joel Jang'
+  venue: 'arXiv'
+  year: 2026
+  code: 'https://github.com/dreamzero0/dreamzero'
+  project: 'https://dreamzero0.github.io/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2602.15922'
+  tldr='DreamZero 把视频扩散模型变成 World Action Model，通过联合生成未来视频和动作获得零样本任务、环境与机器人本体泛化，并借助缓存和异步执行实现 7Hz 闭环控制。'
+  rank={5}
+/>
+
+## 1. 论文概述
+
+![DreamZero overview from paper Figure 1](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dreamzero/dreamzero-header-v2.6t7uwglmsd.webp)
+
+### 一句话总结
+
+**【Paper】** DreamZero 将预训练的 Wan2.1-I2V-14B 视频扩散 backbone 改造成 World Action Model（WAM）：给定语言、视觉历史和本体状态，模型同时生成未来视频 latent 与对应动作 chunk。视频预测提供“世界会如何变化”的密集监督，动作则成为与视觉未来对齐的 inverse dynamics 输出。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出 14B DreamZero，使用单一 autoregressive DiT 端到端联合去噪视频和动作，在约 500 小时、7,193 条、非重复的 AgiBot 数据上训练。
+2. 在 AgiBot G1 与 DROID-Franka 上实现对新环境、新物体和未见动作的 zero-shot generalization；AgiBot seen-task 平均 task progress 为 62.2%，unseen-task 为 39.5%。
+3. 通过 CFG parallelism、DiT caching、Torch Compile、CUDA kernel 优化、NVFP4 量化和 DreamZero-Flash，将单 chunk 延迟从约 5.7 s 降至约 150 ms，支持约 7 Hz 闭环控制。
+4. 仅用 10–20 分钟其他机器人或人类视频即可提升目标机器人未见任务表现超过 42%；用 30 分钟新本体 play data 即可把 AgiBot 预训练模型适配到 YAM。
+5. 开源 DROID checkpoint、训练/推理代码和数据转换工具，仓库为 `dreamzero0/dreamzero`。
+
+## 2. 背景与相关工作
+
+**【Paper】** 现有 VLA 通常从 VLM 继承语言和物体语义，因此擅长“把可乐罐移到某处”，但对训练集中没有出现过的物理运动（例如解鞋带、熨衣服）泛化较弱。原因在于静态 image-text 预训练没有显式表示连续时间中的几何、接触和动力学。
+
+传统 VLA 直接学习 $o_t,c\mapsto a_t$，要覆盖每一种 motion、环境和本体，必须反复采集任务示范。视频模型则从相邻帧中学习“动作导致的视觉变化”，天然拥有时间先验。WAM 的思路是把这两者放在同一个联合分布中：视频是可观测的未来世界状态，动作是使该未来成立的控制量。
+
+**【Analysis】** 这不是把一个 video predictor 和一个 policy head 简单拼接。联合去噪使两种 modality 共享 DiT 的中间表示，策略错误更容易被定位为“视频计划错误”或“动作未对齐”，而非一个不可解释的端到端回归误差。
+
+## 3. 问题定义
+
+**【Paper】** 从轨迹中随机取索引 $l$，模型接收：
+
+- **Observation**：当前帧与历史视觉帧 $o_{0:l}$，多视角图像在输入侧拼接；
+- **Language**：任务指令 $c$；
+- **Proprioception**：本体状态 $q_l$；
+- **Output**：未来 $H$ 步视频 $o_{l:l+H}$ 与动作 $a_{l:l+H}$。
+
+联合策略写成：
+
+$$
+\pi_0(o_{l:l+H},a_{l:l+H}\mid o_{0:l},c,q_l)
+=\pi_0(o_{l:l+H}\mid o_{0:l},c,q_l)
+\pi_0(a_{l:l+H}\mid o_{0:l+H},q_l).
+$$
+
+这一定义把 action prediction 解释成 inverse dynamics：先预测“想要看到的未来”，再从未来视觉和状态中恢复控制命令。机器人包括双臂移动操作的 AgiBot G1 与单臂 Franka；跨本体实验使用 YAM 和人类 egocentric video。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![DreamZero model architecture from paper Figure 4](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dreamzero/dreamzero_model.8vnnkik84g.webp)
+
+**【Paper】** VAE 将视觉序列编码为 video latent，text encoder 编码指令，state encoder 编码本体状态；三者进入 autoregressive Causal DiT。DiT 使用 flow matching，同时输出 video velocity 与 action velocity，分别经 video decoder 和 action decoder 得到未来帧与动作。
+
+### 4.2 核心模块
+
+#### 预训练视频 backbone 与最小参数扩展
+
+**【Paper】** backbone 是 Wan2.1-I2V-14B-480P。为保留 web-scale video prior，作者冻结 text encoder、image encoder 和 VAE，只新增或更新 state encoder、action encoder/decoder 及 DiT blocks；多视角机器人帧在输入侧拼成单帧，不改变 backbone 的空间结构。
+
+**【Code】** `WANPolicyHeadConfig` 的默认 `input_embedding_dim` 与 `backbone_embedding_dim` 均为 1536，动作头通过 `action_dim`、`action_horizon` 注入 DiT；DROID 配置使用相对 joint position，并过滤 idle action。
+
+#### Autoregressive chunk 与注意力
+
+**【Paper】** 视频按固定 $K$ 个 latent frame 的 chunk 自回归生成。当前 noisy chunk 可以 attend 到前面 clean chunks；动作 chunk 与对应视频 chunk 对齐。相比 bidirectional WAM，autoregressive 结构允许 KV cache、保留原生 FPS，并能接收任意长度视觉历史。
+
+**【Code】** `CausalWanModel` 的 `max_chunk_size`、`num_frame_per_block` 和 `num_action_per_block` 控制 chunk 形状；推理函数维护正负 CFG 两套 KV cache。
+
+#### 闭环 KV cache
+
+**【Paper】** 每执行完一个 action chunk，真实相机观测会替换 cache 中相应的预测帧。因此自回归视频不会像离线生成那样无限累积误差；同时，历史帧让 stateful policy 能处理需要记忆的任务。
+
+**【Code】** `WANPolicyHead` 在 `current_start_frame == 0` 时创建 cache；之后把新观测编码后写入 cache，并以 `update_kv_cache=False` 运行当前 chunk 的扩散步骤。
+
+### 4.3 关键公式
+
+对第 $k$ 个 chunk，视频 latent $z_k^1$ 和归一化动作 $a_k^1$ 分别与高斯噪声 $z_k^0,a_k^0$ 线性插值得到：
+
+$$
+z_k^{t_k}=t_kz_k^1+(1-t_k)z_k^0,\qquad
+a_k^{t_k}=t_ka_k^1+(1-t_k)a_k^0.
+$$
+
+其中 $t_k\in[0,1]$ 是 flow-matching timestep；同一 video chunk 内帧共享 timestep，不同 chunk 独立采样。模型 $u_\theta$ 预测联合速度，训练目标是：
+
+$$
+\mathcal L(\theta)=\mathbb E\left[
+\frac1K\sum_{k=1}^{K}w(t_k)\left\|
+u_\theta([z_k^{t_k},a_k^{t_k}];\mathcal C_k,c,q_k,t_k)-v_k
+\right\|_2^2\right],
+$$
+
+$$
+v_k=[z_k^1,a_k^1]-[z_k^0,a_k^0],\qquad
+\mathcal C_k=\{(z_j^1,a_j^1)\}_{j<k}.
+$$
+
+**【Code】** 代码在视频和动作上分别计算加权 MSE；动作项还乘以 `action_mask` 与 `has_real_action`，没有真实动作的 video-only 样本不会错误地监督 action head。默认 DROID 配置采用 4 个 inference timesteps，训练配置提供独立的 video/action noise 开关。
+
+#### DreamZero-Flash 的解耦噪声
+
+![DreamZero-Flash noise schedules from paper Figure 5](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dreamzero/dreamzero-flash_noise_distribution-comparison.6bht7vkcmh.webp)
+
+**【Paper】** 标准 DreamZero 让视频和动作共享 uniform timestep；少步推理时视频仍然很 noisy，却要求动作已经干净，出现 train-test mismatch。Flash 令视频 timestep 偏向高噪声（例如 $t_{video}=1-\eta,\eta\sim Beta(7,1)$），动作 timestep 仍 uniform：
+
+$$
+\mathbb E[t_{video}]=0.125\quad\text{（按论文的噪声比例记法）}.
+$$
+
+这样模型直接学习“从 noisy video context 预测 clean action”，4 步降到 1 步时延迟约从 350 ms 降到 150 ms，性能损失很小。额外的 action chunk smoothing 是 2× 上采样、Savitzky–Golay 滤波后再下采样。
+
+### 4.4 Training
+
+**【Paper】** AgiBot 预训练约 500 小时，来自 22 个环境、7,193 episodes；平均每条 4.4 分钟、42.4 个 subtasks。DROID 用公开的异构单臂数据。两者均训练 100K steps、global batch size 128，更新 DiT 和动作相关模块，冻结 text/image encoder 与 VAE。
+
+<Algorithm number={1} title='DreamZero Flow-Matching Training' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>视频历史、语言指令、本体状态、未来视频 chunk 与动作 chunk</div>
+  <div slot='output'>联合视频-动作 policy $u_\theta$</div>
+  <AlgorithmStep>编码视频 latent、语言 embedding 和 proprioceptive state。</AlgorithmStep>
+  <AlgorithmStep>为每个 chunk 采样 timestep 与高斯噪声，构造 noisy video/action。</AlgorithmStep>
+  <AlgorithmStep>
+    用 clean previous chunks 作为 teacher-forcing context，通过 Causal DiT 预测两种 velocity。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    计算加权 video dynamics MSE 与 action MSE（应用 action mask），反向传播更新可训练参数。
+  </AlgorithmStep>
+</Algorithm>
+
+**【Code】** 训练入口由 Hydra 配置驱动，`scripts/train/droid_training.sh` 使用 DeepSpeed ZeRO；仓库 README 的 sanity-check 默认 `max_steps=10`，完整复现实验需显式提高步数。代码支持 LoRA，但论文报告 LoRA 效果不如更新全部可训练模块。
+
+### 4.5 Inference
+
+**【Paper】** 推理采用异步闭环：motion controller 持续执行最近 action chunk，GPU 同时基于最新观察生成下一 chunk。AgiBot 使用 30 Hz 控制频率、48-step horizon，每 chunk 约 1.6 秒，目标是把模型延迟压到 200 ms 以下。
+
+<Algorithm number={2} title='DreamZero Closed-Loop Inference' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>最新多视角观察、语言、本体状态与 KV cache</div>
+  <div slot='output'>执行中的平滑 action chunk 与更新后的 cache</div>
+  <AlgorithmStep>
+    将真实观察编码并写入 KV cache；首次调用时初始化 cache 与 cross-attention cache。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    从高斯噪声初始化 video/action chunk，运行 flow scheduler 的多步去噪。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    在两张 GPU 上并行 conditional/unconditional CFG，合成 guided velocity；命中 DiT cache
+    时复用最近预测。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    将 action chunk 立即交给控制器异步执行，下一轮用新的 ground-truth observation 替换预测帧。
+  </AlgorithmStep>
+</Algorithm>
+
+**【Code】** `socket_test_optimized_AR.py` 启动 WebSocket server，README 给出的最小部署需要 2 张 GPU；`--enable-dit-cache` 开启缓存。代码默认 `num_inference_steps=16`，配置可改为 4；动态 cache、TensorRT 和 NVFP4 由环境变量/硬件路径启用。
+
+### 4.6 代码实现对照
+
+| 论文概念          | 官方实现                                                                 | 关键观察                                                    |
+| ----------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------- |
+| Wan 视频 backbone | `groot/vla/model/dreamzero/modules/wan_video_dit*.py`                    | Causal DiT，40 layers、5120 hidden dim 的 14B 配置          |
+| 联合动作头        | `wan_flow_matching_action_tf.py`                                         | 同一 forward 返回 `video_noise_pred` 与 `action_noise_pred` |
+| 数据与相对动作    | `data/dataset/lerobot*.py`、`configs/data/dreamzero/droid_relative.yaml` | LeRobot v2 格式；relative joint position；过滤 idle frame   |
+| Flow matching     | `modules/flow_match_scheduler.py`                                        | 训练/采样 scheduler 分离，支持 timestep weighting           |
+| 闭环加速          | `socket_test_optimized_AR.py`                                            | WebSocket、双 CFG 分支、KV cache、异步请求                  |
+| Flash 噪声        | `WANPolicyHeadConfig` 的 `decouple_video_action_noise`                   | video Beta 偏高噪声，action 独立 uniform；以配置开关控制    |
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![AgiBot evaluation setup from paper Figure 7](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dreamzero/main_eval_setting.8l0trd50uh.webp)
+
+**【Paper】** 基线为 GR00T N1.6 与 $\pi_{0.5}$，分别比较 from-scratch 和官方 pretrained checkpoint。AgiBot seen tasks 共 80 rollouts，unseen tasks 另 80；DROID-Franka 在 40 个任务上共 80 rollouts。默认测试地点、物体和摆放都与训练不同，因此重点是 OOD generalization。
+
+### 5.2 Main Results
+
+![Seen task evaluation from paper Figure 8](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dreamzero/eval_bar_chart.2oc9kcoji4.webp)
+
+**【Paper】** AgiBot seen-task 平均 task progress：DreamZero 62.2%，最佳 pretrained VLA 为 27.4%，超过 2×。PnP-Easy、PnP-Hard 和 contact-rich manipulation 三类均领先；from-scratch VLA 接近零，说明只用动作监督很难从非重复数据中学到稳健映射。
+
+![Unseen task evaluation from paper Figure 9](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dreamzero/unseen_success_rates.73uopm0xub.webp)
+
+**【Paper】** AgiBot 的 10 个训练中不存在的任务上，DreamZero 平均 39.5%，pretrained VLA 为 16.3%；“Remove Hat from Mannequin” 达 85.7%，“Shake Hands” 达 59.2%。DROID-Franka 上 DreamZero 达 49% task progress、22.5% success rate，亦高于 GR00T 的 31%/12.5% 与 $\pi_{0.5}$ 的 33%/7.5%。
+
+**【Analysis】** 失败案例显示，DreamZero 通常忠实执行生成视频中的轨迹；失败更多来自 video prediction，而不是 action decoder 偏离视频。这给出清晰的 scaling 方向：更好的视频生成质量应直接改善策略性能，但也意味着世界模型 hallucination 会成为控制风险。
+
+### 5.3 Ablation Study
+
+**【Paper】** 论文消融了 backbone 规模、autoregressive/bidirectional 结构、数据重复度与 DreamZero-Flash。14B Wan 初始化优于 5B；autoregressive 结构动作更平滑、modality alignment 更高；相同小时数下，跨环境多样数据优于多任务重复示范。Flash 在 1 denoising step 上恢复大部分 4-step task progress。
+
+**【Code】** 仓库配置明确暴露 `num_inference_timesteps`、`decouple_video_action_noise`、`video_noise_beta_alpha` 和 `max_chunk_size`，因此这些实验变量可复现；不过论文中的 AgiBot 原始 500 小时数据尚未随仓库完全公开，公开复现路径主要是 DROID。
+
+### 5.4 Generalization
+
+![Cross-embodiment transfer from paper Figure 10](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-dreamzero/embodiment_transfer.4qs28en4x5.webp)
+
+**【Paper】** 只加入 20 分钟 YAM video 或 12 分钟人类 egocentric video（没有目标机器人动作）就能提升 AgiBot 未见任务表现超过 42%。另一条路线从 AgiBot checkpoint 出发，用 30 分钟 YAM play data 做 few-shot embodiment adaptation，同时保留 zero-shot generalization。
+
+**【Analysis】** 视频-only transfer 的前提是任务中的视觉状态变化比关节坐标更具可迁移性；30 分钟 play data 则负责学习“同一视觉未来如何映射到新本体的关节空间”。这暗示 WAM 可将跨本体问题拆成共享 world dynamics 与轻量 embodiment interface。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** 第一，视频是逐帧密集监督，长 episode 中的每个状态转移都可训练，而不是只在 episode 末端监督一个动作标签。第二，Wan2.1 已从 web video 学到物体运动、遮挡和接触的先验，机器人数据主要负责对齐本体与动作。第三，autoregressive cache 让策略看到真实历史，闭环替换帧又切断了视频预测误差的长期累积。
+
+### 6.2 核心创新
+
+**【Paper】** 真正的创新组合是：预训练 video diffusion + 单模型 joint video/action flow matching + autoregressive chunking + 面向实时控制的系统优化。单独的 video policy、inverse dynamics 或 KV cache 都不是新概念，DreamZero 的贡献在于把它们组织成可部署的 WAM。
+
+### 6.3 与已有方法的本质区别
+
+| 维度        | 典型 VLA             | DreamZero WAM                         |
+| ----------- | -------------------- | ------------------------------------- |
+| 预训练先验  | 静态图像-文本语义    | 视频时空动力学                        |
+| 监督信号    | observation → action | future video + action                 |
+| 数据偏好    | 重复、任务特定示范   | 异构、长时、非重复轨迹                |
+| 未见 motion | 依赖动作库覆盖       | 通过视频计划组合新运动                |
+| 跨本体      | 通常需要动作数据     | 可先用 video-only，再用少量 play data |
+| 部署瓶颈    | token/action 解码    | 扩散迭代，需 cache/异步/Flash         |
+
+### 6.4 关键假设
+
+**【Analysis】** 方法依赖四个假设：视觉未来足以描述完成任务所需的状态；动作与视频的时间同步可靠；不同本体共享可识别的视觉动力学；视频生成质量随模型规模提升且不会产生不可检测的 hallucination。论文没有证明这些假设在触觉主导、强力控或遮挡严重任务中仍成立。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 论文指出当前实验分别在单一本体上预训练，尚未进行真正的 multi-embodiment joint pretraining；AgiBot 约 500 小时私有数据也尚未完全开放。视频扩散的计算成本仍高，7 Hz 部署依赖多 GPU 和 NVIDIA 特定优化。作者还观察到多数失败源于视频预测错误。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+- 预测视频正确不等于动作可执行：视频可能违反摩擦、力矩或夹爪约束，而 action decoder 仍会忠实执行。
+- 论文主要报告 task progress，长时安全、碰撞率、恢复策略和能耗指标较少；“zero-shot”并不意味着无需部署校准。
+- 训练目标对 video/action 的损失权重与 timestep 分布敏感，代码中还存在多个硬件和环境变量，复现实验的系统工程门槛较高。
+- 14B 模型和 2-GPU server 的成本限制了边缘机器人部署；Flash 的单步去噪可能牺牲细粒度接触任务的视觉精度。
+
+## 8. 启发与研究思考
+
+1. **把 action learning 改写成 future-state learning。** 对新任务，关键不一定是收集更多动作标签，而是让模型先学会“合理的未来长什么样”。这为触觉、力觉和 3D occupancy 等非视频 world target 留出了扩展空间。
+2. **数据多样性可能比重复次数更重要。** WAM 用视频先验把异构轨迹变成可学习的动力学样本；机器人数据采集可以优先覆盖环境、物体和运动组合，而非把同一任务重复几百次。
+3. **实时性应从训练目标一起设计。** DreamZero-Flash 的核心不是事后蒸馏，而是让训练噪声分布匹配少步推理。未来的 diffusion policy 评估应同时报告质量、延迟和闭环反应时间。
+4. **跨本体接口值得模块化。** 共享视频世界模型、单独学习 embodiment-specific action decoder，可能比把所有机器人动作 token 混在一个大模型里更节省数据。
+5. **评测应区分“计划错”与“执行错”。** DreamZero 的视频-动作对齐可提供天然诊断信号：若生成视频已偏离目标，应该改进 world model；若视频合理而动作失败，才需要改 action representation、控制器或本体适配。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。论文图床 URL 暂时使用已验证 HTTP 200 的 GitHub Raw 回退地址。
+</Aside>
