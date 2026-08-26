@@ -1,0 +1,373 @@
+---
+title: 'FD-VLA 论文精读'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 FD-VLA：用视觉与机器人状态蒸馏出力觉 token，在不依赖力传感器的情况下提升接触丰富操作。'
+heroImage:
+  { src: 'https://pic.hana0721.top/125160058_p0_master1200.6ikvtm0o6l.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '125160058'
+tags:
+  - 'paper deep dive'
+  - 'force-aware VLA'
+  - 'contact-rich manipulation'
+  - 'robot learning'
+paper:
+  arxivId: '2602.02142'
+  title: 'FD-VLA: Force-Distilled Vision-Language-Action Model for Contact-Rich Manipulation'
+  authors:
+    - 'Ruiteng Zhao'
+    - 'Wenshuo Wang'
+    - 'Yicheng Ma'
+    - 'Xiaocong Li'
+    - 'Francis E. H. Tay'
+    - 'Marcelo H. Ang'
+    - 'Haiyue Zhu'
+  venue: 'ICRA 2026 (accepted)'
+  year: 2026
+  code: ''
+  project: ''
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2602.02142'
+  tldr='FD-VLA 只在训练时读取力传感器，把力蒸馏为由视觉和机器人状态预测的 latent force token，再通过单向 attention mask 注入冻结的 VLM，实现无力传感器部署。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《FD-VLA: Force-Distilled Vision-Language-Action Model for Contact-Rich Manipulation》  
+**作者**：Ruiteng Zhao、Wenshuo Wang、Yicheng Ma、Xiaocong Li、Francis E. H. Tay、Marcelo H. Ang、Haiyue Zhu  
+**会议**：ICRA 2026（论文标注为 accepted）  
+**论文链接**：[arXiv](https://arxiv.org/abs/2602.02142)
+
+<img
+  src='https://pic.hana0721.top/blog/paper-deep-dive-fd-vla/overview.1e9ce4j7xr.webp'
+  alt='FD-VLA 总体框架：训练时用实际力监督预测力 token，推理时只使用视觉与状态（论文 Figure 2）'
+  class='zoomable'
+  width='6179'
+  height='3163'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+### 一句话总结
+
+**【Paper】** FD-VLA（Force-Distilled VLA）把昂贵且并非所有机器人都具备的 force/torque sensing 改造成一种训练期 teacher：Force Distillation Module（FDM）用视觉和 proprioceptive state 预测一个 latent force token，并用实际力的 latent embedding 做监督；部署时不再读取力传感器。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出 FD-VLA，在 VLA 内加入可由视觉与状态生成的 distilled force token，用于 contact-rich manipulation。
+2. 提出 FDM：一个带 learnable query token 的 single-query attention 模块，把视觉—状态上下文压缩为单个力表示，并与实际力表示对齐。
+3. 提出 directional attention masking：视觉、语言 token 保持原有语义流，状态与预测力 token 只能读取它们，减少对预训练 VLM 的干扰。
+4. 在 UR5e 的插插头、擦白板、按紧急按钮三个真实任务上，FD-VLA 平均成功率达到 **61.1%**，高于不使用力的 SmolVLA（23.3%）、DP3（11.1%）和不使用力的 $\pi_0$（26.7%）。
+
+## 2. 背景与相关工作
+
+**【Paper】** 视觉足以提供物体类别、位姿和语言语义，却难以直接观察接触刚度、摩擦、插入阻力、滑移和按压是否到底。这些因素正是接触丰富操作失败的主要来源。直接把 raw force 拼到 VLA 中又有三类问题：传感器昂贵且需要校准，信号包含噪声与漂移，额外模态还可能破坏预训练 VLM 已经对齐好的 vision-language 表示。
+
+论文将已有路线概括为：Tactile-VLA 依赖专用触觉硬件并在输入侧融合；ForceVLA 通过 force-aware MoE 做较晚的融合，但参数量和推理复杂度更高；传统 vision-only VLA 则完全缺少接触信息。FD-VLA 的位置介于“完全不用力”和“部署时实时读力”之间：训练时有力、推理时无力，并把力变成可被 VLM 消费的 compact token。
+
+<img
+  src='https://pic.hana0721.top/blog/paper-deep-dive-fd-vla/comparison.4920jwydlu.webp'
+  alt='Tactile-VLA、ForceVLA 与 FD-VLA 的力觉融合位置对比（论文 Figure 1）'
+  class='zoomable'
+  width='6207'
+  height='1671'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+**【Analysis】** 这不是简单的 sensor imputation。FDM 的监督目标是“对控制有用的 force latent”，而不是重建每一个高频原始传感器采样，因此它更像 task-relevant representation distillation。
+
+## 3. 问题定义
+
+**【Paper】** 在时间 $t$，模型接收语言指令 $\bm L$、视觉观察 $\bm V_t$、机器人状态 $\bm S_t$，训练阶段额外接收实际力/力矩 $\bm F_t$，输出长度为 $H$ 的动作 chunk：
+
+$$
+\bm A_t=[a_t,a_{t+1},\ldots,a_{t+H-1}].
+$$
+
+- **Observation**：Azure Kinect 主 RGB 相机与 RealSense D405 夹爪相机采集的视觉观察；另有机器人 proprioceptive state。
+- **Action**：论文使用 action expert 预测连续动作 chunk，具体维度、控制频率和 chunk 长度在论文中未明确完整列出。
+- **Force**：训练时由 UR5e 内部 force/torque sensor 采集；推理时不输入该信号。
+- **Robot / Embodiment**：UR5e 机械臂。
+- **Data**：每个任务 50 条 teleoperation demonstrations；SpaceMouse 用于示教。
+- **Objective**：conditional flow-matching policy loss 加上 force-distillation loss。
+
+论文没有把“预测的力”定义成物理单位上的 $\hat{\bm F}_t$。它定义的是 VLM hidden dimension $D$ 中的 latent token，因此不能把 FDM 当作一个可直接替代力传感器的标定仪器。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+**【Paper】** 视觉、语言、状态先分别映射到预训练 VLM 的 hidden dimension，FDM 从视觉—状态上下文预测 $\bm f_t^{pF}$，再将四种 token 拼接为
+
+$$
+\bm f_t^{fs}=[\bm f_t^V,\bm f^L,\bm f_t^S,\bm f_t^{pF}].
+$$
+
+冻结的 VLM 用 directional mask 处理这组 token，最后由 transformer action expert 和 conditional flow-matching decoder 生成动作序列。
+
+### 4.2 核心模块
+
+#### 视觉、语言与状态编码
+
+- **输入**：RGB 图像、自然语言、机器人状态。
+- **输出**：$\bm f_t^V\in\mathbb R^{N_v\times D}$、$\bm f^L\in\mathbb R^{N_l\times D}$、$\bm f_t^S\in\mathbb R^{N_s\times D}$。
+- **作用**：视觉和语言沿用 SmolVLA / SmolVLM-2 的预训练表示；状态通过轻量 MLP 投影到相同维度。
+
+论文称视觉 backbone 使用 SignLIP，VLM 参数冻结，并在部分计算层采用 selective skipping；具体层数未明确说明。
+
+#### Force Distillation Module（FDM）
+
+FDM 有两个训练期分支：
+
+1. **Actual-force branch**：把真实 force/torque 经轻量 MLP 得到 $\bm f_t^{aF}\in\mathbb R^{1\times D}$，只作为监督目标。
+2. **Prediction branch**：引入 learnable query $\bm p\in\mathbb R^{1\times D}$，让它从 $[\bm p,\bm f_t^V,\bm f_t^S]$ 中检索与当前接触状态有关的信息，输出 $\bm f_t^{pF}$。
+
+这样，FDM 的输入是部署时本来就有的视觉和状态，输出是一个单 token 的控制先验；实际力只在训练时出现。
+
+#### Directional Attention Mask
+
+模型把 token 分成 perceptual stream（视觉、语言）和 control stream（状态、预测力）。perceptual token 只能互相注意；control token 可以注意 perceptual token，并在控制流内部保持因果方向。于是控制信息可以读取语义，语义信息却不会被新加入的状态/力 token 反向污染。
+
+#### Action Expert
+
+Action expert 是 transformer policy head。它以 VLM 输出为条件，对动作 chunk 使用 conditional flow matching，而非逐时间步回归单个动作。论文明确给出的训练目标是向量场回归，推理时从高斯噪声沿学到的向量场积分得到动作 chunk。
+
+### 4.3 关键公式
+
+#### FDM 的上下文注意力
+
+$$
+\bm C_t=[\bm p,\bm f_t^V,\bm f_t^S],
+\qquad
+\bm\alpha_t=\operatorname{softmax}\left(
+\frac{(\bm p\bm W_Q)(\bm C_t\bm W_K)^\top}{\sqrt{d_k}}
+\right).
+$$
+
+其中 $\bm W_Q,\bm W_K,\bm W_V$ 是 attention 投影矩阵，$d_k$ 是每个 head 的 key 维度，$\bm\alpha_t$ 表示 query 对视觉、状态和自身 token 的检索权重。多头结果拼接并经过 residual + LayerNorm + FFN：
+
+$$
+\bm f_t^{pF}=\operatorname{FFN}\left(\operatorname{LN}\left([
+\bm Z_1,\ldots,\bm Z_H]\bm W_O+\bm p\right)\right).
+$$
+
+#### 力蒸馏损失
+
+$$
+\mathcal L_{\mathrm{dist}}=
+\left\|\bm f_t^{pF}-\bm f_t^{aF}\right\|_2^2.
+$$
+
+它约束的是 latent embedding 的欧氏距离，不是物理力值的绝对误差。
+
+#### Conditional flow matching
+
+$$
+\mathcal L^\tau(\theta)=
+\mathbb E\left[
+\left\|\bm v_\theta(\bm A_t^\tau,\bm X_t)-
+\bm u(\bm A_t^\tau\mid\bm A_t)\right\|_2^2
+\right],
+$$
+
+其中 $\bm A_t^\tau=\tau\bm A_t+(1-\tau)\epsilon$，$\epsilon\sim\mathcal N(0,I)$，$\bm X_t$ 是 masked VLM 特征。总目标为
+
+$$
+\mathcal L=\mathcal L^\tau(\theta)+\lambda\mathcal L_{\mathrm{dist}}.
+$$
+
+论文没有在正文给出 $\lambda$ 的具体数值。
+
+### 4.4 Training
+
+**【Paper】** 每条示教样本同时提供图像、语言、状态、连续动作和实际力。实际力经过 projection 得到 teacher token；预测分支只看视觉和状态。VLM 主干冻结，FDM、状态投影和 action expert 通过 policy loss 与 distillation loss 联合训练。
+
+<Algorithm number={1} title='FD-VLA Training' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>示教轨迹中的视觉 $\bm V_t$、语言 $\bm L$、状态 $\bm S_t$、动作 chunk $\bm A_t$ 与实际力 $\bm F_t$</div>
+  <div slot='output'>训练后的 FDM、状态投影层和 action expert</div>
+  <AlgorithmStep keyword='Given'>编码视觉、语言、状态与实际力，得到 $\bm f_t^V,\bm f^L,\bm f_t^S,\bm f_t^{aF}$</AlgorithmStep>
+  <AlgorithmStep>用 learnable query $\bm p$ 对 $[\bm p,\bm f_t^V,\bm f_t^S]$ 做 single-query attention，得到 $\bm f_t^{pF}$</AlgorithmStep>
+  <AlgorithmStep>构造 $\bm X_t=[\bm f_t^V,\bm f^L,\bm f_t^S,\bm f_t^{pF}]$ 并施加 directional mask</AlgorithmStep>
+  <AlgorithmStep>从动作 chunk 加噪得到 $\bm A_t^\tau$，由 action expert 预测 flow vector field</AlgorithmStep>
+  <AlgorithmStep>计算 $\mathcal L^\tau+\lambda\mathcal L_{\mathrm{dist}}$，更新可训练模块；VLM 保持冻结</AlgorithmStep>
+  <AlgorithmStep keyword='return'>checkpoint 与已学习的 force latent prior</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+部署时移除 actual-force branch。每个控制时刻只需图像、语言和状态：FDM 生成预测力 token，masked VLM 编码四类 token，action expert 从噪声轨迹生成一个 action chunk，再将动作执行到机器人。
+
+<Algorithm number={2} title='Sensor-Free FD-VLA Inference' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前 RGB 观察、语言指令、机器人状态</div>
+  <div slot='output'>待执行的连续动作 chunk</div>
+  <AlgorithmStep keyword='Given'>
+    获取 $\bm V_t,\bm L,\bm S_t$，不读取 force/torque sensor
+  </AlgorithmStep>
+  <AlgorithmStep>编码视觉、语言和状态，并由 FDM 预测 $\bm f_t^{pF}$</AlgorithmStep>
+  <AlgorithmStep>拼接四类 token，使用 directional mask 得到控制条件 $\bm X_t$</AlgorithmStep>
+  <AlgorithmStep>从噪声动作开始沿 action expert 的 flow field 采样</AlgorithmStep>
+  <AlgorithmStep keyword='return'>
+    执行生成的 $[a_t,\ldots,a_{t + H - 1}]$，滚动到下一时刻
+  </AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** arXiv 源码包只包含 `root.tex`、`figures/` 和参考文献，没有随论文发布的训练、模型或推理代码仓库；论文页面的 Code/Data/Media 区域也未给出官方 GitHub 链接。因此无法对照具体的 `DataLoader`、optimizer、checkpoint 格式、action 维度或推理采样步数。
+
+**【Analysis】** 这意味着本文关于 FDM、mask 和 flow-matching 的描述来自论文，而不是从可运行实现反推。复现时最需要补齐的工程细节包括：SmolVLM-2 的确切层跳过策略、状态 token 的排列、flow integration solver、$\lambda$、动作 horizon，以及三任务的时间同步和归一化方式。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+<img
+  src='https://pic.hana0721.top/blog/paper-deep-dive-fd-vla/setup.2ksnmq85t9.webp'
+  alt='FD-VLA 真实机器人实验平台：UR5e、Azure Kinect 与 RealSense D405（论文 Figure 4）'
+  class='zoomable'
+  width='1773'
+  height='1329'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+**【Paper】** 平台由 UR5e、Azure Kinect 主相机和夹爪侧 RealSense D405 组成。每个任务收集 50 条示教，评估 30 个独立 rollout。成功条件是任务语义是否完全完成，而不是轨迹距离或单步动作误差。
+
+<img
+  src='https://pic.hana0721.top/blog/paper-deep-dive-fd-vla/snapshots.51ew1nf291.webp'
+  alt='FD-VLA 三个真实接触操作任务：擦白板、按紧急按钮、插入插头（论文 Figure 5）'
+  class='zoomable'
+  width='5752'
+  height='2532'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+三个任务分别是：持续接触并擦除白板痕迹、克服弹簧阻力按下紧急按钮、完成精确对准并插入插头。它们依次覆盖连续接触、受力阈值和高精度插入。
+
+### 5.2 Main Results
+
+<img
+  src='https://pic.hana0721.top/blog/paper-deep-dive-fd-vla/result.8l0trghqzm.webp'
+  alt='FD-VLA 与 SmolVLA、DP3、pi0 在三个任务上的成功率（论文 Figure 6）'
+  class='zoomable'
+  width='6061'
+  height='2400'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+**【Paper】** 图中 mean success rate 为：
+
+| 方法              |      Plug | Clean whiteboard | Press button |      Mean |
+| ----------------- | --------: | ---------------: | -----------: | --------: |
+| SmolVLA w/o force |      6.7% |            33.3% |        30.0% |     23.3% |
+| SmolVLA w/ force  |     26.7% |            50.0% |        40.0% |     38.9% |
+| DP3               |      0.0% |            26.7% |         6.7% |     11.1% |
+| $\pi_0$ w/o force |      6.7% |            40.0% |        33.3% |     26.7% |
+| $\pi_0$ w/ force  |     33.3% |            46.7% |        60.0% |     46.7% |
+| **FD-VLA**        | **40.0%** |        **73.3%** |    **70.0%** | **61.1%** |
+
+FD-VLA 在三个任务上都最高，尤其在擦白板上比第二高方法高 23.3 个百分点。论文还报告：给 SmolVLA 或 $\pi_0$ 直接输入 raw force 虽然有帮助，但仍低于预测的 force token；这支持“task-relevant latent 比原始传感器值更适合作为 policy 条件”的解释。
+
+### 5.3 Ablation Study
+
+**【Paper】** 消融只替换 FDM 的力 token 形式，其他初始化、时间预算和 30 次 rollout 保持一致：
+
+| 变体                          |  Plug | Clean | Press |  Mean |
+| ----------------------------- | ----: | ----: | ----: | ----: |
+| w/o FDM                       |  8/30 | 15/30 | 12/30 | 38.9% |
+| FDM + actual force token      | 12/30 | 17/30 | 17/30 | 51.1% |
+| FDM + learnable token（本文） | 12/30 | 22/30 | 21/30 | 61.1% |
+
+**【Analysis】** 结果将收益拆成两部分：先有 FDM 的 early force–vision–state fusion，再把 actual force token 换成 learnable query。第二步带来的提升说明 query 不是被动地搬运传感器 embedding，而是在上下文中检索与任务相关的力先验。
+
+### 5.4 Generalization
+
+<img
+  src='https://pic.hana0721.top/blog/paper-deep-dive-fd-vla/generlization.pg2u3vodw.webp'
+  alt='FD-VLA 的视觉泛化设置：新背景与彩色灯光扰动（论文 Figure 8）'
+  class='zoomable'
+  width='5427'
+  height='1935'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+**【Paper】** 作者测试了 novel background 和 visual perturbation（光照、对比度、颜色分布变化），给出定性结果并声称性能没有显著下降，但没有在正文报告每个设置的数值成功率。**【Analysis】** 因此这里更适合作为“视觉外观变化下的鲁棒性证据”，不能等同于完整的跨物体、跨机器人或跨任务泛化。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** FDM 同时利用视觉和状态，给模型一个比单纯图像更接近接触动力学的上下文；而 query 输出只有一个 latent token，迫使模块保留与动作有关的低维信息。再加上 mask 的单向信息流，VLM 可以被控制流读取，却不需要重新学习 vision-language 语义，因此训练目标更集中在控制增益上。
+
+### 6.2 核心创新
+
+真正的创新不是“把 force 加进 VLA”，而是三点组合：
+
+1. 用实际力做训练监督、用视觉状态做部署输入的 cross-modal distillation。
+2. 以 learnable query 做 force latent retrieval，而不是直接回归原始力值。
+3. 通过 directional mask 把新增模态限制在 control stream，兼顾 early fusion 与预训练语义的完整性。
+
+### 6.3 与已有方法的本质区别
+
+Tactile-VLA / raw-force VLA 的部署闭环仍依赖传感器；FD-VLA 把 force 从“运行时观察”改成“训练时先验”。ForceVLA 的 MoE 更像在 VLM 之后路由不同专家，而 FD-VLA 在 VLM 之前先做 force–vision–state 对齐，并让 action expert 读取融合后的表示。
+
+### 6.4 关键假设
+
+- 接触状态在视觉和 proprioceptive state 中存在足够可预测的信息。
+- 对控制有用的力表征比原始力波形更低维、更稳定。
+- 预训练 VLM 的视觉—语言表征应当保持冻结，新增控制模态只需单向读取它。
+- 三个 UR5e 任务中的相关性可以迁移到没有力传感器的部署平台。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 论文将未来工作指向 multi-robot coordination 和更大规模、通用的 manipulation system，但没有系统报告跨 embodiment 迁移实验。视觉泛化部分也主要是定性展示。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+1. **可观测性上限**：如果两个接触状态在 RGB 与 proprioception 上几乎不可区分，FDM 无法凭空恢复真正的力差异。
+2. **训练域依赖**：部署时虽然不需要传感器，训练数据仍需要 force/torque sensor；数据采集成本并没有完全消失。
+3. **latent 不可标定**：$\bm f^{pF}$ 只在 hidden space 中与 teacher 对齐，不能直接用于安全阈值、力控闭环或跨机器人单位换算。
+4. **论文复现信息不足**：官方未提供代码，$\lambda$、动作 horizon、flow solver、mask 的实际实现和完整训练超参均无法独立核验。
+5. **实验规模有限**：三个任务、单一 UR5e、每任务 50 条示教，尚不足以证明对不同材质、工具和 embodiment 的广泛泛化。
+
+## 8. 启发与研究思考
+
+**【Analysis】** FD-VLA 给出的重要范式是：缺失模态不一定要在部署时被重建为“真实传感器信号”，也可以只学习一个足以帮助决策的 latent prior。对 VLA 而言，这比增加一条高维输入通道更容易保持预训练能力。
+
+值得继续验证的方向包括：
+
+- 用不确定性或 ensemble 表示“视觉状态无法确定力”的时刻，并让 policy 主动减速或请求传感器。
+- 将 force latent 与 tactile、audio、depth 等模态做 teacher ensemble，而不是限定单一物理传感器。
+- 在多机器人数据上测试 latent 的 embodiment invariance，并把 query token 设计成可迁移的 contact primitive。
+- 把 distillation loss 与 safety constraint、force-aware reward 或 model-predictive control 结合，验证 latent 是否真的能支持安全接触，而不仅是提高成功率。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现；由于该论文 arXiv
+  源码未附训练/推理代码，代码部分仅用于说明“没有可对照的官方实现”；`【Analysis】`
+  表示基于论文的分析推断。
+</Aside>
