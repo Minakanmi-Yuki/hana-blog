@@ -1,0 +1,338 @@
+---
+title: 'LA4VLA 论文精读：Learning to Act without Seeing'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 LA4VLA：从 DROID 轨迹构造 33K 个 vision-agnostic atomic action episode，用 Language-Action 预训练让 VLA 学会语言如何约束动作。'
+heroImage:
+  { src: 'https://pic.hana0721.top/120269913_p0_master1200.3k8lu5pi8s.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '120269913'
+tags:
+  - 'paper deep dive'
+  - 'LA4VLA'
+  - 'language-action pretraining'
+  - 'vision-language-action model'
+paper:
+  arxivId: '2606.27295'
+  title: 'LA4VLA: Learning to Act without Seeing via Language-Action Pretraining'
+  authors:
+    - 'Tao Lin'
+    - 'Yuxin Du'
+    - 'Yiran Mao'
+    - 'Zewei Ye'
+    - 'Yilei Zhong'
+    - 'Bing Cheng'
+    - 'Yiming Wang'
+    - 'Jiting Liu'
+    - 'Yang Tian'
+    - 'Junchi Yan'
+    - 'Feiran Wu'
+    - 'Zenan Meng'
+    - 'Hu Wei'
+    - 'Yuqian Fu'
+    - 'Gen Li'
+    - 'Bo Zhao'
+  venue: 'arXiv'
+  year: 2026
+  code: 'https://github.com/MINT-SJTU/LA4VLA'
+  project: 'https://github.com/MINT-SJTU/LA4VLA'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2606.27295'
+  tldr='LA4VLA 把长轨迹切成带低层语言描述的 atomic action，先在没有视觉的条件下学习 language-conditioned action prior，再与 VLA 预训练混合，显著提升模拟、真实机器人和视觉扰动下的成功率。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**【Paper】** 传统 Vision-Language-Action（VLA）把图像、任务指令和动作一起喂给策略。一个长轨迹可能包含数百个 image-action pair，却通常只有一个高层 instruction；同时，一张图像会被编码成远多于语言的视觉 token。作者认为，这种 data-level 和 input-level asymmetry 让模型很容易依赖“这张图像通常对应这个动作”的视觉 shortcut，而没有真正学会“这句语言应该怎样约束动作”。
+
+![LA4VLA 的数据构造、预训练范式与结果总览（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-la4vla/main.3yf6qqia0y.webp)
+
+### 一句话总结
+
+**【Paper】** LA4VLA 只在数据构造阶段使用视觉：它把 DROID 专家轨迹拆成 `move / grasp / lift / transport / place / press / rotate` 等短 atomic segment，并为每段生成 vision-agnostic low-level instruction；预训练时屏蔽视觉，只用 language、proprioceptive state 和 action 学习可复用的动作先验，之后再用完整 VLA 数据恢复场景 grounding。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出 Language-Action（LA）pretraining，把语言条件动作学习从视觉主导的 VLA 学习中解耦出来。
+2. 设计从已有演示自动产生 LA 数据的流程：keyframe detection、VLM temporal segmentation、atomic-action taxonomy 和 human verification。
+3. 从 9,560 条 DROID VLA episode 得到 33,116 条 LA episode（LA-33K），没有额外采集机器人数据。
+4. 系统比较 LA-only、LA→VLA sequential 和 mixed LA-VLA（MixPT），并在 LA4VLA-1B、StarVLA、MetaWorld、LIBERO、xArm6 上验证。
+5. 证明 LA 预训练不仅提高平均成功率，也提高视觉扰动鲁棒性和 instruction-conditioned direction following。
+
+**【Analysis】** 这篇论文的关键变量不是更大的 backbone，而是“给动作什么监督”。它把原本隐含在长轨迹里的语言—局部动作对应关系显式化，再让视觉只负责定位、选择目标和处理场景差异。
+
+## 2. 背景与相关工作
+
+**【Paper】** OpenVLA、$pi_0$、GR00T N1、SmolVLA、StarVLA 等模型大多采用联合的 $(V,L,A)$ 监督：视觉观察 $V$、语言指令 $L$ 和动作轨迹 $A$ 同时出现。该范式能学到视觉 grounding，却无法区分语言本身贡献了多少信息。
+
+作者的诊断实验固定语言和 robot state，只替换视觉，比较四种条件：原始配对图像、去掉图像、同场景但不匹配的图像、与指令方向冲突的图像。标准输入下 DAR 为 0.98、DCS 为 0.95；冲突视觉下 DAR 降到 0.35、DCS 降到 0.03。**【Analysis】** 这不是简单的“看不清”问题：视觉换成相反方向的轨迹后，预测也被拉向相反方向，说明配对视觉可能覆盖了语言条件。
+
+![固定指令、干预视觉后的方向跟随轨迹（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-la4vla/visual_cue_dependence_v2.26m7vtyx9l.webp)
+
+LA4VLA 与已有 language-action 方法的区别是：它不把语言动作仅作为高层规划或 reasoning scaffold，也不要求把动作 token 化成文字供推理；它将短 segment 的语言描述作为一种独立的预训练监督，最终控制仍由连续 flow-matching action head 完成。
+
+## 3. 问题定义
+
+给定一条专家演示：
+
+$$
+\tau = \{(V_t, s_t, a_t, L_{task})\}_{t=1}^{T},
+$$
+
+其中 $V_t$ 是多视角图像，$s_t$ 是 proprioceptive state，$a_t$ 是连续动作，$L_{task}$ 是整条轨迹的高层任务描述。LA4VLA 要构造若干短 episode：
+
+$$
+e_k=(L_k, s_{t_k:t_k+h}, a_{t_k:t_k+h}),
+$$
+
+并且在 LA pretraining 中令视觉输入为空：
+
+$$
+\pi_\theta(a_{t:t+h}\mid L_t,s_t,V=\varnothing).
+$$
+
+| Embodied AI 要素 | LA4VLA 设定 |
+| --- | --- |
+| Observation | LA 阶段是语言 + proprioceptive state；VLA 阶段重新加入多视角 RGB |
+| Vision encoder | InternVL3-1B（LA4VLA-1B 官方实现） |
+| Language model | InternVL3-1B 的 language model，代码中截取前 14 层 |
+| Action representation | 连续 Cartesian/action chunk；官方配置默认 horizon=50、每步 24 维 padding |
+| Action head | Flow matching Transformer |
+| Dataset | LA-33K，源自 DROID，33,116 个 episode、1,524,990 帧 |
+| Robot / benchmark | MetaWorld、LIBERO、xArm6；另测 StarVLA 架构迁移 |
+| Goal | 先学与视觉无关的 language-conditioned action prior，再恢复视觉 grounding |
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![LA-33K 的切分、标注、过滤与 action category 分布（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-la4vla/dataset_pipeline.6t7uwixh3r.webp)
+
+**【Paper】** 数据流是 `VLA demonstration → keyframe hints + atomic vocabulary → VLM proposals → human verification → LA episode`；训练时 LA episode 屏蔽视觉，VLA episode 保留视觉，二者可分别预训练、串联或混合。
+
+### 4.2 核心模块
+
+#### Atomic action segmentation
+
+**【Paper】** 每条长轨迹首先由 robot state 提供时间线索：低运动幅度区间作为 static keyframe，夹爪开闭变化作为 gripper-transition keyframe。它们只是 soft hints，不是强制边界。论文定义了三类 primitive：object manipulation（grasp、lift、transport、place）、contact interaction（push、pull、press）和 free-space motion（move、rotate、reorient）。
+
+**【Code】** 官方仓库不包含 VLM 标注脚本，但 README 对 LA-33K 的最终格式有明确说明：LeRobot v2.1，3 个相机视角，state/action 为 6D Cartesian + 1D gripper，并提供 9,532 条 unique instruction。
+
+#### VLM proposal 与人工质检
+
+**【Paper】** Qwen3-VL-Plus 以 2 FPS、$224\times224$ 视频帧为输入，接收原始 task instruction、multi-view frame、keyframe event、primitive definitions 和 JSON schema，输出 `subaction / instruction / start / end`。描述必须包含动作类型、方向和可选的 object status，但不能依赖颜色、外观、背景或场景中的具体位置。人工标注员按 0–3 评分，保留分数至少为 2 的 segment。
+
+#### LA-33K 的粒度变化
+
+| 阶段 | Episode | 总帧数 | 平均帧数/episode |
+| --- | ---: | ---: | ---: |
+| Original VLA | 9,560 | 2,751,615 | 287.83 |
+| VLM candidates | 56,899 | 2,551,102 | 44.84 |
+| Human-verified LA | 33,116 | 1,524,990 | 46.05 |
+
+**【Paper】** 最终保留率为 58.2%，每个原始 episode 平均产生 3.46 个最终 LA episode；双人标注子集的 Krippendorff’s $\alpha=0.7794$。**【Analysis】** 数据规模的主要增益来自重新组织监督，而非新增机器人小时数：同一段运动从“整条任务都叫 place cup”变成“lift upward”“transport left”“place down”等局部条件。
+
+#### LA4VLA-1B backbone 与 action head
+
+**【Code】** `scripts/LA4VLA_1B.py` 将 InternVL3Embedder 与 `FlowmatchingActionHead` 组合。embedder 把多视角图像和 prompt 融合成 hidden tokens；action head 另外编码 state，并将 action chunk 投影成 action tokens，通过 8 层 `BasicTransformerBlock` cross-attend 到 context tokens。官方 README 将 LA 阶段分为：Stage 1 只训练 action head，Stage 2 同时训练 language model 与 action head，视觉 encoder 始终 masked。
+
+### 4.3 关键公式
+
+#### 视觉无关的条件策略
+
+$$
+\mathcal{L}_{LA}(\theta)=
+\mathbb{E}_{(L,s,a)\sim\mathcal{D}_{LA}}
+\left[-\log p_\theta(a\mid L,s,V=\varnothing)\right].
+$$
+
+这里 $L$ 是 atomic instruction，$s$ 是状态，$a$ 是连续动作 chunk。该式的要点不是把视觉永久删除，而是让模型在没有视觉 shortcut 时先拟合语言—动作关系。
+
+#### Flow-matching training target
+
+官方 action head 从随机噪声 $z\sim U(-1,1)$ 与真实动作 $a$ 构造插值：
+
+$$
+x_t=(1-t)z+t a,\qquad u=a-z,\qquad t\sim\mathrm{Beta}(2,2),
+$$
+
+并预测速度场 $v_\theta(x_t,t,c)$：
+
+$$
+\mathcal{L}_{FM}=\left\|v_\theta(x_t,t,c)-u\right\|_2^2,
+$$
+
+其中 $c$ 是由 language/image tokens 与 state embedding 拼成的 context。`action_mask` 将 padding 维度置零，避免不同 embodiment 的补齐维度进入损失。**【Code】** `flow_matching.py` 在训练前对 action 采样噪声、按 horizon reshape，并在推理中用固定步长 Euler 积分从噪声走到动作。
+
+### 4.4 Training
+
+**【Paper】** LA-only 直接用 LA-33K 做预训练；VLA 使用恢复视觉后的 LA-33K-V；LA-VLA 先 LA 再 VLA；MixPT 在一个阶段内混合两种 batch。下游 finetuning 数据和优化预算保持一致，因此比较的是监督形式而非额外训练量。
+
+<Algorithm number={1} title='LA4VLA 预训练与下游微调' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>LA-33K、可选的 LA-33K-V、下游 VLA demonstrations。</div>
+  <div slot='output'>带 language-conditioned action prior 的 VLA policy。</div>
+  <AlgorithmStep keyword='构造'>从每条 VLA demonstration 读取 atomic instruction、state 和 action chunk。</AlgorithmStep>
+  <AlgorithmStep keyword='屏蔽'>LA batch 将 image mask 设为 false，保留 language、state 和 action；VLA batch 恢复图像。</AlgorithmStep>
+  <AlgorithmStep keyword='编码'>InternVL3 产生 context tokens，action head 编码 state 与 noisy action chunk。</AlgorithmStep>
+  <AlgorithmStep keyword='优化'>用 flow-matching velocity loss 更新 action head；第二阶段按配置解冻 language model。</AlgorithmStep>
+  <AlgorithmStep keyword='组合'>按 LA、VLA、LA→VLA 或 MixPT 方案执行预训练，再在相同下游数据上 finetune。</AlgorithmStep>
+</Algorithm>
+
+**【Code】** README 给出的示例中，Stage 1 使用 `--finetune_action_head --vision_masked`、`max_steps 10000`；Stage 2 使用 `--finetune_language_model --finetune_action_head --vision_masked`、`max_steps 80000`。这是官方复现实验路径，不应与论文所有 benchmark 的训练细节混为一谈。
+
+### 4.5 Inference
+
+**【Paper】** 下游运行时重新提供视觉，视觉负责识别目标和场景，LA prior 负责让语言改变动作方向与局部运动模式。模型不需要生成文字动作描述；连续 action head 直接输出 action chunk，执行一部分后再 receding-horizon 重规划。
+
+<Algorithm number={2} title='Flow-matching action inference' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前多视角图像（可选）、语言指令、proprioceptive state、action mask。</div>
+  <div slot='output'>长度为 horizon 的连续 action chunk。</div>
+  <AlgorithmStep keyword='融合'>InternVL3 将有效图像 token 与 instruction 融合；LA 阶段可将所有 image token mask 掉。</AlgorithmStep>
+  <AlgorithmStep keyword='初始化'>从 $U(-1,1)$ 采样 action sequence，并乘以 action mask。</AlgorithmStep>
+  <AlgorithmStep keyword='积分'>重复 $N$ 次：编码当前 action、加入时间 embedding，经 Transformer cross-attention 预测 velocity。</AlgorithmStep>
+  <AlgorithmStep keyword='更新'>执行 $a\leftarrow a+\Delta t\,v_\theta(a,t,c)$，每一步重新施加 mask。</AlgorithmStep>
+  <AlgorithmStep keyword='执行'>返回 action chunk，机器人执行前若干步后重新读取 observation。</AlgorithmStep>
+</Algorithm>
+
+**【Code】** `LA4VLA_1B.run_inference` 先调用 `get_vl_embeddings`，再调用 `action_head.get_action`；官方配置默认 `num_inference_timesteps=50`。因此“没有视觉”是训练阶段的输入条件，不代表实际机器人部署时永远不看图像。
+
+### 4.6 代码实现对照
+
+| 论文概念 | 官方代码位置 | 实际行为 |
+| --- | --- | --- |
+| LA/VLA dataset | `dataset/lerobot_dataset_pretrain_mp.py` | 读取 LeRobot record，返回 images、prompt、state、action、mask |
+| Vision masking | dataset 的 `vision_masked_policy` + model 的 image mask | 被 mask 的 view 用零 tensor，attention mask 关闭对应 image token |
+| VLA backbone | `model/internvl3/internvl3_embedder.py` | InternVL3-1B，图像 resize 到 448，语言模型层截取前 14 层 |
+| Action head | `model/action_head/flow_matching.py` | 8 层 Transformer、state encoder、MLP velocity head、Euler ODE |
+| Training | `scripts/train.py` | Accelerate/DeepSpeed、AdamW、cosine decay、checkpoint 与 wandb/swanlab 日志 |
+| Inference | `scripts/LA4VLA_1B.py` / `LA4VLA_1B_server.py` | 生成 action chunk；需要提供 action mask |
+
+**【Analysis】** 论文的数据构造器（Qwen3-VL-Plus proposal 与人工审核）没有随这个轻量训练仓库完整开源；仓库主要覆盖 LA-33K 的读取、模型、训练和推理。因此可以核对“如何训练”，但不能仅凭仓库复现全部自动标注过程。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+**【Paper】** LA4VLA-1B 以 InternVL3-1B 为 backbone，配 flow-matching action head；所有对照固定模型、下游数据和 finetuning protocol。评测包括 MetaWorld、LIBERO、StarVLA transfer、xArm6 三项真实任务，以及 Gaussian image noise 鲁棒性。
+
+![xArm6 上 Press Button、Place Book、Place Drink 三类语言条件任务（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-la4vla/real_world_process.1764inw6eu.webp)
+
+真实任务每个 policy 每项 20 次试验：按语言按下四个按钮之一，把书放入三个货架位置之一，把饮料放入九宫格之一。初始场景相同，所以目标选择不能只靠视觉。
+
+### 5.2 Main Results
+
+**【Paper】** 主要结果如下，数字为平均成功率（%）：
+
+| Model / pretrain | MetaWorld Avg. | LIBERO Avg. | Real Avg. |
+| --- | ---: | ---: | ---: |
+| LA4VLA-1B / No | 69.73 | 92.85 | 38.3 |
+| LA4VLA-1B / VLA | 79.78 | 94.40 | 48.3 |
+| LA4VLA-1B / LA | 83.00 | 95.30 | 81.7 |
+| LA4VLA-1B / LA-VLA | 86.75 | **96.28** | — |
+| LA4VLA-1B / MixPT | **87.53** | 95.75 | **83.3** |
+
+LA 相比 no-pretraining 在 MetaWorld 提升 13.27 个百分点；MixPT 提升 17.80 个百分点。在真实任务中，LA 和 MixPT 分别提升 43.4 和 45.0 个百分点。**【Analysis】** LIBERO 已接近饱和，因此绝对增益较小；MetaWorld 的 hard/very hard 和真实多目标任务更能暴露语言 grounding 的差异。
+
+### 5.3 Ablation Study
+
+论文的核心消融是预训练调度，而不是删掉某一层网络：
+
+| 方案 | MetaWorld | LIBERO | 解释 |
+| --- | ---: | ---: | --- |
+| LA | 83.00 | 95.30 | 先隔离 language-action |
+| LA→VLA | 86.75 | **96.28** | 先学 prior，再恢复视觉 |
+| MixPT | **87.53** | 95.75 | 同阶段混合 LA 与 VLA |
+
+![LA-pretrained 的方向跟随与 action-decoding 表示分离（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-la4vla/b1_la_visual.96ahdqbaj6.webp)
+
+**【Paper】** 另一个关键对照是同一套 LA protocol 迁移到 StarVLA：MetaWorld 从 58.39% 提升到 69.91%，LIBERO 从 93.70% 提升到 94.85%。这说明收益不是 LA4VLA-1B 架构的偶然特性。
+
+### 5.4 Generalization
+
+**跨 architecture：** StarVLA 的 hard 与 very hard bucket 分别提升 14.4 和 30.0 个百分点，说明 LA prior 可以被不同 VLA backbone 使用。
+
+**跨视觉条件：** 在真实图像加入 Gaussian noise 后，no-pretraining、VLA、LA、MixPT 的平均成功率分别为 27.5%、42.5%、67.5%、70.0%。**【Analysis】** LA 不是让模型变成 blind policy，而是让视觉降质时仍有更强的 instruction-conditioned motion prior。
+
+**instruction following：** LA-pretrained policy 在 masked visual 下 DAR=0.99、DCS=0.85；把 state 换成相反方向样本后仍有 DAR=0.95、DCS=0.80，而标准 VLA 在冲突视觉输入下会被拉向相反方向。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** LA4VLA 同时改变了三个监督统计量：
+
+1. **时间密度**：一个高层 instruction 被改成多个局部 instruction，语言与动作的对齐更密。
+2. **输入竞争**：去掉视觉后，模型不能用背景、物体位置等 shortcut 完成训练，只能从 language + state 预测 motion pattern。
+3. **跨场景复用**：`move left`、`lift upward`、`grasp` 等 primitive 在不同物体和场景中重复出现，形成比整任务名称更可迁移的 prior。
+
+下游再加入视觉后，视觉负责“where/which object”，LA prior 负责“how to move”。这是一种功能分工，而不是把视觉能力永久牺牲掉。
+
+### 6.2 核心创新
+
+**【Paper】** 创新点是把“去视觉预训练”与“原有 VLA 数据”放进同一套可比较的设计空间，并用 LA-only、LA-VLA、MixPT 分离回答：语言动作信号是否有效，以及何时加入视觉最合适。
+
+**【Analysis】** 数据重组本身也是创新：33K episode 并非新采集，而是把已有 demonstration 的隐式 supervision 变成可训练的显式接口。
+
+### 6.3 与已有方法的本质区别
+
+| 方法 | 语言的角色 | 视觉是否在动作预训练中必需 | 动作输出 |
+| --- | --- | --- | --- |
+| 标准 VLA | 高层 task instruction | 是 | 连续/离散动作 |
+| LAP | 低层动作的自然语言描述 | 通常仍与 VLM 联合 | language-action + flow |
+| FAST | 主要是 action tokenization | 是 | 压缩 action token |
+| LA4VLA | atomic instruction 的独立 pretraining signal | LA 阶段否 | flow-matching continuous chunk |
+
+### 6.4 关键假设
+
+**【Paper】** 论文隐含并明确依赖以下假设：
+
+- atomic action 可以由短时间段和低层语言稳定描述；
+- robot state 足以支撑动作动力学先验，但不承担目标定位；
+- VLM 生成的 segment 经人工过滤后，噪声不会压过收益；
+- DROID 中的 primitive 分布能迁移到 MetaWorld、LIBERO 和 xArm6。
+
+**【Analysis】** 第一个假设决定了 taxonomy 设计的重要性：如果 segment 太长，语言又退化成高层 task；如果太短，动作方向和物理效果会被噪声淹没。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+论文没有给出一个单独的 limitations section，且没有声称 LA pretraining 能替代视觉 grounding。作者明确强调 object localization、scene-specific target selection 仍需要视觉；LA 数据构造也依赖 VLM proposal 和人工审核。
+
+### 7.2 自己分析得到的局限
+
+1. **标注成本仍然存在。** 33K episode 的最终质量依赖人工过滤，论文报告了协议和一致性，但没有提供完全自动、无人工版本。
+2. **primitive vocabulary 有偏置。** `move / grasp / lift / transport / place` 覆盖常见桌面操作，却未必覆盖柔性物体、双臂协同、工具使用或接触丰富的 manipulation。
+3. **实验规模与任务分布有限。** 真实实验是 xArm6、三类任务、每项 20 trials；不能直接推导到长时域 mobile manipulation 或 humanoid whole-body control。
+4. **代码与论文并非完全等价。** 官方仓库重点是 LA4VLA-1B 训练/推理，论文中的完整 segmentation、人工审核和所有 benchmark 脚本未全部公开，因此复现需要额外数据处理工作。
+5. **state shortcut 仍可能存在。** 论文的 conflicting-state 测试显示 prior 对替换 state 有韧性，但 LA 阶段仍输入 proprioception；在真实动力学或 embodiment 大幅变化时，state-action mapping 可能再次成为 shortcut。
+
+## 8. 启发与研究思考
+
+**【Analysis】** LA4VLA 给出的研究方向不是简单地“训练时永远不看图”，而是把 VLA 预训练拆成可组合的能力：
+
+- 先用无视觉的 LA 数据学习语言如何改变运动方向、时序和 gripper phase；
+- 再用带视觉的 VLA 数据学习目标选择与场景 grounding；
+- 根据任务选择 sequential、mixed 或按 dataset key 做 per-sample masking。
+
+对后续工作，我认为最值得验证的是三点：
+
+1. **自动化质量控制**：用 trajectory consistency、逆运动学和 action-language entailment 替代部分人工审核。
+2. **更结构化的 action vocabulary**：把接触状态、物体状态、skill phase 和不确定性纳入 instruction，而不是只有方向和 primitive。
+3. **自适应视觉门控**：让策略在目标已确定时依赖 LA prior，在需要重新定位时再请求视觉，从而同时降低 shortcut 和推理成本。
+
+LA4VLA 的价值在于提出一个清晰的因果问题：当语言、视觉和状态都能预测动作时，模型到底学会了哪条路径？通过把视觉拿走一段时间，论文让这条路径变得可测量、可训练，也为 VLA 的 robustness 研究提供了一个相对干净的 intervention。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】` 表示基于论文和代码的分析推断。
+</Aside>
