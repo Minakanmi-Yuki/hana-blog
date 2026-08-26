@@ -110,13 +110,13 @@ $$
 
 **【Paper】** 评测目标不是让所有模型共享某种 action representation。论文的平台支持 joint 或 end-point / position 控制；单臂或双臂的可用相机与动作维度随机器人而定。输入输出的契约是「状态—动作队列」，而不是某个 VLA 的 token format。
 
-| 要素 | RoboChallenge 的定义 |
-| --- | --- |
-| 观测 | 带时间戳的 RGB、depth、proprioception；代码示例以 pickle 字典返回 |
-| 控制 | joint 或 position，支持 left / right / 双臂等 mode |
-| 时序 | 独立 capture 与 action submission；客户端可以查看 pending queue |
-| 执行端 | 用户本地 GPU 与模型；平台侧只运行机器人与测试 harness |
-| 评测输出 | 每个 task 的 SR、Progress Score、视频与记录 |
+| 要素     | RoboChallenge 的定义                                              |
+| -------- | ----------------------------------------------------------------- |
+| 观测     | 带时间戳的 RGB、depth、proprioception；代码示例以 pickle 字典返回 |
+| 控制     | joint 或 position，支持 left / right / 双臂等 mode                |
+| 时序     | 独立 capture 与 action submission；客户端可以查看 pending queue   |
+| 执行端   | 用户本地 GPU 与模型；平台侧只运行机器人与测试 harness             |
+| 评测输出 | 每个 task 的 SR、Progress Score、视频与记录                       |
 
 ## 4. 方法
 
@@ -178,11 +178,15 @@ $$
 **【Paper】** 训练前，reference episodes 会从可训练演示中留出，以供 Visual Task Reproduction 使用；这使测试首帧不会直接落入同一批训练样本。论文没有报告这些基线的统一学习率、batch size、数据增广或 loss，不能把它们补写为 RoboChallenge 的标准训练配方。
 
 <Algorithm number={1} title='参与者的训练与评测准备' inputLabel='输入' outputLabel='输出'>
-  <div slot='input'>任务 demonstrations、参考 episode 留出集、候选 VLA / policy、RoboChallenge API 客户端</div>
+  <div slot='input'>
+    任务 demonstrations、参考 episode 留出集、候选 VLA / policy、RoboChallenge API 客户端
+  </div>
   <div slot='output'>可在远端机器人上运行的本地推理程序与待调度评测请求</div>
   <AlgorithmStep>按目标协议选择 Task-specific 或同一机器人内的 Generalist 数据划分</AlgorithmStep>
   <AlgorithmStep>留出部分 episode 的初始帧，作为测试员的视觉复现 reference</AlgorithmStep>
-  <AlgorithmStep>由参与者自行 fine-tune policy，并将其 observation / action 格式适配为平台 API</AlgorithmStep>
+  <AlgorithmStep>
+    由参与者自行 fine-tune policy，并将其 observation / action 格式适配为平台 API
+  </AlgorithmStep>
   <AlgorithmStep>用官方 mock server 检查状态解码、动作维度和控制循环</AlgorithmStep>
   <AlgorithmStep>在网站提交任务集合、显示模型名与评测请求，等待平台排期</AlgorithmStep>
 </Algorithm>
@@ -196,24 +200,32 @@ $$
 <Algorithm number={2} title='远端机器人评测执行循环' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>已排期 job、用户本地 policy $\pi$、机器人状态 / 动作 API</div>
   <div slot='output'>真实 rollout、队列化动作与平台记录</div>
-  <AlgorithmStep>轮询 job；获分配后取得 robot ID、校准时钟并在 `ready` 状态启动机器人</AlgorithmStep>
+  <AlgorithmStep>
+    轮询 job；获分配后取得 robot ID、校准时钟并在 `ready` 状态启动机器人
+  </AlgorithmStep>
   <AlgorithmStep keyword='while'>job 状态为 `running`</AlgorithmStep>
-  <AlgorithmStep indent={1}>请求带时间戳的 state；若机器人异常或 pending queue 非空，则等待</AlgorithmStep>
-  <AlgorithmStep indent={1}>用户本地执行 $A_t=\pi(o_t)$，保持其自己的后处理、同步与 action chunk 策略</AlgorithmStep>
-  <AlgorithmStep indent={1}>将 $A_t$ 与 duration 提交到 FIFO queue；平台依序执行并录制</AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    请求带时间戳的 state；若机器人异常或 pending queue 非空，则等待
+  </AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    用户本地执行 $A_t=\pi(o_t)$，保持其自己的后处理、同步与 action chunk 策略
+  </AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    将 $A_t$ 与 duration 提交到 FIFO queue；平台依序执行并录制
+  </AlgorithmStep>
   <AlgorithmStep keyword='end while' />
   <AlgorithmStep>平台完成评分，公开结果数字、视频与日志</AlgorithmStep>
 </Algorithm>
 
 ### 4.6 代码实现对照
 
-| 论文中的能力 | 官方代码位置 | 可核对的实际行为 |
-| --- | --- | --- |
-| 参与者本地推理 | `demo.py` | `DummyPolicy` 是待替换接口；`GPUClient` 将完整 state 传给用户 policy |
-| 任务调度与运行 | `robot/job_worker.py` | 轮询 job collection，遇到 `ready` 的 job 后启动并驱动执行循环 |
+| 论文中的能力   | 官方代码位置                | 可核对的实际行为                                                      |
+| -------------- | --------------------------- | --------------------------------------------------------------------- |
+| 参与者本地推理 | `demo.py`                   | `DummyPolicy` 是待替换接口；`GPUClient` 将完整 state 传给用户 policy  |
+| 任务调度与运行 | `robot/job_worker.py`       | 轮询 job collection，遇到 `ready` 的 job 后启动并驱动执行循环         |
 | 状态与动作协议 | `robot/interface_client.py` | `state.pkl` 以 pickle 返回；`/action` 以 JSON 投递动作序列和 duration |
-| 时间对齐 | `robot/interface_client.py` | 对 `/clock-sync` 连续采样 10 次，使用平均 offset |
-| 离线调试 | `mock_server/`、`test.py` | FastAPI mock server 回放数据并校验 action mode / 维度，不连接真实平台 |
+| 时间对齐       | `robot/interface_client.py` | 对 `/clock-sync` 连续采样 10 次，使用平均 offset                      |
+| 离线调试       | `mock_server/`、`test.py`   | FastAPI mock server 回放数据并校验 action mode / 维度，不连接真实平台 |
 
 **【Analysis】** 代码把「模型」刻意留为用户的实现空位，这正体现 remote robot 的边界：平台标准化机器交互与调度，而不试图标准化 VLA 内部。但这也意味着同名模型可以配不同 temporal policy、后处理甚至人为干预；仅靠结果表无法完全归因到 base model。
 
@@ -233,13 +245,13 @@ $$
 
 **【Paper】** 已报告条目的 30-task 平均值如下；SR 是百分比，PS 满分为 100：
 
-| 设置 | 平均 SR | 平均 PS |
-| --- | ---: | ---: |
-| $\pi_{0.5}$，Task-specific | **43.7** | **62.2** |
-| $\pi_0$，Task-specific | 28.3 | 47.6 |
-| CogACT，Task-specific | 11.7 | 21.8 |
-| $\pi_{0.5}$/multi，Generalist | 17.7 | 31.3 |
-| $\pi_0$/multi，Generalist | 9.3 | 20.6 |
+| 设置                          |  平均 SR |  平均 PS |
+| ----------------------------- | -------: | -------: |
+| $\pi_{0.5}$，Task-specific    | **43.7** | **62.2** |
+| $\pi_0$，Task-specific        |     28.3 |     47.6 |
+| CogACT，Task-specific         |     11.7 |     21.8 |
+| $\pi_{0.5}$/multi，Generalist |     17.7 |     31.3 |
+| $\pi_0$/multi，Generalist     |      9.3 |     20.6 |
 
 **【Paper】** $\pi_{0.5}$ 的 task-specific 曲线在 SR 和 PS 的各个排序百分位都领先。论文还观察到，在每任务仅约 50 条演示、按机器混合训练时，$\pi_{0.5}$/multi 在少数任务上能超过 task-specific 版本；这是一项关于该数据划分和基线的结果，并非对跨机器人通用能力的证明。
 
@@ -267,13 +279,13 @@ $$
 
 ### 6.3 与已有方法的本质区别
 
-| 维度 | 提交模型 / Docker | 评测端调用参赛者模型 API | RoboChallenge remote robot |
-| --- | --- | --- | --- |
-| 推理运行处 | 主办方机器 | 参赛者服务器 | 参赛者本地 / 自己的算力 |
-| 主要接口 | 权重或容器 | model input / output | 带时间戳状态与动作队列 |
-| 部署风险 | 环境、GPU、依赖不一致 | 公网可达性与服务维护 | 参与者需保持本地程序在线 |
-| 控制节奏 | 常被 runner 固化 | 多为同步 RPC | capture 与 action 可异步组织 |
-| 可核验性 | 可检查提交物 | 可检查服务调用 | 最弱：平台无法确认实际运行的模型 |
+| 维度       | 提交模型 / Docker     | 评测端调用参赛者模型 API | RoboChallenge remote robot       |
+| ---------- | --------------------- | ------------------------ | -------------------------------- |
+| 推理运行处 | 主办方机器            | 参赛者服务器             | 参赛者本地 / 自己的算力          |
+| 主要接口   | 权重或容器            | model input / output     | 带时间戳状态与动作队列           |
+| 部署风险   | 环境、GPU、依赖不一致 | 公网可达性与服务维护     | 参与者需保持本地程序在线         |
+| 控制节奏   | 常被 runner 固化      | 多为同步 RPC             | capture 与 action 可异步组织     |
+| 可核验性   | 可检查提交物          | 可检查服务调用           | 最弱：平台无法确认实际运行的模型 |
 
 ### 6.4 关键假设
 
