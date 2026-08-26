@@ -89,7 +89,7 @@ Preferred candidates for new posts.
 |         2 | `98000873`  | `https://pic.hana0721.top/98000873_p0_master1200.491vjnsp6s.webp`  | `github-auth-local-setup`, `paper-deep-dive-ctrl-world`                                                           |
 |         2 | `139063757` | `https://pic.hana0721.top/98073480.3rbvmy4uvn.webp`                | `paper-reading-cv3`, `paper-deep-dive-viva`                                                                       |
 |         3 | `99213551`  | `https://pic.hana0721.top/99213551_p0_master1200.4jopcsx1ya.webp`  | `vim-detailed-guide`, `paper-deep-dive-simplevla-rl`, `paper-deep-dive-rl-100`                                    |
-|         3 | `99749488`  | `https://pic.hana0721.top/99749488_p0_master1200.83an1pr7zr.webp`  | `linux-server-clash-verge-proxy`, `paper-deep-dive-omnivla-rl`, `paper-deep-dive-rynnvalue`                       |
+|         3 | `99749488`  | `https://pic.hana0721.top/99749488_p0_master1200.83an1pr7zr.webp`  | `linux-server-clash-verge-proxy`, `paper-deep-dive-omnivla-rl`, `paper-deep-dive-rynnvalue`, `paper-deep-dive-grinningface` |
 
 ## Maintenance
 
