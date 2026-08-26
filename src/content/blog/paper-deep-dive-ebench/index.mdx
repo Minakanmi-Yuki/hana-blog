@@ -1,0 +1,246 @@
+---
+title: 'EBench 论文精读：通用移动操作能力诊断'
+publishDate: 2026-08-27
+updatedDate: 2026-08-27
+description: '精读 EBench：用 26 个跨移动、长时程与灵巧精密操作的任务，把通用操作策略的单一成功率拆成五维能力画像和四类泛化诊断。'
+heroImage:
+  { src: 'https://pic.hana0721.top/103975128_p0_master1200.8vniavqp93.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '103975128'
+tags:
+  - 'paper deep dive'
+  - 'benchmark'
+  - 'VLA'
+  - 'mobile manipulation'
+paper:
+  arxivId: '2606.18239'
+  title: 'EBench: Elemental Diagnosis of Generalist Mobile Manipulation Policies'
+  authors:
+    - 'Ning Gao'
+    - 'Jinliang Zheng'
+    - 'Xing Gao'
+    - 'Haoxiang Ma'
+    - 'Hanqing Wang'
+    - 'Yukai Wang'
+    - 'Jiantong Chen'
+    - 'Zanxin Chen'
+    - 'Shujie Zhang'
+    - 'Mingda Jia'
+    - 'Jian Mao'
+    - 'Xuekun Jiang'
+    - 'Zihou Zhu'
+    - 'Xinyu Li'
+    - 'Shuai Wang'
+    - 'Hao Li'
+    - 'Wenzhe Cai'
+    - 'Yuqiang Yang'
+    - 'Xudong Xu'
+    - 'Zhaoyang Lyu'
+    - 'Yao Mu'
+    - 'Tai Wang'
+    - 'Jiangmiao Pang'
+    - 'Jia Zeng'
+    - 'Weinan Zhang'
+    - 'Chunhua Shen'
+  venue: 'arXiv / CoRL 2026 submission'
+  year: 2026
+  code: 'https://github.com/InternRobotics/EBench'
+  project: 'https://internrobotics.github.io/EBench-home/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2606.18239'
+  tldr='EBench 将通用操作策略的总成功率拆解为五维能力画像，并用四种受控分布偏移诊断模型到底擅长什么、在哪里失效。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+![EBench benchmark teaser from paper Figure 1](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ebench/teaser-1.icuyxspc6.webp)
+
+### 一句话总结
+
+**【Paper】** EBench 是一个基于 NVIDIA Isaac Sim 的通用移动操作 benchmark：26 个任务同时覆盖 mobile pick-and-place、long-horizon multi-stage 与 tabletop dexterous-and-precise，并把每个任务标注为五个能力轴，再通过 Background、Object、Instruction、Mix 四种 OOD 条件测量泛化。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提供数据合成、评分库和分布式评测 runner 的开源代码；完整 validation split 在 8 张消费级 GPU 上约 30 分钟完成。
+2. 设计 26 个任务、9 类室内场景和 11 类 atomic skill，避免只用一个 leaderboard scalar 掩盖能力短板。
+3. 通过资产级 train/test 隔离和四种受控扰动，测量视觉、语言、物理与组合分布偏移。
+4. 在 $pi_0$、$pi_{0.5}$、XVLA、InternVLA-A1 上展示：总体 Test SR 仅相差 5.1 个百分点，但能力剖面可相差数十个百分点。
+
+## 2. 背景与相关工作
+
+**【Paper】** RLBench、CALVIN、LIBERO 等固定底座桌面套件对短时程抓取很成熟，却很少覆盖移动底盘、长时程规划和亚厘米级接触操作。RoboCasa、RoboTwin、GenManip 扩大了场景或任务数量，但通常仍按单一 regime 汇报成功率；RMBench 则只针对记忆能力。EBench 的切入点是把三种操作 regime 放进同一动作协议，并为每项结果保留可解释坐标。
+
+**【Analysis】** 这使 benchmark 从“谁的分数最高”变成“模型能力向量如何与任务需求匹配”。对于模型迭代，后者更接近可执行的诊断信号。
+
+## 3. 问题定义
+
+**【Paper】** 每个 episode 接受三路 $224\times224$ RGB 视角（left、right、topdown）、proprioceptive state 和自然语言指令；双臂各输出 6-DoF joint position 或 end-effector pose 加 gripper width，移动底盘输出 $(v_x,v_y,\omega)$。物理仿真为 60 Hz，最长 episode 为 5,000 steps（约 83 秒）。
+
+任务标签由五个轴组成：Scene（9 类）、Atomic Skill（11 类）、Range（短 / 长时程）、Precision（低 / 中 / 高，high 为小于 1 cm）和 Operating Mode（mobile / fixed-base dexterous）。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![EBench end-to-end data synthesis and client-server architecture from paper Figure 2](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ebench/method-1.83as34zidb.webp)
+
+数据流是“任务与资产 → 两路 demonstration synthesis → IsaacSim server → VLA/WAM client → 共享评分库”：灵巧任务由遥操作采集，移动与长时程任务由关键帧位姿和 cuRobo 生成，再经 client-server 协议执行。
+
+### 4.2 核心模块
+
+#### 两路数据合成
+
+- **Teleoperation（7 个 dexterous-and-precise 任务）**：actor-follower 机构保留接触反馈，适合 peg-in-hole、nut tightening 等微调动作。
+- **Key-frame + cuRobo（10 mobile + 9 long-horizon）**：标注者给出稀疏末端位姿和移动底盘 waypoint，cuRobo 求解无碰撞、minimum-jerk 轨迹，适合难以稳定遥操作的长序列。
+
+**【Paper】** 最终 post-training 数据为 6,600 episodes、91.4 小时，存储为 LeRobot 格式。**【Analysis】** 两路采集把“动作精度”和“长序列成功率”解耦，代价是 motion-planned 数据可能比真实人类示教更规则。
+
+#### Scoring library
+
+**【Paper】** 评分由可组合 primitive 构成，包括 scene-graph object relation、关节角、物体倾角 / 朝向和子目标 temporal ordering，并同时返回 binary Success Rate 与连续 progress Score。
+
+#### Evaluation runner
+
+**【Code】** 仓库把 Isaac Sim server、`genmanip-client` 和各模型 baseline 分开；模型通过 `EvalClient.reset/step` 获取 observation 并提交 action。`gmp submit/eval/status` 负责提交、监控和结果分析，在线平台还能自动生成五轴能力图和泛化报告。
+
+### 4.3 关键公式
+
+**【Paper】** 对模型 $m$ 和任务子集 $S$，成功率可写为：
+
+$$\mathrm{SR}(m,S)=\frac{1}{|S|}\sum_{i\in S}\mathbf{1}[\mathrm{success}_i(m)]$$
+
+其中 $S$ 可以是某个 capability 轴的切片，而不是整个测试集。Test-to-Validation retention 定义为：
+
+$$R_{\mathrm{SR}}=\frac{\mathrm{SR}_{test}}{\mathrm{SR}_{val\text{-}train}},\qquad R_{score}=\frac{Score_{test}}{Score_{val\text{-}train}}$$
+
+**【Analysis】** $R$ 把“绝对能力”和“分布迁移损失”分开：高 SR 但低 $R$ 的策略并不一定适合部署。
+
+### 4.4 Training
+
+**【Paper】** 四个 baseline 都从 pretrained checkpoint 在同一 EBench 数据上 fine-tune 200K steps，batch size 128，AdamW，cosine scheduler + warm-up，peak learning rate $1\times10^{-5}$。每帧使用三路图像、状态和指令，策略按 60 Hz 查询。
+
+<Algorithm
+  number={1}
+  title='EBench post-training and evaluation preparation'
+  inputLabel='输入'
+  outputLabel='输出'
+>
+  <div slot='input'>6,600 条 LeRobot demonstration、模型 checkpoint、统一动作协议</div>
+  <div slot='output'>可在 EBench server 上运行的模型 checkpoint</div>
+  <AlgorithmStep>按任务 split 读取轨迹，并保持 train/test 资产隔离。</AlgorithmStep>
+  <AlgorithmStep>对图像、proprio 和 instruction 做模型所需的预处理。</AlgorithmStep>
+  <AlgorithmStep>
+    用 AdamW 优化 action prediction；训练至指定 step 并保存 checkpoint。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    在 Val-Train、Val-Unseen 与 Test 上分别运行三次，记录 SR、Score 和标准差。
+  </AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+<Algorithm number={2} title='EBench client-server rollout' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>EvalClient 返回的 observation（图像、状态、instruction）</div>
+  <div slot='output'>双臂关节 / 夹爪与底盘动作，直到 episode done</div>
+  <AlgorithmStep>调用 `reset()`，取得指定 worker 的初始 observation。</AlgorithmStep>
+  <AlgorithmStep>
+    将三路图像、状态和语言指令送入 VLA/WAM policy，生成一步或 action chunk。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    按统一字段提交 `action`、`base_motion`、`control_type` 与相对量标志。
+  </AlgorithmStep>
+  <AlgorithmStep>调用 `step()`，循环至 server 返回 done 或 reset。</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** `baselines/X-VLA/run.py` 用 `AutoModel.from_pretrained(..., trust_remote_code=True)` 加载模型，拼接 joints、缩放后的 base 和 gripper 为 proprio，调用 `model.inference_api(..., steps=10)` 产生 chunk，再反缩放并逐步发送。`baselines/InternVLA-A1/inference.py` 维护 30 步 action queue 与图像历史，使用 `EvalClient` 执行 chunk；若通信失败，两者都会重建 client 并 reset。
+
+**【Analysis】** 代码的核心不是重写 simulator，而是把不同策略的输入输出适配到同一个 client contract，这正是跨架构比较可复现的关键。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![EBench capability profiling setup from paper Figure 3](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ebench/capability_profiling-1.3gp52g0yka.webp)
+
+**【Paper】** 26 任务包括 10 mobile pick-and-place、9 mobile long-horizon、7 tabletop dexterous；每模型评测三次并报告均值 ± 标准差。OOD 轴分别固定改变 background、object、instruction，或同时改变三者。
+
+### 5.2 Main Results
+
+| Model        | Val-Train SR |   Test SR | SR retention |
+| ------------ | -----------: | --------: | -----------: |
+| $\pi_0$      |        30.5% |     24.4% |         0.80 |
+| XVLA         |        28.3% |     24.7% |         0.87 |
+| InternVLA-A1 |    **33.1%** |     27.6% |         0.83 |
+| $\pi_{0.5}$  |        32.1% | **29.5%** |     **0.92** |
+
+**【Paper】** $\pi_{0.5}$ 同时取得最高 Test SR、Score（45.6%）和 retention；InternVLA-A1 的 Val-Train SR 最高，却在 Val-Unseen 降到 20.8%。因此总分相近并不表示行为相近。
+
+### 5.3 Ablation Study
+
+![EBench generalization results from paper Figure 4](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ebench/generalize-sr-1.4g58fm3pta.webp)
+
+**【Paper】** 预训练敏感性实验显示，EBench 是三套 benchmark 中最能拉开 pretrained / from-scratch 差距的一套：$\pi_{0.5}$ 从零训练到预训练提升 8.5%→29.5% SR（+21.0），$\pi_0$ 提升 +13.2，XVLA 提升 +9.0；LIBERO 已接近饱和，RoboTwin 2.0 Hard 的 from-scratch 结果甚至可超过预训练 baseline。
+
+### 5.4 Generalization
+
+![Fit-generalization curves across training steps from paper Figure 5](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ebench/sr-vs-steps-1.9ddp9ghhqn.webp)
+
+**【Paper】** Background / Instruction 的 Test SR 约为 27–35%，Object swap 降至 21–29%，三者混合的 Mix 最难（18–23%）。训练动态上，$\pi_{0.5}$ 的 Val-Train 与 Test 曲线最同步；XVLA 在中间 checkpoint 非单调；InternVLA-A1 到 200K 时拟合最强但保留率仍只有 0.83。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** EBench 有效的原因不是任务数量本身，而是把“能力标签”和“受控扰动”绑定到同一资产协议：模型失败后，可以区分是高精度控制、长时程信用分配、物体物理变化还是语言改写导致的。
+
+### 6.2 核心创新
+
+1. **【Paper】** 三种操作 regime 的统一动作空间。
+2. **【Paper】** 五轴 capability taxonomy 与连续 progress metric。
+3. **【Paper】** 资产级隔离和四轴 OOD 诊断。
+4. **【Code】** 开源 server/client/analysis 工具把 benchmark 变成可重复运行的评测基础设施。
+
+### 6.3 与已有方法的本质区别
+
+**【Analysis】** 传统 suite 优化“一个平均分”，EBench 优化“可解释的误差分解”。它不是提出新的 Policy，而是改变 policy 比较和迭代的观测量。
+
+### 6.4 关键假设
+
+**【Paper】** 任务标签能代表关键能力，且模拟中的受控资产变化可近似部署中的分布偏移。**【Analysis】** 这两个假设若不成立，五轴分数可能只是 benchmark-specific correlation，而非真实机器人能力。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** EBench 完全在仿真中运行，作者不声称分数可直接预测真实机器人表现；26 个任务对 9 类场景仍较稀疏，场景级排名应谨慎解读，未来计划扩展到 50 个以上任务。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】** 运动规划生成的 19 类轨迹与遥操作的 7 类轨迹在动作分布上并不对称；三路固定视角也未覆盖遮挡、光照和传感器失效。另一个风险是把多个 atomic skill 叠加成 long-horizon 后，失败归因仍可能混合，最好配合逐子目标日志。
+
+## 8. 启发与研究思考
+
+**【Analysis】** EBench 给 VLA 训练带来三个直接方向：
+
+- 用 capability profile 做 targeted data collection，而不是平均增加所有任务数据。
+- 对 Object / Mix 轴做显式物理增强，避免只提升背景和语言鲁棒性。
+- 根据 profile 做 mixture-of-experts 或 capability-aware routing，让移动规划与灵巧接触控制共享视觉语言骨干、使用专门 action head。
+
+更重要的是，未来报告模型时应同时给出“绝对成功率 + 分布迁移保留率 + 能力向量”。只有这样，benchmark 才能回答部署前真正关心的问题：模型到底会什么，以及换一个场景后还会不会。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。
+</Aside>
