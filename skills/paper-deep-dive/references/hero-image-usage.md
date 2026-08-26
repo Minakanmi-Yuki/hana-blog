@@ -20,7 +20,7 @@ Use only after the count-1 pool is exhausted.
 |         3 | `129563571` | `https://pic.hana0721.top/129563571_p0_master1200.1ziuqmv78w.webp` | `vibe-coding-1`, `paper-deep-dive-recap`, `paper-deep-dive-finevla`                                     |
 |         3 | `116834498` | `https://pic.hana0721.top/116834498_p0_master1200.1e974fnzok.webp` | `rl-note-26`, `paper-deep-dive-onetwovla`, `paper-deep-dive-starvla-alpha`                              |
 |         3 | `125160058` | `https://pic.hana0721.top/125160058_p0_master1200.6ikvtm0o6l.webp` | `sts-silent-cards-rating`, `paper-deep-dive-molmoact`, `paper-deep-dive-fast`, `paper-deep-dive-fd-vla` |
-|         2 | `133535742` | `https://pic.hana0721.top/133535742_p0_master1200.icpovr2id.webp`  | `paper-deep-dive-openvla`, `paper-reading-eba1`                                                         |
+|         3 | `133535742` | `https://pic.hana0721.top/133535742_p0_master1200.icpovr2id.webp`  | `paper-deep-dive-openvla`, `paper-reading-eba1`, `paper-deep-dive-ricl`                                 |
 |         2 | `57793944`  | `https://pic.hana0721.top/57793944_p0_master1200.4xv4u7fok2.webp`  | `paper-deep-dive-rt2`, `paper-reading-vlm2`                                                             |
 |         2 | `104724685` | `https://pic.hana0721.top/104724685_p0_master1200.7p472bcti3.webp` | `rl-note-23`, `paper-deep-dive-bagel`                                                                   |
 |         2 | `104786218` | `https://pic.hana0721.top/104786218_p0_master1200.8vnievbkwk.webp` | `vibe-coding-2`, `paper-deep-dive-x-vla`                                                                |

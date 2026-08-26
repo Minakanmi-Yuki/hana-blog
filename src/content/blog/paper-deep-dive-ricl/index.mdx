@@ -1,0 +1,286 @@
+---
+title: 'RICL 论文精读：给预训练 VLA 注入 In-Context Adaptability'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 RICL：通过检索增强上下文、动作插值和少量 priming 数据，把原本不会 ICL 的 π₀-FAST 改造成可用 10–20 条示教适应新操作的 VLA。'
+heroImage:
+  { src: 'https://pic.hana0721.top/133535742_p0_master1200.icpovr2id.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '133535742'
+tags:
+  - 'paper deep dive'
+  - 'VLA'
+  - 'in-context learning'
+  - 'robot manipulation'
+paper:
+  arxivId: '2508.02062'
+  title: 'RICL: Adding In-Context Adaptability to Pre-Trained Vision-Language-Action Models'
+  authors:
+    - 'Kaustubh Sridhar'
+    - 'Souradeep Dutta'
+    - 'Dinesh Jayaraman'
+    - 'Insup Lee'
+  venue: 'Conference on Robot Learning (CoRL) 2025'
+  year: 2025
+  code: 'https://github.com/ricl-vla/ricl_openpi'
+  project: 'https://ricl-vla.github.io/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2508.02062'
+  tldr='RICL 在 π₀-FAST 上进行一次 post-training，使 VLA 能从新任务的 10–20 条示教中检索相似状态并在上下文中完成适应，无需更新参数。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《RICL: Adding In-Context Adaptability to Pre-Trained Vision-Language-Action Models》  
+**作者**：Kaustubh Sridhar、Souradeep Dutta、Dinesh Jayaraman、Insup Lee  
+**机构**：University of Pennsylvania、University of British Columbia  
+**会议**：CoRL 2025  
+**论文链接**：[arXiv:2508.02062](https://arxiv.org/abs/2508.02062)  
+**代码与模型**：[ricl-vla/ricl_openpi](https://github.com/ricl-vla/ricl_openpi)  
+**项目主页**：[ricl-vla.github.io](https://ricl-vla.github.io/)
+
+![RICL 方法总览（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ricl/ricl-overview.6po8yuc47q.webp)
+
+### 一句话总结
+
+**【Paper】** 普通 VLA 主要靠 imitation learning 学参数，面对新物体、新动作或新场景通常需要重新 finetune；RICL（Re-training for In-Context Learning）先用一组 priming demonstrations 训练 VLA 使用上下文，部署时再从目标任务的 10–20 条示教中检索相似状态，把它们和 query 一起送入模型，从而实现不更新参数的 few-shot adaptation。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 给出一种 post-training recipe：从预训练的 π₀-FAST-DROID 出发，只微调语言模型、冻结图像编码器，得到可处理检索上下文的 RICL-VLA。
+2. 用 DINOv2 图像 embedding 和近邻检索把长轨迹压缩成少量相关的 state-action examples，再通过 action interpolation 将最近邻动作与 VLA 输出融合。
+3. 在 Franka DROID 平台的 8 个操作任务上验证：20 条目标任务示教、不做参数更新时，完整任务成功率从 π₀-FAST-DROID 的 2.5% 提升到 31.25%。
+4. 在同一批 20 条示教上继续 finetune 时，RICL-VLA 的聚合成功率达到 61.67%，高于直接 finetune 基础 VLA 的 31.67%。
+
+## 2. 背景与相关工作
+
+**【Paper】** LLM 的 In-Context Learning（ICL）来自 next-token prediction：给模型几个输入–输出示例，模型就能在不改参数的情况下完成新任务。Retrieval-Augmented Generation（RAG）进一步把“挑选示例”的工作交给检索器。对机器人而言，示例不是文本答案，而是视觉观测、proprioception 和动作序列。
+
+**【Paper】** π₀-FAST 是自回归 VLA：PaliGemma 的 SigLIP 图像编码器和 Gemma LLM 接收多视角图像、语言指令、本体状态，并用 FAST tokenizer 把连续动作离散成 token。它在 DROID 数据上表现出跨场景泛化，但 imitation objective 本身不会自动教会模型“如何读懂一段示教并迁移”。
+
+已有 ICL agent（如 REGENT、MTT、ICRT）通常从头训练通用策略，或把完整轨迹直接塞进 context。RICL 的切入点是保留大规模 VLA 的视觉和语言能力，只通过少量机器人数据进行 post-training，并用检索选择局部邻居，避免上下文长度和注意力复杂度随着完整轨迹增长。
+
+## 3. 问题定义
+
+**【Paper】** 给定预训练 VLA `π₀`、一个新任务的少量示教集合 $\mathcal D_{new}$，目标是在不更新参数的前提下，根据当前 query 观测输出动作：
+
+$$
+\hat a_t = \pi_\theta\bigl(q_t,\; r_1, r_2, \ldots, r_K\bigr),
+$$
+
+其中 $q_t$ 包含三路 RGB 图像、语言 prompt 和 8 维 proprioceptive state，$r_i$ 是从示教中检索到的第 $i$ 个 state-action example，$K=4$。
+
+**【Paper】** 实验使用 Franka DROID：三个相机（top、side/right、wrist），15 Hz 控制频率；state 为 7 个 joint angle 加 gripper position，action chunk 为连续 15 步、每步 7 个 joint velocity 加 1 个 gripper position，即 `(15, 8)`。测试任务覆盖未见物体（pokeball、idli plate、squeegee、bagel）、新动作、厨房水槽新场景和 DROID 长尾物体。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![RICL-π₀-FAST-DROID 架构（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ricl/ricl-architecture.4g58fcrdkt.webp)
+
+**【Paper】** 每个输入序列由 4 个 retrieved observations 和 1 个 query observation 组成；每个 observation 都含三路图像、prompt、state 与 action chunk。图像和文本 token 进入 PaliGemma，LLM 只在 query 的 action token 上计算训练损失，最后由 FAST tokenizer 解码为动作。推理时的完整循环见 4.5。
+
+### 4.2 核心模块
+
+#### Retrieval：从示教缓冲区找相似状态
+
+- **输入**：当前 query 的 top image，以及目标任务示教的预处理 episode。
+- **中间表示**：DINOv2 为每个 top image 生成 embedding；FAISS 建立 L2 近邻索引。
+- **输出**：4 个最近邻的 top/right/wrist image、state、prompt 和 15 步 action chunk。
+- **作用**：把“从几十条长示教中定位相似时刻”从 Transformer 中外包给检索器，让模型专注于局部动作迁移。
+
+**【Paper】** 正文描述使用 top image 做检索。**【Code】** `src/openpi/policies/policy.py` 的在线 `RiclPolicy.retrieve` 也使用 `query_top_image` 和 `top_image_embeddings`；但训练数据加载器中的路径名 `embedding_type = "embeddings__wrist_image_left"` 暗示训练预处理曾使用 wrist embedding。论文和代码在这一实现细节上并不完全一致，不能把检索视为多视角联合 embedding。
+
+#### Context packing：把邻居和 query 拼成一个序列
+
+**【Code】** `RiclObservation` 为每个邻居建立 `retrieved_i_` 前缀，并在末尾追加 `query_`。`Pi0FASTRicl.compute_loss` 将 5 个 observation 的 embedding 和 attention mask 沿 token 维拼接；`create_decode_indices` 只选择各段 prompt/state/action 区域的 token，避免对图像 token 计算无用的词表投影。
+
+#### Action interpolation：最近邻动作作为连续先验
+
+**【Paper】** 最近邻 action token 的 one-hot 分布与 LLM 的 softmax 输出按图像距离加权混合。距离越近，越相信示教动作；距离越远，越依赖模型自身的泛化能力。
+
+**【Code】** `Pi0FASTRicl.interpolate_actions` 对每个 action token 计算同样的离散插值；默认配置 `λ=10`，距离先按训练集最大距离归一化。该层不是简单的 nearest-neighbor policy，因为 LLM 仍可逐 token 修正最近邻动作。
+
+#### Frozen vision encoder 与可训练 LLM
+
+**【Paper】** RICL 只更新 Gemma LLM，SigLIP image encoder 保持 frozen。这样可以把 post-training 的容量集中在“理解 retrieved context”上，同时尽量保留 π₀ 原有视觉表示和场景泛化能力。
+
+**【Code】** `get_freeze_filter_with_frozen_img_encoder()` 对 `.*img.*` 参数施加冻结过滤器；`train_pi0_fast_ricl.py` 的 `train_step` 只对 `config.trainable_filter` 求梯度。
+
+### 4.3 关键公式
+
+令 $a'_j$ 为第一个（最近）检索邻居在第 $j$ 个动作 token 上的 one-hot 向量，$p_j=\operatorname{softmax}(\pi_\theta)_j$ 为 LLM 概率，$d$ 为 query 与最近邻 top-image embedding 的 L2 距离，则：
+
+$$
+\tilde p_j = e^{-\lambda d}\,\operatorname{onehot}(a'_j) + \left(1-e^{-\lambda d}\right)p_j.
+$$
+
+- $\lambda$：距离衰减强度；论文和官方配置均使用 10。
+- $d$：归一化后的视觉相似度距离；$d=0$ 时完全采用最近邻 token，距离增大时逐渐回到 LLM 分布。
+- $\tilde p_j$：送入交叉熵的最终 token 分布，所有 $N_{act}$ 个动作 token 都独立应用该插值。
+
+训练时只对 query 的 action chunk 计算 cross-entropy；retrieved action 作为上下文而不是额外监督目标。**【Analysis】** 这使优化目标更接近真实部署：模型必须根据邻居预测 query 的动作，而不是机械地复述邻居。
+
+### 4.4 Training
+
+**【Paper】** 作者收集 20 个 priming tasks，每个 task 20 条示教，共约 400 条轨迹。对每条轨迹的每个状态都作为 query，再从同一 task 的其他示教中检索 4 个邻居，训练输入因此和部署形式一致。模型从 π₀-FAST-DROID 初始化，训练 3 个 epoch，图像编码器冻结。
+
+**【Code】** `pi0_fast_droid_ricl` 配置为 action horizon 15、4 个 retrieved observations、batch size 16、2 张 A100、Cosine decay 学习率（peak `2.5e-5`，300 warmup steps，3000 decay steps），训练配置上限为 10,000 steps。`process_collected_demos.py` 将原始 DROID `trajectory.h5` 与三路帧转换为 `(state, actions, images, DINO embeddings)`；`retrieve_within_collected_demo_groups.py` 用 FAISS/L2 预计算每个 query 的近邻。
+
+<Algorithm number={1} title='RICL Priming Training' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>预训练 π₀-FAST-DROID、分组 priming demonstrations、每个 query 的 4 个检索邻居</div>
+  <div slot='output'>可读取 retrieved context 的 RICL-VLA</div>
+  <AlgorithmStep keyword='Given'>将每条示教的每个状态标记为 query，读取对应的 15 步 action chunk</AlgorithmStep>
+  <AlgorithmStep>用 DINOv2 embedding 在同一 task 的其他示教中检索 4 个邻居</AlgorithmStep>
+  <AlgorithmStep>打包 4 个 retrieved observation 与 1 个 query observation 的图像、prompt、state 和 action</AlgorithmStep>
+  <AlgorithmStep>冻结 SigLIP，前向计算拼接序列，仅对 query action token 计算 cross-entropy</AlgorithmStep>
+  <AlgorithmStep>对最近邻 action token 与 LLM softmax 应用 $e^{-\lambda d}$ 插值</AlgorithmStep>
+  <AlgorithmStep keyword='for'>用 AdamW/CosineDecay 更新 LLM 参数，重复多个 epoch</AlgorithmStep>
+  <AlgorithmStep keyword='return'>保存训练后的 RICL-π₀-FAST-DROID checkpoint</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 用户只需为新 task 收集 10–20 条 teleoperated demonstrations。每次控制循环中，RICL 根据当前 top image 检索 4 个相似状态，把它们与当前 query 拼入 context，预测一个 15 步 action chunk，并执行其中一部分动作后重新观察。
+
+**【Code】** `RiclPolicy.retrieve` 在启动时为 demos 建立 FAISS 索引；运行时只对 query top image 做一次 DINOv2 embedding。`serve_policy_ricl.py` 加载 checkpoint 和 `--policy.demos_dir`，通过 websocket 向 DROID 客户端提供动作。默认部署策略在预测到 gripping action 前执行 3/15 步，抓取后执行 8/15 步；finetuned 版本抓取后执行 5/15 步。检索本身低于 1 ms，作者报告整体 rollout 约为 π₀-FAST 的 1.33 倍耗时。
+
+<Algorithm number={2} title='RICL Inference' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>RICL checkpoint、当前三路图像/状态/语言、目标 task 的 10–20 条示教</div>
+  <div slot='output'>执行中的动作 chunk</div>
+  <AlgorithmStep>用 DINOv2 编码当前 query top image，并在 FAISS 中取 4 个最近邻</AlgorithmStep>
+  <AlgorithmStep>读取邻居的三路图像、state、prompt 与 15 步 action chunk，和 query 一起打包</AlgorithmStep>
+  <AlgorithmStep>运行 PaliGemma/Gemma，得到 query action token 的 softmax 分布</AlgorithmStep>
+  <AlgorithmStep>按 query–最近邻距离插值最近邻 token 与 LLM 分布，FAST detokenize 为 `(15, 8)` 动作</AlgorithmStep>
+  <AlgorithmStep>执行当前 chunk 的 3 或 8 步，获取新观测后重复检索和预测</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+| 论文概念 | 官方代码位置 | 实现要点 |
+| --- | --- | --- |
+| RICL 模型 | `src/openpi/models/pi0_fast_ricl.py` | `Pi0FASTRicl` 拼接 5 个 observation，并实现 `interpolate_actions` |
+| 数据与近邻 | `preprocessing/process_collected_demos.py`、`retrieve_within_collected_demo_groups.py` | 处理 h5/帧、生成 DINO embedding、FAISS L2 检索 |
+| 训练 | `scripts/train_pi0_fast_ricl.py`、`src/openpi/training/config.py` | query action CE loss；仅图像编码器冻结 |
+| 推理 | `src/openpi/policies/policy.py`、`scripts/serve_policy_ricl.py` | 在线 embedding、FAISS 检索、websocket serving |
+| FAST action | `src/openpi/models/tokenizer.py`、`src/openpi/transforms.py` | 将 `(15, 8)` 连续动作离散/还原为 token 序列 |
+
+**【Code】** README 还提供了 Hugging Face 上的 priming/retrieval demos 和 `pi0_fast_droid_ricl_checkpoint`。因此该工作不只是论文算法，也给出了可在 Franka DROID 上复现实验的 checkpoint、预处理脚本和 serving 流程。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![Franka DROID 实验平台与厨房水槽新场景（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ricl/franka-droid-setup.2rvvi61363.webp)
+
+**【Paper】** 每个评测任务收集 20 条示教用于检索；每种方法在随机初始位置和朝向下执行 10 次 rollout，并统计完整任务成功率和中间 checkpoint 成功率。比较对象包括：
+
+- π₀-FAST-DROID（基础 VLA）；
+- RICL-π₀-FAST-DROID（只检索、不更新参数）；
+- Retrieve and Play（直接执行最近邻动作）；
+- 从头训练的 Diffusion Policy（只在简单任务比较）；
+- π₀-FAST-DROID-finetuned 与 RICL-VLA-finetuned（在同一 20 条示教上训练）。
+
+![pokeball 任务的检索 query 与邻居可视化（论文 Figure 8）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ricl/retrieval-pokeball.5xbdh3vi6j.webp)
+
+**【Paper】** 评测任务按难度覆盖语言 grounding、新物体、新动作、新场景、长尾物体和长时程组合：pokeball、idli plate、squeegee、sink-idli plate、sink-squeegee、toaster lever、bottom-shelf door、bagel into toaster。
+
+### 5.2 Main Results
+
+![pokeball 任务成功率示例（论文 Figure 5 的单任务图）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ricl/results-pokeball.2rvvi6138a.webp)
+
+**【Paper】** 聚合 8 个任务、每任务 10 次 rollout：
+
+| 方法 | 完整任务成功率 | 最高 checkpoint 成功率 |
+| --- | ---: | ---: |
+| π₀-FAST-DROID | 2.5% | 21.25% |
+| RICL-π₀-FAST-DROID（20 条示教，仅 RAG/ICL） | 31.25% | 83.75% |
+| π₀-FAST-DROID-finetuned | 31.67% | 论文未统一报告 |
+| RICL-VLA-finetuned | 61.67% | 论文未统一报告 |
+
+**【Paper】** RICL 特别改善两类失败：一是基础 VLA 把 duck/apple 等 distractor 当成目标，二是面对 idli plate 的凹槽抓取、squeegee 的半抬升半拖动、底层柜门避障等 novel motion 时无法启动。RICL 在新厨房场景也保留了 π₀ 的场景泛化能力。
+
+**【Analysis】** 31.25% 与“直接把基础 VLA 在 20 条示教上 finetune”的 31.67% 接近，说明在该实验规模下，检索上下文可以替代一次针对目标任务的参数更新；这不是“零样本”，而是把数据存放在外部示教缓冲区并在运行时取回。
+
+### 5.3 Ablation Study
+
+![idli plate 任务的示教数量消融（论文 Figure 5 右下角）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-ricl/ablation-idli.1e9ce4q144.webp)
+
+**【Paper】** 在 idli plate 任务中消融检索/finetune 使用的示教数量。5 条示教时 RICL 可能退化到基础 VLA 的错误行为（例如移动 apple）；至少 10 条后语言 grounding 才稳定，更多示教通常继续提升表现。RICL-VLA-finetuned 在每个示教数量下都优于直接 finetune π₀。
+
+### 5.4 Generalization
+
+**【Paper】** RICL 能在以下变化下工作：
+
+- priming 数据中不存在的 pokeball、idli plate、squeegee、bagel；
+- 需要新抓取和接触方式的动作；
+- 厨房水槽中的新相机位置、光照、背景和 distractor；
+- DROID 中出现频率很低的 toaster 与 shelf 变体。
+
+动态 rollout 中，人为移动目标物体后，finetuned RICL-VLA 仍能重新定位并继续操作。没有任务相关 retrieval、只放入随机 priming 示教时，RICL 在三个原本 π₀ 能做的任务上保持 80% 成功率，作者据此认为 post-training 没有明显损害原有能力。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** RICL 把适应拆成两个互补问题：DINOv2/FAISS 负责“记忆中找哪个局部状态”，Gemma 负责“如何把局部状态和当前视觉几何组合起来”。相比把整段示教直接塞进 context，这种分工降低了序列长度，也避免模型先花容量做显式搜索。
+
+action interpolation 还提供了一个距离相关的行为先验：相似视觉状态时直接借用示教动作，状态不相似时逐渐释放给 LLM。于是模型同时拥有 nearest-neighbor 的稳定性和 VLA 的动作泛化能力。
+
+### 6.2 核心创新
+
+1. **Post hoc ICL injection**：不重新训练一个通用 agent，而是在已有 VLA 上补一层“会读示教”的能力。
+2. **RAG + autoregressive action**：检索的是视觉–状态–动作片段，输出仍是 FAST token 的自回归 action chunk。
+3. **Distance-weighted action prior**：把最近邻动作以概率分布形式注入 LLM，而不是硬切换到行为克隆或只复制第一邻居。
+4. **Training/deployment alignment**：priming 数据的每个状态都按部署时的 query + 4 neighbors 方式构造，减少训练–推理分布差异。
+
+### 6.3 与已有方法的本质区别
+
+**【Paper】** REGENT 从头训练 transformer policy，RICL 则从 π₀-FAST-DROID 的大规模预训练能力出发；MTT/ICRT 倾向把完整 demonstrations 放入上下文，RICL 只取检索到的局部状态；vanilla finetune 把新知识写入参数，RICL 把知识保留在可替换的外部 retrieval buffer 中。
+
+**【Analysis】** 因此 RICL 的“模型更新”和“任务更新”是解耦的：模型只需 priming 一次，换任务时主要更换 demos 目录和 FAISS 索引。
+
+### 6.4 关键假设
+
+- **视觉相似度足够表达动作相关性**：top-image 的 DINOv2 L2 近邻应能找到可迁移的局部状态。
+- **目标任务与基础 VLA 能力相邻**：检索示教提供的是局部引导，而不是凭空创造超出 π₀ 能力边界的技能。
+- **示教质量和数量足够**：论文显示 5 条可能不稳定，10–20 条是实用下限。
+- **动作表示可被 FAST tokenizer 表达**：当前实现面向 15 步、8 维 DROID action chunk。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** RICL 不能可靠学习离基础 VLA 太远的任务，因此实验主要集中在 pick-and-place；它仍需要每个新任务的 teleoperated demonstrations，跨设置收集示教并不具备可扩展性；对打网球等显著不同的 novel motion 泛化较弱。作者建议扩大 priming tasks、模型规模和动作多样性，并探索从人类视频获取示教。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+1. 检索依赖单张 top image，遮挡、视角变化或相似外观可能导致错误邻居；代码中训练 embedding 类型和论文文字也存在不一致。
+2. action interpolation 的距离归一化使用训练集最大距离，部署环境显著偏离 priming 分布时，$e^{-\lambda d}$ 的校准可能失真。
+3. 4 个邻居带来约 4 倍 token 数，虽然实测 rollout 只慢约 1.33 倍，但显存和上下文长度仍限制更长 action horizon 或更多示教。
+4. 评测规模为 8 个任务、每个 10 次 rollout，且主要是单臂 pick-and-place；更复杂的双臂、接触丰富或长时程任务仍缺少证据。
+
+## 8. 启发与研究思考
+
+**【Analysis】** RICL 的重要启发不是“给 VLA 加一个向量数据库”这么简单，而是把 VLA 的适应接口设计成可替换的外部 memory：
+
+- 如果检索器能理解接触状态、物体姿态和语言约束，示教缓冲区就可能成为比 task-specific finetune 更快的部署接口。
+- action interpolation 可以推广为 uncertainty-aware mixture：距离、动作冲突和模型置信度共同决定邻居先验的权重，而不是只使用单一视觉距离。
+- 未来可以把人类视频、失败轨迹和离线 DROID 数据纳入同一个 retrieval pool，并让检索器学习“哪种示教最值得参考”。
+- 对真实机器人而言，最现实的路线可能是 RICL 做即时冷启动，再用少量在线数据进行“finetune like you pretrain”，兼顾无梯度适应速度和最终可靠性。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】` 表示基于论文和代码的分析推断。论文图像使用源码提取后裁切并上传；由于图床自定义域名尚未刷新，正文暂使用已验证返回 HTTP 200 的 GitHub Raw 地址。
+</Aside>
