@@ -1,0 +1,280 @@
+---
+title: 'EgoSteer 论文精读：从第一视角视频到可操控灵巧操作'
+publishDate: 2026-08-27
+updatedDate: 2026-08-27
+description: '精读 EgoSteer：EgoSmith 数据流水线、统一机器人栈与世界模型增强 VLA 如何共同实现 40+ 任务的可操控双手灵巧操作。'
+heroImage:
+  { src: 'https://pic.hana0721.top/101003773_p0_master1200.3uvfruqg2c.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '101003773'
+tags:
+  - 'paper deep dive'
+  - 'EgoSteer'
+  - 'dexterous manipulation'
+  - 'VLA'
+paper:
+  arxivId: '2607.09701'
+  title: 'EgoSteer: A Full-Stack System Towards Steerable Dexterous Manipulation from Egocentric Videos'
+  authors:
+    - 'Yifan Zhong'
+    - 'Zhang Chen'
+    - 'Tianrui Guan'
+    - 'Fanlian Zeng'
+    - 'Yuyao Ye'
+    - 'Tianjia He'
+    - 'Ka Nam Lui'
+    - 'Jiayi Li'
+    - 'Tingrui Zhang'
+    - 'Ruilin Yan'
+    - 'Xinhao Ji'
+    - 'Guangyu Zhao'
+    - 'Wenjie Lou'
+    - 'Jiayuan Zhang'
+    - 'Yuanpei Chen'
+    - 'Yaodong Yang'
+  venue: 'arXiv / CoRL 2026 submission'
+  year: 2026
+  code: 'https://github.com/egosteer/egosteer'
+  project: 'https://egosteer.github.io/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2607.09701'
+  tldr='EgoSteer 用 EgoSmith 清洗 9.6K 小时第一视角视频，以统一动作空间和 DAgger 机器人数据落地，再用训练期世界模型增强 Qwen3-VL 的动作想象，实现可操控双手灵巧操作。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《EgoSteer: A Full-Stack System Towards Steerable Dexterous Manipulation from Egocentric Videos》  
+**论文链接**：[arXiv:2607.09701](https://arxiv.org/abs/2607.09701)  
+**代码与模型**：[egosteer/egosteer](https://github.com/egosteer/egosteer)、[Hugging Face](https://huggingface.co/EgoSteer/models)  
+**项目主页**：[egosteer.github.io](https://egosteer.github.io/)
+
+![EgoSmith、Robot Stack 与 EgoSteer 的全栈系统（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egosteer/Teaser.5q85lxzbqq.webp)
+
+### 一句话总结
+
+**【Paper】** EgoSteer 不把“通用灵巧操作”归因于单个模型，而是把数据、动作接口、纠错闭环和策略目标一起设计：EgoSmith 把野外第一视角视频变成可监督的 4D 手部数据，统一机器人栈把人类先验映射到双手平台，EgoSteer 再用世界模型特征回归提升动作精度。
+
+### 核心贡献
+
+**【Paper】**
+
+1. **EgoSmith**：四阶段自动流水线（预过滤、4D 运动估计、语言标注、后过滤）产出 9.60K 小时、2.09M episodes、1.04B frames 的 12 数据集语料；相对 HaWoR 约 9 倍吞吐。
+2. **统一机器人栈**：同一套低层 FK/IK 与控制节点服务遥操作、策略推理和人类介入；通过相对运动映射实现无跳变接管，并收集 187 小时、193 个任务的数据。
+3. **EgoSteer VLA**：Qwen3-VL-2B 骨干、DiT 风格 flow-matching action expert，以及仅训练期使用的 DINOv3 world-model expert。
+4. **全栈验证**：40 个任务平均成功率 75%，组合泛化与未见任务分别为 65% 和 62%；box folding、cake unboxing 少样本适配达到 75%/83%。
+
+## 2. 背景与相关工作
+
+**【Paper】** 夹爪机器人已经可以执行许多语言条件任务，但双手高自由度系统仍缺少三个关键条件：大量语言对齐示范、精确且统一的动作表示，以及能够处理部署分布偏移的纠错机制。直接在灵巧机器人上采集这些数据成本高、动作空间又依赖具体硬件。
+
+第一视角人类视频提供了规模，却通常只有 RGB：相机抖动、遮挡、深度缺失和语言缺失会使原始视频成为不稳定监督。EgoSteer 的思路是把问题拆成“可规模化的数据加工”和“可迁移的机器人闭环”两部分，再用一个训练期辅助目标弥合视觉理解与动作生成之间的鸿沟。
+
+与仅扩大真实机器人数据的 VLA 相比，本文的差异在于：人类视频负责学习操作先验，真实机器人数据负责 embodiment grounding，DAgger 只收集失败状态的纠正片段；世界模型则在训练时要求骨干预测动作之后的视觉语义，而不是在部署时增加规划开销。
+
+## 3. 问题定义
+
+**【Paper】** 一个 episode 表示为
+
+$$\tau=\{l,\mathbf K,(\mathbf I_t,\mathbf D_t,\mathbf T^{w2c}_t,\mathbf s^w_t,\mathbf a^w_t)_{t=0}^{N-1}\}.$$
+
+- **输入**：语言指令 $l$、相机内参 $\mathbf K$、最近 6 帧 RGB（1 FPS、覆盖 5 秒）和对应的状态历史。
+- **状态 / 动作**：双手各包含 3D wrist translation、6D wrist rotation、15D fingertip keypoints，总维度为 48；动作以当前相机坐标系下相对当前状态表示。
+- **输出**：长度 $h=32$ 的连续动作 chunk，控制频率 30 Hz。
+- **机器人**：RealMan 双臂平台与 AgiBot G1 两种 embodiment；遥操作使用 PsiBot SynGlove-Air 和 Vive Trackers。
+- **深度**：EgoSmith 输出深度和相机轨迹，但模型输入实际只使用 RGB；深度主要用于数据重建与质量控制。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![EgoSteer 模型架构：Qwen3-VL、Action Expert 与训练期 World Model（论文 Figure 4）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egosteer/model-arch.5xbdhdlgro.webp)
+
+**【Paper】** 多模态输入先经过共享 Qwen3-VL backbone；Action Expert 读取 backbone 的 key-value cache，通过 joint attention 生成 flow-matching 动作 chunk；World Model Expert 读取相同骨干表示并预测未来 DINOv3 特征，只在训练时存在。整体数据流是“语言 + 图像历史 + 状态 → backbone → action/world-model heads”。
+
+### 4.2 核心模块
+
+#### EgoSmith 数据流水线
+
+![EgoSmith 四阶段数据处理流水线（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egosteer/pipeline_recreated_editable.5c1pv2r0c2.webp)
+
+**【Paper】**
+
+1. **预过滤**：128 点稀疏光流剔除行走和剧烈相机运动；YOLO 手部检测要求置信度至少 0.30、框面积在图像 2%–50%，且每帧至少有两只位于下中央区域的手。
+2. **4D 运动估计**：用 DPVO 替代易漂移且昂贵的 DROID-SLAM，再用 Any4D 的 metric depth 对齐尺度；将 HaWoR 的相机系 MANO 手部重建转到一致的 world space。
+3. **语言标注**：Qwen3.5-VL-Plus 先过滤没有有效手-物交互的片段，再生成五级 coarse-to-fine 指令；另有 3.5% 片段在此阶段被丢弃。
+4. **后过滤**：在 episode、chunk、frame 三层检查相机、腕部和指尖轨迹的尺度、旋转与瞬时跳变。
+
+#### 统一机器人栈与 DAgger
+
+![统一机器人栈支持遥操作、推理和人工纠错（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egosteer/robot-stack.7sny9zxwic.webp)
+
+**【Paper】** 手套提供腕部 $SE(3)$ 位姿和手指关节；腕部通过 mink 求 IK，手部通过关节映射驱动。推理时策略发布同一坐标约定下的腕部轨迹和指尖关键点，因此训练、介入和部署共享低层动力学。
+
+接管瞬间记录机器人状态 $(\mathbf T_t^R,\mathbf q_t^R)$ 与人类状态 $(\mathbf T_t^H,\mathbf q_t^H)$，之后只映射相对变化：
+
+$$\mathbf T_{t'}^R=\mathbf T_t^R(\mathbf T_t^H)^{-1}\mathbf T_{t'}^H,\qquad \mathbf q_{t'}^R=\mathbf q_t^R+\mathbf q_{t'}^H-\mathbf q_t^H.$$
+
+这样脚踏板切换不会把人手的绝对坐标直接“瞬移”到机器人；论文报告接管成功率超过 85%，只有介入片段被加入后续 DAgger 训练。
+
+#### Qwen3-VL Backbone 与 Action Expert
+
+**【Paper】** Backbone 将 6 帧图像作为视频序列处理，状态经两层 MLP 注入连续 token；状态历史以 75% 概率替换为可学习 mask，降低模型只看 proprioception 的 shortcut。双相机 post-training 时，胸前视角以 50% 概率 dropout。
+
+Action Expert 是约 300M 参数的 14 层 DiT（hidden 1024、8 heads、MLP 2816），每层同时 attend 自身 token 与 backbone 第 $2\ell$ 层的 KV cache。代码中对应 `src/model/vlm/qwen3_expert.py` 与 `src/model/action/action_head.py`。
+
+#### World Model Expert
+
+**【Paper】** 4 层、约 70M 参数的 Transformer 接收干净动作 chunk、相对相机运动和 144 个 learnable query，输出未来帧的 DINOv3 ViT-L/16 特征。384×384 输入产生 24×24 的 teacher grid，再由 2×2 线性投影上采样。该 expert 不在推理图中，因此辅助目标没有部署时延。
+
+### 4.3 关键公式
+
+#### Flow Matching 与 RTC
+
+给后缀动作 $\mathbf a_{\mathrm{suf}}$ 加高斯噪声 $\boldsymbol\epsilon$，取 $\eta\in[0,1]$：
+
+$$\tilde{\mathbf a}_{\mathrm{suf}}=(1-\eta)\boldsymbol\epsilon+\eta\mathbf a_{\mathrm{suf}},$$
+$$\mathcal L_{\mathrm{CFM}}=\mathbb E\left[\left\|\pi(\tilde{\mathbf a}_{\mathrm{suf}},\eta,\mathbf C_t)-(\mathbf a_{\mathrm{suf}}-\boldsymbol\epsilon)\right\|_2^2\right].$$
+
+其中 $\mathbf C_t$ 包含语言、内参、图像和状态历史。RTC 把前 $d$ 步干净动作作为 prefix，模型只对后缀去噪；预训练 $d=0$，机器人 post-training 随机采样 $d\in[0,5]$。
+
+#### World Model 损失
+
+$$\mathcal L_{\mathrm{WM}}=\frac1{H_vW_v}\sum_{u,v}\left\|\mathbf Z_{u,v}-\hat{\mathbf Z}_{u,v}\right\|_2^2.$$
+
+这里 $\mathbf Z$ 是冻结 DINOv3 teacher 的未来帧特征，$\hat{\mathbf Z}$ 是 World Model Expert 的重建。特征回归比像素生成更不容易被光照和背景噪声干扰。
+
+#### 总目标
+
+$$\mathcal L_{\mathrm{total}}=\mathcal L_{\mathrm{CFM}}+\mathcal L_{\mathrm{WM}}+0.05\mathcal L_{\mathrm{VLM}}.$$
+
+**【Code】** 配置文件 `egosteer_qwen3_vl.yaml` 中对应 `flow_loss_weight: 1.0`、`wm_loss_weight: 1.0`、`ce_loss_weight: 0.05`；VLM 分支在混合数据训练时承担 next-token prediction。
+
+### 4.4 Training
+
+**【Paper】** 预训练使用 9.6K 小时 EgoSmith 数据；真实机器人 post-training 使用 187 小时 teleoperation 数据，随后三轮 DAgger 收集 3.7K 条、8.3 小时纠正轨迹。预训练阶段 128 张 A800、global batch 4608、175K steps（164 小时）；post-training 阶段 96 张 A800、batch 384、60K steps（29 小时）。
+
+<Algorithm number={1} title='EgoSteer 训练' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>第一视角或机器人 episode：语言、RGB 历史、状态、动作、相机运动与未来帧。</div>
+  <div slot='output'>可部署的 EgoSteer policy checkpoint。</div>
+  <AlgorithmStep>从 WebDataset shuffle buffer 采样一个 episode window，并构造 6 帧状态历史和 32 步动作 chunk。</AlgorithmStep>
+  <AlgorithmStep>将输入送入 Qwen3-VL backbone；对动作后缀采样 flow time 与噪声，保留 RTC prefix。</AlgorithmStep>
+  <AlgorithmStep>Action Expert 回归 flow velocity；World Model Expert 回归未来 DINOv3 特征；VLM 分支计算语言 loss。</AlgorithmStep>
+  <AlgorithmStep>按 $\mathcal L_{total}$ 反向传播，使用 HSDP、mixed precision、torch.compile、FlexAttention 和 WebDataset streaming。</AlgorithmStep>
+  <AlgorithmStep>先在人类数据上预训练，再用真实机器人数据 grounding；部署失败时采集介入片段进行 DAgger refinement。</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 部署时 action chunk 长度仍为 32，模拟延迟固定为 $d=4$；只保留前 12 步，因此扣除 prefix 后每轮实际执行 8 个新动作步。World Model Expert 被丢弃，策略通过 WebSocket server 向 Robot Stack 返回动作。
+
+<Algorithm number={2} title='EgoSteer 异步推理' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前语言指令、最近 6 帧相机图像、状态历史、相机内参，以及正在执行的动作 prefix。</div>
+  <div slot='output'>腕部相对位姿与双手指尖关键点动作 chunk。</div>
+  <AlgorithmStep>Robot Stack 将观测编码后发送给 EgoSteer WebSocket policy server。</AlgorithmStep>
+  <AlgorithmStep>Qwen3-VL 产生 backbone KV cache，Action Expert 从高斯噪声开始执行 10 步 flow integration。</AlgorithmStep>
+  <AlgorithmStep>将 prefix 作为已知动作，读取去噪后的 suffix；只截取部署窗口并通过统一 FK/IK 控制节点执行。</AlgorithmStep>
+  <AlgorithmStep>若人类踩下脚踏板，启用相对运动映射接管；再次切换后从当前机器人状态继续策略推理。</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** 官方仓库是可运行的训练、评估和 serving 实现，而不只是模型定义：
+
+| 论文概念 | 代码位置与实现 |
+| --- | --- |
+| 策略与三项损失 | `src/policy/egosteer.py`、`src/policy/egosteer_loss.py`；flow、WM、CE 分开计算后加权 |
+| Qwen3-VL backbone | `src/model/vlm/qwen3_vl_backbone.py`；新增 `<state>`、`<action>` slot token |
+| Action Expert | `src/model/vlm/qwen3_expert.py`；14 层、KV projection、AdaLN 条件化 |
+| World Model | `src/model/world_model/frozen_teacher.py` 与 `world_model/frozen_regression.yaml`；DINOv3 teacher 冻结 |
+| 数据窗口 | `src/dataset/vla_dataset.py`；RGB history=6、action horizon=32、WebDataset shuffle buffer=16384 |
+| 训练启动 | `train.py` 与 `scripts/train_egosteer_fsdp2_single_node.sh`；支持单机、多机和 cloud launcher |
+| 推理服务 | `src/serving/websocket_policy_server.py` 与 `src/policy/egosteer_inference.py` |
+
+**【Code】** README 提供 `EgoSteer-3B-Base`（9.6K 小时人类视频预训练）和 `EgoSteer-3B-RealMan`（RealMan post-training）权重。代码默认使用 Qwen3-VL-2B 与 DINOv3-ViT-L/16，最小推理环境为 Python 3.10、PyTorch 2.10 和 CUDA 12.8。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+![七类灵巧操作任务与双手机器人设置（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egosteer/teleop_task_7x6.5q85lxzbqq.webp)
+
+**【Paper】** 主实验覆盖 32 个 seen、4 个 compositional generalization、4 个 unseen task，每个任务 10 次随机试验；动作和语言均采用自由形式，物体、桌布和初始布局随机化。数据集包含 PnP Easy/Medium/Hard、non-prehensile、reorient、bimanual、contact-rich 七类。
+
+### 5.2 Main Results
+
+![40 个任务上的成功率与类别分布（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egosteer/main_exp_visualization.7sny9zxwne.webp)
+
+**【Paper】** EgoSteer 在 40 个任务上平均成功率 75%，其中 22 个任务超过 80%；组合泛化平均 65%，未见任务 62%。它能遵循目标物体、指定手和细粒度动作指令，并在失败后重试。
+
+基线比较中，EgoSteer 达到约 74%，Being-H0.5 为 39%，$\pi_{0.5}$ 为 22%。论文将差距归因于统一动作表示、更高分辨率、训练期 RTC 和更完整的部署优化。
+
+### 5.3 Ablation Study
+
+![预训练规模、DAgger、基线和组件消融结果（论文 Figure 7 / Table 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-egosteer/scaling_law_visualization.et918d91t.webp)
+
+**【Paper】**
+
+| 变体 | 平均成功率 | 观察 |
+| --- | ---: | --- |
+| EgoSteer-FT（无 DAgger） | 22.5% | 仅 teleop fine-tuning，容易在部署分布偏移下失败 |
+| EgoSteer-DG | **62.5%** | 仅增加 8.3 小时纠正数据 |
+| No WM-objective | 31% | 细粒度动作精度下降 |
+| No training-RTC | 39% | contact-rich 任务出现暂停和抖动 |
+| Noisy data | 33% | 指令遵循与收敛均恶化 |
+| Ours | **44%** | 完整组件 |
+
+**【Paper】** 预训练从 3K 扩展到 6K、9.6K 小时会同时降低预训练 loss、提升真实执行 success/progress；这支持 EgoSmith 的数据质量和 EgoSteer 的 scaling behavior。
+
+### 5.4 Generalization
+
+**【Paper】** 在 120 条 box-folding 示范（RealMan，18 steps、40 秒）和 200 条 cake-unboxing 示范（AgiBot G1，9 steps、1 分钟）下，预训练模型分别达到 75% 和 83%。Diffusion Policy、IMLE 以及从零训练的 EgoSteer 均为 0%，说明第一视角预训练提供的是可迁移的操作先验，而非单任务轨迹记忆。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** 性能提升来自三个互补的归纳偏置：EgoSmith 让监督信号在几何和语言上变干净；统一 48D action space 让人类与机器人共享“要做什么”的接口；DINOv3 world-model loss 则迫使 backbone 的表示包含动作后未来状态，而不是只做静态图像-语言匹配。DAgger 进一步把有限人工时间集中在策略最容易犯错的状态。
+
+### 6.2 核心创新
+
+**【Analysis】** 真正的创新不是“再加一个 Transformer”，而是把数据引擎、动作接口、训练目标和执行时序一起优化。尤其是 world-model expert 训练后移除，使“未来想象”成为零推理开销的表征正则；RTC 将异步计算延迟显式纳入训练分布，解决了很多 VLA 在实验室离线指标高、上机却停顿的问题。
+
+### 6.3 与已有方法的本质区别
+
+**【Analysis】** 传统 VLA 通常在固定 embodiment 的机器人轨迹上端到端拟合；EgoSteer 先用人类视频学习跨 embodiment 的语义与手部先验，再用少量机器人数据完成 grounding。它也不同于单纯的 offline imitation：Robot Stack + DAgger 允许从任意部署状态接管并回收失败样本。
+
+### 6.4 关键假设
+
+- **【Paper】** 人类腕部与指尖轨迹包含可迁移的操作知识，且能通过统一相对坐标表达。
+- **【Paper】** DINOv3 特征足以作为未来状态的稳定语义目标。
+- **【Analysis】** 6 帧、5 秒历史与 32 步 chunk 覆盖了主要任务的短期动力学；对更快接触事件或长时规划，这一假设可能不成立。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 机器人自由度仍限制了人类高灵巧知识的迁移；数据、模型和 embodiment 都缺少触觉反馈，限制了接触丰富任务；9.6K 小时预训练规模仍可扩大，以覆盖更广先验和提升未见任务泛化。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】** EgoSmith 的 4D 重建和语言标注依赖多个外部模型，质量阈值与数据集权重带有启发式成分；不同相机、手型和控制器的标定误差可能被模型误学成动作规律。实验报告主要是成功率，尚未充分拆解恢复次数、碰撞风险、能耗或每次推理的真实延迟；论文也未明确说明所有 40+ 任务的完整公开评测协议。
+
+## 8. 启发与研究思考
+
+1. **数据工程本身就是模型能力**：当原始视频规模达到十万小时量级时，深度、相机轨迹、语言和质量过滤的接口设计，可能比再堆几层网络更决定下游上限。
+2. **训练期辅助目标要服务于部署瓶颈**：预测 DINOv3 future feature 与部署时的动作精度直接相关，而不是泛化的“多任务学习”装饰。
+3. **纠错数据应按失败状态采集**：DAgger 用 8.3 小时把 22.5% 提升到 62.5%，提示真实机器人数据的边际价值取决于是否覆盖 policy 自己走到的分布。
+4. **异步控制需要进入训练分布**：RTC 的 prefix/suffix 设计值得推广到所有有高频控制和可变推理延迟的 VLA。
+5. **下一步问题**：如何把触觉、力控和更高 DoF 手部加入同一 action space？如何让世界模型预测不止一个未来帧，并支持长时任务规划？这些问题决定 EgoSteer 能否从“40 个任务的 steerability”走向真正开放世界的 dexterous autonomy。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】` 表示基于论文和代码的分析推断。
+</Aside>
