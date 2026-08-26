@@ -1,0 +1,289 @@
+---
+title: 'TraceVLA 论文精读：用视觉轨迹提示补上 VLA 的时空记忆'
+publishDate: 2026-08-26
+updatedDate: 2026-08-26
+description: '精读 TraceVLA：用 Co-Tracker 把机器人和物体的历史运动叠加到当前图像，在不堆叠历史帧的情况下增强 VLA 的空间—时间感知。'
+heroImage:
+  { src: 'https://pic.hana0721.top/62258773_p0_master1200.7zr0vfh0rf.webp', color: '#8C8275' }
+category: 'research'
+pixivLink: '62258773'
+tags:
+  - 'paper deep dive'
+  - 'VLA'
+  - 'robot manipulation'
+  - 'spatial-temporal reasoning'
+paper:
+  arxivId: '2412.10345'
+  title: 'TraceVLA: Visual Trace Prompting Enhances Spatial-Temporal Awareness for Generalist Robotic Policies'
+  authors:
+    - 'Ruijie Zheng'
+    - 'Yongyuan Liang'
+    - 'Shuaiyi Huang'
+    - 'Jianfeng Gao'
+    - 'Hal Daumé III'
+    - 'Andrey Kolobov'
+    - 'Furong Huang'
+    - 'Jianwei Yang'
+  venue: 'arXiv'
+  year: 2024
+  code: 'https://github.com/umd-huang-lab/tracevla'
+  project: 'https://tracevla.github.io/'
+---
+
+import { ArxivRating } from '@/components/advanced'
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+import { Aside } from '@/components/user'
+
+<ArxivRating
+  id='2412.10345'
+  tldr='TraceVLA 用 Co-Tracker 把历史运动压缩成叠加在当前观测上的视觉轨迹，让 OpenVLA 在仿真和真实 WidowX 操作中获得更强的时空感知与泛化。'
+  rank={4}
+/>
+
+## 1. 论文概述
+
+**论文名称**：《TraceVLA: Visual Trace Prompting Enhances Spatial-Temporal Awareness for Generalist Robotic Policies》
+
+**作者**：Ruijie Zheng、Yongyuan Liang、Shuaiyi Huang、Jianfeng Gao、Hal Daumé III、Andrey Kolobov、Furong Huang、Jianwei Yang
+
+**论文链接**：[arXiv](https://arxiv.org/abs/2412.10345) · **代码**：[umd-huang-lab/tracevla](https://github.com/umd-huang-lab/tracevla) · **项目主页**：[tracevla.github.io](https://tracevla.github.io/)
+
+![TraceVLA 总体架构：原始观测、叠加轨迹的观测、分隔 token 与动作 token（论文 Figure 1）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-tracevla/tracevla-overview.webp)
+
+### 一句话总结
+
+**【Paper】** TraceVLA 不把一串高度相似的历史图像直接塞进 VLA，而是用 Co-Tracker 找到运动中的点，把它们的轨迹画在当前图像上，再将“原图 + 轨迹图”作为多模态提示输入模型。这样，VLA 可以同时看到清晰的当前状态和紧凑的历史运动线索。
+
+### 核心贡献
+
+**【Paper】**
+
+1. 提出 Visual Trace Prompting：用稠密点跟踪与 active-point 筛选，把状态—动作历史编码为 2D 视觉轨迹。
+2. 基于 OpenVLA 微调 7B TraceVLA，并用约 150K 条带轨迹标注的机器人操作数据训练；另提供基于 Phi-3-Vision 的 4B 版本。
+3. 在 SimplerEnv 的 137 个配置和 WidowX-250 真实机器人任务上验证，7B 模型在 SimplerEnv 的 overall success rate 为 47.7%，比 OpenVLA 的 40.2% 高 7.5 个百分点；真实 corn pick-place 任务达到 8/10，而 OpenVLA 为 1/10。
+
+## 2. 背景与相关工作
+
+**【Paper】** VLA 将视觉—语言基础模型与机器人动作 token 对齐，具备跨任务、跨物体和跨场景的泛化潜力。但典型 VLA 推理只把当前图像 (o_t) 映射为动作 (a_t)，模型容易对当前帧做反应式决策，却不知道机械臂刚刚从哪里来、物体如何运动、上一动作是否已经造成遮挡或碰撞风险。
+
+一种直接方案是把 (o\_{t-N},ldots,o_t) 全部拼接输入。论文认为这些帧通常视觉上高度冗余，额外 image tokens 反而会让模型难以抓住与控制有关的变化。TraceVLA 的关键取舍是：保留一张干净原图，再用少量可视化轨迹表达运动历史。
+
+**【Analysis】** 这不是给 VLA 增加一个新的 3D state encoder，而是把 temporal grounding 转换成视觉编码器擅长的“几何图形识别”问题，因此可以复用 OpenVLA 的 backbone 和动作头。
+
+## 3. 问题定义
+
+**【Paper】** 给定当前观测 (o*t)、最近 (N) 帧历史 (mathbf h_t=(o*{t-N},ldots,o_t)) 与语言任务 (l)，模型需要输出机器人动作 (a_t)：
+
+$$
+\hat a_t = \pi_\theta(o_t,\; \operatorname{Trace}(\mathbf h_t),\; l).
+$$
+
+- **Observation**：RGB 图像；训练和 WidowX 实验使用固定第三人称视角，真实机器人图像为 (256\times256)。
+- **Trace**：从 (K\times K) 网格点开始，用 Co-Tracker 跨 (N) 帧跟踪，再保留运动总量超过阈值 (kappa) 的点，随机采样 (M) 条轨迹。
+- **Action representation**：沿用 OpenVLA 的离散 action token。官方 `ActionTokenizer` 将每个连续动作维度量化到 256 个 bin，再映射到词表末端 token。
+- **Embodiment / tasks**：SimplerEnv Google robot 仿真与 WidowX-250 真实桌面操作；任务涵盖 pick-and-place、抽屉、软物体和推扫等操作。
+
+## 4. 方法
+
+### 4.1 Overall Architecture
+
+![Visual Trace 生成：Co-Tracker 跟踪网格点、筛选 active points，并将轨迹叠加到当前观测（论文 Figure 2）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-tracevla/tracevla-trace-generation.webp)
+
+**【Paper】** 数据流只有一句话：历史图像 (
+ightarrow) Co-Tracker 点轨迹 (
+ightarrow) active-point 筛选与采样 (
+ightarrow) 当前图像上的彩色 trace (
+ightarrow) 原图和 trace 图之间插入 separator token (
+ightarrow) VLA 预测动作 token。
+
+### 4.2 核心模块
+
+#### Active-point visual trace
+
+- **输入**：长度为 (N) 的图像窗口和 (K\times K) 网格点。
+- **中间模块**：Co-Tracker 输出每个点的 ((x,y)) 序列；计算相邻帧位移 (Delta p*{t'}=|p*{t'+1}-p\_{t'}|\_1)，将总位移超过 (kappa) 的轨迹标为 active。
+- **输出**：随机采样的 (M) 条轨迹，绘制在 (o_t) 上，并在末端画方向箭头。
+- **为什么需要**：静态背景点几乎没有控制价值，过滤后轨迹只突出机械臂末端和被推动、抓取的物体。
+
+**【Code】** 训练配置在论文中给出 (K=40,M=5,N=6)，而公开推理代码 `TraceProcessor` 使用 `grid_size=30`，默认 `num_points=5`、`buffer_size=10`、`window_size=15`，并每 25 步重新进行 dense tracking。这是论文超参数与当前代码默认值的明确差异。
+
+#### 双图像输入与 trace dropout
+
+叠加轨迹可能遮住夹爪或目标物，因此模型同时接收原始图像和 trace 图，并用特殊 separator token 分开。训练时以概率 (alpha) 将 trace 图替换回原图并移除 trace 提示，使模型在 Co-Tracker 失败或光照不佳时仍能退化为普通 VLA。
+
+#### VLA 与 action decoder
+
+**【Paper】** TraceVLA 从 OpenVLA 7B 微调；TraceVLA-mini 以 4B Phi-3-Vision 为 backbone，并在 Open-X-Embodiment 上采用与 OpenVLA 类似的预训练配方。模型仍然由 vision encoder、projector、语言模型和 action-token head 构成，创新集中在输入提示而不是更换 action policy。
+
+**【Code】** `prismatic/models/vlas/openvla.py` 的 `predict_action` 调用 `generate_actiontokens`，随后由 `ActionTokenizer.decode_token_ids_to_actions` 将 token 反量化为连续动作，并按保存的 `q01/q99` 统计量反归一化。
+
+### 4.3 关键公式
+
+#### Active-point 筛选
+
+$$
+\Delta p_{t'}=\left\|p_{t'+1}-p_{t'}\right\|_1,
+\qquad
+\hat{\mathcal P}=\left\{p\in\mathcal P\mid\sum_{t'=t-N}^{t-1}\Delta p_{t'}>\kappa\right\}.
+$$
+
+(p) 是一条点轨迹，(mathcal P) 是所有网格点轨迹，(hat{mathcal P}) 是过滤后的 active points。这个公式把“运动”作为历史信息的稀疏性先验。
+
+#### VLA action-token 目标
+
+$$
+\mathcal L(\theta)=-\sum_{j=1}^{d_a}\log p_\theta(y_{t,j}\mid o_t,\operatorname{Trace}(\mathbf h_t),l,y_{t,<j}),
+$$
+
+其中 (y\_{t,j}) 是第 (j) 个离散动作 token，(d_a) 是动作维度。**【Code】** 训练脚本默认 `action_loss_calculation="action_token_only"`，即只对动作 token 计算交叉熵，而不是对整段语言 prompt 求 loss。
+
+### 4.4 Training
+
+**【Paper】** 轨迹标注来自 BridgeData-v2、Google RT-1 robot 数据以及 WidowX-250 的演示，总量约 150K。为降低离线标注成本，训练阶段把 demonstration 切成重叠的 (2N) 段，每段只做一次 (K\times K) dense tracking，却覆盖未来 (2N) 帧。7B 与 4B 模型都在基础 VLA 上额外微调 5 个 epoch。
+
+**【Code】** `vla-scripts/train.py` 通过 `get_vla_dataset_and_collator` 构造 RLDS 数据集；配置项包含 Open-X 数据根目录、FSDP/多 GPU 训练和 action-token-only loss。官方 README 给出的 TraceVLA 训练命令是 8 节点、每节点 8 GPU 的 `torchrun`。
+
+<Algorithm number={1} title='TraceVLA Training' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>机器人轨迹、语言指令、Co-Tracker 标注器与预训练 VLA</div>
+  <div slot='output'>带 visual-trace prompt 的 VLA policy</div>
+  <AlgorithmStep>将每条 demonstration 切成重叠的 (2N) 时间段</AlgorithmStep>
+  <AlgorithmStep>对每段运行 (K\times K) Co-Tracker，计算位移并筛选 active points</AlgorithmStep>
+  <AlgorithmStep>把 (M) 条轨迹绘制到当前帧，按 trace-dropout 概率决定是否保留该提示</AlgorithmStep>
+  <AlgorithmStep>将原图、trace 图、separator token 和语言指令送入 VLA</AlgorithmStep>
+  <AlgorithmStep>只在 action tokens 上计算交叉熵，反向更新 VLA 参数</AlgorithmStep>
+</Algorithm>
+
+### 4.5 Inference
+
+**【Paper】** 推理初期先用普通 prompt；有足够历史后，第一次运行 dense (K\times K) tracking 找到 active points，之后只跟踪这 (M) 个点。由于 Co-Tracker 约 30–40 步后可能丢失轨迹，系统会周期性 dense re-query，再用当前帧的 trace 图预测动作。
+
+**【Code】** `TraceProcessor.process_image` 在 `begin_track_step` 前返回原图；成功跟踪后保留最近 `window_size` 个 trace，并用 `_visualize_trace` 绘制彩色线段和箭头。`tracevla_simpler.py` 在 trace 无效时切换到普通 prompt，在有效时将 `[image, image_overlaid]` 送入 processor。
+
+<Algorithm number={2} title='TraceVLA Inference' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>当前图像、历史图像队列、语言任务、训练好的 VLA 与 Co-Tracker</div>
+  <div slot='output'>反归一化后的连续机器人动作</div>
+  <AlgorithmStep>环境 reset，缓存最近 (N) 帧图像</AlgorithmStep>
+  <AlgorithmStep>若历史不足或 Co-Tracker 失败，使用普通 VLA prompt 和原图</AlgorithmStep>
+  <AlgorithmStep>
+    首次或周期性重绘时在图像网格上 dense tracking，并采样 (M) 个 active points
+  </AlgorithmStep>
+  <AlgorithmStep>其余时间只跟踪已有 active points，生成 trace overlay</AlgorithmStep>
+  <AlgorithmStep>将原图与 overlay 图输入 VLA，生成 256-bin action tokens</AlgorithmStep>
+  <AlgorithmStep>用 dataset statistics 反归一化动作并交给机器人执行</AlgorithmStep>
+</Algorithm>
+
+### 4.6 代码实现对照
+
+**【Code】** 官方仓库的关键对应关系如下：
+
+| 论文概念                | 代码位置                             | 实际行为                                             |
+| ----------------------- | ------------------------------------ | ---------------------------------------------------- |
+| Visual trace generation | `prismatic/eval/trace_processor.py`  | Co-Tracker、active-point 过滤、缓存和绘图            |
+| Prompt fallback         | `prismatic/eval/tracevla_simpler.py` | `has_trace=False` 时使用 OpenVLA prompt              |
+| VLA action decoding     | `prismatic/models/vlas/openvla.py`   | 生成 token 后反量化并按 `q01/q99` 反归一化           |
+| Action discretization   | `prismatic/vla/action_tokenizer.py`  | 256 个 bin，映射到词表末端 token                     |
+| Training entry          | `vla-scripts/train.py`               | RLDS dataset、FSDP、多 GPU 与 action-token-only loss |
+
+**【Analysis】** 代码把 trace processor 放在推理 wrapper，而不是改写语言模型的内部 attention；因此方法的可移植性很强，但性能上限也依赖 2D tracker 在新相机、遮挡和快速运动下的可靠性。
+
+## 5. 实验
+
+### 5.1 Experimental Setup
+
+**【Paper】** 仿真使用 SimplerEnv 的 visual matching 与 variant aggregation 两种设置，覆盖 Move Near、Pick Coke Can、Open/Close Drawer 三个任务和 137 个环境配置；真实评测使用固定第三人称相机的 WidowX-250，设计 8 个任务，其中 4 个任务用于未见泛化。
+
+![SimplerEnv 与真实机器人评测中的 TraceVLA / OpenVLA 平均结果（论文 Figure 3）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-tracevla/tracevla-simplerenv-results.webp)
+
+基线包括 OpenVLA、OpenVLA-Phi3、Octo-Base 和 RT1-X。指标为任务成功率；variant aggregation 额外改变相机姿态、光照、背景、干扰物和桌面纹理。
+
+### 5.2 Main Results
+
+**【Paper】** SimplerEnv 的关键结果如下：
+
+| 模型          |        Visual Matching |    Variant Aggregation |   Overall |
+| ------------- | ---------------------: | ---------------------: | --------: |
+| OpenVLA       |     47.1 / 15.3 / 49.5 |     54.0 / 52.8 / 22.5 |     40.2% |
+| TraceVLA      | **53.7 / 28.0 / 57.0** | **56.4 / 60.0 / 31.0** | **47.7%** |
+| OpenVLA-Phi3  |     46.1 / 46.7 / 22.5 |     51.9 / 49.7 / 22.2 |     39.9% |
+| TraceVLA-mini | **50.4 / 52.2 / 31.0** | **55.0 / 52.4 / 23.2** | **44.0%** |
+
+三列顺序分别是 Move Near、Pick Coke Can、Open/Close Drawer。**【Paper】** TraceVLA 7B 相对 OpenVLA overall 提升 7.5 个百分点，4B 版本相对 OpenVLA-Phi3 提升 4.1 个百分点。
+
+![WidowX-250 真实机器人任务上的成功率对比（论文 Figure 5）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-tracevla/tracevla-real-results.webp)
+
+**【Paper】** 在未出现在训练集的 pick-place corn 任务上，TraceVLA 成功 8/10，OpenVLA 成功 1/10。附加的 banana、eggplant、battery、push-cloth 四个未见任务也显示 TraceVLA 更能遵循新目标和新运动指令。
+
+### 5.3 Ablation Study
+
+![微调、历史帧、visual trace 的消融对比（论文 Figure 6）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-tracevla/tracevla-ablation.webp)
+
+**【Paper】** 消融回答了三个问题：
+
+- 只在同一小数据子集上继续微调并不能解释收益：OpenVLA 仅提升 1.1%，OpenVLA-Phi3 反而下降 0.3%。
+- 把 6 张历史图像直接拼接给 OpenVLA 使 overall success rate 下降约 6%，说明冗余视觉 token 会干扰决策。
+- 用文本坐标描述轨迹比 baseline 高 2.4%，但仍比 visual trace 低 6.4 个百分点，证明视觉编码器比纯文本更适合消费这种几何运动提示。
+
+**【Paper】** 轨迹长度 (N=3) 比默认设置额外带来 3.2% 提升；(N=12) 可能遮挡关键物体，体现历史信息量与场景可读性之间的 trade-off。论文附录还报告了合理范围内线宽、透明度和颜色变化对性能影响很小。
+
+### 5.4 Generalization
+
+**【Paper】** variant aggregation 中，TraceVLA 在相机方向、干扰物和背景变化下平均提升超过 20%（相对于对应 OpenVLA 条件）。真实实验则从三类变化测试泛化：未见物体（banana、battery）、未见目标（eggplant 放到 plate）和未见运动（push cloth）。
+
+![额外 GPU memory 与 inference time 开销（论文 Figure 9）](https://raw.githubusercontent.com/Minakanmi-Yuki/picx-images-hosting/master/blog/paper-deep-dive-tracevla/tracevla-costs.webp)
+
+**【Paper】** batch size 为 32 时，加入第二张图的训练显存差异小于 10 GB；H100 上额外文本与图像 token 约增加 0.002 秒/步，5 点 Co-Tracker 约增加 0.03 秒/步，(40\times40) dense tracking 摊销后约 0.004 秒/步。
+
+## 6. 方法分析
+
+### 6.1 为什么有效？
+
+**【Analysis】** TraceVLA 同时解决了“历史太长”和“当前状态不能丢”两个矛盾：轨迹线把历史压缩成低带宽几何提示，原图则保留抓取点、纹理和语言 grounding 所需的细节。active-point 过滤进一步把 token 预算从“多张完整图像”转为“少量运动线”。
+
+### 6.2 核心创新
+
+1. **表示创新**：把 state-action history 变成可视化轨迹，而非追加 observation frames。
+2. **系统创新**：原图 + overlay + separator 只需对现有 VLA 的输入格式做小改动。
+3. **工程创新**：dense tracking 只负责发现 active points，之后用稀疏跟踪维持实时性。
+4. **鲁棒性设计**：trace dropout 让模型学会在有、无 trace 两种模式下工作。
+
+### 6.3 与已有方法的本质区别
+
+历史帧堆叠增加的是原始视觉上下文，text trace 增加的是坐标 token；TraceVLA 增加的是由视觉 encoder 直接解析的运动几何。**【Analysis】** 这使它不依赖额外的时序 Transformer 或显式 3D state，同时更接近 OpenVLA 已经学会的图像理解路径。
+
+### 6.4 关键假设
+
+- 2D 点轨迹足以表达当前任务所需的主要空间关系；论文没有证明所有接触和深度关系都能由 2D trace 恢复。
+- 运动明显的点比静态背景更有控制价值，且随机采样 (M) 个 active points 不会丢掉关键对象。
+- Co-Tracker 在训练与部署相机上能稳定工作；否则模型依赖 dropout 学到的 fallback。
+- OpenVLA 的 action tokenizer 与低层控制器已经足够，瓶颈主要来自时空观测而非动作空间。
+
+## 7. 局限性
+
+### 7.1 作者明确提出的局限
+
+**【Paper】** 额外图像和 Co-Tracker 会增加训练显存与推理时间；长 trace 可能遮挡夹爪或物体；Co-Tracker 需要周期性 dense re-query 以避免丢轨迹。作者还提出未来可研究多点空间轨迹预测与 3D point cloud 表示。
+
+### 7.2 自己分析得到的局限
+
+**【Analysis】**
+
+1. active-point 的运动阈值 (kappa) 依赖像素尺度、相机视角和动作速度，跨数据集迁移时可能需要重新调参。
+2. 随机采样 5 个点并不保证覆盖真正的接触点；快速运动、遮挡、反光或纹理贫乏区域会让 trace 断裂。
+3. 轨迹是 2D 投影，无法区分沿视线方向的运动；对堆叠、插入和遮挡严重的任务，2D 线索可能不充分。
+4. 代码默认值（例如 grid size 30、窗口 15、每 25 步重绘）与论文中 (K=40,N=6) 并不完全一致，复现实验时必须锁定 commit、checkpoint 和配置。
+
+## 8. 启发与研究思考
+
+**【Analysis】** TraceVLA 最值得借鉴的不是“画线”本身，而是它把时序建模拆成了一个可插拔的 perception adapter：任何能输出稀疏几何提示的 tracker、光流或 segmentation memory，都可以替换 Co-Tracker，而不必重写 VLA 主体。
+
+后续研究可以沿三个方向展开：
+
+- **从被动轨迹到预测轨迹**：让模型同时预测未来的关键点轨迹，再把预测轨迹作为 action planning 的中间表示。
+- **从 2D 到 3D / object-centric trace**：将深度、物体 ID 和接触状态一起画入 prompt，减少视角变化和遮挡造成的歧义。
+- **自适应 trace budget**：根据场景运动量动态决定 (M,N) 和重绘频率，在静态场景省算力、在快速接触阶段保留更多历史。
+
+<Aside type='note' title='阅读提示'>
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。论文与代码默认值不一致时，以代码对照段落为准。
+</Aside>
