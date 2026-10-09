@@ -37,3 +37,69 @@
 .libero-guide > .algorithm {
   margin-block: 1rem;
 }
+
+.libero-guide .libero-media {
+  min-width: 0;
+  margin: 1rem 0;
+}
+
+.libero-guide .libero-media img {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 0;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.5rem;
+}
+
+.libero-guide .libero-media figcaption {
+  margin-top: 0.4rem;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.libero-guide .libero-media figcaption p {
+  display: inline;
+  margin: 0;
+}
+
+.libero-guide .libero-media figcaption a {
+  margin-inline-start: 0.35rem;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+.libero-guide .libero-task-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-block: 1rem;
+}
+
+.libero-guide .libero-task-grid .libero-media {
+  margin: 0;
+}
+
+.libero-guide .libero-task-grid img {
+  aspect-ratio: 4 / 3;
+  object-fit: contain;
+  background: hsl(var(--muted) / 0.25);
+}
+
+.libero-guide .libero-media-source {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.libero-guide .libero-media-source a {
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+@media (max-width: 640px) {
+  .libero-guide .libero-task-grid {
+    grid-template-columns: 1fr;
+  }
+}

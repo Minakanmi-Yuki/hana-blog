@@ -38,6 +38,23 @@ LIBERO 基于 **robosuite** 构建，使用 **MuJoCo** 进行物理仿真，默�
 
 你可以把它想象成一个虚拟操作间：里面摆放着碗、盘子、抽屉等物体，机器人通过相机观察场景，再执行抓取、放置和开关抽屉等动作。[官方项目](https://github.com/Lifelong-Robot-Learning/LIBERO)
 
+<figure className='libero-media not-prose'>
+  <img
+    src='https://pic.hana0721.top/blog/paper-deep-dive-libero/overview.45ieme5n5d.webp'
+    alt='LIBERO 论文 Figure 1：任务套件中的仿真场景与五个研究主题'
+    width={3960}
+    height={2160}
+    loading='lazy'
+    decoding='async'
+  />
+  <figcaption>
+    LIBERO 论文 teaser（Figure 1）：任务套件与研究主题概览。
+    <a href='https://arxiv.org/html/2306.03310v2#S1' target='_blank' rel='noopener noreferrer'>
+      论文原图
+    </a>
+  </figcaption>
+</figure>
+
 使用时，最常遇到两个概念：
 
 - **任务（task）**：机器人要完成的目标，例如“把指定的碗放到盘子上”。
@@ -55,6 +72,62 @@ VLA 评测中常用以下四组任务：
 | Object  | `libero_object`  |     10 | 操作不同种类的物体             |
 | Goal    | `libero_goal`    |     10 | 在相近场景中完成不同目标       |
 | Long    | `libero_10`      |     10 | 完成需要多个步骤的较长任务     |
+
+<div className='libero-task-grid not-prose' role='group' aria-label='LIBERO 官方任务仿真示例'>
+  <figure className='libero-media'>
+    <img
+      src='https://pic.hana0721.top/blog/embodied-benchmark-libero/libero-spatial-bowl-on-ramekin.c9f7c378244a.gif?v=c23408d'
+      alt='Panda 机械臂从烤盅上取起黑碗，并将它放到盘子上'
+      width={240}
+      height={180}
+      loading='lazy'
+      decoding='async'
+    />
+    <figcaption>空间关系：将烤盅上的黑碗放到盘子上。</figcaption>
+  </figure>
+  <figure className='libero-media'>
+    <img
+      src='https://pic.hana0721.top/blog/embodied-benchmark-libero/libero-object-tomato-sauce.ffc342713b51.gif?v=c23408d'
+      alt='Panda 机械臂抓取番茄酱包装，并将它放入篮子'
+      width={240}
+      height={180}
+      loading='lazy'
+      decoding='async'
+    />
+    <figcaption>物体操作：将番茄酱放入篮子。</figcaption>
+  </figure>
+  <figure className='libero-media'>
+    <img
+      src='https://pic.hana0721.top/blog/embodied-benchmark-libero/libero-multistep-mug-and-drawer.a0eca629df31.gif?v=c23408d'
+      alt='Panda 机械臂先将白杯放到柜顶，再关闭顶部抽屉'
+      width={240}
+      height={240}
+      loading='lazy'
+      decoding='async'
+    />
+    <figcaption>多步操作：将白杯放到柜顶，再关闭顶部抽屉（官方任务生成示例）。</figcaption>
+  </figure>
+</div>
+
+<p className='libero-media-source'>
+  {'动图摘自 '}
+  <a
+    href='https://libero-project.github.io/assets/videos/libero_demonstration_videos.mp4'
+    target='_blank'
+    rel='noopener noreferrer'
+  >
+    {'官方演示集锦'}
+  </a>
+  {' 与 '}
+  <a
+    href='https://libero-project.github.io/assets/videos/libero_intro.mp4'
+    target='_blank'
+    rel='noopener noreferrer'
+  >
+    {'项目介绍视频'}
+  </a>
+  {'；前两个示例以半速播放，便于观察。'}
+</p>
 
 四组共 **40 个任务**，覆盖空间关系、物体识别、目标理解和多步操作。选择一个任务后，程序会自动加载对应的场景、物体和指令。
 
