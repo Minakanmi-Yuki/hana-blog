@@ -237,6 +237,19 @@ const sidebarCollectionRules = [
     entryHref: '/blog/paper-deep-dive-act'
   },
   {
+    key: 'embodied-benchmarks',
+    title: {
+      zh: '具身智能 Benchmark',
+      en: 'Embodied AI Benchmarks'
+    },
+    description: {
+      zh: '具身智能 Benchmark 的任务、数据与模型评测指南',
+      en: 'Tasks, datasets, and model evaluation guides for embodied AI benchmarks'
+    },
+    slugPrefix: 'embodied-benchmark-',
+    entryHref: '/blog/embodied-benchmark-libero'
+  },
+  {
     key: 'vibe-coding',
     title: {
       zh: 'Vibe Coding Series',

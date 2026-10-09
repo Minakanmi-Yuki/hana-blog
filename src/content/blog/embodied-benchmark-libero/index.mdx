@@ -1,0 +1,284 @@
+---
+title: 'LIBERO 使用指南：从认识任务到评测 VLA'
+publishDate: 2026-10-09
+description: '认识 LIBERO 的任务与仿真环境，准备运行资源，评测已有 VLA，或使用人类演示数据训练模型后再进行评测。'
+heroImage:
+  src: 'https://pic.hana0721.top/93990522_p0_master1200.et40soxif.webp'
+  alt: 'Pixiv 93990522：餐桌旁的少女与室内场景'
+  width: 1200
+  height: 516
+  color: '#8C8275'
+category: 'research'
+pixivLink: '93990522'
+tags:
+  - 'embodied ai'
+  - 'benchmark'
+  - 'libero'
+  - 'vla'
+---
+
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+
+import './style.css'
+
+<div className='libero-guide'>
+
+LIBERO 是一个机器人操作 benchmark，提供虚拟场景、操作任务和人类演示数据，用来衡量模型能否理解任务指令，并控制机器人完成操作。
+
+**VLA（Vision-Language-Action，视觉—语言—动作模型）** 根据图像和任务指令，输出机器人要执行的动作。
+
+对于使用者，主要有两条路线：评测已经训练好的模型，或者使用演示数据训练模型，再进行评测。
+
+## 1. 认识 LIBERO
+
+### 1.1 仿真环境是什么样的
+
+LIBERO 基于 **robosuite** 构建，使用 **MuJoCo** 进行物理仿真，默认机器人是 Panda 机械臂和夹爪。
+
+你可以把它想象成一个虚拟操作间：里面摆放着碗、盘子、抽屉等物体，机器人通过相机观察场景，再执行抓取、放置和开关抽屉等动作。[官方项目](https://github.com/Lifelong-Robot-Learning/LIBERO)
+
+使用时，最常遇到两个概念：
+
+- **任务（task）**：机器人要完成的目标，例如“把指定的碗放到盘子上”。
+- **一次尝试（episode）**：机器人从某个初始状态出发，完整执行一次任务。
+
+同一个任务会运行多次，最后统计成功率。
+
+### 1.2 常用的四组任务
+
+VLA 评测中常用以下四组任务：
+
+| 任务组  | 代码名称         | 任务数 | 主要内容                       |
+| ------- | ---------------- | -----: | ------------------------------ |
+| Spatial | `libero_spatial` |     10 | 根据位置和空间关系选择操作对象 |
+| Object  | `libero_object`  |     10 | 操作不同种类的物体             |
+| Goal    | `libero_goal`    |     10 | 在相近场景中完成不同目标       |
+| Long    | `libero_10`      |     10 | 完成需要多个步骤的较长任务     |
+
+四组共 **40 个任务**，覆盖空间关系、物体识别、目标理解和多步操作。选择一个任务后，程序会自动加载对应的场景、物体和指令。
+
+LIBERO 的完整任务集有 130 个任务，其中还包括 `libero_90`。[任务分类说明](https://arxiv.org/html/2306.03310v2#S4.SS2)
+
+## 2. 开始前的准备
+
+### 2.1 准备硬件和存储空间
+
+已有 VLA 模型、使用 GPU 推理，并且一次运行一个环境时，可以参考下面的配置：
+
+| 资源     | 主要用途             | 参考配置                    |
+| -------- | -------------------- | --------------------------- |
+| CPU      | 物理仿真和数据处理   | 现代 4～8 核                |
+| 系统 RAM | 存放程序运行时的数据 | 32 GB，大模型可考虑 64 GB   |
+| SSD      | 保存软件、模型和结果 | 预留 50～100 GB             |
+| GPU      | 模型推理和图像渲染   | 显存满足所用 VLA 的推理需求 |
+
+评测时需要准备仿真环境、任务初始状态和模型权重。人类演示数据主要用于后面的训练环节。
+
+### 2.2 安装并跑通一个任务
+
+准备顺序可以分成四步：
+
+1. 按照 VLA 项目的教程安装模型运行环境。
+2. 安装 LIBERO 和仿真依赖。
+3. 准备模型权重及其输入、输出处理配置。
+4. 选择一个任务，运行几次，确认图像和机械臂动作正常。
+
+无桌面的服务器通常使用 EGL 渲染：
+
+```bash
+export MUJOCO_GL=egl
+```
+
+安装可以参考 [LIBERO 官方教程](https://github.com/Lifelong-Robot-Learning/LIBERO#installtion)；使用 LeRobot 时，可以参考 [LeRobot 的 LIBERO 教程](https://huggingface.co/docs/lerobot/en/libero#installation)。
+
+第一次运行的目标很简单：环境能加载、相机能出图、模型能输出动作、机械臂能执行动作。
+
+## 3. 用自己的 VLA 进行评测
+
+### 3.1 模型接收什么，输出什么
+
+为了方便描述模型与环境的交互，本文使用以下符号：
+
+| 符号  | 含义                                            |
+| ----- | ----------------------------------------------- |
+| $l$   | 任务的语言指令                                  |
+| $v_t$ | 第 $t$ 步的视觉输入，可以包含一路或多路相机图像 |
+| $a_t$ | 第 $t$ 步模型输出的动作                         |
+| $t$   | 当前交互步数                                    |
+| $\pi$ | VLA 模型，将语言和视觉输入转换为动作            |
+
+以输入为语言和图像的 VLA 为例，动作预测过程可以写成：
+
+$$
+a_t=\pi(v_t,l)
+$$
+
+也就是：模型读取当前图像 $v_t$ 和任务指令 $l$，输出动作 $a_t$。动作经过适配程序处理后，由 LIBERO 执行，环境随后生成下一步的图像 $v_{t+1}$。
+
+整个过程可以理解为：
+
+```text
+任务指令＋当前图像 → VLA → 机器人动作 → 环境更新 → 新图像
+```
+
+**语言 $l$** 由任务自带，程序会自动读取。在同一个任务的执行过程中，指令保持相同。
+
+**视觉输入 $v_t$** 随机器人和场景变化而更新。LIBERO 默认提供两路 RGB 图像：
+
+| 视角     | 观察方式                       |
+| -------- | ------------------------------ |
+| 外部相机 | 从固定机位观察机械臂和场景     |
+| 腕部相机 | 随机械臂末端运动，观察操作区域 |
+
+只使用腕部相机的模型，$v_t$ 就是当前腕部图像；双相机模型的 $v_t$ 则包含两路图像。图像缩放、裁剪和方向处理沿用模型的训练设置。[相机接口](https://github.com/Lifelong-Robot-Learning/LIBERO/blob/master/libero/libero/envs/env_wrapper.py)
+
+**动作 $a_t$** 在 LIBERO 默认接口下包含末端运动增量和夹爪命令，可以表示为：
+
+$$
+a_t=(\Delta p_t,\Delta r_t,g_t)
+$$
+
+其中：
+
+- $\Delta p_t$：末端位置变化，包含三个方向。
+- $\Delta r_t$：末端朝向变化，包含三个分量。
+- $g_t$：夹爪开合命令。
+- $\Delta$：表示“变化量”。
+
+这三部分合起来，就是常见的 **6 维末端运动＋1 维夹爪动作**。[动作接口说明](https://huggingface.co/docs/lerobot/en/libero#policy-inputs-and-outputs)
+
+如果模型输出经过训练归一化，适配程序会按照模型保存的规则还原动作，并对齐单位和夹爪开闭含义。
+
+### 3.2 选择任务和尝试次数
+
+可以从一个任务开始，逐步扩展到一个完整任务组，再评测四组任务。
+
+以原始 OpenVLA 的配套协议为例，每个任务运行 **50 次**：
+
+| 评测范围              | 尝试总数 |
+| --------------------- | -------: |
+| 一个任务              |    50 次 |
+| 一个任务组，10 个任务 |   500 次 |
+| 四个任务组，40 个任务 | 2,000 次 |
+
+复现某个模型的结果时，直接沿用该模型项目的评测次数和配置。[OpenVLA 评测脚本](https://github.com/openvla/openvla/blob/main/experiments/robot/libero/run_libero_eval.py)
+
+### 3.3 初始状态和随机种子
+
+每次尝试都有一个起点，例如物体的位置、抽屉是否打开，以及机械臂的初始姿态。LIBERO 提供了用于评测的初始状态，评测程序会按配置逐个加载。
+
+**seed（随机种子）** 用于控制运行中的随机过程，主要包括：
+
+- **环境种子**：控制环境初始化相关的随机性。
+- **模型推理种子**：控制模型随机采样相关的行为。
+
+在每任务 50 次的示例协议中，程序会在 50 个规定的初始状态上分别运行。比较两个模型时，让它们使用同一组起点和种子，就更容易看出模型表现的差异。
+
+### 3.4 一次评测如何进行
+
+每次尝试的流程如下：
+
+<Algorithm number={1} title='LIBERO 闭环评测' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>任务指令 $l$、初始状态、VLA 模型与动作步数上限。</div>
+  <div slot='output'>本次尝试的成功结果。</div>
+  <AlgorithmStep keyword='Reset'>重置环境，加载初始状态。</AlgorithmStep>
+  <AlgorithmStep keyword='Initialize'>等待场景稳定，清空模型上一轮的历史。</AlgorithmStep>
+  <AlgorithmStep keyword='While'>尚未成功，且未达到动作步数上限：</AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    将任务指令 $l$ 和当前图像 $v_t$ 交给模型，得到动作 $a_t$。
+  </AlgorithmStep>
+  <AlgorithmStep indent={1}>执行动作 $a_t$，获取新图像 $v_{t + 1}$，持续观察和执行。</AlgorithmStep>
+  <AlgorithmStep keyword='End while'>成功或达到动作步数上限后，结束本次尝试。</AlgorithmStep>
+  <AlgorithmStep keyword='Save'>保存结果，开始下一次尝试。</AlgorithmStep>
+</Algorithm>
+
+原始 OpenVLA 和 openpi 的配套示例使用 10 步初始化等待，随后由模型控制机器人：
+
+| 任务组  | 模型动作步数上限 |
+| ------- | ---------------: |
+| Spatial |              220 |
+| Object  |              280 |
+| Goal    |              300 |
+| Long    |              520 |
+
+初始化等待另外计算。较长的任务拥有更大的动作预算。[openpi 评测示例](https://github.com/Physical-Intelligence/openpi/blob/main/examples/libero/main.py)
+
+### 3.5 如何看评测结果
+
+环境会检查任务目标是否完成，并给出成功结果。
+
+成功率的计算方法是：
+
+```text
+成功率 = 成功次数 ÷ 尝试总次数
+```
+
+例如，一个任务运行 50 次，成功 42 次，成功率就是 **84%**。
+
+评测四组任务后，可以分别报告四组成功率，再计算它们的平均值。配合回放视频，还可以直观看到模型在哪些操作上表现较好，哪些步骤容易失败。
+
+### 3.6 如何与其他模型比较
+
+比较时，让模型使用相同的任务、初始状态、尝试次数、种子和动作预算。
+
+结果旁边再注明几项信息：
+
+- 使用哪个模型 checkpoint，即哪一版模型权重。
+- 使用外部相机、腕部相机还是双相机。
+- 是否输入机器人状态和历史图像。
+- 使用哪些数据训练或微调。
+
+这些信息能帮助读者理解分数背后的条件。例如，单腕部相机与双相机模型的成绩，可以一起展示各自系统的表现。
+
+## 4. 使用 LIBERO 数据训练模型
+
+### 4.1 数据里有什么
+
+LIBERO 的训练数据来自人类控制机器人完成任务的演示。
+
+每条演示记录了一段完整操作过程，包括图像、机器人状态和动作，并对应一个任务描述。模型通过这些数据学习：**在某种观察和指令下，应该执行什么动作。**
+
+用前面的符号描述，就是学习根据视觉输入 $v_t$ 和语言指令 $l$，生成合适的动作 $a_t$。
+
+原始数据每任务提供 50 条演示，四个常用任务组合计约 2,000 条。[演示数据说明](https://arxiv.org/html/2306.03310v2#S4.SS4)
+
+### 4.2 下载哪个版本
+
+选择训练框架后，再下载它支持的数据版本：
+
+| 数据版本                                                                                   | 四组任务的数据大小 |
+| ------------------------------------------------------------------------------------------ | -----------------: |
+| [原始 LIBERO HDF5](https://huggingface.co/datasets/yifengzhu-hf/LIBERO-datasets/tree/main) |         约 33.8 GB |
+| [OpenVLA RLDS](https://huggingface.co/datasets/openvla/modified_libero_rlds)               |         约 10.2 GB |
+| [HuggingFaceVLA/libero](https://huggingface.co/datasets/HuggingFaceVLA/libero)             |         约 34.9 GB |
+| [lerobot/libero](https://huggingface.co/datasets/lerobot/libero)                           |         约 1.94 GB |
+
+不同版本采用不同的预处理和图像存储方式。OpenVLA 有配套的 RLDS 数据，LeRobot 提供体积较小的视频版本。
+
+只使用腕部相机的模型，可以在训练配置中选择腕部图像作为输入。
+
+### 4.3 训练资源怎么准备
+
+单 GPU 微调已有 VLA，或训练较小模型时，可以参考以下预算：
+
+| 资源         | 参考配置                            |
+| ------------ | ----------------------------------- |
+| CPU          | 8～16 vCPU                          |
+| 系统 RAM     | 32～64 GB                           |
+| SSD 可用空间 | 200～300 GB，按 checkpoint 数量增加 |
+| GPU 显存     | 根据模型、batch size 和微调方式选择 |
+
+这里的 **batch size** 表示一次训练计算中处理的样本数量。
+
+数据按批次读取，RAM 主要用于数据缓存、图像处理和训练程序运行。磁盘则需要同时容纳数据、基础模型和保存的 checkpoint。
+
+GPU 显存需求由模型决定。例如，原版 OpenVLA 的普通 LoRA 微调，在缩小 batch 后约需要 27 GB 显存。[OpenVLA 微调说明](https://github.com/openvla/openvla#fine-tuning-openvla-via-lora)
+
+### 4.4 训练后回到环境中评测
+
+训练完成后，保存模型权重，以及对应的图像处理和动作归一化配置，再按照第 3 部分运行评测。
+
+训练 loss 用来观察学习进展，闭环成功率用来衡量机器人实际完成任务的能力。把成功率和回放视频放在一起，就能更清楚地理解模型学到了什么。
+
+</div>

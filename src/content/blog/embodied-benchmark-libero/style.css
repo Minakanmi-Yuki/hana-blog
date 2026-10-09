@@ -1,0 +1,39 @@
+.libero-guide {
+  line-height: 1.75;
+}
+
+.libero-guide > p,
+.libero-guide > ul,
+.libero-guide > ol {
+  margin-block: 0.7rem;
+}
+
+.libero-guide > h2 {
+  margin-block: 1.8rem 0.7rem;
+}
+
+.libero-guide > h3 {
+  margin-block: 1.3rem 0.5rem;
+}
+
+.libero-guide > ul > li,
+.libero-guide > ol > li {
+  margin-block: 0.25rem;
+}
+
+.libero-guide table {
+  margin-block: 0.9rem;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.libero-guide th,
+.libero-guide td {
+  padding-block: 0.45rem;
+}
+
+.libero-guide > pre,
+.libero-guide > .katex-display,
+.libero-guide > .algorithm {
+  margin-block: 1rem;
+}
