@@ -89,7 +89,7 @@ Preferred candidates for new posts.
 |         3 | `94819769`  | `https://pic.hana0721.top/94819769_p0_master1200.4xv4u7folx.webp`  | `rl-note-16`, `paper-deep-dive-lingbot-va-2`, `paper-deep-dive-beyondmimic`                                                                   |
 |         3 | `95619535`  | `https://pic.hana0721.top/95619535_p0_master1200.8okafg4jti.webp`  | `rl-note-17`, `paper-deep-dive-thinkact`, `paper-deep-dive-simpler`                                                                           |
 |         3 | `98000873`  | `https://pic.hana0721.top/98000873_p0_master1200.491vjnsp6s.webp`  | `github-auth-local-setup`, `paper-deep-dive-ctrl-world`, `paper-deep-dive-forcevla2`                                                          |
-|         2 | `139063757` | `https://pic.hana0721.top/98073480.3rbvmy4uvn.webp`                | `paper-reading-cv3`, `paper-deep-dive-viva`                                                                                                   |
+|         3 | `98073480`  | `https://pic.hana0721.top/98073480.3rbvmy4uvn.webp`                | `paper-reading-cv3`, `paper-deep-dive-viva`, `embodied-benchmark-simpler`                                                                     |
 |         3 | `99213551`  | `https://pic.hana0721.top/99213551_p0_master1200.4jopcsx1ya.webp`  | `vim-detailed-guide`, `paper-deep-dive-simplevla-rl`, `paper-deep-dive-rl-100`                                                                |
 |         3 | `99749488`  | `https://pic.hana0721.top/99749488_p0_master1200.83an1pr7zr.webp`  | `linux-server-clash-verge-proxy`, `paper-deep-dive-omnivla-rl`, `paper-deep-dive-rynnvalue`, `paper-deep-dive-grinningface`                   |
 

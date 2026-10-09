@@ -1,0 +1,296 @@
+---
+title: 'SIMPLER 使用指南：任务、VM／VA 与 VLA 评测'
+publishDate: 2026-10-09
+description: '认识 SIMPLER 的两种机器人与操作任务，理解 VM／VA，接入已有 VLA 进行闭环评测，并查看成功率和操作回放。'
+heroImage:
+  src: 'https://pic.hana0721.top/98073480.3rbvmy4uvn.webp'
+  alt: 'Pixiv 98073480：窗边的兔耳少女与鲜花'
+  width: 2556
+  height: 1438
+  color: '#8C8275'
+category: 'research'
+pixivLink: '98073480'
+tags:
+  - 'embodied ai'
+  - 'benchmark'
+  - 'simpler'
+  - 'vla'
+  - 'real-to-sim'
+---
+
+import Algorithm from '@/components/advanced/Algorithm.astro'
+import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
+
+import './style.css'
+
+<div className='simpler-guide'>
+
+SIMPLER 提供与真实机器人实验对应的仿真环境，用来评测机器人操作策略。加载已有的 **VLA（视觉—语言—动作模型）** 后，就可以让模型根据图像和指令，控制机械臂完成抓取、放置和开关抽屉等操作。
+
+它关注的是：**仿真中的模型表现，能否反映真实机器人上的表现。** 使用者可以据此比较模型、选择 checkpoint，并通过回放观察失败发生在哪一步。[SIMPLER 论文](https://arxiv.org/abs/2405.05941)
+
+<figure className='simpler-media not-prose'>
+  <img
+    src='https://pic.hana0721.top/blog/embodied-benchmark-simpler/simpler-teaser.665378b7bde8.webp?v=8c74064'
+    alt='SIMPLER 官方 teaser：真实与仿真操作评测的对照，以及仿真成功率与真实成功率的对应关系'
+    width={1939}
+    height={772}
+    loading='lazy'
+    decoding='async'
+  />
+  <figcaption>
+    SIMPLER 官方 teaser：在对应的仿真场景中评测真实机器人策略。
+    <a href='https://simpler-env.github.io/' target='_blank' rel='noopener noreferrer'>
+      项目主页
+    </a>
+  </figcaption>
+</figure>
+
+## 1. 认识环境与任务
+
+### 1.1 两种机器人配置
+
+官方经典评测实现基于 **SAPIEN 和 ManiSkill2**，提供以下两种配置：
+
+| 配置     | Google Robot            | WidowX＋Bridge           |
+| -------- | ----------------------- | ------------------------ |
+| 机器人   | Google 单臂机器人与夹爪 | WidowX-250S 机械臂与夹爪 |
+| 视觉输入 | 头部相机，第一视角      | 外部相机，第三视角       |
+| 操作场景 | 桌面、抽屉柜            | 桌面、水槽               |
+
+模型通过相机图像观察物体和夹爪，再决定下一步动作。[官方环境说明](https://github.com/simpler-env/SimplerEnv#current-environments)
+
+### 1.2 机器人要完成什么
+
+Google Robot 的评测分成四类操作：
+
+| 任务类别       | 目标                           |
+| -------------- | ------------------------------ |
+| 抓可乐罐       | 抓住并抬起可乐罐               |
+| Move Near      | 将指定物体移到另一个物体附近   |
+| 开／关抽屉     | 打开或关闭上、中、下层抽屉     |
+| 开抽屉后放苹果 | 先打开上层抽屉，再把苹果放进去 |
+
+<figure className='simpler-media not-prose'>
+  <img
+    src='https://pic.hana0721.top/blog/embodied-benchmark-simpler/google-tabletop-tasks.03a7f0110744.gif?v=8c74064'
+    alt='Google Robot 官方仿真演示：抓起可乐罐，以及将一个物体移到另一个物体附近'
+    width={648}
+    height={288}
+    loading='lazy'
+    decoding='async'
+  />
+  <figcaption>Google Robot 桌面任务：抓罐与 Move Near。</figcaption>
+</figure>
+
+<div className='simpler-task-grid not-prose' role='group' aria-label='Google Robot 抽屉任务演示'>
+  <figure className='simpler-media'>
+    <img
+      src='https://pic.hana0721.top/blog/embodied-benchmark-simpler/google-drawer-tasks.4f173f41b54f.gif?v=8c74064'
+      alt='Google Robot 官方仿真演示：打开抽屉和关闭抽屉'
+      width={648}
+      height={288}
+      loading='lazy'
+      decoding='async'
+    />
+    <figcaption>开／关抽屉。</figcaption>
+  </figure>
+  <figure className='simpler-media'>
+    <img
+      src='https://pic.hana0721.top/blog/embodied-benchmark-simpler/google-apple-task.d90f181ba9d0.gif?v=8c74064'
+      alt='Google Robot 官方仿真演示：打开上层抽屉，再将苹果送入抽屉'
+      width={320}
+      height={288}
+      loading='lazy'
+      decoding='async'
+    />
+    <figcaption>多阶段任务：开抽屉，再把苹果送入抽屉。</figcaption>
+  </figure>
+</div>
+
+WidowX 提供四个任务：
+
+| 任务           | 目标                   |
+| -------------- | ---------------------- |
+| 勺子放毛巾上   | 抓取勺子并放到毛巾上   |
+| 胡萝卜放盘子上 | 抓取胡萝卜并放到盘子上 |
+| 堆叠方块       | 将绿方块叠到黄方块上   |
+| 茄子放篮子里   | 将茄子放入黄色篮子     |
+
+<figure className='simpler-media not-prose'>
+  <img
+    src='https://pic.hana0721.top/blog/embodied-benchmark-simpler/widowx-four-tasks.97a7bbbab430.gif?v=8c74064'
+    alt='WidowX 官方仿真演示：勺子放毛巾、胡萝卜放盘子、堆叠方块和茄子放篮子'
+    width={648}
+    height={552}
+    loading='lazy'
+    decoding='async'
+  />
+  <figcaption>
+    WidowX 的四种操作；动图与上面的 Google Robot 示例均摘自官方演示，以半速播放。
+    <a href='https://simpler-env.github.io/' target='_blank' rel='noopener noreferrer'>
+      演示来源
+    </a>
+  </figcaption>
+</figure>
+
+**一次尝试（episode）** 是从初始化到结束的完整操作过程。同一个任务会从不同的物体位置、朝向或机器人起点执行多次，再统计成功率。[任务与评测协议](https://arxiv.org/html/2405.05941v1#A2)
+
+## 2. VM 与 VA 有什么区别
+
+VM（Visual Matching，视觉匹配）与 VA（Variant Aggregation，变体聚合）是两种视觉评测设置：
+
+| 设置   | 做法                                                                                     |
+| ------ | ---------------------------------------------------------------------------------------- |
+| **VM** | 使用真实背景照片，调整机器人与物体纹理，让画面接近对应的真机实验，再在匹配后的场景中测试 |
+| **VA** | 改变背景、光照、干扰物、桌面纹理等，生成多个场景版本，分别测试后平均结果                 |
+
+<figure className='simpler-media not-prose'>
+  <img
+    src='https://pic.hana0721.top/blog/embodied-benchmark-simpler/simpler-visual-matching.7c1d02de9e60.webp?v=8c74064'
+    alt='SIMPLER 官方视觉匹配示意：将仿真前景与真实背景合成，并匹配机器人和物体的外观'
+    width={680}
+    height={476}
+    loading='lazy'
+    decoding='async'
+  />
+  <figcaption>
+    VM 的画面构建：机器人与可交互物体由仿真驱动，背景使用真实照片。
+    <a href='https://simpler-env.github.io/' target='_blank' rel='noopener noreferrer'>
+      官方示意
+    </a>
+  </figcaption>
+</figure>
+
+以抓罐为例，VM 把机器人放进接近真实实验的画面；VA 则让它在多种外观下抓罐，用平均表现减少对某一种画面的依赖。
+
+常用设置有 **Google Robot＋VM、Google Robot＋VA、WidowX＋VM**。选好机器人和设置后，沿用对应脚本的任务与初始配置进行评测。[VM／VA 官方说明](https://github.com/simpler-env/SimplerEnv)
+
+## 3. 接入自己的 VLA
+
+### 3.1 开始前的准备
+
+准备一台带 NVIDIA GPU 的机器，用于图像渲染和模型推理，再准备三部分资源：
+
+| 资源                       | 用途                     |
+| -------------------------- | ------------------------ |
+| SIMPLER 与场景资源         | 加载机器人、物体和任务   |
+| 模型 checkpoint 与处理配置 | 加载模型，处理图像与动作 |
+| 模型推理适配程序           | 把模型输出转换为环境动作 |
+
+先按模型项目的教程配置推理环境，再按照 [SIMPLER 安装说明](https://github.com/simpler-env/SimplerEnv#installation)准备仿真依赖。
+
+从加载一个抓罐环境开始：
+
+```python
+import simpler_env
+from simpler_env.utils.env.observation_utils import get_image_from_maniskill2_obs_dict
+
+env = simpler_env.make('google_robot_pick_coke_can')
+obs, reset_info = env.reset()
+instruction = env.get_language_instruction()
+image = get_image_from_maniskill2_obs_dict(env, obs)
+```
+
+将 `image` 和 `instruction` 交给模型推理，再通过 `env.step(action)` 执行动作。先运行少量尝试并保存回放，确认图像、指令和机械臂动作正常，再扩展到完整评测。[官方入门示例](https://github.com/simpler-env/SimplerEnv#getting-started)
+
+### 3.2 模型接收什么，输出什么
+
+以输入为图像和语言的模型为例：
+
+$$
+a_t=\pi(v_t,l_t)
+$$
+
+也就是：VLA 策略 $\pi$ 读取当前图像 $v_t$ 和指令 $l_t$，输出动作 $a_t$。普通任务的指令保持相同；“开抽屉后放苹果”会随阶段更新指令。
+
+环境动作是 **6 维末端运动＋1 维夹爪控制**：三个分量控制位置增量，三个分量控制旋转增量，另一个控制夹爪开合。适配程序按照模型的配置还原动作，并对齐单位、坐标系和夹爪含义。
+
+默认控制频率为 Google Robot **3 Hz**、WidowX **5 Hz**，即每秒分别执行 3 次、5 次控制动作。[动作接口与控制频率](https://github.com/simpler-env/SimplerEnv#current-environments)
+
+### 3.3 一次闭环评测怎样进行
+
+**闭环**就是机器人每次行动后重新观察，再决定下一步：
+
+```text
+当前图像＋指令 → VLA → 机器人动作 → 环境更新 → 新图像
+```
+
+<Algorithm number={1} title='SIMPLER 闭环评测' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>任务、初始配置、VM／VA 场景与 VLA 模型。</div>
+  <div slot='output'>本次尝试的成功结果与操作回放。</div>
+  <AlgorithmStep keyword='Reset'>重置环境，加载初始配置，清空模型上一轮的历史。</AlgorithmStep>
+  <AlgorithmStep keyword='While'>尚未达到评测脚本的终止条件：</AlgorithmStep>
+  <AlgorithmStep indent={1}>读取当前图像与指令，让模型预测动作。</AlgorithmStep>
+  <AlgorithmStep indent={1}>执行动作，获取新观测；多阶段任务按规则更新阶段。</AlgorithmStep>
+  <AlgorithmStep keyword='End while'>策略终止或达到时间上限后，结束本次尝试。</AlgorithmStep>
+  <AlgorithmStep keyword='Save'>保存环境给出的成功结果与回放，开始下一次尝试。</AlgorithmStep>
+</Algorithm>
+
+完整任务扫描可以参考 [官方评测脚本](https://github.com/simpler-env/SimplerEnv/tree/main/scripts)与 [评测循环](https://github.com/simpler-env/SimplerEnv/blob/main/simpler_env/evaluation/maniskill2_evaluator.py)。
+
+## 4. 测多少次，怎样看结果
+
+### 4.1 尝试次数与成功率
+
+评测次数来自任务目标、初始配置和场景版本的组合。以官方抓罐脚本与 WidowX 基础协议为例：
+
+| 评测范围                   | 尝试次数 |
+| -------------------------- | -------: |
+| Google Robot 抓罐，VM      |      300 |
+| Google Robot 抓罐，VA      |      825 |
+| WidowX，单个任务的基础协议 |       24 |
+
+抓罐 VM 包含多种罐子姿态、位置和机器人外观；VA 还覆盖更多场景版本。复现某个模型时，使用它的配套评测次数和配置。[抓罐 VM 脚本](https://github.com/simpler-env/SimplerEnv/blob/main/scripts/rt1_pick_coke_can_visual_matching.sh)、[VA 脚本](https://github.com/simpler-env/SimplerEnv/blob/main/scripts/rt1_pick_coke_can_variant_agg.sh)、[基础协议](https://arxiv.org/html/2405.05941v1#A2)
+
+成功率的计算很直接：
+
+```text
+成功率 = 成功次数 ÷ 尝试总次数
+```
+
+例如，运行 300 次、成功 225 次，成功率就是 **75%**。
+
+### 4.2 结果表怎样汇报
+
+一行放一个模型，各列放任务成功率，最后用 **Average** 汇总。下面沿用 CogACT 论文的汇报格式与基线结果，数值单位都是 **%**。
+
+**Google Robot：分别汇报 VM 与 VA。**
+
+<div className='simpler-table-scroll' role='region' aria-label='Google Robot 的 VM 与 VA 成功率（百分比）' tabIndex={0}>
+
+| 设置 | 模型      | 抓可乐罐 | Move Near | 开／关抽屉 | 开抽屉放苹果 | Average |
+| ---- | --------- | -------: | --------: | ---------: | -----------: | ------: |
+| VM   | RT-2-X    |     78.7 |      77.9 |       25.0 |          3.7 |    46.3 |
+| VM   | Octo-Base |     17.0 |       4.2 |       22.7 |          0.0 |    11.0 |
+| VA   | RT-2-X    |     82.3 |      79.2 |       35.3 |         20.6 |    54.4 |
+| VA   | Octo-Base |      0.6 |       3.1 |        1.1 |          0.0 |     1.2 |
+
+</div>
+
+抓罐列汇总三种罐子姿态，抽屉列汇总开与关；**Average 是四类任务成功率的等权平均**。例如 RT-2-X 的 VM 平均分为：
+
+```text
+Average = (78.7 + 77.9 + 25.0 + 3.7) ÷ 4 ≈ 46.3%
+```
+
+这样既能比较整体表现，也能看到它在抓罐、Move Near 和多阶段任务上的差异。[CogACT Table 1](https://arxiv.org/html/2411.19650v1#S4.T1)
+
+**WidowX：单独汇报 VM 下的四个任务。**
+
+<div className='simpler-table-scroll' role='region' aria-label='WidowX 的 VM 成功率（百分比）' tabIndex={0}>
+
+| 模型       | 勺子放毛巾 | 胡萝卜放盘子 | 堆叠方块 | 茄子放篮子 | Average |
+| ---------- | ---------: | -----------: | -------: | ---------: | ------: |
+| Octo-Base  |       15.8 |         12.5 |      0.0 |       41.7 |    17.5 |
+| Octo-Small |       41.7 |          8.2 |      0.0 |       56.7 |    26.7 |
+
+</div>
+
+这组 Octo 结果来自 CogACT 的复测设置：每个任务的 24 个基础试次各重复 5 次，共 **120 次**，再计算成功率与四任务平均。[CogACT Table 2](https://arxiv.org/html/2411.19650v1#S4.T2)
+
+汇报自己的 VLA 时，在对应表中加一行，填入四项成功率和 Average，并在表旁注明 checkpoint、相机输入、训练数据、尝试次数与随机种子。比较模型时，使用相同的任务、初始配置、场景版本和执行预算。
+
+最后把分数和回放放在一起看：模型是没有找准目标、抓取失败，还是移动与放置出了问题。训练或微调后，回到相同设置评测，就能看到新 checkpoint 改善了哪些操作。
+
+</div>
