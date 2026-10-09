@@ -1,7 +1,7 @@
 ---
 title: 'Ctrl-World 论文精读：让世界模型在想象中评估和改进机器人策略'
 publishDate: 2026-08-26
-updatedDate: 2026-08-26
+updatedDate: 2026-09-22
 description: '精读 Ctrl-World：用多视角联合预测、位姿条件记忆检索和逐帧动作条件，把 Stable Video Diffusion 改造成可控的机器人世界模型。'
 heroImage:
   { src: 'https://pic.hana0721.top/98000873_p0_master1200.491vjnsp6s.webp', color: '#8C8275' }
@@ -87,7 +87,7 @@ $$
 
 将最后的预测观察 $o_{t+H}$ 送回 policy，便得到下一段动作 $a_{t+H+1:t+2H}$。反复执行这一过程，就能得到完全在想象空间中的长时轨迹。
 
-**【Paper】** DROID 实验使用一个 wrist-view 和两个随机布置的 third-view 相机；每个视频帧分辨率为 $192\times320$，每个交互 chunk 对应 15 个动作、约 1 秒。
+**【Paper】** DROID 实验使用一个 wrist-view 和两个随机布置的 third-view 相机；每个视角分辨率为 $192\times320$。**15 是一秒内的控制动作数，不是实际生成帧数**：附录 A 将 15 步 Cartesian 条件下采样为 5 步，实际输入时间轴为 7 个历史帧 + 5 个未来帧。主文按每动作一步书写的是抽象接口，复现应遵循附录的采样频率。
 
 ## 4. 方法
 
@@ -147,7 +147,9 @@ $$
 \left\|\hat{x}_0(x_{t'},t',c)-x_0\right\|_2^2.
 $$
 
-这里 $a'$ 表示转换到 Cartesian space 的动作位姿；损失只在未来视频上计算，动作通过条件分支影响视频生成，而不是额外回归一个 action head。
+这里 $a'$ 表示转换到 Cartesian space 的动作位姿。以上是正文的离散扩散示意，**不是 release 的精确 SVD 数值配方**。
+
+**【Code】** [models/ctrl_world.py](https://github.com/Robert-gyj/Ctrl-World/blob/main/models/ctrl_world.py) 实际构造 $x_\sigma=x_0+\sigma\epsilon$，再通过 $c_{skip}=1/(1+\sigma^2)$、$c_{out}=-\sigma/\sqrt{1+\sigma^2}$ 将 U-Net 输出合成干净预测，并用 $(1+\sigma^2)/\sigma^2$ 加权平方误差。历史帧另加小噪声作鲁棒性增强，loss 只统计未来帧。动作是条件输入，不额外回归 action head。
 
 **【Analysis】** 这与“联合预测视频和动作”的方法不同：Ctrl-World 的 action 是外部 policy 提供的控制输入，模型学习的是 action → visual consequence 的 forward dynamics。这样才可以在推理时替换 action，观察不同动作会把世界带向哪里。
 
@@ -161,14 +163,21 @@ $$
   <div slot='input'>DROID 三路视频、机器人位姿、未来 action chunk 与语言指令</div>
   <div slot='output'>可根据多视角观察和动作生成未来帧的 world model $W$</div>
   <AlgorithmStep>从轨迹采样当前帧、$k$ 个稀疏历史帧和未来 $H$ 个动作对应的帧。</AlgorithmStep>
-  <AlgorithmStep>将三路相机 latent 沿 token/空间维拼接，并把 action 转换为 Cartesian pose。</AlgorithmStep>
-  <AlgorithmStep>随机采样扩散步 $t'$ 与噪声，得到加噪未来 latent；把历史 pose 与未来 action pose 注入对应帧。</AlgorithmStep>
-  <AlgorithmStep>用时空 U-Net 预测干净未来 latent，计算 reconstruction MSE；冻结 VAE、image encoder 和 text encoder，只更新 U-Net 与 action projector。</AlgorithmStep>
+  <AlgorithmStep>
+    将三路相机 latent 沿 token/空间维拼接，并把 action 转换为 Cartesian pose。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    随机采样扩散步 $t'$ 与噪声，得到加噪未来 latent；把历史 pose 与未来 action pose 注入对应帧。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    用时空 U-Net 预测干净未来 latent，计算 reconstruction MSE；冻结 VAE、image encoder 和 text
+    encoder，只更新 U-Net 与 action projector。
+  </AlgorithmStep>
 </Algorithm>
 
 ### 4.5 Inference
 
-**【Paper】** 推理时给定初始观察和语言，policy 先输出一个 action chunk，Ctrl-World 生成未来 15 帧；只把最后的预测观察送回 policy 生成下一段动作。这个循环可以执行 20 次以上。策略评估中，初始观察来自验证集快照或新的 DROID 场景；策略改进中则通过改写指令或随机重置初始位姿制造多样 rollout。
+**【Paper】** 推理时 policy 先输出一秒内 15 步动作，经位姿转换和时间下采样后，Ctrl-World 生成 5 个未来时刻的三路图像；只把最后的预测观察送回 policy 生成下一段动作。这个循环可以执行 20 次以上。策略评估中，初始观察来自验证集快照或新的 DROID 场景；策略改进中则通过改写指令或随机重置初始位姿制造多样 rollout。
 
 <Algorithm number={2} title='Policy-in-the-loop Imagination Rollout' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>初始多视角观察 $o_0$、语言 $l$、VLA policy $\pi$ 和 Ctrl-World $W$</div>
@@ -179,20 +188,22 @@ $$
   <AlgorithmStep>将最后观察反馈给 policy，重复若干交互轮；评估时记录 instruction-following/成功标签，改进时保留成功轨迹。</AlgorithmStep>
 </Algorithm>
 
-**【Code】** `rollout_interact_pi_eval.py` 对接 Physical Intelligence 的 `openpi` checkpoint。代码把 π₀.₅ 的 joint velocity 通过动力学模型和 forward kinematics 转为 15 步 Cartesian pose，再交给 Ctrl-World；README 还提供 keyboard、轨迹 replay 和 policy-in-the-loop 三种入口。每个 1 秒 interaction 在 A100 上约 10 秒、H100 上约 5 秒，说明论文中的想象 rollout 仍然是高算力离线工具，而非实时控制器。
+**【Paper】** 附录 B 还有一个必要接口：先用在 DROID 上训练的两层 MLP adapter，将当前 joint angles 与策略 joint velocities 映射成未来 joint configurations，再经 Panda forward kinematics 得到 Cartesian pose；关节状态反馈来自这个 adapter，而非从生成 RGB 直接估计。因此完整想象环境的误差包含视觉世界模型和动作到关节状态 adapter 两部分。
+
+**【Code】** `rollout_interact_pi_eval.py` 对接 Physical Intelligence 的 `openpi` checkpoint；README 还提供 keyboard、轨迹 replay 和 policy-in-the-loop 三种入口。每个 1 秒 interaction 在 A100 上约 10 秒、H100 上约 5 秒，说明论文中的想象 rollout 仍然是高算力离线工具，而非实时控制器。
 
 ### 4.6 代码实现对照
 
-| 论文概念 | 官方实现 | 代码事实 |
-| --- | --- | --- |
-| SVD backbone | `models/pipeline_stable_video_diffusion.py`、`models/ctrl_world.py` | 从 SVD 加载 VAE、image encoder、scheduler 与 U-Net 权重 |
-| 动作投影 | `Action_encoder2` in `models/ctrl_world.py` | 三层 1024 维 MLP；可选择逐帧条件或整段条件 |
-| 多视角输入 | `dataset/dataset_droid_exp33.py` | 三路 latent 拼成 `(T, 4, 72, 40)`，推理后拆分 |
-| 历史记忆 | `forward_wm` 与 rollout 脚本中的 `his_cond` buffer | 历史视频 latent 随 rollout 保存并再次作为条件 |
-| 数据预处理 | `dataset_example/extract_latent.py`、`dataset_meta_info/create_meta_info.py` | 先编码 latent，再生成样本索引和归一化统计量 |
-| 训练入口 | `scripts/train_wm.py` | Accelerate 多卡训练，配置来自 `config.py` |
-| Policy-in-the-loop | `scripts/rollout_interact_pi_eval.py` | 调用 openpi 的 π₀.₅，将 joint action 转成 Cartesian pose |
-| Checkpoint | README 的 Hugging Face `yjguo/Ctrl-World` | 公开 SVD、CLIP、Ctrl-World checkpoint 与 DROID 数据说明 |
+| 论文概念           | 官方实现                                                                     | 代码事实                                                 |
+| ------------------ | ---------------------------------------------------------------------------- | -------------------------------------------------------- |
+| SVD backbone       | `models/pipeline_stable_video_diffusion.py`、`models/ctrl_world.py`          | 从 SVD 加载 VAE、image encoder、scheduler 与 U-Net 权重  |
+| 动作投影           | `Action_encoder2` in `models/ctrl_world.py`                                  | 三层 1024 维 MLP；可选择逐帧条件或整段条件               |
+| 多视角输入         | `dataset/dataset_droid_exp33.py`                                             | 三路 latent 拼成 `(T, 4, 72, 40)`，推理后拆分            |
+| 历史记忆           | `forward_wm` 与 rollout 脚本中的 `his_cond` buffer                           | 历史视频 latent 随 rollout 保存并再次作为条件            |
+| 数据预处理         | `dataset_example/extract_latent.py`、`dataset_meta_info/create_meta_info.py` | 先编码 latent，再生成样本索引和归一化统计量              |
+| 训练入口           | `scripts/train_wm.py`                                                        | Accelerate 多卡训练，配置来自 `config.py`                |
+| Policy-in-the-loop | `scripts/rollout_interact_pi_eval.py`                                        | 调用 openpi 的 π₀.₅，将 joint action 转成 Cartesian pose |
+| Checkpoint         | README 的 Hugging Face `yjguo/Ctrl-World`                                    | 公开 SVD、CLIP、Ctrl-World checkpoint 与 DROID 数据说明  |
 
 **【Code】** 官方仓库是可运行的 PyTorch 实现，但完整 DROID 数据约 370 GB，π₀.₅ 还要单独按 openpi 的依赖和 checkpoint 配置；因此“能复现 demo”和“从头复现论文训练”之间有明显的硬件与数据门槛。
 
@@ -206,7 +217,7 @@ $$
 
 ### 5.2 Main Results
 
-**【Paper】** 在 10 秒长轨迹上，完整 Ctrl-World 的 third-view 指标为 PSNR 23.56、SSIM 0.828、LPIPS 0.091、FID 25.00、FVD 97.4；相较最强的 single-view/多视角基线，FVD 更低，说明视频分布和时序质量更好。完整多视角版本也优于只预测 third-view 的 Ctrl-World，证明 wrist-view 并非冗余输出。
+**【Paper】** 在 10 秒长轨迹上，完整 Ctrl-World 的 third-view 指标为 PSNR 23.56、SSIM 0.828、LPIPS 0.091、FID 25.00、FVD 97.4；相较最强的 single-view/多视角基线，FVD 更低，说明视频分布和时序质量更好。完整多视角版本的 FVD 优于单视角版本（97.4 对 127.5），但 FID 反而为 25.00 对 23.47。多视角主要得到时序和交互一致性的证据，并非所有视觉指标全面领先；这些指标也不能独立证明接触物理正确。
 
 ![Ctrl-World long-horizon consistency from paper Figure 5](https://pic.hana0721.top/blog/paper-deep-dive-ctrl-world/consistency.92qvfycrjm.webp)
 
@@ -216,12 +227,12 @@ $$
 
 **【Paper】** 消融结果直接对应三项设计：
 
-| 设置 | Third-view FVD | Wrist-view FVD | 解释 |
-| --- | ---: | ---: | --- |
-| 完整 Ctrl-World | 97.4 | 127.1 | 多视角、memory、逐帧条件全部启用 |
-| 去掉 memory | 105.5 | 133.1 | 长时锚定变弱，误差更易累积 |
-| 去掉 frame-level condition | 122.7 | 179.1 | action 与视觉帧失去精确对齐 |
-| 去掉 joint prediction | — | 158.1 | wrist 与其他视角不能联合约束 |
+| 设置                       | Third-view FVD | Wrist-view FVD | 解释                             |
+| -------------------------- | -------------: | -------------: | -------------------------------- |
+| 完整 Ctrl-World            |           97.4 |          127.1 | 多视角、memory、逐帧条件全部启用 |
+| 去掉 memory                |          105.5 |          133.1 | 长时锚定变弱，误差更易累积       |
+| 去掉 frame-level condition |          122.7 |          179.1 | action 与视觉帧失去精确对齐      |
+| 去掉 joint prediction      |              — |          158.1 | wrist 与其他视角不能联合约束     |
 
 ![Ctrl-World controllability ablation from paper Figure 4](https://pic.hana0721.top/blog/paper-deep-dive-ctrl-world/controllability-ablation.13mikwd3df.webp)
 
@@ -231,9 +242,9 @@ $$
 
 ![Ctrl-World policy evaluation correlation from paper Figure 7](https://pic.hana0721.top/blog/paper-deep-dive-ctrl-world/policy-correlation.58i3wzuuh9.webp)
 
-**【Paper】** 只在公开 DROID 上训练的 Ctrl-World 被直接用于新的 DROID 场景和新的相机位置。world-model 与真实世界的 instruction-following 相关性拟合线为 $y=0.87x-0.04$；成功率相关性为 $y=0.81x-0.11$。它能够正确排序 π₀、π₀-FAST、π₀.₅，但倾向于低估真实执行成功率。
+**【Paper】** 只在公开 DROID 上训练的 Ctrl-World 被直接用于新的 DROID 场景和新的相机位置。Figure 7 给出的 instruction-following 拟合线为 $y=0.87x-0.04$、成功率拟合线为 $y=0.81x-0.11$；0.87 和 0.81 是回归斜率，不是相关系数。它支持总体趋势与指令跟随排序，却不能保证每任务精确排序或绝对成功率校准：附录 Table 3 的 Close-laptop 中，$\pi_{0.5}$ 真机成功率 0.70，想象中仅 0.05；$\pi_0$ 与 $\pi_0$-FAST 的想象成功率均为零，无法区分。
 
-**【Paper】** 策略改进实验中，每个任务生成 400 条想象轨迹，只保留 25–50 条人工判断成功的轨迹，再对 π₀.₅ 做 2k steps supervised fine-tuning。四类任务平均成功率从 38.7% 增至 83.4%；这是 +44.7 个百分点，而非相对百分比提升。
+**【Paper】** 策略改进实验中，每个任务生成 400 条想象轨迹，只保留 25–50 条人工判断成功的轨迹，再对 π₀.₅ 做 2k steps supervised fine-tuning。四类任务的宏平均从 38.7% 增至 83.4%，是 +44.7 个百分点，而非相对提升。四类各自为：空间 28.75→87.5、形状约 43.75→91.25、折叠方向 57.5→80、新物体 25→75。不同类含有不同数量子任务，这个平均不是对所有 trial 直接合并的成功率；新增的是筛选后的合成训练数据，并不是不经任何适配的零样本提升。
 
 ![Synthetic trajectories for policy improvement from paper Figure 8](https://pic.hana0721.top/blog/paper-deep-dive-ctrl-world/improvement.7lkqe78n7z.webp)
 
@@ -258,13 +269,13 @@ $$
 
 ### 6.3 与已有方法的本质区别
 
-| 维度 | 单视角 action-conditioned video model | Ctrl-World |
-| --- | --- | --- |
-| 输入 | 一个第三人称视角 | third-view + wrist-view 等多视角 |
-| 动作条件 | 常是整段或粗粒度条件 | 每个未来 frame 对应一个 pose/action condition |
-| 长时一致性 | 依赖连续 rollout，容易漂移 | 稀疏历史 + pose 检索重新锚定 |
-| 使用方式 | 评估视频质量或离线生成 | 与 VLA policy 交替闭环交互 |
-| 下游用途 | 生成样本 | 评估 policy 排名，并筛选成功轨迹做 SFT |
+| 维度       | 单视角 action-conditioned video model | Ctrl-World                                    |
+| ---------- | ------------------------------------- | --------------------------------------------- |
+| 输入       | 一个第三人称视角                      | third-view + wrist-view 等多视角              |
+| 动作条件   | 常是整段或粗粒度条件                  | 每个未来 frame 对应一个 pose/action condition |
+| 长时一致性 | 依赖连续 rollout，容易漂移            | 稀疏历史 + pose 检索重新锚定                  |
+| 使用方式   | 评估视频质量或离线生成                | 与 VLA policy 交替闭环交互                    |
+| 下游用途   | 生成样本                              | 评估 policy 排名，并筛选成功轨迹做 SFT        |
 
 ### 6.4 关键假设
 
@@ -286,7 +297,7 @@ $$
 - 复杂碰撞、物体滑动、旋转等低层物理仍不够精确，导致 world model 低估真实成功率；
 - 真实 policy 失败后可能会重试，而想象 rollout 不一定复现这种 retry 行为；
 - 精确交互和长时推理任务仍可能失败，性能对初始观察敏感；
-- 论文的训练数据和推理过程需要多卡 GPU，完整 DROID 数据约 370 GB，复现成本高。
+- 结论明确说当前改进聚焦 instruction following，模型尚不足以可靠改进已见指令上的低层执行成功率。训练使用 16 张 H100；推理可以单卡运行，不应写成推理也必须多卡。
 
 ### 7.2 自己分析得到的局限
 

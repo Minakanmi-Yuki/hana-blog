@@ -1,7 +1,7 @@
 ---
 title: 'VLAC 论文精读：让 VLA 同时成为策略与过程奖励模型'
 publishDate: 2026-08-26
-updatedDate: 2026-08-26
+updatedDate: 2026-09-22
 description: '精读 VLAC：用成对观测预测带符号的任务进度，把 InternVL 变成可泛化的 Critic，并接入异步 PPO 让真实机器人从成功与失败中持续改进。'
 heroImage:
   { src: 'https://pic.hana0721.top/98259515_p0_master1200.3ns7nvxpav.webp', color: '#8C8275' }
@@ -54,6 +54,8 @@ import { Aside } from '@/components/user'
 
 ### 一句话总结
 
+**版本范围**：本文核查 [arXiv:2509.15937v1 全文及附录](https://arxiv.org/pdf/2509.15937v1)。当前仓库还链接题名为 _A Generalist Pair-wise Progress Critic Model for Vision-Language-Action Robots_ 的 ICML 2026 版本及后续 VLAC-cut；以下实验数值均按这篇 2025 年原稿，不混用后续结果。
+
 **【Paper】** VLAC（Vision-Language-Action-Critic）把“当前两帧相比是否更接近语言目标”建模成一个带正负号的 progress delta：它既能作为跨任务的 dense reward 和 done signal，也能在同一自回归模型中生成机器人动作，最终接入真实世界 PPO。
 
 ### 核心贡献
@@ -65,7 +67,7 @@ import { Aside } from '@/components/user'
 3. 在一个基于 InternVL 的 autoregressive backbone 中同时实现 progress、task-done、task-description、VQA 与 delta-Eef action generation。
 4. 设计低延迟、异步的真实机器人 RL 基础设施，并提供 offline demonstration replay、return and explore、human guided explore 三档人机协同。
 
-**【Analysis】** 论文真正改变的是 RL 的“反馈接口”：策略不再依赖每个任务重新写 reward 和终止分类器，而是把通用多模态理解直接转成可计算的局部 TD-like 信号。
+**【Analysis】** 论文真正改变的是 RL 的“反馈接口”：策略不再依赖每个任务重新写 reward 和终止分类器，而是把通用多模态理解直接转成可计算的局部进度信号。这里“Critic”主要指生成奖励的过程评价器，和 PPO 预测未来累计回报的 value critic 是两个角色。
 
 ## 2. 背景与相关工作
 
@@ -75,7 +77,7 @@ VLAC 选择“比较两帧”而不是“给一帧绝对完成度”。这使数
 
 ## 3. 问题定义
 
-**【Paper】** 一条任务轨迹表示为 $V=(O,l_{task})$，其中 $O=(o_1,ldots,o_T)$ 是 RGB 图像序列，$l_{task}$ 是语言目标。给定任意两个时间点 $i$ 和 $i+\Delta t$，模型输出相对进度：
+**【Paper】** 一条任务轨迹表示为 $V=(O,l_{task})$，其中 $O=(o_1,\ldots,o_T)$ 是 RGB 图像序列，$l_{task}$ 是语言目标。给定任意两个时间点 $i$ 和 $i+\Delta t$，模型输出相对进度：
 
 $$
 c_{i,i+\Delta t}=\mathrm{VLAC}(o_i,o_{i+\Delta t};l_{task})
@@ -83,9 +85,9 @@ $$
 
 - **Observation**：一对 RGB 图像，可选当前轨迹起点、参考演示图像，以及任务语言。
 - **Critic output**：有符号的相对 progress delta；正值表示第二帧更接近目标，负值表示退步。
-- **Done output**：给定单帧和任务描述，输出完成概率 / 0-1 判断。
+- **Done output**：给定单帧和任务描述，生成 0/1 完成标签；公开接口也允许解析浮点分数，但不应把该文本数值自动视为已校准概率。
 - **Action output**：多视角图像、机械臂状态、任务描述和最近动作历史，输出 7 维 delta end-effector pose（x、y、z、roll、pitch、yaw、open）的数字字符串。
-- **Embodiment**：实验使用 AGILE PiPER，7-DoF 末端执行器控制；真实 RL 包含 Rice Transfer、Unfold Mat、Pick-and-Place Bowl、Desktop Sweep 等任务。
+- **Embodiment**：实验使用 AGILE PiPER，7 维动作控制（6 维末端位姿加夹爪）；真实 RL 包含 Rice Transfer、Unfold Mat、Pick-and-Place Bowl、Desktop Sweep 等任务。
 
 ## 4. 方法
 
@@ -106,7 +108,7 @@ $$
 
 #### Task completion 与 description head
 
-**【Paper】** 从轨迹前 30% 与后 20% 的帧生成任务描述；前 80% 标记未完成，后 95% 标记完成，中间区间不标注以避免边界噪声。这样 Critic 不只是比较两帧，还学习“什么状态算完成”。
+**【Paper】** 从轨迹前 30% 与后 20% 的帧生成任务描述；前 80% 标记未完成，最后 5%（时间超过 95%）标记完成，中间区间不标注以避免边界噪声。这样 Critic 不只是比较两帧，还学习“什么状态算完成”。
 
 #### Action head
 
@@ -124,7 +126,9 @@ $$
 c_{i,i+\Delta t}=\frac{\Delta t}{T-i},\qquad \Delta t\in[-i+1,T-i]\cap\mathbb Z
 $$
 
-**【Paper】** $T$ 是轨迹长度，$i$ 是第一帧位置，$\Delta t$ 可以为正或负。该标签只描述局部窗口内的相对前进程度，不依赖轨迹从任务起点开始，因此能混用截断片段和不同采集策略的数据。
+**【Paper / Analysis】** 原稿按成功且高效的轨迹给出这个标签。分母 $T-i$ 是从第一帧到该片段结束的剩余时间，所以它表示“消耗了剩余进度的多少”，不是绝对完成度差 $\Delta t/T$。例如 $T=100$ 时，从第 20 帧前进 10 帧为 12.5%，从第 80 帧前进 10 帧为 50%；同样时间间隔不对应相同奖励幅值。
+
+这个标签依赖**片段终点**，只能说不依赖全局起点，不能说与截断方式完全无关。按原式反向采样时 $c_{j,i}$ 的分母变为 $T-j$，通常不等于 $-c_{i,j}$；若第一帧恰为 $T$，分母为零，反向幅值也可能超出 $[-1,1]$。论文未交代这些边界的训练标签处理，公开推理代码不足以补全该细节，复现时不能默默把反向标签全部直接取负。
 
 #### VOC / VROC / VOC-F1
 
@@ -136,7 +140,7 @@ $$
 \mathrm{VOC\text{-}F1}=2\frac{\mathrm{VOC}\cdot\mathrm{VROC}}{\mathrm{VOC}+\mathrm{VROC}}
 $$
 
-**【Paper】** VOC 衡量预测值与原始时间顺序的 rank correlation；VROC 在反转输入视频后评估稳定性；VOC-F1 要求二者同时高。负率 NR 则统计 $c_{i,j}<0$ 的比例，用于发现不利于任务的动作。
+**【Paper】** VOC 衡量预测值与原始时间顺序的 rank correlation；VROC 在反转输入视频后评估稳定性；在两项为正时，VOC-F1 的调和平均强调双向排序一致性。它不是分类 F1：相关系数可能为负、未定义或和接近零，此时公式不再是稳定的 $[0,1]$ 分数，Table 1 恰有负值和 NaN。负率 NR 只统计预测负进度的比例，并非错误动作识别准确率；高 VOC 也不是成功概率或 reward 校准证据。
 
 #### PPO objective
 
@@ -144,7 +148,7 @@ $$
 L^{PPO}=\mathbb E_t\left[\min(r_tA_t,\mathrm{clip}(r_t,1-\epsilon,1+\epsilon)A_t)\right],\quad r_t=\frac{\pi_{new}(a_t|s_t)}{\pi_{old}(a_t|s_t)}
 $$
 
-**【Paper】** $A_t$ 由 GAE 得到。VLAC 在 action token 生成前的 hidden state 上接线性 value head；动作 token 的 logits 与 $V(s_t)$ 一起计算 PPO，并加入 entropy regularization。
+**【Paper】** $A_t$ 由 GAE 得到。论文在动作模板解码后的、最终词表投影前的 hidden state 上接线性 value head，并用少量示范和早期探索轨迹预热。这个 value head 提供 GAE 的基线；8B 过程 Critic 另负责 reward/done，不能用进度分数直接替代 $V(s_t)$。PPO 对数值动作 token 的概率做更新，并加 entropy regularization；clipping 是优化约束，不构成硬件安全保证。
 
 ### 4.4 Training
 
@@ -153,10 +157,20 @@ $$
 <Algorithm number={1} title='VLAC 多任务预训练与 PPO 更新' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>多源视频 / 机器人轨迹、任务语言，以及真实机器人 rollout。</div>
   <div slot='output'>可生成动作并输出 progress、done 的 VLAC policy。</div>
-  <AlgorithmStep>从轨迹采样两帧、任务描述和可选参考片段，构造正向、反向、细粒度与长跨度样本。</AlgorithmStep>
-  <AlgorithmStep>联合优化 progress delta、task-done、task-description、VQA 和 action generation 目标。</AlgorithmStep>
-  <AlgorithmStep>rollout 时由 8B critic 计算相邻观测的 signed reward 与 done，由 2B actor 生成结构化 delta-Eef action。</AlgorithmStep>
-  <AlgorithmStep>使用 GAE 计算 advantage，读取 action token logits 和 value head，执行 clipped PPO 与 entropy 更新。</AlgorithmStep>
+  <AlgorithmStep>
+    从轨迹采样两帧、任务描述和可选参考片段，构造正向、反向、细粒度与长跨度样本。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    联合优化 progress delta、task-done、task-description、VQA 和 action generation 目标。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    rollout 时由 8B critic 计算相邻观测的 signed reward 与 done，由 2B actor 生成结构化 delta-Eef
+    action；同一架构支持两种角色，但 RL 运行的是不同大小、分离的模型实例。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    使用 GAE 计算 advantage，读取 action token logits 和 value head，执行 clipped PPO 与 entropy
+    更新。
+  </AlgorithmStep>
 </Algorithm>
 
 ### 4.5 Inference
@@ -166,23 +180,35 @@ $$
 <Algorithm number={2} title='异步真实世界推理' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>机器人当前图像、末端状态、任务描述、最近动作历史。</div>
   <div slot='output'>下一段结构化 delta-Eef action、progress reward 与 done 信号。</div>
-  <AlgorithmStep>rollout worker 上传观测，调度器在 0.1 秒内把请求分配给空闲 inference replica。</AlgorithmStep>
-  <AlgorithmStep>actor 按动作模板生成数字 token；critic 比较当前 / 下一观测并解析 progress delta。</AlgorithmStep>
-  <AlgorithmStep>把数字动作反归一化后发送给机器人，同时独立上传下一帧，避免等待上一动作完成。</AlgorithmStep>
-  <AlgorithmStep>episode 完成后把成功和失败轨迹写入 buffer，供 PPO 与可选的人类示教 replay 使用。</AlgorithmStep>
+  <AlgorithmStep>
+    rollout worker 上传观测，调度器在 0.1 秒内把请求分配给空闲 inference replica。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    actor 按动作模板生成数字 token；critic 比较当前 / 下一观测并解析 progress delta。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    把数字动作按单位与机器人坐标约定转换后发送给机器人，同时独立上传下一帧，避免等待上一动作完成。训练时将动作时间戳相对观测延后一个推理时延，以匹配部署管线；异步不等于动作仍对应最新观测。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    episode 完成后把成功和失败轨迹写入 buffer，供 PPO 与可选的人类示教 replay 使用。
+  </AlgorithmStep>
 </Algorithm>
 
 ### 4.6 代码实现对照
 
-**【Code】** 代码仓库公开的是推理与数据处理实现，训练入口明确指向 InternVL2 / ms-swift，而不是一个独立的 PPO 训练脚本。几个关键对应关系如下：
+**【Code】** 代码仓库公开的是推理与数据处理实现，训练入口明确指向 InternVL2 / ms-swift，而不是一个独立的 PPO 训练脚本。截至 2026-09-22 核查的关键对应关系如下：
 
-| 论文描述 | 官方代码位置 / 行为 |
-| --- | --- |
-| pair-wise progress prompt | `evo_vlac/utils/model_utils.py` 中 `prompt_templete['v3']` |
-| trajectory critic / done | `GAC_model.web_trajectory_critic`、`get_trajectory_done` |
-| action parsing | `get_action_prompt`、`fast_results_format` 与 `data_processing_vlm.py` |
-| 7 维动作格式 | `format_songling`：x/y/z、roll/pitch/yaw、open |
-| 训练 | README 建议参考 InternVL2 quick start；论文中的 PPO 基础设施未完整开源 |
+| 论文描述                  | 官方代码位置 / 行为                                                                                                                |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| pair-wise progress prompt | `evo_vlac/utils/model_utils.py` 中 `prompt_templete['v3']`                                                                         |
+| trajectory critic / done  | `GAC_model.web_trajectory_critic`、`get_trajectory_done`                                                                           |
+| 文本动作模板              | `get_action_prompt` 与 `data_processing_vlm.py` 的格式函数；`fast_results_format` 是后续 FAST token 解码分支，不能等同原稿数字模板 |
+| 7 维动作格式              | `format_songling`：x/y/z、roll/pitch/yaw、open                                                                                     |
+| 训练                      | README 建议参考 InternVL2 quick start；论文中的 PPO 基础设施未完整开源                                                             |
+
+**【Code】** `critic_to_value_simple(simple=True)` 用百分数单位实现上述递推；`reverse_eval=True` 在各时刻交换两帧并把输出取负，以统一方向。它不是简单地对整段视频倒放后直接读分数。代码还包含 `mix_f` 等负值处理模式，选择不同模式会改变累计曲线。
+
+**【Paper】** 系统报告 vLLM 与 Torch 对同一动作的概率比可偏到 0.4–1.8，约 60% 样本受 PPO clipping 影响，因此训练时重新用 Torch 计算 rollout 动作概率。0.1 秒是请求分配给空闲 replica 的调度目标（Sec. 3.2.1），不能直接当成完整 8B 推理的测量时延。
 
 **【Analysis】** 因此不能把仓库中的视频 critic API 误认为完整的 real-world RL trainer；论文报告了 Ray、ZeroMQ、vLLM / Torch inference worker 等系统，但公开仓库主要帮助复现实验接口和输出解析。
 
@@ -190,9 +216,9 @@ $$
 
 ### 5.1 Experimental Setup
 
-![Real-world task setup from paper Figure A1](https://pic.hana0721.top/blog/paper-deep-dive-vlac/tasks.webp)
+![Real-world task setup from paper Figure 8](https://pic.hana0721.top/blog/paper-deep-dive-vlac/tasks.webp)
 
-**【Paper】** Critic 评估覆盖 Bridge、Droid、RT1、RoboNet、Dobb-E、RH20T、EgoDex、RoboFAC，重点考察新实体、新场景、新任务和成功 / 失败轨迹区分。Actor 评估使用五类桌面任务；真实 RL 主要报告四类任务，每个成功率点由 10 次 trial 计算。部署时 observation 包含 instruction、front camera image 和 robot end-pose。
+**【Paper】** Critic 评估覆盖 Bridge、Droid、RT1、RoboNet、Dobb-E、RH20T、EgoDex、RoboFAC，重点考察新实体、新场景、新任务和成功 / 失败轨迹区分。Actor 评估是 8B 模型、每任务 100 条示范、五类桌面任务；真实 RL 则是 2B actor、8B reward model， 主要报告四类任务，每个成功率点由 10 次 trial 计算。部署时 observation 包含 instruction、front camera image 和 robot end-pose。
 
 ### 5.2 Main Results
 
@@ -200,18 +226,18 @@ $$
 
 **【Paper】** 关键结果包括：
 
-- RT1 这类训练未见的机器人、场景和任务，在 one-shot 条件下 VOC-F1 达到 0.95；
-- RoboNet 没有语言标注且时间结构不平滑，zero-shot VOC-F1 为 0，但给出参考样例后显著恢复，说明模型确实依赖任务语义而非盲目拟合时间；
-- RoboFAC-success 的 VOC-F1 为 0.89，RoboFAC-fail 为 0.44，能够把失败过程与正常进展分开；
+- Table 1 的 RT1 one-shot：完整 8B 的 VOC/VROC 为 0.91/0.95，代入公式得 **0.930**；8B w/o Ego 为 0.96/0.95，得到 **0.955**。原稿正文的“0.95”不能直接归给完整 8B；
+- RoboNet 的完整 8B/2B zero-shot 在 Table 1 标为 **NaN**，而正文/图中用 0 概括，二者不能等同；完整 8B one-shot 的 0.59/0.76 对应 VOC-F1 约 0.664。参考示例带来改善，但这不是单独控制语言输入的因果消融；
+- 完整 8B one-shot 的 RoboFAC-success 用 0.83/0.95 得约 0.886，RoboFAC-fail 用 0.41/0.47 得约 0.438。失败轨迹的时间排序更不一致，符合预期；这不是成功/失败二分类的准确率或 AUC；
 - Actor 平均成功率为 75%，加入 lighting transfer 后为 57%，scene transfer 后为 63%，仍能在未额外采集数据的扰动环境中执行。
 
 ![Real-world RL success curves from paper](https://pic.hana0721.top/blog/paper-deep-dive-vlac/rl-results.webp)
 
-**【Paper】** 四任务 RL 的 Baseline、Return-and-explore、Human-guided explore、Offline Demonstration Replay 平均最终成功率分别为 88%、95%、98%、93%。论文摘要还报告：约 200 个真实交互 episode 内，成功率从约 30% 提升到约 90%；人机介入可进一步提高样本效率并在部分任务达到 100%。
+**【Paper】** Table 3 四任务逐行重算，Baseline、Return-and-explore、Human-guided explore、Offline Demonstration Replay 的均值分别为 **87.5%、90.0%、97.5%、92.5%**。原表把 Return-and-explore 写为 95%，但 $(100+90+90+80)/4=90$；其余汇总仅是四舍五入。并非所有介入都逐任务提高：Rice Transfer 的 baseline 为 100%，Return-and-explore 为 80%，Replay 为 70%；Human-guided 在 Unfold Mat 为 90%，也不是四任务全 100%。每单元格仅 10 次 trial，10/10 不能当成长期可靠性保证。论文摘要还报告：约 200 个真实交互 episode 内，成功率从约 30% 提升到约 90%；人机介入可进一步提高样本效率并在部分任务达到 100%。
 
 ### 5.3 Ablation Study
 
-**【Paper】** 消融显示，去掉 task-progress pretraining 后，VLAC w/o pretrain 的平均成功率降至 16%，而完整 VLAC 为 75%；这说明进度理解不仅改善 critic，也帮助 Actor 判断“当前阶段是否真的完成”。在多机器人实验中，Pick-and-Place Bowl 达到 80% 成功率所需的每机器人 episode 数为：8 台 64、4 台 147、2 台 325；并行 embodiment 带来明显的数据效率收益。
+**【Paper】** 消融显示，去掉 task-progress pretraining 后，VLAC w/o pretrain 的平均成功率降至 16%，而完整 VLAC 为 75%；这支持预训练配方对动作学习有贡献；作者用“未抓住就进入放置阶段”解释错误，但没有独立证明全部增益只由阶段识别造成，也没有逐一隔离人类视频、VQA 与训练量的作用。在多机器人实验中，Pick-and-Place Bowl 达到 80% 成功率所需的每机器人 episode 数为：8 台 64、4 台 147、2 台 325；这些是每台数量；总交互约为 $8\times64=512$、$4\times147=588$、$2\times325=650$，不能说总样本减少超过 5 倍。8 台 rollout 约 24.6 分钟，对照 2 台约两小时体现并行时间收益；单台约 137 条反而少于多台总量，且背景更固定。机器人数量与场景多样性共同变化，尚不是严格控制变量的通用 scaling law。
 
 ![VLAC actor and PPO interface from paper](https://pic.hana0721.top/blog/paper-deep-dive-vlac/vlac-ppo.webp)
 
@@ -225,7 +251,7 @@ $$
 
 ### 6.1 为什么有效？
 
-**【Analysis】** 第一，pair-wise delta 把长时程 credit assignment 拆成局部比较，减少单帧绝对打分的视角偏差。第二，负向配对和失败轨迹让模型看到“做错一步”的证据，而不是只在成功终点学习。第三，人类视频提供了比机器人数据更广的任务先验，弥补真实机器人数据稀缺。最后，Actor 与 Critic 共享 backbone，使进度表征直接影响动作阶段判断。
+**【Analysis】** 第一，pair-wise delta 把长时程 credit assignment 拆成局部比较，减少单帧绝对打分的视角偏差。第二，预训练主要从成功高效轨迹的反向帧对、静止帧和不匹配语言构造负/零信号；真实失败轨迹在后续 RL 与 RoboFAC 评估中出现。反转成功片段并不等同真实失败分布，不能把两者混称为失败数据预训练。第三，人类视频提供了比机器人数据更广的任务先验，弥补真实机器人数据稀缺。最后，多任务预训练在同一架构内共享表征；部署的 2B actor 与 8B reward critic 并不共享一套在线参数。
 
 ### 6.2 核心创新
 
@@ -233,12 +259,12 @@ $$
 
 ### 6.3 与已有方法的本质区别
 
-| 路线 | 反馈形式 | 迁移代价 |
-| --- | --- | --- |
-| 手工 reward shaping | 任务专用规则 / 终点信号 | 每个任务重写 |
-| 单帧 VLM scoring | 绝对完成度 | 易受视角、遮挡、光照影响 |
-| 时间对比表征 | 隐式排序或 embedding 距离 | 通常缺少语言和跨任务语义 |
-| **VLAC** | 两帧 + 语言的 signed progress delta | 通过 prompt 或 one-shot 迁移 |
+| 路线                | 反馈形式                            | 迁移代价                     |
+| ------------------- | ----------------------------------- | ---------------------------- |
+| 手工 reward shaping | 任务专用规则 / 终点信号             | 每个任务重写                 |
+| 单帧 VLM scoring    | 绝对完成度                          | 易受视角、遮挡、光照影响     |
+| 时间对比表征        | 隐式排序或 embedding 距离           | 通常缺少语言和跨任务语义     |
+| **VLAC**            | 两帧 + 语言的 signed progress delta | 通过 prompt 或 one-shot 迁移 |
 
 ### 6.4 关键假设
 
@@ -255,7 +281,7 @@ $$
 **【Analysis】**
 
 1. $c_{i,j}=\Delta t/(T-i)$ 依赖“时间越晚越接近完成”的弱因果假设，复杂失败轨迹需要更强的 outcome-aware 标注。
-2. VOC / VROC 主要测排序一致性，不直接测 reward 校准误差；相同排序但不同幅值仍可能导致 PPO advantage 尺度不稳定。
+2. VOC / VROC 主要测排序一致性，不直接测 reward 校准误差。局部进度预测也不一定可积成全局势函数；论文没有证明其满足潜势 shaping 的策略不变条件，循环动作可能暴露 reward hacking，需要用真实任务成功率另行检验。
 3. 8B critic 的低延迟服务、2B actor、并行机器人和 replay buffer 对 GPU 与工程系统要求很高，开源仓库不足以单机复现论文完整 RL 基础设施。
 4. 论文展示了 7 维 delta-Eef action，但跨 embodiment 的坐标系、控制频率和安全约束仍需要额外适配。
 
@@ -271,5 +297,6 @@ $$
 VLAC 的启示并不是“一个大模型自动解决真实世界 RL”，而是：当 dense critic、done detector、policy prior 和低延迟系统被设计成同一条闭环时，真实机器人终于有机会把失败也变成可学习的数据。
 
 <Aside type='note' title='阅读提示'>
-  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】` 表示基于论文和代码的分析推断。
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。
 </Aside>

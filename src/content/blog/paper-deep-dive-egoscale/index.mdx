@@ -1,7 +1,7 @@
 ---
 title: 'EgoScale 论文精读：用 2 万小时人类视频扩展灵巧操作'
 publishDate: 2026-08-27
-updatedDate: 2026-08-27
+updatedDate: 2026-09-22
 description: '精读 NVIDIA EgoScale：把大规模第一视角人类视频、动作缩放律与人机对齐 mid-training 组合起来，迁移到 22-DoF 灵巧手。'
 heroImage:
   { src: 'https://pic.hana0721.top/102841826_p0_master1200.4clh7xw95k.webp', color: '#8C8275' }
@@ -58,7 +58,7 @@ import { Aside } from '@/components/user'
 
 **论文 / 项目**：[arXiv](https://arxiv.org/abs/2602.16710) · [EgoScale project page](https://research.nvidia.com/labs/gear/egoscale/)
 
-**代码状态**：项目页截至论文发布时标注 “GitHub (Coming Soon!)”，没有可供本文核对的公开官方代码。
+**代码状态**：截至 2026-09-22 核对，项目页仍标注 “GitHub (Coming Soon!)”，没有可供本文核对的公开官方代码。
 
 ![EgoScale 两阶段人类到机器人学习流程（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-egoscale/pull_figure-egoscale.webp)
 
@@ -70,9 +70,9 @@ import { Aside } from '@/components/user'
 
 **【Paper】**
 
-1. **Human-data scaling law**：在 1k–20k 小时范围内，人类动作验证损失与数据量呈近似 log-linear 关系，拟合式为 $L=0.024-0.003\ln(D)$，$R^2=0.9983$。
+1. **Human-data scaling law**：在 1k–20k 小时范围内，人类动作验证损失与数据量呈近似 log-linear 关系，报告 $R^2=0.9983$；印刷公式的数据单位存在不一致，见 §4.3。
 2. **两阶段迁移 recipe**：大规模但有噪声的人类预训练负责学习通用运动结构；约 50 小时人类 + 4 小时机器人组成的 aligned mid-training 负责把结构锚定到机器人传感和控制接口。
-3. **灵巧操作收益**：在 Galaxea R1 Pro + 22-DoF Sharpa 手上，完整方法相对无预训练基线的平均成功率提升 54%（论文摘要口径）。
+3. **灵巧操作收益**：在 Galaxea R1 Pro + 22-DoF Sharpa 手上，Figure 4 的平均成功率由 0.02 提升到 0.56，即 **54 个百分点**；摘要的 “54%” 不能解释成相对增长 54%。
 4. **少样本与跨 embodiment**：Fold Shirt 单个机器人示教达到 0.88 成功率；在 Unitree G1 的 7-DoF tri-finger 手上也观察到明显收益。
 
 ## 2. 背景与相关工作
@@ -88,11 +88,11 @@ import { Aside } from '@/components/user'
 **【Paper】** 每个时间步的输入为第一视角图像、语言指令，以及机器人数据可用的 proprioceptive state。模型输出一个未来动作 chunk：
 
 $$
- A_t=(a_t,\ldots,a_{t+H}),\qquad a_t=(\Delta W_t, a_{\text{hand},t}).
+ A_t=(a_t,\ldots,a_{t+H-1}),\qquad a_t=(\Delta W_t, a_{\text{hand},t}).
 $$
 
 - **Observation**：30 FPS 的 egocentric RGB；对机器人还包括关节状态。人类样本没有 proprioception，因此输入 learnable placeholder token。
-- **Arm action**：相对 wrist 变换 $\Delta W_t\in SE(3)$，消除绝对相机位姿和工作空间差异。
+- **Arm action**：相对 wrist 变换 $\Delta W_t\in SE(3)$，去除全局参考坐标依赖；它不消除机器人可达空间、动力学和手臂运动学的差异。
 - **Hand action**：把 21 个手部 keypoints retarget 到 Sharpa 的 22-DoF joint space。
 - **主要 embodiment**：Galaxea R1 Pro 双臂轮式 humanoid，固定底座和躯干，双手为 Sharpa Wave 22-DoF。
 - **目标任务**：Shirt Rolling、Card Sorting、Tongs for Fruit Transfer、Bottle Unscrewing、Syringe Liquid Transfer。
@@ -109,21 +109,21 @@ $$
 
 #### 人类动作重表示
 
-**【Paper】** 相机位姿为 $T^t_{w\leftarrow c}\in SE(3)$，第 $i$ 个手部 keypoint 为 $H^t_{c,i}$，腕部世界坐标为 $W^t_w=T^t_{w\leftarrow c}H^t_{c,1}$。在一个 action chunk 内使用 $\Delta W^t=(W^0_w)^{-1}W^t_w$，因此模型学习的是局部运动而非“人在房间中的绝对位置”。
+**【Paper】** 相机位姿为 $T^t_{w\leftarrow c}\in SE(3)$，第 $i$ 个手部关键点的位姿为 $H^t_{c,i}\in SE(3)$（包含位置和朝向），腕部世界坐标为 $W^t_w=T^t_{w\leftarrow c}H^t_{c,1}$。在一个 action chunk 内使用 $\Delta W^t=(W^0_w)^{-1}W^t_w$，因此模型学习的是局部运动而非“人在房间中的绝对位置”。
 
-手部 keypoints 通过带 joint limits 和 kinematic constraints 的优化程序映射到 22 个 Sharpa 关节。**【Analysis】** 这一步不是为了让 Sharpa 模拟人的全部动力学，而是把“手指如何协同弯曲、夹捏和保持接触”变成与机器人控制接口同构的监督信号。
+手部 keypoints 通过优化程序映射到 22 个 Sharpa 关节。附录 D 给出了实际结构：URDF 前向运动学得到 20 个机器人关键点位姿，CasADi / IPOPT 对每帧 22 维关节角求解带关节限位的非线性优化，用上一帧解 warm start，再施加一阶指数平滑。论文没有公开各目标项的具体权重，也没有证明这种运动学匹配能保留接触力或排除碰撞。正文写 21 个手部点，附录又写包含位置和朝向的 25 点，属于公开描述仍需澄清之处。**【Analysis】** 这一步不是为了让 Sharpa 模拟人的全部动力学，而是把“手指如何协同弯曲、夹捏和保持接触”变成与机器人控制接口同构的监督信号。
 
 #### 数据层：scale 与 alignment 解耦
 
 ![EgoScale 人类数据采集与模型输入（论文 Figure 2a）](https://pic.hana0721.top/blog/paper-deep-dive-egoscale/ego_data_collection-egoscale.webp)
 
-**【Paper】** Stage I 混合了多种 egocentric datasets，总计 20,854 小时，覆盖 9,869 个场景、6,015 个任务和 43,237 个物体；其中额外加入 829 小时高精度 EgoDex。Stage II 的 aligned play data 有约 50 小时人类轨迹和 4 小时机器人轨迹，344 个 tabletop tasks，每个任务约 30 条人类和 5 条机器人轨迹，并使用与机器人匹配的头戴及腕部相机、Vive trackers 和 Manus gloves。
+**【Paper】** Stage I 混合了多种 egocentric datasets，总计 20,854 小时，覆盖 9,869 个场景、6,015 个任务和 43,237 个物体；论文随后又称加入 829 小时高精度 EgoDex，但没有给出足以核清该部分是否已计入总量的分项表，本文沿用其报告总量，不自行相加。Stage II 的 aligned play data 有约 50 小时人类轨迹和 4 小时机器人轨迹，344 个 tabletop tasks，每个任务约 30 条人类和 5 条机器人轨迹，并使用与机器人匹配的头戴及腕部相机、Vive trackers 和 Manus gloves。
 
 #### Flow-based VLA 与 embodiment adapters
 
 - **输入**：视觉—语言 embedding、机器人 proprioception（人类样本用可学习 placeholder）。
 - **共享模块**：VLM backbone、相对 wrist motion 预测头、DiT action expert。
-- **平台特定模块**：state encoder 和 hand-action decoder 的轻量 MLP adapters。
+- **平台特定模块**：state / noisy-action encoder 和 hand-action decoder 的轻量 MLP adapters（附录 D.1）。
 - **输出**：与当前 embodiment 匹配的 wrist motion 和 hand joint action chunk。
 
 **【Paper】** 对 G1，7-DoF tri-finger 的 state / hand action 经过自己的 adapter，主干仍复用人类预训练结构。**【Analysis】** 这比把所有 embodiment 映射到统一关节向量更稳妥：共享的是操控语义和 wrist-level motion，真正受硬件约束的部分留在接口层。
@@ -137,7 +137,7 @@ W^t_w=T^t_{w\leftarrow c}H^t_{c,1},\qquad
 \Delta W^t=(W^0_w)^{-1}W^t_w.
 $$
 
-其中 $T^t_{w\leftarrow c}$ 是相机到世界的刚体变换，$H^t_{c,1}$ 是 wrist keypoint，$\Delta W^t$ 是相对腕部位姿。它把 global camera motion 从动作标签中剥离出来。
+其中 $T^t_{w\leftarrow c}$ 是相机到世界的刚体变换，$H^t_{c,1}$ 是腕部完整刚体位姿，$\Delta W^t$ 是相对腕部位姿。先通过相机位姿把手的运动还原到世界系，再相对于 chunk 起点表达运动，可以避免把转头引起的相机坐标变化当成手腕动作。正文虽写“连续时间步之间”，公式却使用 chunk 的起点 $0$；这里按公式解释，不能把它与逐帧增量混用。
 
 #### Flow matching action prediction
 
@@ -149,23 +149,34 @@ $$
 L(D)=0.024-0.003\ln(D),
 $$
 
-其中 $D$ 是人类预训练小时数，$L$ 是收敛时 held-out human-video validation loss。**【Paper】** 该拟合只覆盖 1k–20k 小时，不能据此断言无限外推；它的重要性在于 offline loss 与真实机器人 task completion 同步提升。
+**【Paper】** 上式按原文 Eq. (1) 转录；作者把 $D$ 称为小时数，但 Figure 5 在 1k 小时的损失约为 0.024。若直接代入 $D=1000$，公式给出约 0.0033；代入 20,000 甚至得到负 MSE，因此**印刷公式与单位不自洽**。
+
+**【Analysis】** 与图中量级一致的解释是使用无量纲比例 $D/(1000\,\mathrm{h})$，即 $L\approx0.024-0.003\ln(D/(1000\,\mathrm{h}))$；这是根据图推断的归一化，尚无代码可确认。可靠结论是五个已测数据规模下损失下降、机器人完成分数上升；$R^2$ 来自五点拟合，不能证明通用缩放定律或保证新任务外推。每个规模采用同一训练配方并取最优验证损失，小数据更易过拟合；这也不同于同时优化数据、模型和算力的 compute-optimal scaling law。
 
 ### 4.4 Training
 
 **【Paper】** 训练分三阶段：
 
 1. **Stage I human pretraining**：20k 小时人类数据，100k steps，global batch size 8,192，learning rate $5\times10^{-5}$，全量解冻 VLA。
-2. **Stage II aligned mid-training**：50k steps，batch size 2,048，learning rate $3\times10^{-5}$；冻结 vision-language backbone，只更新 vision encoder、DiT 和 state/action adapters。
+2. **Stage II aligned mid-training**：50k steps，batch size 2,048，learning rate $3\times10^{-5}$；论文表述为冻结 vision-language backbone、更新 vision encoder 和 DiT；附录 D.1 补充更新 state/action adapters。由于视觉编码器也通常属于 VLM，原文术语有重叠，应理解为其列出的模块更新范围，不能据此断言整个 VLM 的所有视觉参数都冻结。
 3. **Stage III post-training**：任务级机器人示教上 fine-tune 10k steps，batch size 512，learning rate $3\times10^{-5}$；若使用 mid-training，post-training 时冻结 vision encoder。
 
 <Algorithm number={1} title='EgoScale 三阶段训练' inputLabel='输入' outputLabel='输出'>
-  <div slot='input'>第一视角人类视频及动作标签、aligned human–robot play data、任务级机器人示教</div>
+  <div slot='input'>
+    第一视角人类视频及动作标签、aligned human–robot play data、任务级机器人示教
+  </div>
   <div slot='output'>可在目标 embodiment 上执行的 flow-based VLA policy</div>
   <AlgorithmStep>从人类视频恢复相机运动、wrist pose 和 21-keypoint hand pose。</AlgorithmStep>
-  <AlgorithmStep>计算相对 wrist motion，并将 hand pose retarget 到 22-DoF Sharpa joints。</AlgorithmStep>
-  <AlgorithmStep>用 action chunk 和 flow-matching loss 预训练 VLA，学习通用视觉—运动表示。</AlgorithmStep>
-  <AlgorithmStep>混合匹配视角的人类与机器人 play data，冻结 VLM backbone，更新接口和 DiT 以完成 embodiment grounding。</AlgorithmStep>
+  <AlgorithmStep>
+    计算相对 wrist motion，并将 hand pose retarget 到 22-DoF Sharpa joints。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    用 action chunk 和 flow-matching loss 预训练 VLA，学习通用视觉—运动表示。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    混合匹配视角的人类与机器人 play data，按论文列出的冻结范围更新 vision encoder、接口和
+    DiT，以完成 embodiment grounding。
+  </AlgorithmStep>
   <AlgorithmStep>使用下游任务机器人示教进行 post-training，并在真实机器人上评估。</AlgorithmStep>
 </Algorithm>
 
@@ -176,10 +187,17 @@ $$
 <Algorithm number={2} title='EgoScale 实时推理' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>当前头戴 / 腕部 RGB、语言指令、embodiment state</div>
   <div slot='output'>一段 wrist 和 hand actions，并执行当前控制周期动作</div>
-  <AlgorithmStep>按当前平台的 state adapter 编码 proprioceptive state；人类输入路径使用 placeholder token。</AlgorithmStep>
+  <AlgorithmStep>
+    按当前平台的 state adapter 编码 proprioceptive state；人类输入路径使用 placeholder token。
+  </AlgorithmStep>
   <AlgorithmStep>VLM 编码图像与语言，DiT 在 flow-matching 采样路径上生成动作 chunk。</AlgorithmStep>
-  <AlgorithmStep>通过平台特定 decoder 将共享表示转换为目标手的关节动作，同时保留共享的相对 wrist motion。</AlgorithmStep>
-  <AlgorithmStep>执行当前 chunk 的控制动作，在下一帧 observation 到来后滚动重规划。</AlgorithmStep>
+  <AlgorithmStep>
+    通过平台特定 decoder 将共享表示转换为目标手的关节动作，同时保留共享的相对 wrist motion。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    执行预测的 wrist / hand 动作，并再次读取 observation；论文未给出重规划频率或每次执行的 chunk
+    长度。
+  </AlgorithmStep>
 </Algorithm>
 
 ### 4.6 代码实现对照
@@ -194,13 +212,15 @@ $$
 
 ![EgoScale 的五个灵巧操作评测任务（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-egoscale/dexterous_manipulation_tasks_v2-egoscale.webp)
 
-**【Paper】** 主要平台是 Galaxea R1 Pro + 22-DoF Sharpa hands，使用头戴相机和两台腕部相机。五个任务分别是双手卷衣服、从牌堆分离并插入指定卡片、用 tongs 夹水果、拧开瓶盖，以及抽取—注入液体的 syringe 长时程任务。除 Shirt Rolling 使用 20 条示教外，其余任务各使用 100 条 teleoperation demonstrations；每个方法使用两个随机种子，每个 checkpoint 通常评估 10 次，Tongs 在四种瓶子上共 16 次。
+**【Paper】** 主要平台是 Galaxea R1 Pro + 22-DoF Sharpa hands，使用头戴相机和两台腕部相机。五个任务分别是双手卷衣服、从牌堆分离并插入指定卡片、用 tongs 夹水果、拧开瓶盖，以及抽取—注入液体的 syringe 长时程任务。除 Shirt Rolling 使用 20 条示教外，其余任务各使用 100 条 teleoperation demonstrations；每个方法使用两个随机种子，每个 checkpoint 通常评估 10 次。原文试验次数有明显笔误：§3.1 将“四瓶各 4 次”写给 Task III，但 Task III 是夹水果；附录 B 明确 Tongs 为柠檬和李子各 5 次，而 Bottle 段又同时写“四种瓶子”“共 12 次”“每瓶 4 次”。因此不能把瓶子评测归给 Tongs，也不能凭这些文字重建精确的瓶子分母。
 
 ### 5.2 Main Results
 
 ![主要任务完成分数与成功率（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-egoscale/success_rate_task_completion_bar_plot-egoscale.webp)
 
-**【Paper】** 论文比较 No Pretrain、Midtrain Only、Human Pretrain 和 Human Pretrain + Midtrain。完整方法在五个任务上总体最好；摘要报告平均 success rate 相对无预训练提升 54%，正文则报告平均 task-completion score 提升超过 55%。两种口径分别对应二值成功率与细粒度完成分数，不能混为同一个指标。
+**【Paper】** 论文比较 No Pretrain、Midtrain Only、Human Pretrain 和 Human Pretrain + Midtrain。Figure 4 的平均结果分别为：No Pretrain（完成分数 0.24 / 成功率 0.02）、Midtrain Only（0.53 / 0.28）、Human Pretrain（0.71 / 0.38）、Human Pretrain + Midtrain（0.83 / 0.56）。完整方法的成功率提升是 0.56−0.02=0.54，即 **54 个百分点**；完成分数增加 0.59，二者不能混用。完整方法也并非每项指标都领先：Card 成功率是 Human Pretrain 的 0.70 高于完整方法 0.65，Syringe 完成分数是 0.83 高于完整方法 0.70。
+
+**【Paper】** 附录 B 的完成分数包含不同规则：Shirt/Card 取最远里程碑，Tongs/Bottle/Syringe 累加子步骤得分。例如夹水果时“抓到夹子”已得 0.4，最终成功还需要完整任务结束。因此 0.83 的平均分不是“83% 试验完成任务”，而是人工赋权的部分进度平均。
 
 **【Analysis】** 结果支持一种互补关系：人类预训练提供广覆盖的动作先验，aligned mid-training 则解决“这些动作如何被当前机器人看见和执行”。仅增加少量对齐数据不能替代规模化人类预训练。
 
@@ -210,13 +230,13 @@ $$
 
 ![人类数据规模、验证损失和机器人性能的关系（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-egoscale/human_data_scaling_combined-egoscale.webp)
 
-**【Paper】** 预训练数据从 1k、2k、4k、10k 增加到 20k 小时，平均 task-completion score 从 0.30 单调上升到 0.71；小数据模型更早过拟合，大数据模型在训练过程中持续改善。held-out human validation set 含 2,000 个 egocentric episodes，每条轨迹采样 20 个时间步，每步从 flow policy 采样 16 个 action chunks 后计算 wrist 与 hand action MSE。
+**【Paper】** 预训练数据从 1k、2k、4k、10k 增加到 20k 小时，平均 task-completion score 从 0.30 单调上升到 0.71；小数据模型更早过拟合，大数据模型在训练过程中持续改善。held-out human validation set 含 2,000 个 egocentric episodes，每条轨迹采样 20 个时间步，每步从 flow policy 采样 16 个 action chunks，**先平均这些预测，再计算** wrist 与 hand action MSE；这不是 16 次采样 MSE 的均值。该消融跳过 Stage II，直接对各规模 checkpoint 做任务 post-training，因而展示的是 human pretraining 的规模效应。
 
 #### 手部动作空间
 
 ![不同人类手部动作表示的消融（论文 Figure 8）](https://pic.hana0721.top/blog/paper-deep-dive-egoscale/human_action_space_completion_barplot-egoscale.webp)
 
-**【Paper】** 对比 wrist-only、fingertip-based 和 retargeted joint-space。wrist-only 在 Cards、Tongs 等需要接触时序的任务上明显较差；fingertip-based 虽然几何信息更多，但映射到关节后可能产生不稳定构型；retargeted joints 在各任务上最稳定。这里说明的是监督空间的物理可执行性，而不是 retargeting 算法本身被宣称为论文核心创新。
+**【Paper】** 对比 wrist-only、fingertip-based 和 retargeted joint-space。wrist-only 在 Cards、Tongs 等需要接触时序的任务上明显较差；fingertip-based 虽然几何信息更多，但映射到关节后可能产生不稳定构型；retargeted joints 在各任务上最稳定。Figure 8 也提示收益并不均匀：Card 的 wrist-only / fingertip / joints 为 0.56 / 0.17 / 0.74，而 Tongs 为 0.24 / 0.76 / 0.79；指尖监督在 Card 上甚至低于 wrist-only。作者将其归因于几何误差经 MLP 映射后导致不合理关节构型，但实验同时改变了表示和转换方式，尚不能把差异全部归因于 joint space 本身。
 
 ### 5.4 Generalization
 
@@ -226,7 +246,7 @@ $$
 
 **【Paper】** Fold Shirt 和 Unscrewing Water Bottles 都不在 mid-training task 中。post-training 每个任务只给 1 条机器人示教，并配合每个物体 100 条 aligned human demonstrations；Pretrain + Midtrain 分别达到 0.88 和 0.55 成功率，而缺少任一阶段的模型在该设置下失败。
 
-**【Analysis】** 这不是“零样本完成新任务”：模型仍看到了目标任务的一条机器人示教和配对人类示教。更准确的说法是，mid-training 让共享的 motion primitives 能在极低机器人数据量下被重新绑定。
+**【Analysis】** 这不是“零样本完成新任务”：模型仍看到了目标任务的一条机器人示教和额外的目标任务人类示教；这里的 aligned 是视角与任务匹配，不意味着逐帧成对。对于三种水瓶，每瓶各 1 条机器人和 100 条人类轨迹，不能合称整个实验仅用 1 条机器人轨迹。更准确的说法是，mid-training 让共享的 motion primitives 能在极低机器人数据量下被重新绑定。
 
 #### Cross-embodiment transfer
 
@@ -282,5 +302,6 @@ $$
 
 <Aside type='note' title='阅读提示'>
   本精读中 `【Paper】` 表示论文或官方项目页明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
-  表示基于论文和公开资料的分析推断。本文没有使用 `【Code】` 事实，因为 EgoScale 官方 GitHub 仍未公开。
+  表示基于论文和公开资料的分析推断。本文没有使用 `【Code】` 事实，因为 EgoScale 官方 GitHub
+  仍未公开。
 </Aside>

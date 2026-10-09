@@ -1,7 +1,7 @@
 ---
 title: 'HEX：跨形态人形全身操作论文精读'
 publishDate: 2026-08-25
-updatedDate: 2026-08-25
+updatedDate: 2026-09-22
 description: '精读 HEX：用 body-part 对齐状态、UPP-MoE、视觉历史缓存与 flow matching，让全尺寸人形机器人跨形态完成协调的全身操作。'
 heroImage:
   { src: 'https://pic.hana0721.top/124956717_p0_master1200.83amt2xvmx.webp', color: '#8C8275' }
@@ -52,7 +52,7 @@ import { Aside } from '@/components/user'
 
 ## 1. 论文概述
 
-**【Paper】** 《HEX: Humanoid-Aligned Experts for Cross-Embodiment Whole-Body Manipulation》关注一个经常被 VLA 论文略过的问题：机器人不仅要“看懂并完成任务”，还要在走路、转身、下蹲、抓取和放置之间维持同一个全身动力学状态。作者在 Tienkung 2.0/3.0 上展示了一个高层 VLA 与低层 RL whole-body controller 的分层系统，并用七种人形形态、超过 12M 帧的轨迹做跨形态预训练。
+**【Paper】** 《HEX: Humanoid-Aligned Experts for Cross-Embodiment Whole-Body Manipulation》关注一个经常被 VLA 论文略过的问题：机器人不仅要“看懂并完成任务”，还要在走路、转身、下蹲、抓取和放置之间维持同一个全身动力学状态。作者在 Tienkung 2.0/3.0 上展示了一个高层 VLA 与低层 RL whole-body controller 的分层系统，并用七种人形形态、超过 12M 帧的轨迹做跨形态预训练。本文以 [arXiv v2 全文](https://arxiv.org/html/2604.07993v2) 与 2026 年 9 月 22 日的官方公开实现为准；下文会区分论文设计和当前配置。
 
 ![HEX 系统总览：跨形态数据、VLA 与全身控制器（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-hex/teaser-crop.1apqexan65.webp)
 
@@ -88,7 +88,7 @@ $$
 
 这里 $e$ 可以对应不同人形平台或不同状态/动作定义。由于各平台的关节数量、传感器和可控部件不同，原始状态维度并不相同；HEX 首先把它们投影到 $P$ 个 canonical body-part slots，每个 slot 使用 $d$ 维 latent，得到 $P_t^{(e)}\in\mathbb R^{P\times d}$。没有某一部件时，插入 learned missing-part token，而不是强行补零。
 
-高层动作主要直接控制 arm、hand、waist，并向低层 RL whole-body controller 提供中间命令；低层控制器以更高频率生成腿部动作和保持平衡的全身运动。**【Code】** 官方 README 明确说明，Tienkung 系列的低层控制器因商业限制未开源，公开仓库主要覆盖 VLA 的预训练、微调和推理。
+**【Paper】** 低层也不是一个覆盖所有姿态的统一网络：站立/行走使用 DeepMimic 式参考跟踪，半跪姿使用 AMP 式对抗运动先验。高层动作主要直接控制 arm、hand、waist，并向低层 RL whole-body controller 提供中间命令；低层控制器以更高频率生成腿部动作和保持平衡的全身运动。**【Code】** 官方 README 明确说明，Tienkung 系列的低层控制器因商业限制未开源，公开仓库主要覆盖 VLA 的预训练、微调和推理。
 
 ## 4. 方法
 
@@ -108,17 +108,17 @@ $$
 [L'_t,V'_t,Q'_t]=f_{\mathrm{vlm}}([L,V_t,Q_t]).
 $$
 
-模型只把 $Q'_t$ 放入固定长度缓存 $\mathcal M_t^{vl}=\{Q'_{t-\tau_v},\ldots,Q'_t\}$，而不重复编码过去的图片。论文实验中视觉历史窗口为 2。
+模型只把 $Q'_t$ 放入固定长度缓存 $\mathcal M_t^{vl}=\{Q'_{t-\tau_v},\ldots,Q'_t\}$，而不重复编码过去的图片。论文实验中视觉历史窗口为 2，即式中包含当前时刻在内的三个时间点，而非仅两帧。每次生成新的 query 特征，再缓存供下游使用；旧 query 不循环喂回 VLM。
 
-**【Code】** `hex/model/framework/HEX.py` 中，训练和 batch inference 会按 `vision_history_length` 逐个时间步调用 Qwen-VL，并取最后 8 个 hidden states 作为 query tokens；在线 `predict_action` 使用 queue 保存历史 query。仓库默认配置的 `vision_history_length` 可以按数据集覆盖，不能把“论文窗口为 2”误读成代码所有配置都固定为 2。
+**【Code】** `hex/model/framework/HEX.py` 中，训练和 batch inference 会按 `vision_history_length` 逐个时间步调用 Qwen-VL，并取最后 8 个 hidden states 作为 query tokens；在线 `predict_action` 使用 queue 保存历史 query。当前 `hex/config/training/hex_cotrain_eai_pretrain.yaml` 实际设置 `add_query: false`、`vision_history_length: 0`，因此直接运行这个默认配置不会启用论文的 history cache；复现完整 HEX 必须检查启动参数和所加载 checkpoint 的配置。开启后，队列容量是 `vision_history_length + 1`，冷启动用现有 query 填充，切换 episode 应调用 `reset()` 清空。
 
 #### UPP：body-part 对齐与 morphology-aware MoE
 
 ![UPP、MoE 与 Action Expert 的细节（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-hex/model_details-crop.mt8lsnge.webp)
 
-**【Paper】** UPP 把当前部件 token 与未来 query tokens $N_{t+1:t+\tau_p}$ 拼成 part-time 网格，并加入时间位置和部件位置编码。共享 Transformer 在这个网格上交替建模 body-part 内部关系与视觉语言条件下的时间动态。输入和输出边界的 MoE 用 learned top-$k$ gate 路由 token：routed experts 负责形态/部件特化，shared experts 保留跨形态的公共变换。
+**【Paper】** UPP 把当前部件 token 与未来 query tokens $N_{t+1:t+\tau_p}$ 拼成 part-time 网格，并加入时间位置和部件位置编码。共享 Transformer 在展平后的整个 part-time 序列上交替进行自注意力与视觉语言条件注意力；不能将其理解成严格交替的“仅空间/仅时间”注意力。输入和输出边界的 MoE 用 learned top-$k$ gate 路由 token：routed experts 负责形态/部件特化，shared experts 保留跨形态的公共变换。
 
-**【Code】** 官方配置 `hex_cotrain_eai_pretrain.yaml` 设置 state horizon 为 50、UPP Transformer 为 4 层、hidden size 为 768、16 个 routed experts、2 个 shared experts、top-1 softmax routing，并使用 0.01 的 load-balancing auxiliary loss。实际代码通过 `CrossEmnodiedStateMoEL2Head` 处理 padded state 和 embodiment tags；最多 128 维 state 被 padding 到统一张量，再由各 embodiment registry 选择对应头。
+**【Code】** 官方配置 `hex_cotrain_eai_pretrain.yaml` 设置 state horizon 为 50、UPP Transformer 为 4 层、hidden size 为 768、16 个 routed experts、2 个 shared experts、top-1 softmax routing，并使用 0.01 的 load-balancing auxiliary loss。实际代码通过 `CrossEmnodiedStateMoEL2Head` 处理 padded state 和 embodiment tags；最多 128 维 state 被 padding 到统一张量，再由各 embodiment registry 选择对应头。这里有两个应区分的实现细节：该类声明了 `missing_part_token`，但当前 `forward` 对缺失部件仍保留零初始化的 `part_latents`，并未使用这个可学习参数；`state_horizon=50` 分配的是当前状态加 49 个未来 query，监督 `state[:, 1:]`，并非“当前状态之外再预测 50 步”。这两点属于公开实现与论文表述的差异。
 
 #### Action Expert：双路 cross-attention 与 residual gate
 
@@ -138,13 +138,15 @@ $$
 
 随后用 residual update $X'_t=X_t+F_t$，再经过 self-attention 与 feed-forward refinement。
 
-**【Analysis】** 这个 gate 的意义是让状态分支“按动作生成阶段介入”：快速反应时视觉语义可能更关键，转身、行走或放置阶段则需要提高 future-state cue 的权重。
+**【Code】** 当前 `cross_attention_dit_hex.py` 还将 sigmoid gate 乘以沿 action chunk 位置从 0 到 1 的线性权重；第一条动作的直接 state-branch 注入为零，越靠后的目标允许更强注入。这是 chunk 内未来位置的权重，不是 flow 去噪时间，也没有出现在论文式（7）–（9）中。随后的 self-attention 仍可能把其他位置的状态信息传回第一条动作。
+
+**【Analysis】** gate 表示可学习的特征融合强度，不是经校准的状态可靠性或物理稳定性评分。论文没有 gate 随接触阶段变化的独立实验证据；Figure 9 可视化的是 UPP 的 MoE expert ID，不能当成 action gate 的观测。
 
 ### 4.3 关键公式
 
 #### Flow-matching action objective
 
-给定干净动作 chunk $A$ 和同形状高斯噪声 $N$，采样 $\lambda\sim U(0,1)$：
+**【Paper】** 给定干净动作 chunk $A$ 和同形状高斯噪声 $N$，采样 $\lambda\sim U(0,1)$：
 
 $$
 \widetilde A=(1-\lambda)N+\lambda A,\qquad V=A-N.
@@ -156,7 +158,7 @@ $$
 \mathcal L_a=\|\hat V-V\|_2^2.
 $$
 
-其中 $Z^a$ 是 Action Expert 的最终 hidden representation，$D_a$ 是按 embodiment 选择的 action decoder。**【Code】** `HEX_ActionHeader.py` 按 tag 分组不同 action dimension，使用对应 encoder/decoder；推理从 padded action space 的高斯噪声出发，用 Euler integration 迭代更新有效维度。
+其中 $Z^a$ 是 Action Expert 的最终 hidden representation，$D_a$ 是按 embodiment 选择的 action decoder。**【Code】** `HEX_ActionHeader.py` 按 tag 分组不同 action dimension，使用对应 encoder/decoder；推理从 padded action space 的高斯噪声出发，用 Euler integration 迭代更新有效维度。公开实现的时间采样来自变换后的 Beta(1.5, 1.0)，并不是论文写的均匀分布；当前预训练配置的推理步数为 4。损失仅统计各 tag 的真实动作维度，再按有效元素总数归一化，padding 不应成为监督目标。
 
 #### Future-state prediction objective
 
@@ -167,7 +169,7 @@ $$
 \qquad \mathcal L=\mathcal L_a+\alpha\mathcal L_s.
 $$
 
-$\alpha$ 控制预测状态对总训练目标的影响。它让 UPP 学到“下一步身体会怎么动”，而不只是把 state 当作当前时刻的额外 feature。
+$\alpha$ 控制预测状态对总训练目标的影响。它让 UPP 学到示教分布下、给定任务与观测时未来身体如何演化。**【Analysis】** UPP 没有把候选 action chunk 作为输入，因此不是能评估任意控制序列后果的 action-conditioned dynamics model，也没有通过 rollout 搜索动作或强制动力学约束。未来状态在这里是行为预测先验，真正的稳定执行仍依赖低层控制器。
 
 ### 4.4 Training
 
@@ -193,7 +195,9 @@ $\alpha$ 控制预测状态对总训练目标的影响。它让 UPP 学到“下
   <AlgorithmStep>
     用 state decoder 计算未来状态损失 $\mathcal L_s$，联合优化 $\mathcal L_a+\alpha\mathcal L_s$
   </AlgorithmStep>
-  <AlgorithmStep keyword='return'>保存验证集表现最好的跨形态策略</AlgorithmStep>
+  <AlgorithmStep keyword='return'>
+    保存训练得到的 checkpoint，并记录实际配置；论文未规定统一的最优验证集选模规则
+  </AlgorithmStep>
 </Algorithm>
 
 ### 4.5 Inference
@@ -237,29 +241,31 @@ $\alpha$ 控制预测状态对总训练目标的影响。它让 UPP 学到“下
 
 ![真实机器人遥操作数据采集设置（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-hex/hardware-crop.54yhxvskjj.webp)
 
-**【Paper】** 实验使用 Tienkung 2.0 与 Tienkung 3.0。高层模型统一使用同一个 RL-based low-level controller，以隔离 VLA policy 的贡献。对比方法包括 ACT、SwitchVLA、GR00T N1.5 和 $\pi_{0.5}$；HEX 使用 Qwen3-VL-2B-Instruct、4-layer UPP、50-step state horizon、16-layer DiT-B action head 和 100-step action chunk。
+**【Paper】** 实验使用 Tienkung 2.0 与 Tienkung 3.0。高层模型统一使用同一个 RL-based low-level controller，以隔离 VLA policy 的贡献。对比方法包括 ACT、SwitchVLA、GR00T N1.5 和 $\pi_{0.5}$；各任务另有目标机器人示教并进行微调，故不是未知形态零样本部署。七个常规任务各评测 12 次，搬箱长任务评测 15 次，后者训练示教为 56 条。各基线的训练步数、batch 与 action horizon 并不相同，这是一组作者配置下的系统比较；HEX 使用 Qwen3-VL-2B-Instruct、4-layer UPP、50-step state horizon、16-layer DiT-B action head 和 100-step action chunk。
 
 任务覆盖 pose mimic、按人类指令倒液体、协助搬箱、避障行走、跪姿取放、整理桌面、取箱并打包，以及四阶段 long-horizon box convey。
 
 ### 5.2 Main Results
 
-**【Paper】** seen scenarios 的总体平均成功率为：ACT 57.1%、SwitchVLA 40.5%、GR00T N1.5 70.2%、$\pi_{0.5}$ 71.8%、HEX 79.8%。在 long-horizon box convey 的四个阶段（Grasp、Turn、Walk、Place）中，HEX 分别为 100%、100%、73.3%、53.3%；最后的 Place Box 比最强 baseline 高约 13.3 个百分点，说明优势主要体现在错误累积最严重的末段。
+**【Paper】** seen scenarios 的总体平均成功率为：ACT 57.1%、SwitchVLA 40.5%、GR00T N1.5 70.2%、$\pi_{0.5}$ 71.8%、HEX 79.8%。在 long-horizon box convey 的四个阶段（Grasp、Turn、Walk、Place）中，HEX 分别为 100%、100%、73.3%、53.3%；这是沿同一条任务链累计到达各阶段的比例，不是四个独立阶段的条件成功率。前三阶段与 π0.5 完全相同；最后的 Place Box 是 8/15 对 6/15，多完成两次、提高 13.3 个百分点。论文正文笼统写“约 15%”，精读应以 Table 2 的实际分母为准。
 
-![延迟与成功率的权衡（论文 Figure 11）](https://pic.hana0721.top/blog/paper-deep-dive-hex/latency-crop.6f1f47ajwf.webp)
+**【Analysis】** Table 1 的 π0.5 Tidy Table 写为 35.7%，并非 12 次试验可得到的比例；其汇总 71.8% 与该表值吻合，但这一项的试验次数/笔误原文未解释。本文保留原报数，不将其改写成可核实的成功次数。
 
-**【Paper】** 在 RTX 4090 上，HEX 以 73.34 ms 延迟取得 79.8% 成功率；它不是最低延迟模型，但在实际推理预算下提供最高成功率。
+![延迟与成功率的权衡（论文 Figure 10）](https://pic.hana0721.top/blog/paper-deep-dive-hex/latency-crop.6f1f47ajwf.webp)
+
+**【Paper】** 在 RTX 4090 上，HEX 以 73.34 ms 延迟取得 79.8% 成功率；这是单次策略推理延迟，对应理论约 13.6 次策略调用/秒；不能乘以 100-step chunk 后当作闭环控制频率，论文没有给出其端到端执行频率、执行前缀长度或时延分位数。
 
 ### 5.3 Ablation Study
 
-![预训练与组件消融（论文 Figure 9）](https://pic.hana0721.top/blog/paper-deep-dive-hex/ablation_all-crop.1apqexal8f.webp)
+![预训练与组件消融（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-hex/ablation_all-crop.1apqexal8f.webp)
 
-**【Paper】** 消融显示 UPP 的贡献最大。在 Pouring 上，逐步加入 UPP、history cache 和 MoE 后成功率由 4/12 提升到完整 HEX 的 11/12；Box Conveying 则由 3/15 提升到 8/15。预训练主要改善早期优化和 sample efficiency：20k steps 时预训练模型成功率 10/12，未预训练为 7/12，但最终分别达到 11/12 与 10/12。
+**【Paper】** 消融显示 UPP 的贡献最大。在 Pouring 上，无全部组件、去 UPP、去 history cache、去 MoE、完整模型分别为 4/12、6/12、8/12、10/12、11/12；Box Conveying 对应 3/15、4/15、5/15、7/15、8/15。这里既有全删除参照，也有逐项去除配置，不能把所有差值都解释为独立叠加收益。预训练主要改善同一份任务数据上的优化速度；这组随训练步数变化的曲线并未减少示教条数，不能单独证明样本效率提升：20k steps 时预训练模型成功率 10/12，未预训练为 7/12，但最终分别达到 11/12 与 10/12。
 
 ### 5.4 Generalization
 
-![分布外泛化任务（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-hex/generalization_tasks-crop.4joubky3pa.webp)
+![分布外泛化任务（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-hex/generalization_tasks-crop.4joubky3pa.webp)
 
-![分布外泛化结果（论文 Figure 8）](https://pic.hana0721.top/blog/paper-deep-dive-hex/generalization-crop.3gp50p29p5.webp)
+![分布外泛化结果（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-hex/generalization-crop.3gp50p29p5.webp)
 
 **【Paper】** 八个泛化变体的平均成功率为 HEX 61.8%、$\pi_{0.5}$ 44.3%、GR00T N1.5 41.0%、SwitchVLA 22.4%。变化包括更快的人体姿态切换、背景干扰、视觉 distractor、瓶子位置变化、动态物体、未见物体、周围物体和光照。尤其在 Pouring distractors 上，baseline 为 0%，HEX 为 53.3%；在未见球体的 Kneel Pick Objects 上，HEX 达到 100%。
 
@@ -292,7 +298,7 @@ UPP 的 body-part slots 还把跨形态迁移从“对齐每个关节”改成�
 
 ### 7.1 作者明确提出的局限
 
-**【Paper】** 论文没有给出单独、系统的 limitations 小节；它明确说明 Tienkung 系列低层 RL whole-body controller 受商业限制未开源。因此完整复现实验需要相同机器人、控制器和数据采集链路。
+**【Paper】** 论文没有给出单独、系统的 limitations 小节。**【Code】** 低层控制器与采集链路的未开源说明来自官方仓库；README 于 2026 年 9 月 18 日新增了预训练/微调数据已发布的状态。因此完整复现实验需要相同机器人、控制器和数据采集链路。
 
 ### 7.2 自己分析得到的局限
 

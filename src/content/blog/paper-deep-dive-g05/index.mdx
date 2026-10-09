@@ -1,7 +1,7 @@
 ---
 title: 'G0.5 论文精读：One Autoregressive Stream for Robot Action'
 publishDate: 2026-08-25
-updatedDate: 2026-08-25
+updatedDate: 2026-09-22
 description: '精读 Galaxea G0.5：用跨形态 ActionCodec、原生 CoT 与视觉记忆，把 VLM 重新变成同时推理和行动的 autoregressive VLA。'
 heroImage:
   { src: 'https://pic.hana0721.top/139063757_p0_master1200.2yyzxgr9fg.webp', color: '#6D6257' }
@@ -85,12 +85,12 @@ import { Aside } from '@/components/user'
 
 **【Paper】**
 
-1. **跨 embodiment 的结构化 ActionCodec**：把不同机器人按左/右控制、夹爪和下半身等语义部件分组，使用 residual vector quantization（RVQ）和 temporal contrastive loss，将异构连续动作压缩到共享的 27 维 token 配置；没有运动的部件不产生 token。
+1. **跨 embodiment 的结构化 ActionCodec**：把不同机器人按左/右控制、夹爪和下半身等语义部件分组，使用 residual vector quantization（RVQ）和 temporal contrastive loss，将异构连续动作压缩到共享的 27 维连续动作布局及离散 code vocabulary；没有运动的部件不产生 token。
 2. **原生 Chain-of-Thought（CoT）**：`Subtask`、`BBox`、`Trace`、`ActionHint` 四类中间结果与动作在同一序列、同一 decoder、同一交叉熵损失中训练，推理时可以通过 prompt 选择 CoT 组合。
 3. **短时视觉记忆**：在 vision transformer 中每四层插入 factorized spatial-temporal attention，并随机丢弃历史帧，给模型多秒级闭环上下文而不把计算量变成简单堆帧的二次增长。
 4. **统一的实验证据**：在 DROID 环境/物体零样本、BEHAVIOR 长时程移动操作、R1-Lite/R1-Pro 真实微调、Pick-and-Place 语言跟随、LIBERO、RoboTwin 2.0 和 SimplerEnv-Bridge 七个 regime 中达到具有竞争力的结果。
 
-**【Analysis】** 论文的真正赌注不是“AR token 一定比 diffusion 平滑”，而是：如果 VLM 仍然直接生成动作，那么预训练得到的语言推理、in-context learning 和 prompt steering 才不会被压缩成一个只供 action expert 读取的条件向量。
+**【Analysis】** 论文的真正赌注不是“AR token 一定比 diffusion 平滑”，而是：如果 VLM 仍然直接生成动作，那么推理 token 可以直接成为后续动作 token 的上下文。但这是一种更直接的条件化接口，不是 FM 策略无法跟随语言的定理；后者同样能经条件表示改变动作分布。
 
 ## 2. 背景与相关工作
 
@@ -98,7 +98,7 @@ import { Aside } from '@/components/user'
 
 这种分工解决了动作 token 太长的问题，却也改变了 VLM 的角色。**【Paper】** 在 VLM-as-encoder 架构中，CoT、in-context learning 和 prompt 对动作的影响必须穿过一个条件瓶颈；当 action expert 的梯度回传到 VLM 时，还可能出现 pretrained capability 遗忘，促使后续工作重新加入 AR action objective。G0.5 因而选择保留 AR actor，同时用更紧凑的动作表示解决效率问题。
 
-动作 tokenization 方面，RT-2/OpenVLA 的逐维 binning 忽略时间相关性，FAST/FAST+ 用 DCT 和 BPE 压缩轨迹，但通常按 embodiment 独立处理。**【Paper】** G0.5 把“跨形态对齐”前移到 tokenizer：left/right/lower-body 的语义结构在 token 序列中显式可见。
+动作 tokenization 方面，RT-2/OpenVLA 的逐维 binning 忽略时间相关性，FAST/FAST+ 用 DCT 和 BPE 压缩轨迹，其中 FAST+ 本来就追求跨数据集通用 tokenizer；G0.5 强调的差异是显式部件语义和 RVQ 学习，而不能简单把 FAST+ 说成只支持单个 embodiment。**【Paper】** G0.5 把“跨形态对齐”前移到 tokenizer：left/right/lower-body 的语义结构在 token 序列中显式可见。
 
 CoT 方面，bolt-on 方法把高层计划交给另一个 controller；ECoT 等 in-stream 方法已经证明中间推理有价值。G0.5 的区别在于四种 reasoning primitive 共享动作 token 的 vocabulary，并且由 prompt 决定是否、以何种组合生成。
 
@@ -107,7 +107,7 @@ CoT 方面，bolt-on 方法把高层计划交给另一个 controller；ECoT 等 
 **【Paper】** 在时间 $t$，模型输入为：
 
 - **Observation**：来自 $K$ 个摄像头的多视角 RGB 短历史窗口 $\{o_{t-h}^{(k)}\}$；
-- **Instruction**：自然语言任务 $\ell$，预处理时最多截断到 200 tokens；
+- **Instruction**：自然语言任务 $\ell$；原文未给出指令截断长度；
 - **Proprioception**：机器人状态 $s_t$，包括关节位置和夹爪状态；
 - **Embodiment ID**：例如 `r1pro` 或 `r1lite`，用于选择 active-DoF schema；
 - **Prompt**：声明希望模型输出哪些 CoT 字段，例如“predict bbox, subtask and action”。
@@ -121,7 +121,7 @@ CoT 方面，bolt-on 方法把高层计划交给另一个 controller；ECoT 等 
 
 **【Paper】** 不同 embodiment 不具备的 slot 在 merge 时填充 noop，但生成时只发射当前 active 的部件。动作被分成 $R$ 个 residual round；每个 active group 由一个部件 marker 加 8 个 action code 组成。
 
-**【Analysis】** 这一定义同时解决了两个尺度问题：token 数量不再随全部 DoF 线性膨胀，且同一 decoder 可以看到“左臂动作”和“底盘动作”之间的结构关系。论文没有把 lower-body 单独作为主要实验证明，因此不能把统一空间等同于已经验证的全身移动控制能力。
+**【Analysis】** 这一定义同时解决了两个尺度问题：token 数量不再随全部 DoF 线性膨胀，且同一 decoder 可以看到“左臂动作”和“底盘动作”之间的结构关系。27 维是连续布局的维数，不是每次固定生成 27 个 token。若每轮有 $G$ 个活动控制组，仅按图中规则计数就约为 $9RG$ 个 action span token（不含其他边界符）。BEHAVIOR 已包含移动与双臂控制，但没有把 lower-body 分支单独消融，不能将其收益独立归给这个分组。
 
 ## 4. 方法
 
@@ -136,24 +136,24 @@ CoT 方面，bolt-on 方法把高层计划交给另一个 controller；ECoT 等 
 #### 4.2.1 Structured ActionCodec
 
 - **输入**：按语义部件分组并 padding 到共享最大维度的连续动作 chunk。
-- **中间模块**：每个部件经过 action encoder；RVQ 逐层编码 residual；temporal contrastive loss 拉近相邻时刻的 latent，推远负样本。
+- **中间模块**：每个部件经过 action encoder；RVQ 逐层编码 residual；temporal contrastive objective 用于改善相邻动作编码的一致性；正负样本构造及完整权重未披露。
 - **输出**：每个 residual round 的部件 marker 和 8 个离散 code。
 - **为什么需要**：平坦向量会把形态差异和动作语义混在一起；部件化后，静止的右臂或底盘无需产生 token。
 
 ![Structured ActionCodec：部件分组、RVQ 与 active token 序列（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-g05/tokenizer_v2.1764h94oiv.webp)
 
-**【Analysis】** 该设计把“跨机器人迁移”从 action head 的后处理变成 vocabulary 级别的归纳偏置。它的代价是需要为新部件定义稳定的语义分组，并维护 codec 的 reconstruction quality；论文没有给出新增 embodiment 的独立 scaling 曲线。
+**【Analysis】** 该设计把“跨机器人迁移”从 action head 的后处理变成 vocabulary 级别的归纳偏置。它的代价是需要定义稳定的语义分组，并维护 codec 的 reconstruction quality。先预训练、后冻结 codec 与策略的单阶段训练是两个层次，不能把“策略只用交叉熵”理解为 codec 也不需要重建学习。现有槽位能容纳的新 embodiment 可不新增模型参数，但仍需要动作映射、归一化和适配数据；论文没有新增 embodiment 的独立 scaling 曲线。
 
 #### 4.2.2 Native Chain-of-Thought
 
 CoT span 可由四种字段的任意子集组成：
 
-| 字段 | 语义 | 对动作的作用 |
-| --- | --- | --- |
-| `Subtask:` | 原子子任务 | 把长指令拆成当前可执行目标 |
-| `BBox:` | 目标物体框 | 将语言实体绑定到视觉位置 |
-| `Trace:` | 2D 夹爪落点轨迹 | 提供粗粒度运动草图 |
-| `ActionHint:` | 帧级动作提示 | 指示抓取、推动等接触意图 |
+| 字段          | 语义            | 对动作的作用               |
+| ------------- | --------------- | -------------------------- |
+| `Subtask:`    | 原子子任务      | 把长指令拆成当前可执行目标 |
+| `BBox:`       | 目标物体框      | 将语言实体绑定到视觉位置   |
+| `Trace:`      | 2D 夹爪落点轨迹 | 提供粗粒度运动草图         |
+| `ActionHint:` | 帧级动作提示    | 指示抓取、推动等接触意图   |
 
 **【Paper】** 训练时从 8 种模板（包括 no-CoT）加权采样，每个样本只选择一种格式；推理时则用 prompt 显式打开需要的字段。这样 CoT 不是额外的辅助 head，而是 action 前的 token context，动作 token 可以直接 attend 到刚刚生成的 reasoning。
 
@@ -199,16 +199,24 @@ $e_r$ 是第 $r$ 层 codebook，$c_r$ 是离散 code，$\hat a$ 是还原的连�
 
 **【Paper】** G0.5 从 Qwen3.5 2B 初始化，单阶段预训练混合 14 种 embodiment 的 robot demonstration 与 web/VQA 数据。所有机器人动作映射到 27 维统一 layout；DROID 不在 foundation mixture 中，而是在后续 post-training 使用。训练数据通过自动标注管线补充 episode instruction、atomic task、action hint、bbox/segmentation 和 2D end-effector trace。
 
-训练目标只在 assistant generative segment 上计算 next-token cross-entropy。VQA、CoT 和 action sample 共享 decoder 与 vocabulary；vision tower 全程 unfrozen。优化器为 AdamW，采用 warmup、constant 和最后 cosine decay，历史帧随机丢弃，直到收敛。论文未公开完整 batch size、训练步数和 checkpoint 配置。
+训练目标只在 assistant generative segment 上计算 next-token cross-entropy。VQA、CoT 和 action sample 共享 decoder 与 vocabulary；vision tower 全程 unfrozen。**主实验按 §4 固定使用 no-CoT 格式，显式开启 CoT 的收益主要由 §5.6 另行测试**，不能把全部榜单成绩都归因于测试时生成了 CoT。优化器为 AdamW，采用 warmup、constant 和最后 cosine decay，历史帧随机丢弃，直到收敛。论文未公开完整 batch size、训练步数和 checkpoint 配置。
 
 <Algorithm number={1} title='G0.5 Unified Pre-training' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>异构机器人示教、VQA/CoT 标注、短时多视角视觉历史</div>
   <div slot='output'>共享 vocabulary 的 G0.5 autoregressive policy</div>
-  <AlgorithmStep keyword='Given'>对每个 embodiment 归一化动作并映射到 5-part unified layout</AlgorithmStep>
+  <AlgorithmStep keyword='Given'>
+    对每个 embodiment 归一化动作并映射到 5-part unified layout
+  </AlgorithmStep>
   <AlgorithmStep>用 ActionCodec 将动作 chunk 编码为 active-part markers 与 RVQ codes</AlgorithmStep>
-  <AlgorithmStep>为 robot episode 自动生成 instruction、Subtask、BBox、Trace 和 ActionHint 候选</AlgorithmStep>
-  <AlgorithmStep>按 8 种 CoT 模板之一序列化 conditioning segment 与 generative segment</AlgorithmStep>
-  <AlgorithmStep>对生成段计算 next-token cross-entropy，联合更新 vision tower 与 decoder</AlgorithmStep>
+  <AlgorithmStep>
+    为 robot episode 自动生成 instruction、Subtask、BBox、Trace 和 ActionHint 候选
+  </AlgorithmStep>
+  <AlgorithmStep>
+    按 8 种 CoT 模板之一序列化 conditioning segment 与 generative segment
+  </AlgorithmStep>
+  <AlgorithmStep>
+    对生成段计算 next-token cross-entropy，联合更新 vision tower 与 decoder
+  </AlgorithmStep>
   <AlgorithmStep>以随机历史帧丢弃正则化 visual memory，使用 AdamW 训练至收敛</AlgorithmStep>
   <AlgorithmStep keyword='return'>能生成 CoT 与 active action codes 的统一 VLA</AlgorithmStep>
 </Algorithm>
@@ -229,13 +237,13 @@ $e_r$ 是第 $r$ 层 codebook，$c_r$ 是离散 code，$\hat a$ 是还原的连�
   <AlgorithmStep keyword='end for' />
 </Algorithm>
 
-**【Analysis】** 与 diffusion policy 一次采样整段连续轨迹不同，G0.5 的“chunk”压缩发生在 tokenization 层，而闭环频率仍由实际控制系统决定。论文报告 AR 与 FM + FlashRT 的推理延迟约为 190 ms，但 AR 不带 CoT 可到 130 ms；因此 CoT 的收益需要和额外 token 开销一起评估。
+**【Analysis】** 与 diffusion policy 一次采样整段连续轨迹不同，G0.5 的“chunk”压缩发生在 tokenization 层，而闭环频率仍由实际控制系统决定。Figure 1 标注 FM 为 190 ms、AR + CoT 为 192 ms、AR 无 CoT 为 130 ms，FlashRT 星号标在两条 AR 配置上。正文未给齐硬件、batch、chunk 和计时边界，因此这只是所测配置的延迟对照，不能当作所有 AR/FM 的通用速度关系。
 
 ### 4.6 代码实现对照
 
-**【Code】** 论文关联的官方项目页是 [opengalaxea.github.io/G05](https://opengalaxea.github.io/G05/)，提供交互式论文解读、图表和真实机器人视频；截至本文撰写时，项目页没有链接可供审阅的训练/推理 GitHub 代码仓库，论文首页也只给出项目主页。因此不存在可逐文件核对的官方 `Model`、`DataLoader`、`Config` 或 `Inference` 实现。
+**【Paper】** 截至 2026-09-22，[官方项目页](https://opengalaxea.github.io/G05/) 提供论文内容、图表和演示，但页面发布资源中未找到训练/推理仓库或 checkpoint 链接。本文因此不把网页介绍标为 `【Code】`，也不把论文提到的“release”当作可下载模型的证据。
 
-**【Code】** 项目页中的文字与论文一致地确认了：统一 AR stream、ActionCodec、native CoT、visual memory、AR/FM 对照、PP Bench 和 GRPO 实验；视频资源则展示了 air fryer、炒菜、整理衣物等 out-of-box 场景。具体网络层数、数据加载和 checkpoint 命令论文未明确说明，不能把网页的演示视频当作可复现代码证据。
+**【Analysis】** 复现仍缺 codec 的训练目标与 active 判定阈值、各 embodiment 预处理、基础模型训练预算，以及额外 FM head 如何训练的细节。论文说 §5.6 使用同一 checkpoint 切换 AR/FM，但未完整交代该 FM head 的训练过程；这限制了对两种解码接口的因果归因。
 
 ## 5. 实验
 
@@ -243,15 +251,15 @@ $e_r$ 是第 $r$ 层 codebook，$c_r$ 是离散 code，$\hat a$ 是还原的连�
 
 **【Paper】** 评测覆盖七类 regime：
 
-| Regime | 机器人/环境 | 主要问题 | G0.5 结果 |
-| --- | --- | --- | ---: |
-| DROID zero-shot | Franka FR3 + 新环境/新物体 | post-training 后的环境与物体迁移 | 82.5% |
-| SimplerEnv-Bridge | WidowX 仿真 | Bridge 语言条件操作 | 87.3% |
-| RoboTwin 2.0 | 双臂仿真 | clean/randomized 协调操作 | 93.3% |
-| LIBERO | Franka 仿真 | Spatial/Object/Goal/Long | 98.9% |
-| BEHAVIOR Challenge | R1-Pro mobile manipulation | 50 个长时程家庭任务 | 31.36% score |
-| Real-world FT | R1-Lite/R1-Pro | 六个真实任务-形态设置 | 76.7% |
-| PP Bench | R1-Lite | 语言跟随与 pick-and-place | 75.0% success（50H） |
+| Regime             | 机器人/环境                | 主要问题                         |                    G0.5 结果 |
+| ------------------ | -------------------------- | -------------------------------- | ---------------------------: |
+| DROID zero-shot    | Franka FR3 + 新环境/新物体 | post-training 后的环境与物体迁移 | 82.5% 平均得分（含部分计分） |
+| SimplerEnv-Bridge  | WidowX 仿真                | Bridge 语言条件操作              |                        87.3% |
+| RoboTwin 2.0       | 双臂仿真                   | clean/randomized 协调操作        |                        93.3% |
+| LIBERO             | Franka 仿真                | Spatial/Object/Goal/Long         |                        98.9% |
+| BEHAVIOR Challenge | R1-Pro mobile manipulation | 50 个长时程家庭任务              |                 31.36% score |
+| Real-world FT      | R1-Lite/R1-Pro             | 六个真实任务-形态设置            |                        76.7% |
+| PP Bench           | R1-Lite                    | 语言跟随与 pick-and-place        |         75.0% success（50H） |
 
 ![DROID 环境与物体级 zero-shot 任务及每任务结果（论文 Figure 5/6）](https://pic.hana0721.top/blog/paper-deep-dive-g05/droid_results.39lx5b38zi.webp)
 
@@ -259,11 +267,11 @@ $e_r$ 是第 $r$ 层 codebook，$c_r$ 是离散 code，$\hat a$ 是还原的连�
 
 **【Paper】**
 
-- **DROID**：G0.5 平均 82.5%，超过 $\pi_{0.5}$-DROID 的 57.5% 和 MolmoAct2-DROID 的 52.0%；十个任务全部超过 $\pi_{0.5}$。但半透明抽屉插入在无橙色高对比标记时只有 60%，加标记后升至 100%，显示其对低对比目标敏感。
+- **DROID**：G0.5 平均得分 82.5%，超过 $\pi_{0.5}$-DROID 的 57.5% 和 MolmoAct2-DROID 的 52.0%；十个任务全部超过 $\pi_{0.5}$。但半透明抽屉插入在无橙色高对比标记时只有 60%，加标记后升至 100%，显示其对低对比目标敏感。主结果已包含高对比标记条件。每任务 10 次试验，且“放入积木并关抽屉”只完成放入也计 0.5 分，因此 82.5% 不能严格解释为完整任务成功率。
 - **SimplerEnv-Bridge**：87.3% 平均成功率，四个任务分别为 97.5/75.0/83.3/93.3%。模型在 state-free protocol 下 post-train 80K steps，未做额外仿真域训练。
 - **RoboTwin 2.0**：clean 93.7%、randomized 92.8%，平均 93.3%，高于 LingBot-VA 92.2% 和 Fast-WAM 91.8%。
 - **LIBERO**：Spatial 98.4%、Object 100.0%、Goal 98.6%、Long 98.6%，平均 98.9%，其中 Long suite 是论文强调的强项。
-- **真实 R1-Lite/R1-Pro**：六个设置平均 success 76.7%，高于 $\pi_{0.5}$ 的 53.3% 和 GR00T-N1.7 的 24.4%；平均 process score 为 129.2。
+- **真实 R1-Lite/R1-Pro**：六个设置平均 success 76.7%，高于 $\pi_{0.5}$ 的 53.3% 和 GR00T-N1.7 的 24.4%；平均 process score 为 129.2，属于阶段计分，不能解释为百分比。每设置 15 次评测，使用相同数据、16 张 H20 及同设置相同墙钟训练时长；这不等于相同梯度步数。G0.5 在箱子转移堆叠任务为 80%，低于 $\pi_{0.5}$ 的 93.3%，并非逐任务全面领先。
 
 **【Analysis】** 结果横跨仿真、真实、短时与长时任务，支持“统一 AR backbone 具备较强迁移性”的主张；但不同 regime 的 post-training 数据、训练步数和指标并不相同，不能简单把所有百分比视为同一排行榜。
 
@@ -273,40 +281,40 @@ $e_r$ 是第 $r$ 层 codebook，$c_r$ 是离散 code，$\hat a$ 是还原的连�
 
 ![Air Fryer 与 Cook Bacon 上的 AR/FM × CoT zero-shot probe（论文 Figure 11）](https://pic.hana0721.top/blog/paper-deep-dive-g05/cot_head_long_horizon.5mojmih23k.webp)
 
-**【Paper】** 在同一个 pretrained checkpoint 上只切换 inference configuration：
+**【Paper】** 在同一个 pretrained checkpoint 上只切换 inference configuration；但 Air Fryer 和 Cook Bacon 的**每个阶段都由外部提供当前子目标指令**，每个组合仅评测 5 次 rollout。这测试给定阶段结构下的 grounding 与执行，不是只给一句全局目标后的自主五阶段规划：
 
-| 任务 | FM 无 CoT | FM + CoT | AR 无 CoT | AR + CoT |
-| --- | ---: | ---: | ---: | ---: |
-| Air Fryer progress（0–5） | 2.1 | 2.7 | 2.4 | **3.8** |
-| Cook Bacon progress（0–5） | 1.2 | 2.0 | 1.5 | **3.4** |
+| 任务                       | FM 无 CoT | FM + CoT | AR 无 CoT | AR + CoT |
+| -------------------------- | --------: | -------: | --------: | -------: |
+| Air Fryer progress（0–5）  |       2.1 |      2.7 |       2.4 |  **3.8** |
+| Cook Bacon progress（0–5） |       1.2 |      2.0 |       1.5 |  **3.4** |
 
-AR + CoT 在语言跟随率和五阶段完成数上都最好。PP Bench 这种单阶段任务中 CoT 几乎不改变跟随率（AR 65.6→67.2），说明 CoT 更适合需要多次 grounding/replanning 的长时程 rollout。作者手工评估的 CoT 正确率约为 PP Bench 90%、Air Fryer 85%、Bacon 80%，AR/FM 没有系统差异。
+AR + CoT 在语言跟随率和五阶段完成数上都最好。原文将进度定义为整数阶段数，却在每格 5 次试验下报告 2.1、2.7 等均值，计分粒度与样本数的说明尚不能完全相互解释；缺少原始 rollout 分数时保留报告值，不推导显著性。PP Bench 这种单阶段任务中 CoT 几乎不改变跟随率（AR 65.6→67.2），与 CoT 更利于多次 grounding 的解释相容，但 65.6→67.2 在 64 次试验中仅相差一次成败。两个 action head 执行动作后看到的状态与生成的 CoT 会分叉，因此“相同 CoT 条件”是相同机制与开关，不是逐步固定相同文本。作者手工评估的 CoT 正确率约为 PP Bench 90%、Air Fryer 85%、Bacon 80%，AR/FM 没有系统差异。
 
 #### Referring context
 
-**【Paper】** PP Bench 中 name-only 的 language following/task success 为 84.4%/75.0%；增加 box coordinate 后为 85.9%/76.6%；附加目标物体与容器的 crop visual 后升至 98.4%/84.4%。**【Analysis】** 这说明额外视觉上下文比把坐标写进指令更符合预训练分布，也说明“语言理解强”不等于长尾物体在低对比场景中一定可被正确 grounding。
+**【Paper】** PP Bench 中 name-only 的 language following/task success 为 84.4%/75.0%；增加 box coordinate 后为 85.9%/76.6%；附加目标物体与容器的 crop visual 后升至 98.4%/84.4%。**【Analysis】** 坐标带来的约 1.5 个百分点只对应 64 次试验中的一次结果差异；crop 设置得到明显更高的目标选择率，但输入中额外提供了目标身份和局部外观信息，不能归成语言推理能力单独提高。语言跟随率只要求朝正确物体移动并尝试抓取，不要求抓取或放置成功；“更符合预训练分布”是作者假说，尚无独立验证。
 
 #### RL compatibility
 
 ![GRPO 微调中 AR 与 FM 的收敛曲线（论文 Figure 12）](https://pic.hana0721.top/blog/paper-deep-dive-g05/rl_grpo.7i14f4thve.webp)
 
-**【Paper】** 从每任务一条 demonstration 的 LIBERO policy 出发，AR 直接用 token-level log-probability 做 GRPO；FM 则需要给 denoising trajectory 加 SDE、离散化并近似 log-probability。AR 收敛更快、最终成功率更高且方差更小。论文把它解释为 likelihood parameterization 的结构优势，而不是声称所有 RL 算法都天然偏好 AR。
+**【Paper】** 从每任务一条 demonstration 共同微调 AR/FM 后，选择初始成功率接近的四个 LIBERO 任务，AR 用 token-level log-probability 做 GRPO；FM 则需要给 denoising trajectory 加 SDE、离散化并近似 log-probability。AR 收敛更快、最终成功率更高且方差更小。论文把它解释为 likelihood parameterization 的优势，但仅验证了四个经过初始表现筛选的任务及该 FM 随机化方案。精确的是离散 token 策略的概率；经有损 codec 映射后的连续动作密度并未因此自动变得可计算。
 
 ### 5.4 Generalization
 
-**【Paper】** DROID 实验刻意排除评测环境和物体实例；BEHAVIOR 用单一 checkpoint 覆盖 50 个任务；PP Bench 还包含 16 个 post-training 未出现的物体类别。**【Analysis】** 三者分别测量 environment/object、task distribution 和 category-level 泛化，证据比只在同分布 benchmark 上微调更有说服力。
+**【Paper】** DROID 实验刻意排除评测环境和物体实例；BEHAVIOR 用单一 checkpoint 覆盖 50 个任务；PP Bench 还包含 16 个 post-training 未出现的物体类别。**【Analysis】** DROID 测环境/物体实例迁移，PP Bench 的类别未见只相对于 post-training，而 BEHAVIOR 的 50 个任务都在其 post-training 数据中：后者是多任务共享策略与新初态泛化，不能写成未见任务 zero-shot。
 
-BEHAVIOR 的 Task Success Score 为 G0.5 1 epoch 0.2904、4 epochs 0.3136；$\pi_{0.5}$ 4 epochs 为 0.2626，第一名 RLC 多 checkpoint 为 0.2605。作者观察到 G0.5 在 50 个任务中的 29 个领先，$\pi_{0.5}$ 在 15 个领先；容器/电器交互因预训练占比低仍是弱项。
+BEHAVIOR 的 Task Success Score 为 G0.5 1 epoch 0.2904、4 epochs 0.3136；$\pi_{0.5}$ 4 epochs 为 0.2626，第一名 RLC 多 checkpoint 为 0.2605。该 score 按最终满足的 BDDL 目标谓词比例给予部分分，不等于 31.36% 的完整任务成功率。作者观察到 G0.5 在 50 个任务中的 29 个领先，$\pi_{0.5}$ 在 15 个领先；容器/电器交互因预训练占比低仍是弱项。
 
 ## 6. 方法分析
 
 ### 6.1 为什么有效？
 
-**【Analysis】** 可以把收益拆成三条因果链：
+**【Analysis】** 可以用三条机制假说理解结果；论文尚未通过全套单变量消融证明它们各自的因果贡献：
 
 1. **Codec 降低 AR 的长度**：RVQ 把动作 chunk 压成少量 code，active-part 进一步删除 noop 部件，使 decoder 的每次决策仍然是 token generation，但不再承担逐 DoF、逐时间步的全部成本。
-2. **CoT 缩短 grounding 到 action 的路径**：BBox/Subtask 等 token 不是旁路标签，而是下一个 action token 的直接上下文；在多阶段任务中，重新生成中间推理就等于显式 replanning。
-3. **共享 objective 保留 VLM prior**：VQA、CoT 和 action 都由同一个 decoder 学习，语言 instruction 可以直接影响 action distribution；这解释了 prompt wording 和 RL likelihood 的可控性。
+2. **CoT 缩短 grounding 到 action 的路径**：BBox/Subtask 等 token 不是旁路标签，而是下一个 action token 的直接上下文；在给定当前阶段指令时，重新生成中间结果能更新局部 grounding；是否能独立决定跨阶段计划，需要另外验证。
+3. **共享 objective 保留 VLM prior**：VQA、CoT 和 action 都由同一个 decoder 学习，语言 instruction 可以直接影响 action distribution；这提供了 prompt 条件化与 token-level RL 的接口，但并不自动保证原有 VLM 能力不遗忘，也不能替代数据和训练预算匹配的架构对比。
 
 ### 6.2 核心创新
 
@@ -316,13 +324,13 @@ BEHAVIOR 的 Task Success Score 为 G0.5 1 epoch 0.2904、4 epochs 0.3136；$\pi
 
 ### 6.3 与已有方法的本质区别
 
-| 维度 | VLM-as-encoder + FM | 普通 AR VLA | G0.5 |
-| --- | --- | --- | --- |
-| VLM 的角色 | 条件编码器 | 动作生成器 | 推理与动作的同一生成器 |
-| 动作表示 | 连续 action chunk | 常见逐步离散 token | 部件化 RVQ + active token |
-| CoT | 常是外部模块或 hidden-state 条件 | 可有但未必与 action 共享模板 | 四类 CoT 与 action 同流、可 prompt 切换 |
-| 跨形态 | padding/adapter/retargeting | 常按 embodiment 训练 | 固定 5-part layout + shared codec |
-| RL likelihood | 需要对 denoising 过程重构 | 原生 token log-probability | 原生 AR likelihood，另保留 FM 对照 |
+| 维度          | VLM-as-encoder + FM              | 普通 AR VLA                  | G0.5                                    |
+| ------------- | -------------------------------- | ---------------------------- | --------------------------------------- |
+| VLM 的角色    | 条件编码器                       | 动作生成器                   | 推理与动作的同一生成器                  |
+| 动作表示      | 连续 action chunk                | 常见逐步离散 token           | 部件化 RVQ + active token               |
+| CoT           | 常是外部模块或 hidden-state 条件 | 可有但未必与 action 共享模板 | 四类 CoT 与 action 同流、可 prompt 切换 |
+| 跨形态        | padding/adapter/retargeting      | 常按 embodiment 训练         | 固定 5-part layout + shared codec       |
+| RL likelihood | 需要对 denoising 过程重构        | 原生 token log-probability   | 原生 AR likelihood，另保留 FM 对照      |
 
 ### 6.4 关键假设
 
@@ -354,18 +362,20 @@ BEHAVIOR 的 Task Success Score 为 G0.5 1 epoch 0.2904、4 epochs 0.3136；$\pi
 - **比较存在 protocol 差异**：LIBERO、RoboTwin 和 SimplerEnv 使用不同 post-training 规模；BEHAVIOR 的 RLC 结果是多 checkpoint，而 G0.5/ $\pi_{0.5}$ 是单 checkpoint。论文已尽量报告公平对照，但横向数字仍要谨慎解读。
 - **AR 速度依赖压缩率**：active token 和 RVQ round 的收益取决于动作稀疏性；高频全身运动、更多 residual round 或更长 CoT 可能重新把 latency 推高。
 - **CoT 可能放大错误**：错误的 BBox 或 Subtask 会成为后续 action 的上下文，闭环重规划虽能修正一部分，但也可能导致错误被自回归序列持续放大。
-- **长时程记忆仍然短**：论文在 BEHAVIOR 中观察到 temporal pre-training 的迁移收益，但 post-training 使用 single-frame protocol，这无法证明模型能在真实部署中可靠保存数分钟的任务状态。
+- **长时程记忆仍然短**：论文把 BEHAVIOR 的部分优势归因于 temporal pre-training，但未给去掉视觉记忆的独立对照，且 post-training 使用 single-frame protocol。这既不能证明记忆模块的独立收益，也不能证明部署时保存了数分钟任务状态。
 
 ## 8. 启发与研究思考
 
 1. **把“VLM 是不是 actor”作为架构问题重新审视。** 如果 AR tokenization 足够紧凑，速度与 reasoning 并不一定是二选一；可以让 AR 负责决策，把 FM 只当作可选的 action accelerator。
 2. **Action tokenizer 应该携带 embodiment ontology。** 统一动作空间不是简单 padding 维度，而是给模型稳定的部件名字、marker 和稀疏性先验。未来可尝试把接触类型、工具语义或末端位姿 frame 也纳入 codec vocabulary。
-3. **CoT 的价值在“阶段之间”，不是“每一步都写解释”。** PP Bench 的单阶段结果几乎不变，而 Air Fryer/Bacon 的五阶段 progress 明显提升，提示动态地选择 reasoning budget 比固定开启 CoT 更合理。
-4. **视觉上下文比坐标文本更稳健。** PP Bench 的 context ablation 表明，外部 VLM 生成坐标并不自动带来收益；将目标 crop 送回同一个 vision encoder，反而更接近模型的预训练输入分布。
+3. **CoT 的价值在“阶段之间”，不是“每一步都写解释”。** PP Bench 的单阶段结果几乎不变，而外部逐阶段指令辅助的 Air Fryer/Bacon progress 提升，提示动态地选择 reasoning budget 比固定开启 CoT 更合理。
+4. **视觉上下文比坐标文本更稳健。** PP Bench 的 context ablation 表明，外部 VLM 生成坐标并不自动带来收益；将目标 crop 送回同一个 vision encoder，能够增加局部外观信息；是否主要来自分布匹配而非额外目标信息，还需要对照。
 5. **AR policy 天然适合 token-level RL。** 直接可得的 log-probability、temperature exploration 和 GRPO 兼容性，是动作离散化之外的第二个结构收益；值得研究如何把 credit assignment 对齐到 CoT、部件 marker 和 residual round。
 6. **下一步应补齐可复现性。** 若公开 ActionCodec、数据 schema、CoT 自动标注器和最小 inference checkpoint，社区才能判断收益来自 AR 本身、数据规模、视觉记忆还是三者组合。
 
 <Aside type='note' title='阅读提示'>
-  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方项目页或公开代码可确认的事实，`【Analysis】`
-  表示基于论文和项目材料的分析推断。本文没有虚构不存在的 GitHub 训练代码；论文未披露的配置均标记为“论文未明确说明”。
+  本文依据 [arXiv v1](https://arxiv.org/html/2608.11739v1) 全文和官方项目页核验。`【Paper】`
+  表示论文或官方发布，`【Code】` 仅用于已检查的实现，`【Analysis】`
+  表示基于论文和项目材料的分析推断。本文没有虚构不存在的 GitHub
+  训练代码；论文未披露的配置均标记为“论文未明确说明”。
 </Aside>

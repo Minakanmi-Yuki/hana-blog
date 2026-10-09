@@ -1,7 +1,7 @@
 ---
 title: 'OmniVLA-RL 论文精读：空间理解与在线强化学习统一的 VLA'
 publishDate: 2026-08-26
-updatedDate: 2026-08-26
+updatedDate: 2026-09-22
 description: '精读 OmniVLA-RL：用 MoT 三专家与 Block-wise Causal Attention 融合空间、语义和动作，并以 Flow-GSPO 稳定优化 Flow Matching 策略。'
 heroImage:
   { src: 'https://pic.hana0721.top/99749488_p0_master1200.83an1pr7.webp', color: '#7A8791' }
@@ -44,10 +44,10 @@ import { Aside } from '@/components/user'
 
 **【Paper】**《OmniVLA-RL: A Vision-Language-Action Model with Spatial Understanding and Online RL》针对 VLA 的两个瓶颈：VLM 的 3D 空间精度不足，以及把连续动作接入在线 RL 时训练不稳定。作者提出两个相互配套的组件：
 
-1. **OmniVLA**：基于 Mixture-of-Transformers（MoT）的 Reasoning、Spatial、Action 三专家架构。三者共享 Transformer 层，允许语言、视觉语义、3D 几何和动作表征在大模型内部双向交互。
-2. **Flow-GSPO**：把原本确定性的 Flow Matching ODE 改写成带噪声的 SDE，再用 Group Segmented Policy Optimization（GSPO）按完整 action block 计算似然比和优势，避免 token 级更新的偏差与崩溃。
+1. **OmniVLA**：基于 Mixture-of-Transformers（MoT）的 Reasoning、Spatial、Action 三专家架构。三类 token 在共同的 Transformer 层级交互；其中语义/空间 prefix 双向可见，动作只读取 prefix，不能反向修改 prefix。
+2. **Flow-GSPO**：把原本确定性的 Flow Matching ODE 改写成带噪声的 SDE，再用 Group Sequence Policy Optimization（GSPO）按完整 action block 计算似然比和优势，在作者实验中改善训练表现。论文摘要将 GSPO 误写为 Group Segmented；正式名称与序列级比率来自 [GSPO 原论文](https://arxiv.org/abs/2507.18071)。
 
-**【Paper】** 在 LIBERO 上报告平均 97.6% 成功率，在 LIBERO-Plus 上 Flow-GSPO 达到 80.3%，高于 PPO 的 78.7% 和 GRPO 的 65.7%。这些结果来自论文表格与曲线；论文没有提供公开代码仓库链接。
+**【Paper】** 在 LIBERO 上报告平均 97.6% 成功率，在 LIBERO-Plus 上 Flow-GSPO 达到 80.3%，高于 PPO 的 78.7% 和 GRPO 的 65.7%。这些是 arXiv v2 的作者报告值。本文还会指出 SDE、KL、训练冻结配置和 benchmark 定义中的公开材料矛盾；没有源码时，不能把表格收益当作对全部机制和推导的独立验证。
 
 **论文链接**：[arXiv:2604.17706](https://arxiv.org/abs/2604.17706)
 
@@ -70,9 +70,9 @@ import { Aside } from '@/components/user'
 
 **【Paper】** 传统 VLA 通常以预训练 VLM 为骨干，再接一个轻量 Action Head。语言和场景语义很强，但从单目或多视角 RGB 恢复物体位置、尺寸、朝向等 3D 信息并不可靠；抓取、避障和插入任务却恰恰依赖这些细节。
 
-空间信息的注入大致分为两类：Evo-0、SpatialVLA 等在 VLM 之前融合空间特征（early fusion）；FALCON 等在 VLM 之后与 action token 交叉注意（late fusion）。**【Analysis】** 两者都把核心大模型当成黑盒，导致语言、语义视觉和几何特征无法在同一组 Transformer 层中充分对齐。
+空间信息的注入大致分为两类：Evo-0、SpatialVLA 等在 VLM 之前融合空间特征（early fusion）；FALCON 等在 VLM 之后与 action token 交叉注意（late fusion）。**【Analysis】** early fusion 的几何信息同样可以在后续 VLM 层内与语言交互，所以“不修改 backbone 就无法对齐”过强。本文区别在于引入显式 Spatial Expert 和几何辅助监督；是否比同预算 early/late fusion 更好，需要单独的受控比较。
 
-另一方面，PPO 需要额外的 value model，GRPO 虽然省去 value model，却按 token 计算重要性比。对连续机器人轨迹而言，一个 token 的高概率并不代表整段 action chunk 合理，单 token 更新还可能破坏动作的时间连续性。Flow Matching 生成动作时又通常沿确定性 ODE 去噪，缺少在线 RL 所需的随机探索。
+另一方面，PPO 通常使用价值估计，但不要求 critic 必须与 actor 同尺寸；GRPO 以组内奖励标准化省去独立 critic，并常按 token 计算比率。对连续机器人轨迹而言，一个 token 的高概率并不代表整段 action chunk 合理，单 token 更新还可能破坏动作的时间连续性。Flow Matching 的 ODE 在给定初始噪声后是确定的，但初始高斯噪声已使终点策略随机。引入 SDE 的实际便利是得到可计算的逐步高斯转移密度，并增加中间探索，不是把原本完全无随机性的策略第一次变成随机策略。
 
 ## 3. 问题定义
 
@@ -105,7 +105,7 @@ $$
 
 #### Spatial Expert
 
-**【Paper】** VGGT 从多视角图像提取空间特征 $z_{spatial}$，并在共享 Transformer 内与语义 token 做 attention。训练时在最终 hidden state $h_i\in\mathbb R^{C\times d}$ 上接轻量 Transformer Spatial Decoder，重建 point cloud、camera 参数和 surface normal。这个 auxiliary head 只负责几何监督，推理时不参与动作生成。
+**【Paper】** VGGT 从多视角图像提取空间特征 $z_{spatial}$，并在共享 Transformer 内与语义 token 做 attention。论文没有给出 MoT 参数路由、每专家宽度与完整共享权重表，因此不能将“共享层级”自行落实成所有专家完全共用 QKV/FFN 参数。训练时在最终 hidden state $h_i\in\mathbb R^{C\times d}$ 上接轻量 Transformer Spatial Decoder，重建 point cloud、camera 参数和 surface normal。这个 auxiliary head 只负责几何监督，推理时不参与动作生成。
 
 #### Action Expert
 
@@ -125,7 +125,7 @@ $$
 
 ### 4.3 关键公式
 
-#### 从 Flow Matching ODE 到随机 SDE
+#### 从 Flow Matching ODE 到随机 SDE：区分作者公式与密度保持结论
 
 **【Paper】** 原始 Flow Matching 沿速度场 $v_\theta$ 积分：
 
@@ -133,7 +133,7 @@ $$
 \frac{\mathrm d A_t^\tau}{\mathrm d\tau}=v_\theta(A_t^\tau,s_t)
 $$
 
-为引入探索，作者构造 SDE：
+论文采用噪声在 $\tau=0$、数据在 $\tau=1$ 的线性路径；为引入中间探索，Eq. 10 写出下列 SDE（按原文保留，密度等价性见下方核验）：
 
 $$
 \mathrm dA_t^\tau=\left[v_\theta+\frac{\sigma_\tau^2}{2}\left(A_t^\tau+(1-\tau)v_\theta\right)\right]\mathrm d\tau+\sigma_\tau\mathrm dw_\tau
@@ -145,37 +145,60 @@ $$
 A_t^{\tau+\delta}=A_t^\tau+\left[v_\theta+\frac{\sigma_\tau^2}{2}(A_t^\tau+(1-\tau)v_\theta)\right]\delta+\sigma_\tau\sqrt\delta\,\epsilon
 $$
 
-因此转移概率是 $p(A_t^{\tau+\delta}\mid A_t^\tau,s_t)=\mathcal N(\mu_\tau,\Sigma_\tau)$，其中 $\Sigma_\tau=\sigma_\tau^2\delta I$。这一步把每个去噪步变成可计算 log-likelihood 的高斯转移。
+因此转移概率是 $p(A_t^{\tau+\delta}\mid A_t^\tau,s_t)=\mathcal N(\mu_\tau,\Sigma_\tau)$，其中 $\Sigma_\tau=\sigma_\tau^2\delta I$。这一步使所定义的随机采样器具有可计算的高斯转移密度，前提是该步 $\sigma_\tau>0$；应区分连续时间表达与有限 $K=10$ 步实现。
+
+**【Analysis：原文推导疑点】** 对论文自己的 $x_\tau=(1-\tau)x_0+\tau x_1$、$v=E[x_1-x_0\mid x_\tau]$，有
+
+$$
+\nabla_x\log p_\tau(x)=\frac{\tau v(x,\tau)-x}{1-\tau},\qquad \tau<1.
+$$
+
+若要求正向 SDE 与 ODE 保持相同边缘密度，Fokker–Planck 方程给出的漂移应为 $v+\frac{\sigma^2}{2}\nabla\log p_\tau$。它与 Eq. 10 的 $v+\frac{\sigma^2}{2}(x+(1-\tau)v)$ 不一致。后者仍定义一个可用于探索的 SDE，但公开文本不足以证明它保持原 CFM 分布；这里不能直接沿用“通过 Fokker–Planck 等价变换”的强结论，也不应擅自把修正推导说成作者代码实现。
 
 #### Action-block 级重要性比
 
-**【Paper】** 一个 action block 的策略概率是所有 $K$ 个高斯转移的乘积：
+**【Paper】** Eq. 14 将所有 $K$ 个高斯转移的乘积记作 action block 的策略概率：
 
 $$
 \pi_\theta(A_{t,i}\mid s_t)=\prod_{\tau=0}^{K-1}p_\theta(A_{t,i}^{\tau+\delta}\mid A_{t,i}^\tau,s_t)
 $$
 
-为避免长序列造成数值尺度随长度增长，定义归一化重要性比：
+**【Analysis】** 严格来说，这个乘积是给定初始噪声的**去噪路径密度**；若初始分布相同，其因子在新旧比率中抵消。最终动作块的边缘密度还需对中间 latent 积分，不能直接等同于这个乘积。把去噪路径当作扩展动作空间可以进行策略优化，但更新必须保留旧策略实际采样的整条路径。
+
+**【Paper】** 为降低长度带来的数值尺度变化，定义归一化比率：
 
 $$
 s_{i,t}(\theta)=\exp\left(\frac{1}{|A_{i,t}|}\sum_{\tau=0}^{K-1}\log\frac{p_\theta(A_{t,i}^{\tau+\delta}\mid A_{t,i}^\tau,s_t)}{p_{\theta_{old}}(A_{t,i}^{\tau+\delta}\mid A_{t,i}^\tau,s_t)}\right)
 $$
 
-其中 $|A_{i,t}|=H\times K$。同一状态采样 $G$ 个 action block，以任务回报归一化得到优势 $\hat A_{i,t}$，再使用 clipped GSPO 目标并减去 action-block 级 KL 惩罚：
+其中 $|A_{i,t}|=H\times K$。这是原始路径概率比的 $1/(HK)$ 次幂，即几何平均形式的 surrogate weight，不是未经修改的严格重要性采样比。动作通道维 $d_a$ 已包含在高斯 log-density 内，原文未说明是否额外按通道归一化。同一状态采样 $G$ 个 action block，以任务回报归一化得到优势 $\hat A_{i,t}$，作者意图是使用 clipped GSPO 目标与 action-block 级 KL 惩罚：
 
 $$
 \mathcal J_{Flow\text{-}GSPO}=\mathbb E\left[\frac1G\sum_i\min(s_{i,t}\hat A_{i,t},\operatorname{clip}(s_{i,t},1-\varepsilon,1+\varepsilon)\hat A_{i,t})-\beta D_{KL}(\pi_\theta\Vert\pi_{old})\right]
 $$
 
+**【Analysis：KL 符号纠错】** 上式表达正则化意图，但原文 Eq. 18 将其写为
+
+$$
+\mathbb E_{A\sim\pi_{old}}\left[\log\frac{\pi_\theta(A)}{\pi_{old}(A)}\right]
+=-D_{KL}(\pi_{old}\Vert\pi_\theta),
+$$
+
+它不是 $D_{KL}(\pi_\theta\Vert\pi_{old})$，而是反方向 KL 的负值。照字面再减去该量会奖励分布分离，无法充当所声称的稳定性惩罚；Eq. 24 中 KL 梯度符号也不能与 Eq. 17–18 同时成立。因无代码，这里只能指出公开公式存在矛盾，不能确认实验实际用了哪一种实现。
+
+此外，每个相同状态的 $G=8$ 个候选动作块需要可恢复/克隆的仿真状态才能公平比较；原文没有说明恢复协议。若组内奖励全相同，标准差为零，优势归一化也需数值保护。稀疏任务完成奖励加末端到目标物体距离的 shaping 如何配权、如何覆盖长时程信用分配，均未完整披露。
+
 ### 4.4 Training
 
-**【Paper】** 训练采用三阶段渐进式流程：
+**【Paper】** 按 §5.1 文字与 Figure 3 caption，训练采用三阶段流程：
 
-1. **Stage I：空间预训练**。初始化 PaLiGemma；冻结 Action Expert，联合训练 Reasoning 与 Spatial Expert。损失为 point cloud、camera、normal 三项重建损失之和。
+1. **Stage I：空间预训练**。初始化 PaLiGemma；冻结 Action Expert，联合训练 Reasoning 与 Spatial Expert。损失为 point cloud、camera、normal 三项加权重建损失，权重数值与具体 3D 数据混合未提供。文中另称 Spatial Expert 随机初始化，与 VGGT 特征提取模块之间的初始化边界未展开。
 2. **Stage II：动作预训练**。解冻 Action Expert，关闭 Spatial Head，在 DROID 上用 CFM loss 学习动作生成：$\mathcal L_{CFM}=\mathbb E\|v_t(x_t,t;c)-(x_1-x_0)\|_2^2$。
 3. **Stage III：在线 RL**。从 Stage II checkpoint 出发，全模型解冻；每个状态采样 $G=8$ 个 action block，执行后用任务完成奖励与 gripper 对齐奖励更新 Flow-GSPO。
 
 ![Three-stage training paradigm from paper Figure 3](https://pic.hana0721.top/blog/paper-deep-dive-omnivla-rl/train_stage_omni.1ow677suql.webp)
+
+**【Source conflict】** Figure 3 图内的雪花却将 Stage I 的 Reasoning Expert、Stage III 的 Spatial Expert 标为冻结，与上述正文和图注冲突。本文保留文字描述并明确这一差异；缺少训练脚本时不能认定实际运行“全模型解冻”。
 
 论文报告的关键超参数为 $\varepsilon=0.2$、$\beta=0.01$、$\sigma_\tau=0.1(1-\tau)$、$K=10$、$H=16$；优化器是 AdamW，学习率 $10^{-5}$、weight decay $0.01$，进行 200 次 RL update，每 10 步刷新 rollout buffer。
 
@@ -186,7 +209,7 @@ $$
   <AlgorithmStep indent={1}>用 Euler–Maruyama SDE 完成 $K$ 步随机去噪并执行动作块</AlgorithmStep>
   <AlgorithmStep indent={1}>收集任务完成与 gripper 对齐奖励，按组归一化为 $\hat A_{i,t}$</AlgorithmStep>
   <AlgorithmStep indent={1}>计算 action-block 级 log-likelihood ratio、clipping 与 KL 惩罚</AlgorithmStep>
-  <AlgorithmStep indent={1}>用 AdamW 最大化 Flow-GSPO 目标，更新全部模型参数</AlgorithmStep>
+  <AlgorithmStep indent={1}>按实际配置用 AdamW 更新策略；原文冻结设置与 KL 公式的矛盾需在复现前解决</AlgorithmStep>
   <AlgorithmStep keyword='end for' />
   <AlgorithmStep keyword='return'>更新后的 OmniVLA-RL policy</AlgorithmStep>
 </Algorithm>
@@ -208,17 +231,17 @@ $$
 
 ### 4.6 代码实现对照
 
-**【Code】** 截至本文写作，arXiv 论文、源文件 `00README.json` 与论文正文均未给出官方 GitHub、配置文件或可运行代码链接，因此无法核对模型类、DataLoader、loss 实现和 checkpoint 命名。上文“代码”层面的结论只能写为：**没有可分析的官方代码**；方法细节均来自论文。
+**【Source】** 截至 2026-09-22，arXiv v2 未提供官方代码、训练配置或 checkpoint 链接，因此无法核对公式实际实现、冻结设置及评估环境版本。本文将作者方法描述与数学核验分开；不能把修正后的理论公式冒充已运行的代码。
 
 ## 5. 实验
 
 ### 5.1 Experimental Setup
 
-**【Paper】** LIBERO 包含 Spatial、Object、Goal、Long 四个任务套件；LIBERO-Plus 增加组合式长时序任务，对多阶段操作、遮挡和精确定位提出更高要求。论文将 Flow-GSPO 与 PPO、GRPO 比较，并在 LIBERO 上与 Diffusion Policy、Octo、OpenVLA、SpatialVLA、CoT-VLA、$\pi_0$、$\pi_{0.5}$ 和 $F_1$ 比较。
+**【Paper】** LIBERO 包含 Spatial、Object、Goal、Long 四个任务套件；论文将 LIBERO-Plus 叙述为组合长时序扩展，但 [LIBERO-Plus 官方基准](https://github.com/sylvestf/LIBERO-plus) 实际围绕物体布局、相机、机器人初始状态、语言、光照、背景和传感噪声七类扰动评估鲁棒性。原文对应引用 Zhou et al. (2025) 还是另一项 LIBERO-PRO 工作。基准名、引用与文字描述不一致，且没有任务列表/环境版本，因此本文无法确认 80.3% 对应官方全套 Plus、某个子集还是作者另设任务。论文将 Flow-GSPO 与 PPO、GRPO 比较，并在 LIBERO 上与 Diffusion Policy、Octo、OpenVLA、SpatialVLA、CoT-VLA、$\pi_0$、$\pi_{0.5}$ 和 $F_1$ 比较。
 
 ### 5.2 Main Results
 
-**【Paper】** OmniVLA-RL 在 LIBERO 四个套件都排名第一：Spatial 99.2%、Object 99.2%、Goal 98.5%、Long 93.5%，平均 97.6%。相对 $\pi_0$ 的平均成功率 94.2%，绝对提升 3.4 个百分点；相对 OpenVLA 的 76.5%，提升 21.1 个百分点。Long 套件的 93.5% 说明 action block 和空间特征对误差累积敏感的长时序任务尤其重要。
+**【Paper】** OmniVLA-RL 在 LIBERO 四个套件都排名第一：Spatial 99.2%、Object 99.2%、Goal 98.5%、Long 93.5%，平均 97.6%。相对 $\pi_0$ 的平均成功率 94.2%，绝对提升 3.4 个百分点；与 $\pi_{0.5}$ 的 96.9% 相比高约 0.7 个百分点。Table 1 有汇总不一致：OpenVLA 四列 84.7 / 88.4 / 79.2 / 63.7 的宏平均是 79.0%，不是 Avg 列的 76.5%；因此原文所列 21.1 点差距不能作为可靠的逐套件宏平均比较。Long 的 93.5% 是总体成绩，单靠它不能分离空间特征、action chunk 或 RL 的贡献。论文也未给出重复种子与误差条，0.4–1.1 点的小幅领先不构成显著性证据。
 
 ![LIBERO-Plus success-rate curves from paper Figure 4](https://pic.hana0721.top/blog/paper-deep-dive-omnivla-rl/libero_plus_final_vector.3d5j4ej4tb.webp)
 
@@ -234,11 +257,11 @@ $$
 | + **Flow-GSPO**        | **80.3%** |     **+39.1** |
 | 去掉 Spatial Expert    |     32.9% |          −8.3 |
 
-Flow-GSPO 比 PPO 高 1.6 个百分点、比 GRPO 高 14.6 个百分点；去掉 Spatial Expert 后下降 8.3 个百分点，是架构消融中最大的损失。**【Analysis】** 这同时支持两个判断：action-block 级 RL 更适合连续轨迹，而几何特征不是可有可无的附加输入。
+Flow-GSPO 比 PPO 高 1.6 个百分点、比 GRPO 高 14.6 个百分点；去掉 Spatial Expert 后下降 8.3 个百分点，相对于 **SFT-only 的 41.2%**，而不是相对 RL 的 80.3%；不能将 32.9% 与 80.3% 相减归因为 Spatial Expert。Table 2 只报告这一项架构删除，没有 early/late fusion、attention mask、等参数量或等预训练数据的对照，因此不能称“所有架构消融中最大”。**【Analysis】** 结果支持该配置下空间分支有帮助，以及作者的 Flow-GSPO 运行优于所选 PPO/GRPO；尚不足以证明 block-level 优化在所有连续控制上天然更优。
 
 ### 5.4 Generalization
 
-**【Paper】** 论文展示了从标准 LIBERO 到更长、更组合化的 LIBERO-Plus 的迁移，但没有报告真实机器人、未见物体类别或跨 embodiment 实验。因此对开放世界泛化的结论仍有限。
+**【Paper + Analysis】** 两个表报告的是训练/评估结果，不是明确冻结标准 LIBERO 策略后零样本迁移到 Plus 的协议。Figure 4 caption 还明确为训练成功率曲线；没有独立测试曲线、环境步数或 rollout 总量，不能由“更少 update”直接推出更高真实交互样本效率。论文没有真实机器人或跨 embodiment 实验，加上 Plus 定义不清，开放世界泛化仍待验证。
 
 ## 6. 方法分析
 
@@ -248,7 +271,7 @@ Flow-GSPO 比 PPO 高 1.6 个百分点、比 GRPO 高 14.6 个百分点；去掉
 
 1. Spatial Expert 提供局部几何锚点，减少“知道物体是什么但不知道在哪里”的歧义。
 2. Block-wise mask 让空间/语义理解不被 action noise 反向污染，同时保留 action 对完整 prefix 的访问。
-3. Flow-GSPO 把整段动作的概率和回报绑定，降低单 token 高方差梯度，并用 KL 抑制策略跳变。
+3. Flow-GSPO 试图把路径级比率和动作块奖励绑定，以统一去噪更新；方差降低和 KL 稳定性的机制解释仍受原文公式矛盾与缺少独立消融的限制。
 
 ### 6.2 核心创新
 
@@ -266,7 +289,7 @@ Flow-GSPO 比 PPO 高 1.6 个百分点、比 GRPO 高 14.6 个百分点；去掉
 
 ### 6.4 关键假设
 
-**【Paper】** 方法隐含假设包括：多视角观测足以由 VGGT 提供稳定几何特征，DROID 的动作分布能迁移到 LIBERO，且每个 action block 的累计奖励能够代表其内部动作质量。
+**【Analysis】** 方法隐含假设包括：多视角观测足以由 VGGT 提供稳定几何特征，DROID 的动作分布能迁移到 LIBERO，且每个 action block 的累计奖励能够代表其内部动作质量。
 
 **【Analysis】** 最后一个假设尤其关键：若奖励只在 block 末端稀疏出现，block 内部的信用分配仍可能粗糙；论文没有给出更细粒度 reward shaping 的消融。
 
@@ -282,7 +305,7 @@ Flow-GSPO 比 PPO 高 1.6 个百分点、比 GRPO 高 14.6 个百分点；去掉
 
 - 论文没有公开代码、训练日志或算力细节，结果难以复现和审计。
 - LIBERO 的 97.6% 与 LIBERO-Plus 的 80.3% 来自单一仿真设置，尚不能证明跨相机、跨机器人或真实接触动力学的稳健性。
-- 三专家共享大部分 Transformer 层可能带来显存和训练耦合成本；论文没有报告与独立 backbone 的参数量、吞吐和延迟对比。
+- 三专家共同参与 Transformer 计算可能增加显存与训练耦合成本；论文没有报告与独立 backbone 的参数量、吞吐和延迟对比。
 - SDE 噪声日程、$G$、$K$、$H$ 对探索和控制平滑度的敏感性没有系统网格实验。
 
 ## 8. 启发与研究思考
@@ -290,10 +313,11 @@ Flow-GSPO 比 PPO 高 1.6 个百分点、比 GRPO 高 14.6 个百分点；去掉
 **【Analysis】** 这篇工作给后续 VLA-RL 三点启发：
 
 1. **把表示对齐和策略优化放在同一粒度上。** 如果控制器执行的是 action chunk，训练目标也应优先描述 chunk 的概率与回报。
-2. **随机生成模型可以直接提供 RL 的 transition likelihood。** Flow Matching 不必被当作只能做监督学习的动作头，加入可控噪声后即可接入 policy-gradient 框架。
+2. **随机生成模型可以提供去噪路径上的 transition likelihood。** Flow Matching 不必被当作只能做监督学习的动作头，可将中间生成路径纳入优化；但必须正确区分路径/边缘概率、时间方向与 KL 估计，才能得到可审计的 policy-gradient 实现。
 3. **空间理解应进入 backbone，而不是只做外挂特征。** 更进一步的方向是让空间 token、语言计划和动作 chunk 共享可解释的中间状态，并由 world model 预测长时序后果。
 
 <Aside type='note' title='阅读提示'>
   本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
-  表示基于论文的分析推断。本文核对了 arXiv v2 源码；论文未提供可供分析的官方代码仓库。
+  表示基于论文的分析推断。本文核对了 arXiv v2 全文及相关基准/GSPO
+  原始来源；论文未提供可供分析的官方代码仓库。
 </Aside>

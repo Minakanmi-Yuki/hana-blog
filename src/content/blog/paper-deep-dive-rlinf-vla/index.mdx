@@ -1,7 +1,7 @@
 ---
 title: 'RLinf-VLA 论文精读：统一且高效的 VLA 强化学习框架'
 publishDate: 2026-08-26
-updatedDate: 2026-08-26
+updatedDate: 2026-09-22
 description: '精读 RLinf-VLA：用统一接口连接 VLA、PPO/GRPO 与多种模拟器，并通过混合 GPU 分配和细粒度流水线提升具身强化学习效率。'
 heroImage:
   { src: 'https://pic.hana0721.top/112236596_p0_master1200.232gogbiox.webp', color: '#8C8275' }
@@ -24,6 +24,8 @@ paper:
     - 'Yuanqing Wang'
     - 'Hao Lin'
     - 'Peihong Wang'
+    - 'Hua Yuan'
+    - 'Yixian Zhang'
     - 'Liangzhi Shi'
     - 'Yuqing Xie'
     - 'Zhexuan Xu'
@@ -53,6 +55,8 @@ import { Aside } from '@/components/user'
 
 ## 1. 论文概述
 
+本文按 [arXiv v3（2026-08-12）](https://arxiv.org/pdf/2510.06710v3) 全文与附录 VII–X 核验。旧版配图继续保留；数值、消融结论和表号以 v3 为准。
+
 ### 一句话总结
 
 **【Paper】** RLinf-VLA 不是一个新的 VLA backbone，而是一套面向 VLA 强化学习（RL）的系统与算法实践：它统一了模型、环境和 RL 算法接口，再通过可配置的 GPU allocation 与 rollout pipeline，让“生成动作—模拟器执行—策略更新”这条闭环更容易扩展和复现。
@@ -67,7 +71,7 @@ import { Aside } from '@/components/user'
 2. **混合资源调度**：支持 collocated、disaggregated 和 hybrid 三种 GPU allocation；hybrid 模式允许 Simulator 与 Generation 使用不同 GPU 分区，而 Training 可使用全部 GPU。
 3. **细粒度流水线**：将一个 simulator instance 切成多个 sub-simulator，通过 `pipeline_stage_num=2` 让环境推进和 action generation 重叠，降低 GPU bubbles。
 4. **具身 RL 设计选择**：系统化比较 action-level/chunk-level value、partial reset、valid action mask、trajectory-length normalization 和 GRPO reward filtering。
-5. **强实验结果**：单个模型在 130 个 LIBERO 任务上达到 98.11% success，在 25 个 ManiSkill 任务上达到 97.66%；RoboTwin 六个任务平均达到 84.63%。
+5. **强实验结果**：单个模型在 130 个 LIBERO 任务上达到 98.11% success，在 25 个 ManiSkill 任务上达到 97.66%；RoboTwin 则是 **6 个分别训练的任务专用模型**，平均达到 84.63%。这些指标不代表一个模型同时覆盖三个 benchmark。
 
 ## 2. 背景与相关工作
 
@@ -86,7 +90,7 @@ import { Aside } from '@/components/user'
 **【Paper】** VLA RL 被建模为部分可观测 MDP：
 
 - **Observation** $o_t$：多视角 RGB、语言指令和 proprioceptive state。
-- **Policy** $pi_\theta(a_t\mid o_t)$：VLA 根据观测生成 action 或 action chunk。
+- **Policy** $\pi_\theta(a_t\mid o_t)$：VLA 根据观测生成 action 或 action chunk。
 - **Environment**：ManiSkill、LIBERO、RoboTwin 等模拟器，返回下一观测和 reward。
 - **Objective**：最大化轨迹的折扣回报 $J(\theta)=\mathbb E[\sum_t \gamma^t r_t]$。
 - **Action hierarchy**：Chunk → Atomic Action → Token。一个 chunk 含多个连续控制 action，每个 action 又可拆成模型输出的多个 token。
@@ -109,11 +113,11 @@ RLinf-VLA 将一次 RL epoch 拆成三个组件：**Generation** 负责按 obser
 
 **【Paper】** 资源层提供三种运行模式：
 
-| 模式 | 资源关系 | 主要优点 | 主要问题 |
-| --- | --- | --- | --- |
-| Collocated | 三个组件共享 GPU，rollout 开始/结束时 offload | 配置简单、显存集中 | Generation 与 Simulator 互等，GPU 长时间占用但不计算 |
-| Disaggregated | 每个组件使用互不重叠的 GPU 分区 | 组件间互不干扰 | rollout 等待 Training 时会有整块 GPU 空闲 |
-| Hybrid | Generation/Simulator 分区，Training 可覆盖全部 GPU | 兼顾隔离和利用率 | 需要 placement 与 pipeline 调参 |
+| 模式          | 资源关系                                           | 主要优点           | 主要问题                                             |
+| ------------- | -------------------------------------------------- | ------------------ | ---------------------------------------------------- |
+| Collocated    | 三个组件共享 GPU，rollout 开始/结束时 offload      | 配置简单、显存集中 | Generation 与 Simulator 互等，GPU 长时间占用但不计算 |
+| Disaggregated | 每个组件使用互不重叠的 GPU 分区                    | 组件间互不干扰     | rollout 等待 Training 时会有整块 GPU 空闲            |
+| Hybrid        | Generation/Simulator 分区，Training 可覆盖全部 GPU | 兼顾隔离和利用率   | 需要 placement 与 pipeline 调参                      |
 
 ![Hybrid allocation with fine-grained pipeline（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-rlinf-vla/hybrid-pipeline.szorsrfr3.webp)
 
@@ -125,7 +129,7 @@ RLinf-VLA 将一次 RL epoch 拆成三个组件：**Generation** 负责按 obser
 - **输出**：统一的 observation/action batch、chunk-level reward、termination/truncation 和 episode metadata。
 - **功能**：把 GPU-parallelized 的 ManiSkill/RoboTwin 与 CPU-parallelized 的 LIBERO 放到同一 runner 中，并原生支持 `chunk_step`。
 
-**【Code】** 对应 `rlinf/envs/maniskill/maniskill_env.py`、`rlinf/envs/libero/libero_env.py` 和 `rlinf/envs/robotwin/robotwin_env.py`；环境注册与构造由 `rlinf/envs` 下的 factory 完成。
+**【Code】** 对应 `rlinf/envs/sim/maniskill/maniskill_env.py`、`rlinf/envs/sim/libero/libero_env.py` 和 `rlinf/envs/sim/robotwin/robotwin_env.py`；环境注册与构造由 `rlinf/envs` 下的 factory 完成。
 
 #### Flexible GPU Placement
 
@@ -151,7 +155,9 @@ $$
 - **Action-level**：每个 atomic action 的概率为其 token 概率乘积。
 - **Token-level**：直接使用单个 action token 的 log-probability。
 
-**【Analysis】** 粒度越细，credit assignment 越精确，但需要保存/计算的 log-probability 更多；RLinf-VLA 将粒度做成配置项，因而可以在不重写 runner 的情况下做消融。
+**【Analysis】** 必须把 **advantage 粒度** 与 **log-probability 粒度** 分开：前者只提供 chunk/action 两级，后者提供 chunk/action/token 三级。action advantage 可以广播给该动作各维 token，但不等于每个 token 都有独立的环境奖励；Table II 也不支持 action advantage 搭配整块 chunk probability。细粒度并非必然更准确，因为 value 误差、折扣时间尺度和 clipping 都会改变训练。
+
+**【Code】** `rlinf/algorithms/utils.py` 在 action-level 对各动作维度的 log-probability 求和，在 chunk-level 对全部动作与维度求和，然后计算概率比。因此 $\operatorname{clip}(\prod_i\rho_i)$ 与逐 token 分别 clip 并不等价；粒度是优化目标的选择，不只是张量大小。公开 OFT 实现的离散预测分支输出 action-token 分类 logits，不能把这里的 log-probability 当作原版确定性 L1 回归头天然提供的量。
 
 ### 4.3 关键公式
 
@@ -161,7 +167,7 @@ $$
 L^{\mathrm{PPO}}=\mathbb E_t\left[\min\left(r_t(\theta)\hat A_t,\;\operatorname{clip}(r_t(\theta),1-\epsilon,1+\epsilon)\hat A_t\right)\right]
 $$
 
-其中 $r_t(\theta)=\pi_\theta(a_t\mid o_t)/\pi_{\theta_{old}}(a_t\mid o_t)$，$\hat A_t$ 是 advantage，$\epsilon$ 是 clip ratio。对 action chunk，$\hat A_t$ 可以广播到 chunk 内 token，也可以为每个 atomic action 单独估计。
+其中 $r_t(\theta)=\pi_\theta(a_t\mid o_t)/\pi_{\theta_{old}}(a_t\mid o_t)$ 是概率比，与下文环境奖励 $r_t$ 不同，$\hat A_t$ 是 advantage，$\epsilon$ 是 clip ratio。对 action chunk，$\hat A_t$ 可以广播到 chunk 内 token，也可以为每个 atomic action 单独估计。
 
 #### GAE
 
@@ -170,18 +176,20 @@ $$
 \hat A_t=\delta_t+\gamma\lambda\hat A_{t+1}
 $$
 
-**【Paper】** PPO 不使用独立的大 critic，而是在 VLA language model 上挂轻量 value head；action-level value 输出 $C$ 个值，chunk-level value 只输出一个标量。
+**【Paper】** PPO 不使用独立的大 critic，而是在 VLA language model 上挂轻量 value head；action-level value 输出 $C$ 个值，chunk-level value 只输出一个标量。上式省略了终止处理，真正跨 reset 计算时必须切断 GAE 递推，并区分终止与时间截断的 bootstrap，否则会把下一条 episode 的回报传播到上一条。
+
+**【Code】** OFT 的 value head 从当前 chunk 前的一个 hidden feature 一次输出 $C$ 维估计，并未在 chunk 内每一步重新读取真实观测。它提供的是当前输入下各未来动作位置的回报预测，不能解读成对 $C$ 个实际中间状态分别运行 critic。
 
 #### GRPO relative advantage
 
-对同一 observation 采样的 group $G$ 条轨迹，GRPO 使用组内回报的相对值：
+对同一**初始环境状态**独立 rollout 的 group $G$ 条完整轨迹，GRPO 使用组内回报的相对值：
 
 $$
 \hat A_i=\frac{R_i-\operatorname{mean}(R_{1:G})}
 {\operatorname{std}(R_{1:G})+\varepsilon}
 $$
 
-**【Paper】** 论文进一步加入 valid action mask，屏蔽任务完成后的 action；并按 trajectory length 归一化 loss，避免长 episode 在 batch 中占据过大权重。
+**【Paper】** GRPO 的 $R_i$ 是轨迹总奖励，组内必须共享初态，只有语言指令相同还不够。`use_fixed_reset_state_ids=True` 用于维持这一条件。valid action mask 只在 loss 中排除成功后的动作；它不意味着模拟器马上 reset，也不省掉这些固定时长 rollout 的所有交互计算。再按每条轨迹的有效长度平均 loss，可以让短成功轨迹与长失败轨迹拥有可比总权重；直接按全 batch 的有效 token 平均会得到不同的轨迹权重。
 
 ### 4.4 Training
 
@@ -190,16 +198,29 @@ $$
 <Algorithm number={1} title='RLinf-VLA training loop' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>VLA checkpoint、环境 batch、RL algorithm、GPU placement 配置</div>
   <div slot='output'>更新后的 VLA policy checkpoint</div>
-  <AlgorithmStep>根据 placement 将 Generation、Simulator 和 Training 放置到 GPU；必要时把 simulator 切成两个 pipeline stage。</AlgorithmStep>
-  <AlgorithmStep>Generation 从环境 observation 采样 action/token 或 action chunk，并保存 old log-probability。</AlgorithmStep>
-  <AlgorithmStep>Simulator 执行动作，记录 reward、termination、truncation 和下一 observation；partial reset 或 valid mask 按配置生效。</AlgorithmStep>
-  <AlgorithmStep>按 chunk/action/token 粒度计算 return、GAE 或 GRPO group-relative advantage。</AlgorithmStep>
-  <AlgorithmStep>计算 clipped policy loss、value loss、entropy/KL 项，执行 FSDP 梯度更新并同步 rollout policy 权重。</AlgorithmStep>
+  <AlgorithmStep>
+    根据 placement 将 Generation、Simulator 和 Training 放置到 GPU；必要时把 simulator 切成两个
+    pipeline stage。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    Generation 从环境 observation 采样 action/token 或 action chunk，并保存 old log-probability。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    Simulator 执行动作，记录 reward、termination、truncation 和下一 observation；partial reset 或
+    valid mask 按配置生效。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    按 chunk/action/token 粒度计算 return、GAE 或 GRPO group-relative advantage。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    计算 clipped policy loss、value loss、entropy/KL 项，执行 FSDP 梯度更新并同步 rollout policy
+    权重。
+  </AlgorithmStep>
 </Algorithm>
 
 **【Code】** `rlinf/runners/embodied_runner.py` 负责同步训练主循环，`rlinf/runners/async_ppo_embodied_runner.py` 与 `rlinf/runners/async_embodied_runner.py` 提供异步变体；PPO worker 位于 `rlinf/workers/actor/async_ppo_fsdp_worker.py`，算法函数集中在 `rlinf/algorithms/`。
 
-以官方 `examples/embodiment/config/maniskill_async_ppo_openvlaoft.yaml` 为例，配置使用 action-level reward、token-level log-probability、GAE、`gamma=0.99`、`gae_lambda=0.95`、LoRA rank 32 和 FSDP gradient checkpointing。**【Code】** 这些是示例配置，不应当被理解为所有实验的唯一超参数。
+以官方 `examples/embodiment/config/maniskill_async_ppo_openvlaoft.yaml` 为例，配置使用 action-level reward、token-level log-probability、GAE、`gamma=0.99`、`gae_lambda=0.95`、LoRA rank 32 和 FSDP gradient checkpointing。**【Code】** 这是当前仓库的**异步扩展**，不等同于论文的主要同步实验。附录 Table III 的 PPO 和 GRPO 还分别使用 128/256 个 ManiSkill 环境、160/80 个 rollout steps；主要训练的 clip 下界与上界为 0.2/0.28，前面的对称公式只是标准 PPO 示意。
 
 ### 4.5 Inference
 
@@ -209,23 +230,29 @@ $$
   <div slot='input'>当前 observation、语言指令、已训练 VLA policy</div>
   <div slot='output'>trajectory、success/reward 和下一 observation</div>
   <AlgorithmStep>从统一环境接口读取多视角 observation 与 proprioceptive state。</AlgorithmStep>
-  <AlgorithmStep>Generation 使用当前 policy 计算 action token，并解码为 atomic action 或 action chunk。</AlgorithmStep>
-  <AlgorithmStep>Simulator 执行 action/chunk，累计 reward，更新 termination/truncation 状态。</AlgorithmStep>
-  <AlgorithmStep>若 episode 结束则 reset 对应子环境，否则把下一 observation 送回 Generation。</AlgorithmStep>
+  <AlgorithmStep>
+    Generation 使用当前 policy 计算 action token，并解码为 atomic action 或 action chunk。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    Simulator 执行 action/chunk，累计 reward，更新 termination/truncation 状态。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    若 episode 结束则 reset 对应子环境，否则把下一 observation 送回 Generation。
+  </AlgorithmStep>
 </Algorithm>
 
 **【Code】** `rlinf/runners/embodied_eval_runner.py` 用于评测；不同模型的 action decoding 与 chunk horizon 位于 `rlinf/models/` 和环境 wrapper 中。真实部署配置还可见 `examples/embodiment/config/realworld_eval_dual_franka.yaml`，但本文实验主体仍是模拟器训练。
 
 ### 4.6 代码实现对照
 
-| 论文概念 | 官方代码位置 | 对照结论 |
-| --- | --- | --- |
-| Generation / Simulator / Training | `rlinf/runners/embodied_runner.py` | runner 将 rollout 与 update 解耦，便于同步或异步执行 |
-| PPO / GRPO | `rlinf/algorithms/`、`rlinf/workers/actor/` | advantage 与 loss 通过 registry/config 组合 |
-| VLA 模型 | `rlinf/models/`、`examples/embodiment/config/model/` | OpenVLA/OFT、OpenPI 等模型遵循统一 actor 接口 |
-| Simulator | `rlinf/envs/maniskill/`、`libero/`、`robotwin/` | wrapper 统一 reset、chunk step、reward 和 episode flags |
-| GPU placement | `rlinf/scheduler/placement/` | 支持 component placement 与 pipeline stage 配置 |
-| Checkpoint / sync | `rlinf/utils/checkpoint.py`、`rlinf/hybrid_engines/weight_syncer/` | actor 权重在训练与 rollout worker 间同步 |
+| 论文概念                          | 官方代码位置                                                       | 对照结论                                                |
+| --------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------- |
+| Generation / Simulator / Training | `rlinf/runners/embodied_runner.py`                                 | runner 将 rollout 与 update 解耦，便于同步或异步执行    |
+| PPO / GRPO                        | `rlinf/algorithms/`、`rlinf/workers/actor/`                        | advantage 与 loss 通过 registry/config 组合             |
+| VLA 模型                          | `rlinf/models/`、`examples/embodiment/config/model/`               | OpenVLA/OFT、OpenPI 等模型遵循统一 actor 接口           |
+| Simulator                         | `rlinf/envs/sim/maniskill/`、`libero/`、`robotwin/`                | wrapper 统一 reset、chunk step、reward 和 episode flags |
+| GPU placement                     | `rlinf/scheduler/placement/`                                       | 支持 component placement 与 pipeline stage 配置         |
+| Checkpoint / sync                 | `rlinf/utils/checkpoint.py`、`rlinf/hybrid_engines/weight_syncer/` | actor 权重在训练与 rollout worker 间同步                |
 
 **【Analysis】** 论文中的“统一接口”在代码层面主要表现为配置驱动的 runner、env wrapper 和 actor worker 组合；它并没有把所有模型强行改成同一个网络，而是要求它们满足相同的 observation/action contract。
 
@@ -235,26 +262,26 @@ $$
 
 **【Paper】** 实验覆盖三类模拟器和三类问题：
 
-| Benchmark | 训练设置 | 评测重点 |
-| --- | --- | --- |
-| ManiSkill | 25 个 pick-and-place 任务，256 个随机 episode 的 vision/language/action OOD | OpenVLA 与 OpenVLA-OFT，PPO/GRPO 及 GPU allocation |
-| LIBERO | 一个模型联合训练 5 个 task group，共 130 个任务；每任务 50 episode、3 个 seeds | 大规模 multitask 与 GRPO 泛化 |
-| RoboTwin | 6 个任务，每任务 1000 个固定训练 scene seeds | 128 个未见 seeds 的 OOD success |
+| Benchmark | 训练设置                                                                     | 评测重点                                           |
+| --------- | ---------------------------------------------------------------------------- | -------------------------------------------------- |
+| ManiSkill | 25 个 pick-and-place 任务，256 个随机 episode 的 vision/language/action OOD  | OpenVLA 与 OpenVLA-OFT，PPO/GRPO 及 GPU allocation |
+| LIBERO    | 一个模型联合训练 5 个 task group，共 130 个任务；每任务 50 episode、3 次评估 | 大规模 multitask 与 GRPO 泛化                      |
+| RoboTwin  | 6 个任务，每任务 1000 个固定训练 scene seeds                                 | 128 个未见 seeds 的 OOD success                    |
 
 ![LIBERO-130 训练曲线（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-rlinf-vla/libero.3d5j4frei7.webp)
 
 ### 5.2 Main Results
 
-**【Paper】**
+**【Paper】** 附录 IX-A 的成功判定为 `success_once`：episode 内达到成功状态一次即计成功，不要求持续保持到终点。评估又存在解码差异：SFT baseline 用 `do_sample=False`，RL 模型用 `do_sample=True`；三次评估并不等于三个独立训练 seed，目前论文只给 LIBERO 的标准差说明。
 
-- **LIBERO-130**：OpenVLA-OFT 单模型平均 success **98.11%**，相比 base 平均提升 **56.02 个百分点**；这是跨 5 个 task group 的统一模型，而不是每组单独训练。
-- **ManiSkill**：OpenVLA RL 后达到 **81.93%**（base 39.10%），OpenVLA-OFT RL 后达到 **77.05%**（base 18.29%）；论文报告的 25-task 最佳结果为 **97.66%**。
-- **RoboTwin**：6 个任务平均 **84.63%**，平均提升超过 60%；在 Bottles、Can、Hand 等困难任务上超过 SimpleVLA-RL。
-- **真实 drawer-closing 初步实验**：SFT-only 与 sim-RL 模型均为 8/10 success，但 RL 模型执行更直接；这只是小规模 transfer 证据，不是大规模 real-world benchmark。
+- **LIBERO-130**：OpenVLA-OFT 单模型平均 success **98.11%**，相比 base 平均提升 **56.02 个百分点**；这是跨 5 个 task group 的统一模型。须保留一个原文不一致：Table I-b 的五组 99.67/98.93/98.32/93.55/98.12，等权平均为 97.72%，按任务数 10/10/10/10/90 加权为 97.97%，均无法复算 98.11%；baseline 的 42.09% 则与任务数加权吻合。本文把 98.11% 标为作者报告值，不据分组表伪造一致性。
+- **ManiSkill**：OpenVLA RL 后达到 **81.93%**（base 39.10%），OpenVLA-OFT RL 后达到 **77.05%**（base 18.29%）；这些都是 **OOD 平均**；**97.66%** 是 OpenVLA-OFT + PPO 的 **in-distribution** 测试结果，不能当作同一列里的更优 OOD 分数。
+- **RoboTwin**：6 个任务专用模型平均 **84.63%**，相对 base 24.48% 提升 **60.15 个百分点**；摘要中的 63.75% 提升无法由 Table I-c 对应均值复算。在 Bottles、Can、Hand 等困难任务上超过 SimpleVLA-RL。
+- **真实 drawer-closing 初步实验**：SFT 先使用 20 条真实示教与 1,000 条模拟轨迹，机器人与相机经过 sim-to-real 对齐；在此基础上 SFT-only 与 sim-RL 均为 8/10 success，RL 执行更直接是定性观察，未给出配对耗时统计；这只是小规模 transfer 证据，不是大规模 real-world benchmark。
 
 ![不同 GPU allocation 与 pipeline 的吞吐比较（论文 Figure 9）](https://pic.hana0721.top/blog/paper-deep-dive-rlinf-vla/efficiency.2yz3dkj359.webp)
 
-系统效率方面，ManiSkill 上 OpenVLA 的 hybrid `pipe=2` 相比 disaggregated baseline 最高 **1.88×**，常见设置保持 **1.61×–1.69×** 优势；LIBERO/RoboTwin 的 collocated 设置相较 SimpleVLA-RL 最高达到 **2.27×** 加速。**【Paper】** 最优模式依赖 simulator 是否 GPU-parallelized、模型是否输出 action chunk，以及 Generation/Simulator 的耗时比例。
+系统效率方面，ManiSkill 上 OpenVLA 的 hybrid `pipe=2` 相比 disaggregated baseline 最高 **1.88×**，常见设置保持 **1.61×–1.69×** 优势；LIBERO/RoboTwin 的 collocated 设置相较 SimpleVLA-RL 最高达到 **2.27×** 加速。**【Paper】** throughput 的分母是**整个训练 epoch 的 wall-clock 时间**，分子是 rollout 环境帧数。该效率实验在 8/16/32 张 H100 上进行，ManiSkill 只测特定 carrot-on-plate 任务，LIBERO 测 Long，RoboTwin 测 place-empty-cup；并非对全部高成功率实验逐项复测。最优模式依赖 simulator、action chunk 与生成/执行耗时比；OFT 的 chunk 使后者可接近 1:15，进一步切 pipeline 反而未必有利。
 
 ### 5.3 Ablation Study
 
@@ -262,15 +289,19 @@ $$
 
 **【Paper】** 消融给出几条可复用的经验：
 
-1. **Action-level value 优于 chunk-level value**：在 OpenVLA-OFT 的 ManiSkill 与 LIBERO-Goal 上 success 更高、value loss 更低。
+1. **Action-level value 在主消融中较好，但不构成普遍优势**：附录 X-C / Figure 18 补充了折扣因子消融，调小 chunk-level 的折扣后可接近 action-level。不能只摘录主文 Figure 11 就把提升全部归因于更精细的 critic。
 2. **Partial reset 更适合 PPO 的 success-once 目标**：子环境成功后立即 reset，可在相同 rollout budget 中采集更多有效轨迹。
 3. **Trajectory-length normalization 有帮助**：LIBERO-Goal 中，按轨迹长度归一化的 GRPO 比不归一化更稳定。
 4. **Valid action mask 通常有利于 GRPO**：屏蔽成功后的无效 action，和 length normalization 叠加时收益更明显；但 ManiSkill 上收益并不总是显著。
 5. **Success-rate filter 不是普适增益**：在某些 OpenVLA ManiSkill 设置可避免训练崩溃，但在 OpenVLA-OFT 的部分任务上影响较小。
 
+**【Analysis】** 附录的折扣公式还存在明确错误：它写 $\gamma_{\mathrm{chunk}}=\gamma_{\mathrm{action}}^{1/C}$，并称 $C=8$ 时 $0.99^{1/8}\approx0.904$，实际该值约为 0.99874。若一个 chunk 跨 $C$ 个原子时间步，要保持原始时间尺度，应有 $\gamma_{\mathrm{chunk}}=\gamma_{\mathrm{action}}^C$，并对 chunk 内奖励作相应折扣；$0.99^8\approx0.92274$，仍不是图中的 0.904。公开 `utils.py` 对 chunk 奖励直接求和，故也不能只修改一个 gamma 就宣称两个目标严格等价。Figure 18 能支持“折扣调参影响结论”，不能验证论文印出的指数与数值。
+
+**【Paper】** 附录还显示：扩大 rollout 后按 epoch 看改善更快，但每个 epoch 的环境交互量随之增加，不能据此推断样本效率提高；无 LoRA 的 GRPO 在 $10^{-4}$ 学习率崩溃而降至 $10^{-5}$ 后可稳定，也说明适配方式需要分别调参。
+
 ### 5.4 Generalization
 
-**【Paper】** ManiSkill 的 OOD 协议分别改变视觉、语言和动作条件；RoboTwin 使用未见 scene seeds；LIBERO 则用一个模型覆盖 130 个任务。三者共同说明 RL 后的收益不只来自单一训练轨迹记忆。
+**【Paper】** ManiSkill 的 OOD 协议分别改变视觉、语言和动作条件；RoboTwin 使用未见 scene seeds；LIBERO 的 130 个任务全部用于联合训练，因此主要验证大规模多任务优化，不是训练于 90 个任务再迁移到 40 个新任务的 lifelong protocol。RoboTwin 的 unseen seeds 也只是已知六个任务内的新场景。
 
 **【Analysis】** 但“泛化”仍受 benchmark 设计约束：大多数 OOD 变化发生在已知模拟器与任务族内，不能直接推出对真实机器人、全新 embodiment 或开放世界物体的泛化。真实实验只有 10 次尝试，证据强度明显低于模拟结果。
 
@@ -335,5 +366,8 @@ $$
 
 <Aside type='note' title='阅读提示'>
   本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码或配置确认的行为，`【Analysis】`
-  表示基于论文和代码的分析推断。论文实验数字以 arXiv 2510.06710 v3 为准。
+  表示基于论文和代码的分析推断。论文来源为 [v3
+  全文及附录](https://arxiv.org/pdf/2510.06710v3)，代码来源为 [RLinf
+  官方仓库](https://github.com/RLinf/RLinf)。文中对平均值和折扣公式的不一致已逐项标注；
+  当前仓库新增的异步能力不作为本文主实验的证据。
 </Aside>

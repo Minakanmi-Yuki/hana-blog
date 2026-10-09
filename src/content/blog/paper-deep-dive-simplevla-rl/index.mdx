@@ -1,7 +1,7 @@
 ---
 title: 'SimpleVLA-RL 论文精读：用在线强化学习扩展 VLA 的数据与泛化能力'
 publishDate: 2026-08-26
-updatedDate: 2026-08-26
+updatedDate: 2026-09-22
 description: '精读 SimpleVLA-RL：基于 veRL 为 OpenVLA-OFT 接入闭环并行 rollout、二值结果奖励与探索增强，在 LIBERO、RoboTwin 和真实机器人上验证 VLA 的 RL scaling。'
 heroImage:
   { src: 'https://pic.hana0721.top/99213551_p0_master1200.4jopcsx1ya.webp', color: '#8C8275' }
@@ -58,11 +58,11 @@ import { Aside } from '@/components/user'
 
 **【Paper】**《SimpleVLA-RL: Scaling VLA Training via Reinforcement Learning》研究一个很具体但重要的问题：当 VLA 已经通过 SFT 学会基本操作后，能否像 Large Reasoning Model 一样，仅用环境最终成败的奖励继续扩展能力？作者在 veRL 上实现了 SimpleVLA-RL，并将 OpenVLA-OFT 作为主要 backbone。
 
-![SimpleVLA-RL 论文 Figure 1：从 SFT 模型出发进行在线 RL，环境返回任务成败奖励](https://pic.hana0721.top/blog/paper-deep-dive-simplevla-rl/overview_v4.2h91oy30jh.webp)
+![SimpleVLA-RL 论文 Figure 1：数据稀缺、仿真与实机结果、pushcut 行为及泛化实验总览](https://pic.hana0721.top/blog/paper-deep-dive-simplevla-rl/overview_v4.2h91oy30jh.webp)
 
 ### 一句话总结
 
-**【Analysis】** SFT 把机器人限制在“示教里见过的动作套路”，SimpleVLA-RL 则让策略在并行仿真环境中反复试错；只要一组采样同时出现成功和失败，GRPO 就能把成功轨迹的 action token 概率推高，从而获得更强的长时程控制与泛化。
+**【Analysis】** SimpleVLA-RL 用并行仿真中的成败反馈，优化一个已由 SFT 冷启动的离散动作策略。组内同时出现成功与失败时，GRPO 为整条成功轨迹提供正优势、失败轨迹提供负优势；这能支持超出当前任务示范的行为探索，但不意味着 SFT 本身完全没有泛化能力，也不意味着所有动作都能获得准确的因果 credit。
 
 ### 核心贡献
 
@@ -73,6 +73,8 @@ import { Aside } from '@/components/user'
 3. 在 LIBERO、RoboTwin 1.0/2.0 上显著超过 SFT 基线；只用每个任务一条示教时，LIBERO-Long 从 17.3% 提升到 91.7%。
 4. 仅用仿真数据训练的策略在真实双臂 Piper 上平均成功率由 17.5% 提升到 38.5%。
 5. 观察到 `pushcut`：策略在没有示教该动作的情况下，学会用推动替代抓取-搬运-放置。
+
+**【Paper】** 首先明确 backbone：本文称作 OpenVLA-OFT 的版本只保留 **parallel decoding + action chunking**，以 LLaMA2 词表头和交叉熵替换原版连续 MLP / L1 动作头，且只用单视角；LIBERO 还移除 proprioception。作者重新做任务 SFT，不能直接复用原版 OFT checkpoint。因此这里验证的是改造后的 categorical policy 在线 GRPO，不是把原版 OFT 连续动作原封不动送进算法。
 
 ## 2. 背景与相关工作
 
@@ -86,7 +88,7 @@ import { Aside } from '@/components/user'
 
 $$s_t=(o_t^{\mathrm{vis}},o_t^{\mathrm{prop}},l_{\mathrm{task}}).$$
 
-策略输出长度为 $K$ 的 action chunk。每个 action 是 $d$ 维连续控制量（例如末端位姿增量与夹爪），再由 OpenVLA-OFT 的 tokenizer 表示为 action tokens。环境执行 chunk 后返回新观测，直到成功、失败或达到最大步数。
+策略输出长度为 $K$ 的 action chunk。每个 action 是 $d$ 维连续控制量（例如末端位姿增量与夹爪），由本文改造版的 action tokenizer 量化为离散 tokens。环境执行 chunk 后返回新观测，直到成功、失败或达到最大步数。
 
 SimpleVLA-RL 使用 trajectory-level outcome reward：
 
@@ -98,7 +100,7 @@ $$R_i=\begin{cases}1,&\text{trajectory }i\text{ 完成任务},\\0,&\text{otherwi
 
 ### 4.1 Overall Architecture
 
-SimpleVLA-RL 由四个协同部分组成：OpenVLA-OFT policy、veRL actor/rollout worker、并行环境池和 reward manager。每轮先复制同一任务 $G$ 份，在不同环境实例中采样；每个环境执行 action chunk 后重新编码图像与 proprio，再生成下一个 chunk。
+SimpleVLA-RL 由四个协同部分组成：OpenVLA-OFT policy、veRL actor/rollout worker、并行环境池和 reward manager。每轮先将同一个任务和初始场景复制 $G$ 份，在不同环境实例中采样；每个环境执行 action chunk 后重新编码图像与 proprio，再生成下一个 chunk。
 
 **【Paper】** 论文的整体数据流是：SFT policy → temperature sampling → 多环境闭环 rollout → 任务成功判定 → group-relative advantage → clipped policy update。
 
@@ -113,11 +115,11 @@ SimpleVLA-RL 由四个协同部分组成：OpenVLA-OFT policy、veRL actor/rollo
 - **输出**：包含每个 action token 概率、状态和最终成功标记的完整 trajectory。
 - **必要性**：LLM 一次生成完整文本；机器人动作会改变世界，下一次决策必须依赖新观测。
 
-**【Code】** `rob_rollout.py` 先用 `env_thread_pool` 并行初始化环境，再循环调用 `_generate_one_step` 与 `wrapper.step`。完成的环境会从 active 列表移除，避免继续浪费采样预算。
+**【Code】** 当前 `rob_rollout.py` 的 RoboTwin 路径使用 thread pool，LIBERO 路径则以独立 process 和 queue 推进环境；两者都维护 active 集合，在策略批量生成与环境执行之间同步。组内重复同一 `task_id / trial_id`（RoboTwin 还含 `trial_seed`），主要通过动作采样产生不同轨迹，不能把同一任务的任意不同难度场景混成相同初态的 GRPO group。
 
 #### 二值 outcome reward
 
-**【Paper】** 所有成功轨迹的 action token 获得 1，失败轨迹获得 0，不设计距离、碰撞等任务专属过程奖励。优点是 reward verifier 可跨任务复用；代价是只有最终结果，无法告诉策略“错在第几步”。
+**【Paper / Code】** 论文将终局成败传播到整条轨迹；代码实际只在最后一个有效 token 存入 0/1，先沿 token 维求和得到一次 trajectory reward，再把**标准化优势**广播到所有有效 token。不是每执行一个动作都再领一次 1，否则会隐含偏爱更长轨迹。它省掉距离等过程奖励，但每项任务的 success predicate 仍由模拟器定义；“奖励形式通用”不等于判定器无需任务规则。
 
 #### 三种探索增强
 
@@ -133,31 +135,45 @@ SimpleVLA-RL 由四个协同部分组成：OpenVLA-OFT policy、veRL actor/rollo
 
 $$\hat A_i=\frac{R_i-\operatorname{mean}(R_{1:G})}{\operatorname{std}(R_{1:G})+\epsilon}.$$
 
-其中 $R_i\in\{0,1\}$ 是整条轨迹奖励，$\epsilon$ 防止数值除零；dynamic sampling 保证实际训练组通常包含两种结果。
+其中 $R_i\in\{0,1\}$ 是整条轨迹奖励，$\epsilon$ 防止数值除零；在默认 $G=8$ 下，代码以成功比例 $[0.1,0.9]$ 过滤，恰好保留 1–7 条成功的组。采样会继续读取下一批场景直到凑齐有效 batch 或当轮数据耗尽；不是无条件反复尝试同一初态直到一定成功。
 
-去掉 KL reference model 后，SimpleVLA-RL 的目标为：
+**【Analysis】** 假设一个初态下各次 rollout 独立且成功概率为 $p$，组被保留的概率为 $1-p^G-(1-p)^G$。$G=8,p=0.01$ 时只有约 7.7% 的组有效；动态采样提高了已用于更新的 batch 的信息量，却没有免费解决稀有成功问题，而且使更新场景分布偏向尚未全会、也不是完全不会的初态。
+
+去掉 KL reference model 后，论文 Eq. (11) 的目标为：
 
 $$
 \mathcal J(\theta)=\mathbb E\left[\frac1G\sum_{i=1}^G\frac1{|a_i|}\sum_t
 \min\left(r_{i,t}\hat A_i,\operatorname{clip}(r_{i,t},1-\varepsilon_{low},1+\varepsilon_{high})\hat A_i\right)\right],
 $$
 
-$$r_{i,t}=\frac{\pi_\theta(a_{i,t}\mid s_{i,t})}{\pi_{\theta_{old}}(a_{i,t}\mid s_{i,t})},\quad
-\varepsilon_{low}=0.2,\;\varepsilon_{high}=0.28.$$
+$$
+r_{i,t}=\frac{\pi_\theta(a_{i,t}\mid s_{i,t})}{\pi_{\theta_{old}}(a_{i,t}\mid s_{i,t})},\quad
+\varepsilon_{low}=0.2,\;\varepsilon_{high}=0.28.
+$$
 
-**【Analysis】** 非对称 clipping 的方向性很明确：成功轨迹的 token 概率上升可以走得更远，而概率下降仍受 $0.8$ 下界约束；这把有限更新预算偏向“发现新动作”。去掉 KL 则减少显存和 reference forward，但也牺牲了一个显式的保守锚点。
+**【Analysis】** 对正优势，ratio 超过 1.28 后该样本的 clipped surrogate 不再奖励进一步增大；对负优势，低于 0.8 后不再奖励继续下降。它是目标函数的截断，不是保证所有更新后概率比都落在 $[0.8,1.28]$ 的硬约束。放宽上界允许采样到的成功 token 获得更大增权空间，但本身不会生成新动作；探索仍来自温度采样与环境交互。去掉 reference KL 减少计算，也移除了一个固定参考约束。
+
+**【Code / Analysis】** 更新时同样对 256 个动作 logits 除以 rollout 温度，再重算新旧 categorical log-prob；否则分子分母会对应不同策略。每个标量动作维度 token 独立进入 ratio 和 clipping，整条 trajectory 共享优势；这不是完整 chunk 或整条轨迹联合概率的 importance ratio，也没有定位某个 token 对最终成败的因果贡献。
 
 ### 4.4 Training
 
-**【Paper】** 主要实验先对 OpenVLA-OFT 做 SFT，再在相同任务的仿真场景中在线 RL。训练使用 8 张 A800 80GB，学习率 $5\times10^{-6}$、batch size 64、每个 prompt 采样 8 条 trajectory、256 个 action tokens；LIBERO 最大交互 512 步，RoboTwin 根据任务使用 200/400/800 步。训练采样温度为 1.6，评估使用 greedy decoding。
+**【Paper】** 主要实验先对 OpenVLA-OFT 做 SFT，再在相同任务的仿真场景中在线 RL。训练使用 8 张 A800 80GB，学习率 $5\times10^{-6}$、batch size 64、每个初态采样 8 条 trajectory。256 指动作输出的**类别词表大小**，不是一次预测 256 个时间步或 256 个 token；LIBERO 每次预测 8 个 7 维动作（56 个 token），RoboTwin 为 25 个 14 维动作（350 个 token）。LIBERO 最大交互 512 步，RoboTwin 根据任务使用 200/400/800 步。训练采样温度为 1.6，评估使用 greedy decoding，每个基准重复评估三次；原文未将其明确表述为三次独立训练种子。正文报告 full-parameter RL，不能把原版 OFT 的 LoRA 训练成本套到这里。
 
 <Algorithm number={1} title='SimpleVLA-RL 在线训练' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>SFT 后的 VLA policy、任务集合、并行环境池</div>
   <div slot='output'>更新后的 VLA policy checkpoint</div>
-  <AlgorithmStep>为每个任务复制 $G=8$ 个环境实例，并用当前 policy 以温度 1.6 生成 action chunks。</AlgorithmStep>
-  <AlgorithmStep>循环执行 chunk、刷新视觉与 proprioception；完成的 episode 从 active 环境集合中移除。</AlgorithmStep>
-  <AlgorithmStep>调用环境成功判定器，将每条 trajectory 标记为 0/1，并丢弃全成败的 group。</AlgorithmStep>
-  <AlgorithmStep>计算 action-token log-probability、组内标准化优势和非对称 clipped GRPO loss。</AlgorithmStep>
+  <AlgorithmStep>
+    为每个任务复制 $G=8$ 个环境实例，并用当前 policy 以温度 1.6 生成 action chunks。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    循环执行 chunk、刷新视觉与 proprioception；完成的 episode 从 active 环境集合中移除。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    调用环境成功判定器，将每条 trajectory 标记为 0/1，并丢弃全成败的 group。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    计算 action-token log-probability、组内标准化优势和非对称 clipped GRPO loss。
+  </AlgorithmStep>
   <AlgorithmStep>通过 FSDP actor 更新参数，记录成功率并保存 checkpoint。</AlgorithmStep>
 </Algorithm>
 
@@ -175,18 +191,20 @@ $$r_{i,t}=\frac{\pi_\theta(a_{i,t}\mid s_{i,t})}{\pi_{\theta_{old}}(a_{i,t}\mid 
   <AlgorithmStep>若环境返回 done 或达到最大步数则停止，否则回到第一步。</AlgorithmStep>
 </Algorithm>
 
-**【Code】** `main_eval.py` 支持离线读取生成结果并调用 verifier；RoboTwin wrapper 将 `eval_success` 作为 episode 终止条件。官方代码的 OpenVLA-OFT 版本只使用单视角图像、语言和 proprioception（LIBERO 配置还可关闭 proprioception），因此不能直接加载官方使用 wrist camera/MLP action head 的 checkpoint，需要按仓库配置重新 SFT。
+**【Code】** [官方 README](https://github.com/PRIME-RL/SimpleVLA-RL) 推荐在相同 RL 启动脚本设置 `trainer.val_only=True` 进行闭环评估；`main_eval.py` 的离线 verifier 入口不能替代机器人环境 rollout。RoboTwin wrapper 将 `eval_success` 作为 episode 成功终止条件。官方代码的 OpenVLA-OFT 版本只使用单视角图像、语言和 proprioception（论文与默认 LIBERO 脚本均关闭 proprioception），因此不能直接加载官方使用 wrist camera/MLP action head 的 checkpoint，需要按仓库配置重新 SFT。
 
 ### 4.6 代码实现对照
 
-| 论文概念 | 官方代码位置 | 实际行为 |
-| --- | --- | --- |
-| VLA rollout | `verl/workers/rollout/rob_rollout.py` | 多环境线程池、逐 chunk 交互、done 过滤、轨迹收集 |
-| Outcome reward | `verl/trainer/main_ppo.py`、环境 `check_success` | 任务级 0/1 分数，映射到有效 action token |
-| GRPO advantage | `verl/trainer/ppo/core_algos.py` | 按 `n_samples` 分组做均值/标准差归一化 |
-| 非对称 clipping | `verl/workers/actor/dp_rob.py` | `clip_ratio_low=0.2`、`clip_ratio_high=0.28` |
-| 模型与 action token | `verl/utils/vla_utils/openvla_oft/` | LLaMA2 词表输出离散 action，chunk 长度由配置控制 |
-| 训练入口 | `verl/trainer/ppo/ray_trainer.py` | rollout → reward → advantage → actor update → eval/checkpoint |
+| 论文概念            | 官方代码位置                                     | 实际行为                                                      |
+| ------------------- | ------------------------------------------------ | ------------------------------------------------------------- |
+| VLA rollout         | `verl/workers/rollout/rob_rollout.py`            | 多环境线程池、逐 chunk 交互、done 过滤、轨迹收集              |
+| Outcome reward      | `verl/trainer/main_ppo.py`、环境 `check_success` | 任务级 0/1 分数，映射到有效 action token                      |
+| GRPO advantage      | `verl/trainer/ppo/core_algos.py`                 | 按 `n_samples` 分组做均值/标准差归一化                        |
+| 非对称 clipping     | `verl/workers/actor/dp_rob.py`                   | `clip_ratio_low=0.2`、`clip_ratio_high=0.28`                  |
+| 模型与 action token | `verl/utils/vla_utils/openvla_oft/`              | LLaMA2 词表输出离散 action，chunk 长度由配置控制              |
+| 训练入口            | `verl/trainer/ppo/ray_trainer.py`                | rollout → reward → advantage → actor update → eval/checkpoint |
+
+**【Code】** [采样与更新实现](https://github.com/PRIME-RL/SimpleVLA-RL/blob/main/verl/workers/actor/dp_rob.py) 对 padding 后词表的 `[-320:-64]` 切片，只在动作的 256 类内 softmax，并用执行完成长度屏蔽其后的 token。`action_chunks_len` 在此表示一个 chunk 内的动作步数，命名不应读成一次运行多个独立 chunk。
 
 ## 5. 实验
 
@@ -194,16 +212,20 @@ $$r_{i,t}=\frac{\pi_\theta(a_{i,t}\mid s_{i,t})}{\pi_{\theta_{old}}(a_{i,t}\mid 
 
 **【Paper】** 实验覆盖 LIBERO（Goal、Spatial、Object、Long）、RoboTwin 1.0、RoboTwin 2.0，并在两台 AgileX Piper 上做真实部署。LIBERO 每个任务评估 50 个 held-out 场景；RoboTwin 2.0 选择 12 个任务，覆盖约 112–637 步的短、中、长和超长时程，每个任务评估 100 个场景。
 
+**【Paper】** 数据口径分别为：LIBERO 每套 500 条示范做 SFT，再在对应 500 个场景上 RL；RoboTwin 1.0 只评 4 项任务，每任务 50 条 SFT 示范、100 个 RL 场景；RoboTwin 2.0 选择的 12 项任务每项 1,000 条 SFT 示范、1,000 个 RL 场景。RoboTwin 使用单任务适配，平均分不能解释成一个共同策略掌握了全部 12 项。RL 场景数也不等于总 rollout 数，同场景会被反复采样。
+
 ### 5.2 Main Results
 
-| Benchmark | OpenVLA-OFT SFT | + SimpleVLA-RL | 提升 |
-| --- | ---: | ---: | ---: |
-| LIBERO 平均 | 91.0 | **99.1** | +8.1 |
-| LIBERO-Long | 86.5 | **98.5** | +12.0 |
-| RoboTwin 1.0 平均 | 39.8 | **70.4** | +30.6 |
-| RoboTwin 2.0（12 任务） | 38.3 | **68.8** | +30.5 |
+| Benchmark               | OpenVLA-OFT SFT | + SimpleVLA-RL |  提升 |
+| ----------------------- | --------------: | -------------: | ----: |
+| LIBERO 平均             |            91.0 |       **99.1** |  +8.1 |
+| LIBERO-Long             |            86.5 |       **98.5** | +12.0 |
+| RoboTwin 1.0 平均       |            39.8 |       **70.4** | +30.6 |
+| RoboTwin 2.0（12 任务） |            38.3 |       **68.8** | +30.5 |
 
 **【Paper】** 在 RoboTwin 2.0，SimpleVLA-RL 的 68.8% 平均成功率高于 $\pi_0$ 的 49.2% 与 RDT 的 33.3%；短时程任务平均从 21.3% 提升到 64.9%，中时程从 47.1% 到 72.5%，长/超长时程从 46.5% 到 69.0%。
+
+**【Analysis】** 这些差值均为百分点。最可靠的比较是同一改造 backbone 的 SFT → RL；其他基线仅做 SFT，而本方法额外使用在线模拟器交互，因此排名同时包含训练范式与数据预算差异。RoboTwin 2.0 的 Handover Mic 上 RL 为 89.2%，仍低于 $\pi_0$ 的 96.0%；RoboTwin 1.0 Shoe Place 的 59.3% 与 DP3 持平。平均提升不等于逐任务全胜。
 
 ### 5.3 Ablation Study
 
@@ -211,11 +233,11 @@ $$r_{i,t}=\frac{\pi_\theta(a_{i,t}\mid s_{i,t})}{\pi_{\theta_{old}}(a_{i,t}\mid 
 
 ![Higher rollout temperature 消融（论文 Figure 3c）](https://pic.hana0721.top/blog/paper-deep-dive-simplevla-rl/vla_ablation_2_temperature_higher.1lck9htccc.webp)
 
-**【Paper】** 三个策略分别缓解不同问题：dynamic sampling 防止无梯度 group，higher temperature 提供更多候选轨迹，clip higher 放宽成功 token 的增权幅度。论文报告三者组合带来约 10–15% 的一致收益；单独移除任一项都会下降，说明它们并非重复的“加随机性”。
+**【Paper】** 三个策略分别缓解不同问题：dynamic sampling 防止无梯度 group，higher temperature 提供更多候选轨迹，clip higher 放宽成功 token 的增权幅度。Figure 3 在 LIBERO-Long 中分别开关各项，标注约 15、10、15 **个百分点**的收益；不是三项贡献可相加，也不是所有基准上都增加 10–15%。横轴是 RL update steps，动态采样会消耗被丢弃的 rollout，图中没有按等环境步数或等 GPU 小时比较，故不能由曲线直接得出样本效率或墙钟加速。
 
 ### 5.4 Generalization
 
-**【Paper】** 在每个 LIBERO 套件只用 9 个 seen tasks 训练、留出 1 个 unseen task 时，SFT 随训练任务成功率提高而明显过拟合，部分 unseen task 甚至降到 0%；SimpleVLA-RL 则在 Spatial、Object、Goal 三类划分上持续提高 unseen task。
+**【Paper / Analysis】** Figure 4 在 Spatial、Object、Goal 各展示三个留出任务的设置；后续训练用 9 个任务，评估第 10 个。关键是两条路线都从 §5.1 的 One-Trajectory SFT base 出发，该节每套 10 个任务各用一条示范；§5.2 没有说明为每个留出设置重新移除其冷启动示范。因此这里的 unseen 应严格限定为**后续 SFT / RL 阶段未训练**，不能宣称该任务从未出现在任何训练阶段。它同时检验能力保持和迁移。曲线横轴为 seen-task 成功率，既不是相同训练步数也不是相同算力；SFT 继续用 450 条示范，RL 继续采样场景，证据支持本设置中 RL 比继续 SFT 更少遗忘，而非所有任务与所有 SFT 配方的普遍结论。
 
 ![LIBERO Goal unseen 泛化曲线（论文 Figure 4 顶部样例）](https://pic.hana0721.top/blog/paper-deep-dive-simplevla-rl/libero_goal_unseen_2_new.4920jumdz1.webp)
 
@@ -223,9 +245,11 @@ $$r_{i,t}=\frac{\pi_\theta(a_{i,t}\mid s_{i,t})}{\pi_{\theta_{old}}(a_{i,t}\mid 
 
 ![LIBERO Spatial unseen 泛化曲线（论文 Figure 4 底部样例）](https://pic.hana0721.top/blog/paper-deep-dive-simplevla-rl/libero_spatial_unseen_0_new.7ehiisgt2k.webp)
 
-**【Paper】** 最极端的数据效率实验只给每个任务一条 demonstration：平均成功率由 48.9% 提升到 96.9%，LIBERO-Long 由 17.3% 提升到 91.7%，与使用完整 500 条示教后再 RL 的 99.1% 仅差 2.2 个百分点。
+**【Paper】** 最极端的数据效率实验只给每个任务一条 demonstration：平均成功率由 48.9% 提升到 96.9%，LIBERO-Long 由 17.3% 提升到 91.7%，与每套使用完整 500 条示教后再 RL 的 99.1% 仅差 2.2 个百分点。这里 one-shot 共为每套 10 条、四套 40 条，节省的是目标任务专家示范；在线交互、动作词表预训练与 7B 基座的知识仍然存在。
 
-**【Paper】** sim-to-real 实验完全不使用真实示教：Stack Bowls、Place Empty Cup、Pick Bottle、Click Bell 四项平均由 17.5% 提升到 38.5%，超过 RDT 的 23.5%。
+**【Paper】** sim-to-real 的目标任务 SFT / RL 阶段只用仿真数据；这不等于 OpenVLA 基座从未用过真实机器人数据。Table 6 中 Stack Bowls、Place Empty Cup、Pick Bottle、Click Bell 各测 50 次，共 200 次；SFT / RL 分别为 38/70、2/10、0/14、30/60%，合计 35/200 → 77/200，平均提升 21 个百分点。评估是干净桌面、未见背景，杯子和瓶子仍只有 5/50、7/50 成功，离可靠实机策略有明显距离。
+
+**【Paper】** 原文 §5.3 自身有不一致：任务列表写 Handover Block，Table 6 列为 Place Empty Cup；段落又把 Stack Bowls 起点写成 32%、Pick Bottle 终点写成 15%，与表格 38%、14% 不同。本篇依据与 50 次试验口径及总体均值一致的表格报告，并不擅自推断是哪一项文字笔误。
 
 ## 6. 方法分析
 
@@ -244,21 +268,21 @@ $$r_{i,t}=\frac{\pi_\theta(a_{i,t}\mid s_{i,t})}{\pi_{\theta_{old}}(a_{i,t}\mid 
 ### 6.4 关键假设
 
 - **【Paper】** 初始 policy 必须有非零任务能力，否则采样不到成功轨迹，0/1 reward 的 group advantage 全为零。
-- **【Paper】** 仿真成功判定与真实任务目标相符，且 domain randomization 足以支撑 sim-to-real。
+- **【Analysis】** 仿真成功判定应匹配真实任务目标，domain randomization 对迁移的帮助需通过实机验证；本文的低绝对成功率不足以证明它普遍充分。
 - **【Analysis】** action-token 的概率比率能够代表连续控制变化；当 tokenizer 量化误差或 chunk 很长时，这一假设可能变弱。
 
 ## 7. 局限性
 
 ### 7.1 作者明确提出的局限
 
-**【Paper】** 失败模式实验显示：没有 SFT（0 条 trajectory）时，五个 RoboTwin 2.0 任务均为 0%，RL 也无法启动；100 条示教平均仅从 7.3% 提升到 25.4%，而 1000 条示教可从 28.2% 提升到 50.4%。这说明 outcome-only RL 存在明显的能力阈值。
+**【Paper】** 失败模式实验显示：没有 SFT（0 条 trajectory）时，五个 RoboTwin 2.0 任务均为 0%，RL 也无法启动；100 条示教平均仅从 7.3% 提升到 25.4%，而 1000 条示教可从 28.2% 提升到 50.4%。这说明在本采样预算下存在能力瓶颈；不能把有限 rollout 中观测为 0% 当成数学上严格零成功概率，也没有一个跨任务通用的数值阈值。
 
 ### 7.2 自己分析得到的局限
 
 1. **【Analysis】** 闭环 rollout 仍然昂贵。并行化降低了墙钟时间，却没有消除仿真、渲染和 GPU 推理的总算力成本。
 2. **【Analysis】** 二值奖励对稀有成功很脆弱；若一组样本全失败，dynamic sampling 只能继续花预算探索，不能提供中间方向。
 3. **【Code】** 当前公开实现围绕 OpenVLA/OpenVLA-OFT 的离散 action-token 头，官方 checkpoint 因输入视角和 action head 差异不能直接复用；对 diffusion/flow-matching VLA 的扩展尚未实现。
-4. **【Analysis】** `pushcut` 说明奖励允许绕开示教套路，但也意味着只验证“任务完成”时，策略可能学到对真实硬件更脆弱、对碰撞更不安全的捷径。
+4. **【Analysis】** `pushcut` 在 Move Can Pot / Place A2B 中达到的仍是物体位于目标附近这一结果，因此推动可以是合法替代策略。Figure 5 是行为实例，没有报告推的出现频率、能耗或平均完成时间，也未排除大规模预训练里出现过推动。它支持“超出当前任务示范的策略”，不足以证明从所有先验之外发明了技能，更不是奖励黑客的直接证据；真实接触代价需要另外测量。
 
 ## 8. 启发与研究思考
 

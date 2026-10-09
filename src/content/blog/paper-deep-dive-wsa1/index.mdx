@@ -1,7 +1,7 @@
 ---
 title: 'WSA1 论文精读：3D World-Spatial-Action Robot Control'
 publishDate: 2026-08-26
-updatedDate: 2026-08-26
+updatedDate: 2026-09-22
 description: '精读 WSA1：用 3D 世界预测、3D 一致视觉思考和 3D 逆动力学统一 VLA/WAM，并以 6,000 小时异构数据实现高效泛化。'
 heroImage:
   { src: 'https://pic.hana0721.top/72300463_p0_master1200.83amt5a3ia.webp', color: '#8C8275' }
@@ -40,11 +40,13 @@ import { Aside } from '@/components/user'
 
 <ArxivRating
   id='2607.03941'
-  tldr='WSA1 在同一 2D-3D latent space 中联合学习视觉子目标、动作导致的 3D 世界变化与 3D 逆动力学，用仅 1,000 小时真实机器人数据获得强泛化。'
+  tldr='WSA1 在同一 2D-3D latent space 中联合学习视觉子目标、动作导致的 3D 世界变化与 3D 逆动力学，在已有视觉/视频预训练基础上，用含约 1,000 小时真机数据的 6,000 小时混合数据预训练，再做目标任务适配。'
   rank={4}
 />
 
 ## 1. 论文概述
+
+本文核对 [arXiv v1 全文](https://arxiv.org/html/2607.03941v1)、[官方代码 commit bfee742](https://github.com/zaleni/WSA/tree/bfee742c585d5ee85722e658978111934c926ca3)，以及 2026-09-22 读取的 [Base-RoboTwin 配置](https://huggingface.co/zaleni/WSA-Base-RoboTwin/blob/main/config.json)与 [Large-RoboTwin 配置](https://huggingface.co/zaleni/WSA-Large-RoboTwin/blob/main/config.json)。论文总体设计与 Base 默认实现有重要差别，见第 4.2 节。
 
 **【Paper】** 《WSA1: a 3D-Centric World-Spatial-Action Model for Generalizable Robot Control》提出 World-Spatial-Action（WSA）范式。它不把机器人控制理解为“看图后直接回归动作”，而是要求模型同时回答三个问题：动作会怎样改变 3D 世界、目标 3D 状态应该在 2D 视觉上呈现什么样子、从这个 3D 状态变化反过来应该执行什么动作。
 
@@ -59,9 +61,9 @@ import { Aside } from '@/components/user'
 **【Paper】**
 
 1. 提出 3D-Centric World-Spatial-Action Joint Modeling，联合学习 3D world prediction、3D-consistent 2D visual thinking 与 3D inverse dynamics。
-2. 构造带三个专家的 Mixture-of-Transformers（MoT）：2D Spatial Expert、3D Spatial Expert 和 3D Action Expert，并用双向 world–action attention 施加因果依赖。
+2. 构造带三个专家的 Mixture-of-Transformers（MoT）：2D Spatial Expert、3D Spatial Expert 和 3D Action Expert，并用双向 world–action attention 表达作者提出的依赖关系；这是结构归纳偏置，未等同于干预因果识别。
 3. 将约 6,000 小时的 InternData-A1、RoboTwin、AgiBot-World、RoboChallenge 与 EgoDex 混合预训练，其中真实机器人数据约 1,000 小时，覆盖 8 种 embodiment、300+ 任务和 50+ 原子技能。
-4. WSA1-B（3B）和 WSA1-L（6B）在 RoboTwin2.0 hard 上分别达到 92.7% 与 93.1% SR；在 7 个真实桌面任务上达到 77.5%/80.3% SR，超过论文对比的 π0.5。
+4. WSA1-B（3B）和 WSA1-L（6B）在 RoboTwin2.0 hard 上分别达到 92.7% 与 93.1% SR；在 7 个真实桌面任务上报告平均 77.5%/80.3% SR，超过论文对比的 π0.5；表内逐任务值与这些平均值未完全一致，见第 5.2 节。
 
 ## 2. 背景与相关工作
 
@@ -72,9 +74,9 @@ import { Aside } from '@/components/user'
 
 ![VLA、WAM 与 WSA 的建模范式对比（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-wsa1/paradigms-crop.7p4cc50rnv.webp)
 
-论文认为两类方法共享两个瓶颈：第一，2D 视觉表示与真实物理交互的 3D 结构不匹配；第二，单纯 imitation learning 依赖大规模真实 teleoperation，成本高且数据只覆盖演示分布。WSA 的回答是：用 3D 因果先验提高每小时数据的信息密度，并用 simulation 与 human egocentric data 补足真实数据。
+论文认为两类方法共享两个瓶颈：第一，2D 视觉表示与真实物理交互的 3D 结构不匹配；第二，单纯 imitation learning 依赖大规模真实 teleoperation，成本高且数据只覆盖演示分布。WSA 的回答是：以预测未来几何的辅助监督改善行为学习，并用 simulation 与 human egocentric data 补足真实数据。
 
-**【Analysis】** 因而 WSA 不只是“给 VLA 加深度图”。它改变的是策略的联合分布：从 $p(A\mid O)$ 变为同时约束 $p(G\mid A,O)$、$p(V\mid G,O)$ 与 $p(A\mid G,O)$ 的闭环模型。
+**【Analysis】** 因而 WSA 不只是“给 VLA 加深度图”。它把三类预测目标放在共享表征中，概念上对应 $p(G\mid A,O)$、$p(V\mid G,O)$ 与 $p(A\mid G,O)$。由于 $G$ 与 $A$ 互为条件，这三式不是可以直接相乘采样的有向分解；实际通过 Transformer 中隐状态交换与动作去噪共同求解，不是先获得真实未来 $G$ 再控制。
 
 ## 3. 问题定义
 
@@ -109,7 +111,7 @@ $$
 
 ![WSA1 的 Mixture-of-Transformers 与注意力依赖规则（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-wsa1/framework-crop.2dpfrfeoub.webp)
 
-**【Paper】** 当前图像、语言和机器人状态先编码成 observation tokens，再送入共享的 MoT。2D Spatial Expert 产生视觉子目标 latent，3D Spatial Expert 产生未来 3D scene latent，3D Action Expert 对 noisy action chunk 做 flow-based denoising。数据流只有一条主线：`Observation + Instruction → 2D/3D latent → action chunk`，同时 3D latent 与 action token 双向交互。
+**【Paper】** 当前图像、语言和机器人状态先编码成 observation tokens，再送入共享的 MoT。2D Spatial Expert 产生视觉子目标 latent，3D Spatial Expert 产生未来 3D scene latent，3D Action Expert 对 noisy action chunk 做 flow-based denoising。论文设计在每层交换预测中的隐状态：`当前条件 → 未来2D/3D表征 ↔ 加噪动作`。训练时真实未来图像只用于 teacher target，不应画成推理时已知的输入；动作分支通常读到的是共同生成中的未来表征。
 
 ### 4.2 核心模块
 
@@ -118,15 +120,15 @@ $$
 - **输入**：$O_t$ 与目标 3D 世界 latent $G_t$。
 - **输出**：未来子目标图像的抽象 visual tokens $h_v$，而不是 RGB 像素。
 - **作用**：回答“完成 instruction 后场景在视觉上应该是什么样子”，保留物体语义、外观和时序变化。
-- **训练信号**：用预训练 VAE/Cosmos tokenizer 编码的子目标图像作为 target。
+- **训练信号**：Base 用 Cosmos tokenizer 编码的未来图像作 target；Large 代码使用 Wan 的视频去噪目标，见第 4.3 节。
 
-论文将这一支初始化为 Qwen3-VL 或 Wan2.2 风格的视觉生成 backbone。**【Analysis】** 预测 latent 而非像素让它更像“视觉计划”而不是昂贵的视频渲染器。
+论文分别以 Qwen3-VL-2B 初始化 Base，以 Wan2.2-TI2V-5B 初始化 Large；前者是 VLM，后者是视频生成器，不能视为同一种模块仅改变参数量。**【Analysis】** 预测 latent 而非像素让它更像“视觉计划”而不是昂贵的视频渲染器。
 
 #### 3D Spatial Expert：动作导致的世界预测
 
 - **输入**：当前观测 $O_t$ 与动作 chunk $A_t$。
 - **输出**：未来 3D 场景的 latent $h_g$。
-- **作用**：学习 forward dynamics，显式编码物体位姿、遮挡和接触变化等几何后果。
+- **作用**：学习 forward dynamics，学习与未来几何 teacher 特征一致的表示；代码监督的是 DA3 中间特征，并非物体位姿、接触力或碰撞约束的显式真值。
 - **教师表示**：论文使用 Depth Anything 等 3D foundation model 产生的几何 token。
 
 #### 3D Action Expert：3D inverse dynamics
@@ -137,7 +139,11 @@ $$
 
 #### Bidirectional World–Action Attention
 
-**【Paper】** 依赖规则有三条：所有未来 token 可看当前 observation；visual token 可看 3D scene token，保证 2D–3D consistency；3D scene token 与 action token 彼此全连接，形成 world–action mutual constraints。**【Analysis】** 这一步是 WSA 与“先预测未来再单独执行”的 WAM 的本质差异：action-conditioned world model 和 inverse dynamics 共享信息，而不是两个串联模块。
+**【Paper】** 依赖规则有三条：所有未来 token 可看当前 observation；visual token 可看 3D scene token，鼓励 2D–3D consistency；3D scene token 与 action token 彼此全连接，形成 world–action mutual constraints。**【Analysis】** 这一步是 WSA 与“先预测未来再单独执行”的 WAM 的本质差异：action-conditioned world model 和 inverse dynamics 共享信息，而不是两个串联模块。
+
+**【Code】** 但 Base 默认 `attention_mask_mode="default"` 用分块顺序依赖：视觉看当前/视觉，3D queries 可读前面的视觉（有视角限制），动作可读前面的视觉/3D；**3D 不回读动作，视觉也不回读 3D**。与论文三条规则对应的是可选 `causal` 模式，源码将其称为 ablation。发布的 Base-RoboTwin 配置没有该字段，按当前配置类加载会落到 `default`；预训练启动脚本也未覆盖它。因此不能把 Base 发布路径说成已经默认启用论文双向机制，也不能据 Base 分数孤立证明该机制的贡献。
+
+Large 的 `_build_mot_attention_mask` 则显式允许 future-3D 与 action 互读、未来 2D 读 3D，符合核心规则；`WSALargeJoint` 进一步允许 3D 读未来 2D，是另一变体。需要按 checkpoint 的 `variant` 区分，不能将所有变体混写成一条实现。
 
 ### 4.3 关键公式
 
@@ -167,22 +173,22 @@ $$
 \mathcal{L}_{ACT}=\mathbb{E}\left[\|\omega-A_t-f_{act}(O_t,G_t,\hat A_t)\|_2^2\right].
 $$
 
-其中 $f_{act}$ 预测从噪声到真实动作的 flow。总目标为：
+**【Analysis】** 原论文在这里有符号不一致：按上面的插值，$\partial\hat A/\partial\tau=A-\omega$，但式 8 的 target 写成 $\omega-A$。公开 Base 实现实际用 $x_\tau=\tau\omega+(1-\tau)A$、target $\omega-A$，从 $\tau=1$ 向 0 用负步长 Euler 积分，这一组才彼此一致。不能把论文的插值与代码的速度方向直接拼在一起称为“噪声到动作的 flow”。论文总目标写作：
 
 $$
 \mathcal{L}_{total}=\mathcal{L}_{2D}+\mathcal{L}_{3D}+\mathcal{L}_{ACT}.
 $$
 
-**【Code】** 仓库的 WSA-Large `training_loss` 实际记录 `loss_video`、`loss_action` 和可选 `loss_3d`，并由 `lambda_video`、`lambda_action`、`lambda_3d` 加权。WSA-Base 的 3D 分支使用 query bottleneck 对齐 Depth Anything 中间层，代码中同时计算 cosine loss 与 layer-normalized MSE；这是比论文公式更具体的工程实现。
+**【Code】** 仓库的 WSA-Large `training_loss` 实际记录 `loss_video`、`loss_action` 和可选 `loss_3d`，并由 `lambda_video`、`lambda_action`、`lambda_3d` 加权。WSA-Base 的 3D 分支使用 query bottleneck 对齐 Depth Anything 中间层，代码中同时计算 cosine loss 与 layer-normalized MSE；Base 发布配置为 $L_{act}+0.01L_{2D}+0.01L_{3D}$，3D 中间层还各有权重；Large-RoboTwin 是 video/action/3D 权重 1/1/0.1。Large 的 video 项是 scheduler 加权的去噪 MSE，不是直接照抄论文式 6 的干净 latent 回归。因而“简单等权三项 MSE”只是论文抽象式，不是发布配置。
 
 ### 4.4 Training
 
-**【Paper】** 训练分两阶段：第一阶段在异构数据上预训练行为与世界先验，第二阶段在目标 embodiment/benchmark 上 post-train。两阶段都保留三种 WSA 学习目标，而不是预训练完后只保留 action loss。
+**【Paper】** 训练分两阶段：第一阶段在异构数据上预训练行为与世界先验，第二阶段在目标 embodiment/benchmark 上 post-train。两阶段都保留 WSA 辅助目标，但**不是每个数据源都有三种监督**：表 1 中 EgoDex 只启用 $L_{2D},L_{3D}$，屏蔽 $L_{ACT}$。它提供人类视觉/几何演化先验，没有直接被当成机器人动作标签。
 
 <Algorithm number={1} title='WSA1 联合预训练与后训练' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>多源演示数据 $(O_t,A_t,V_t,G_t)$、预训练视觉/3D tokenizer、目标 embodiment 数据。</div>
   <div slot='output'>包含 2D visual thinking、3D world modeling 与 action expert 的策略 $\pi_\theta$。</div>
-  <AlgorithmStep>从 InternData-A1、RoboTwin、AgiBot-World、RoboChallenge、EgoDex 采样并统一 observation、action、future image/3D target。</AlgorithmStep>
+  <AlgorithmStep>按数据源权重采样 observation 与 future target；机器人样本保留动作标签，人类 EgoDex 样本屏蔽动作损失。</AlgorithmStep>
   <AlgorithmStep>用 2D Spatial Expert 计算 $\mathcal{L}_{2D}$，用 3D Spatial Expert 计算 $\mathcal{L}_{3D}$。</AlgorithmStep>
   <AlgorithmStep>对 action chunk 加噪，由 3D Action Expert 预测 flow，计算 $\mathcal{L}_{ACT}$。</AlgorithmStep>
   <AlgorithmStep>按数据源配置加权三项损失，更新 MoT 专家和 proprioception/action 投影层。</AlgorithmStep>
@@ -199,23 +205,30 @@ $$
   <div slot='input'>当前多视角图像、语言指令、proprioception、action horizon $H$。</div>
   <div slot='output'>当前时刻要执行的动作 $a_t$，以及待执行的 action chunk 队列。</div>
   <AlgorithmStep>编码指令、图像和机器人状态，形成 observation context。</AlgorithmStep>
-  <AlgorithmStep>插入未来 3D query，得到目标 3D latent；2D 分支产生 instruction-aligned visual latent。</AlgorithmStep>
-  <AlgorithmStep>从噪声 action chunk 开始，按 scheduler 迭代调用 action expert 进行 denoising。</AlgorithmStep>
-  <AlgorithmStep>反归一化动作，取 chunk 前 $n$ 步执行；队列耗尽后用新 observation 重新预测。</AlgorithmStep>
+  <AlgorithmStep>
+    插入未来 3D query；根据 Base/Large
+    实际注意力配置，在网络中形成未来表征，而非先读取真实未来场景。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    从噪声 action chunk 开始，按 scheduler 迭代调用 action expert 进行 denoising。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    反归一化动作，取 chunk 前 $n$ 步执行；队列耗尽后用新 observation 重新预测。
+  </AlgorithmStep>
 </Algorithm>
 
-**【Code】** `WSALargePolicy.predict_action_chunk` 调用 `model.infer_action`，支持文本或预计算 context；`select_action` 将 chunk 放入 deque，逐步弹出单步动作。WSA-Base 默认 `num_inference_steps=10`，WSA-Large 的 joint inference 同时推进 video 与 action scheduler。**【Analysis】** 论文图中展示的 goal 3D scene 是推理时的内部计划；真实部署并不需要把 3D 点云显式输出给控制器。
+**【Code】** `WSALargePolicy.predict_action_chunk` 调用 `model.infer_action`，支持文本或预计算 context；`select_action` 将 chunk 放入 deque，逐步弹出单步动作。发布 Base-RoboTwin 用 10 步去噪、chunk/执行长度 50；Large-RoboTwin 用 10 步、预测 32 步但执行前 24 步。Large 默认 `variant=wsa_large` 的 `infer_action` **只迭代 action scheduler，保留当前图像和 3D–action 交互，不生成未来视频序列**。只有 `infer_joint` 或 `wsa_large_joint` 的动作入口才同时推进视频与动作。**【Analysis】** 论文图中展示的 goal 3D scene 是推理时的内部计划；真实部署并不需要把 3D 点云显式输出给控制器。
 
 ### 4.6 代码实现对照
 
-| 论文概念 | 官方代码位置 | 实际实现要点 |
-| --- | --- | --- |
-| WSA-Base policy | `src/lerobot/policies/WSA_Base/modeling_wsa_base.py` | Qwen3-VL-2B + action expert；支持 2D/3D query、Cosmos tokenizer 与 DA3 teacher。 |
-| WSA-Large policy | `src/lerobot/policies/WSA_Large/modeling_wsa_large.py` | Wan2.2-based model；推理入口为 `infer_action`，输出 action chunk 后做 denormalization。 |
-| MoT / experts | `WSA_Base/modeling_wsa_base.py`、`WSA_Large/core/models/wan22/mot.py` | 三路 expert 共享 token 流和依赖 mask；Large 变体由 `WSALarge`/`WSALargeJoint` 选择。 |
-| 3D target | `WSA_Base/da3_teacher.py`、`WSA_Large/core/models/wan22/future_3d_expert.py` | 训练时调用 Depth Anything 生成中间层 target，压缩为 future-3D query。 |
-| 数据与训练 | `launch/wsa_*_pretrain.sh`、`src/lerobot/datasets` | LeRobot v3 数据格式，多数据集采样和 action/state normalization。 |
-| 真实机器人推理 | `evaluation/Real_Piper_Example`、`evaluation/Real_Lift2_Example` | GPU policy server 与机器人 client 分离，通过同步/WebSocket 请求闭环执行。 |
+| 论文概念         | 官方代码位置                                                                 | 实际实现要点                                                                                                           |
+| ---------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| WSA-Base policy  | `src/lerobot/policies/WSA_Base/modeling_wsa_base.py`                         | Qwen3-VL-2B + action expert；支持 2D/3D query、Cosmos tokenizer 与 DA3 teacher。                                       |
+| WSA-Large policy | `src/lerobot/policies/WSA_Large/modeling_wsa_large.py`                       | Wan2.2-based model；推理入口为 `infer_action`，输出 action chunk 后做 denormalization。                                |
+| MoT / experts    | `WSA_Base/modeling_wsa_base.py`、`WSA_Large/core/models/wan22/mot.py`        | Base 3D 是 middle expert 中的 query 分支，默认 mask 与论文双向规则不同；Large 变体由 `WSALarge`/`WSALargeJoint` 选择。 |
+| 3D target        | `WSA_Base/da3_teacher.py`、`WSA_Large/core/models/wan22/future_3d_expert.py` | 训练时调用 Depth Anything 生成中间层 target，压缩为 future-3D query。                                                  |
+| 数据与训练       | `launch/wsa_*_pretrain.sh`、`src/lerobot/datasets`                           | LeRobot v3 数据格式，多数据集采样和 action/state normalization。                                                       |
+| 真实机器人推理   | `evaluation/Real_Piper_Example`、`evaluation/Real_Lift2_Example`             | GPU policy server 与机器人 client 分离，通过同步/WebSocket 请求闭环执行。                                              |
 
 ## 5. 实验
 
@@ -229,12 +242,14 @@ $$
 
 **【Paper】** 结果摘要如下：
 
-| Benchmark | WSA1-B | WSA1-L | 对照观察 |
-| --- | ---: | ---: | --- |
-| RoboTwin2.0 hard（50 tasks） | 92.7% | **93.1%** | 开源模型中最高，超过 Fast-WAM 91.8% 与 InternVLA-A1 89.6%。 |
-| LIBERO average | 97.4% | **98.2%** | 接近或超过多数 VLA/WAM，Large 在 Spatial/Goal/10 suite 均强。 |
-| 真实 7-task SR | 77.5% | **80.3%** | π0.5 为 54.9%，InternVLA-A1 为 39.2%。 |
-| 真实 7-task completeness | 82.7% | **86.5%** | 说明即使未完全成功，动作执行进度也更高。 |
+| Benchmark                    | WSA1-B |    WSA1-L | 对照观察                                                                                     |
+| ---------------------------- | -----: | --------: | -------------------------------------------------------------------------------------------- |
+| RoboTwin2.0 hard（50 tasks） |  92.7% | **93.1%** | 论文所列开源模型中最高，超过 Fast-WAM 91.8% 与 InternVLA-A1 89.6%。                          |
+| LIBERO average               |  97.4% | **98.2%** | 表中 LingBot-VA 98.5% 更高，且其 LIBERO-10 为 98.5% 对 WSA-L 95.6%；WSA-L 不是全部方法最优。 |
+| 真实 7-task SR               |  77.5% | **80.3%** | π0.5 为 54.9%，InternVLA-A1 为 39.2%。                                                       |
+| 真实 7-task completeness     |  82.7% | **86.5%** | 说明即使未完全成功，动作执行进度也更高。                                                     |
+
+**【Analysis】** 上表真机均值按论文报告保留，但逐任务显示值复算为：Base SR **77.29%**、Large SR **80.57%**、π₀.₅ SR **55.43%**，Completeness 为 Base **82.29%**、Large **85.29%**。尤其 Large C 与 86.5% 相差约 1.21 点，不能用整数百分比四舍五入完全解释；30 次/任务也不能直接得到所有列出的整数率，原始计数未给出。故不能将这些均值当成已从分项重现。按报告均值，Large 对 π₀.₅ 增加 **25.4 个百分点**，不是相对只提高 20%。Large 在 Object Organization 为 77%，与 π₀.₅ 持平并低于 Base 80%；Pen Holder 77% 也低于 Base 87%。更大模型并非逐任务更好。
 
 真实任务上，WSA-L 在 trash cleaning、sweep trash、unzip pencil bag 等需要多步空间规划和接触操作的任务上提升明显。**【Analysis】** 这与 3D world/action mutual constraints 的预期一致，但论文没有做“只增加参数量”的严格控制，因此不能把全部增益归因于 WSA 结构。
 
@@ -242,23 +257,23 @@ $$
 
 ![WSA 三种联合目标的消融结果（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-wsa1/wsa_study-crop.7w7k7kmxei.webp)
 
-**【Paper】** 在 RoboTwin2.0 上，action-only baseline SR 约 59.7%（另一处实验描述四舍五入为 60%）；加入 visual thinking 后约 76%，加入 3D world prediction 后约 75%，三者联合达到 80.14%。视频监督更擅长 appearance/语义和时序可见变化，3D 监督更擅长物体位姿、接触和几何约束。
+**【Paper】** 在 RoboTwin2.0 上，action-only baseline SR 约 60%；加入 visual thinking 后约 76%，加入 3D world prediction 后约 75%，三者联合约 80%。这是没有完整异构预训练的消融设置，不能与最终 93% 主结果直接相减归因。视频监督更擅长 appearance/语义和时序可见变化，3D 监督更擅长物体位姿、接触和几何约束。
 
 ![WSA 预训练与后训练策略消融（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-wsa1/pretrain_study-crop.39lx6vodjf.webp)
 
-预训练消融从约 80% 提升到 89%，在预训练和 post-training 两阶段都保留 WSA modeling 后达到约 93%。**【Analysis】** 这说明辅助目标不仅是“预训练正则项”：如果下游阶段移除 2D/3D 目标，模型会丢掉一部分可迁移的 world-action prior。
+预训练消融从约 80% 提升到 89%，在预训练和 post-training 两阶段都保留 WSA modeling 后达到约 93%。**【Analysis】** 这说明辅助目标不仅是“预训练正则项”：下游保留辅助目标的版本在该实验中更好。数据支持训练策略的收益，但没有单独固定所有目标、只改变双向 mask 的对应结果，因此不能把约 80%→93% 都解释为双向因果注意力带来的提升。
 
 ### 5.4 Generalization
 
-**【Paper】** 泛化来自三个维度：
+**【Paper】** 论文在目标任务 post-training 后测试位置/布局变化和不同机器人上的执行，未提供完全未见机器人无需适配的零样本控制。可以从三方面理解其迁移设置：
 
 ![WSA1 的视觉子目标、3D 世界预测与动作执行可视化（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-wsa1/vis_study-crop.2vfhg0g2rq.webp)
 
 1. **数据源泛化**：simulation 提供大量低成本交互，human video 提供手物关系与任务语义，real robot data 缩小 sim-to-real gap。
 2. **空间泛化**：随机物体位置、姿态、背景和 distractor，检验模型是否学习几何而非像素记忆。
-3. **embodiment 泛化**：同一预训练策略迁移到 PiPER、Lift2 以及仿真双臂任务。
+3. **embodiment 泛化**：同一预训练初始化分别适配 PiPER、Lift2 和仿真任务；真机还收集了每任务 30–90 条示教（7 项共 290 条、表 2 合计 112 分钟）。RoboTwin 本身已进入预训练配方，并在评测前用 2,500 clean、25,000 hard 示教微调，不能称这 50 项任务为全部未见。
 
-论文报告的 6,000 小时并非 6,000 小时真实机器人轨迹：表 1 中 InternData-A1 占 396M frames，AgiBot-World 占 206M frames，EgoDex 占 68M frames；真实机器人数据合计约 1,000 小时。**【Analysis】** 因此“数据高效”更准确的含义是减少昂贵 real-robot hours，而不是减少所有 embodied frames。
+论文报告的 6,000 小时并非 6,000 小时真实机器人轨迹：表 1 中 InternData-A1 占 396M frames，AgiBot-World 占 206M frames，EgoDex 占 68M frames；真实机器人数据合计约 1,000 小时。**【Analysis】** 因此“数据高效”更准确的含义是减少昂贵 real-robot hours，而不是减少所有 embodied frames，也不包含 Qwen/Wan/DA3 的基础预训练成本。表 1 总计 **692M frames**，帧率、视角计数与有效时长的换算未完整披露，不能自行把它们当成单视角唯一时间步。采样权重也不按数据体量成正比：InternData/RoboTwin/AgiBot/RoboChallenge/EgoDex 为 **0.47/0.07/0.17/0.19/0.10**；仅 5M 帧的 RoboChallenge 权重 19%，说明效果依赖配方，而非仅“用了多少小时”。
 
 ## 6. 方法分析
 
@@ -268,7 +283,7 @@ $$
 
 - 3D prediction 把“动作对场景的影响”变成可监督的中间变量，减少仅凭当前图像回归动作的歧义。
 - visual thinking 保留 VLA 的开放世界语义，使 3D geometry 不会变成与 instruction 脱节的几何重建。
-- 3D scene token 与 action token 双向 attention，令 forward 和 inverse dynamics 共享可校验的状态表示；动作既要能解释未来世界，未来世界也要能支持动作生成。
+- 3D scene token 与 action token 双向 attention，在论文设计与 Large 路径中让两类预测交换信息；但共享 attention 没有定义 $f_{inv}(f_{fwd}(O,A))\approx A$ 的显式 cycle loss，也不强制每个输出满足接触物理。Base 默认实现的收益需与这项主张分开。
 
 ### 6.2 核心创新
 
@@ -278,12 +293,12 @@ $$
 
 ### 6.3 与已有方法的本质区别
 
-| 范式 | 主要联合对象 | 因果方向 | 主要缺口 |
-| --- | --- | --- | --- |
-| 2D VLA | 视觉/语言 → action | 单向 | 缺少预测和显式 3D dynamics。 |
-| 2D WAM | future video + action | 多为 2D 单向 | 视频变化未必对应物理几何变化。 |
-| 3D WAM | future 3D world + action | predict → execute | forward model 与 inverse model 未充分双向耦合。 |
-| WSA1 | 2D visual + 3D world + action | world ↔ action，visual 受 3D 约束 | 仍依赖 teacher 和大量异构数据。 |
+| 范式   | 主要联合对象                  | 因果方向                          | 主要缺口                                        |
+| ------ | ----------------------------- | --------------------------------- | ----------------------------------------------- |
+| 2D VLA | 视觉/语言 → action            | 单向                              | 缺少预测和显式 3D dynamics。                    |
+| 2D WAM | future video + action         | 多为 2D 单向                      | 视频变化未必对应物理几何变化。                  |
+| 3D WAM | future 3D world + action      | predict → execute                 | forward model 与 inverse model 未充分双向耦合。 |
+| WSA1   | 2D visual + 3D world + action | world ↔ action，visual 受 3D 约束 | 仍依赖 teacher 和大量异构数据。                 |
 
 ### 6.4 关键假设
 
@@ -302,9 +317,9 @@ $$
 
 - **【Analysis】teacher 依赖**：训练需要 Depth Anything/DA3 生成 3D target，teacher 的遮挡、尺度和跨相机误差可能被蒸馏进策略；代码中还要承担额外 teacher forward 成本。
 - **【Analysis】因果性仍是结构归纳偏置**：双向 attention 强制 token 互读，但并不等价于从干预数据中识别真实物理因果。论文没有做 action intervention 或 counterfactual world prediction 评测。
-- **【Analysis】评测规模有限**：真实实验只有 7 个桌面任务、每任务 30 个配置，尚不足以覆盖移动操作、柔性物体、工具使用和长时任务。
+- **【Analysis】评测规模有限**：真实实验只有 7 个桌面任务、每任务论文所述的 30 个配置，尚不足以支持广泛的移动操作与更长任务泛化；其中已经包含扫帚工具和拉链柔性对象，不能说完全未覆盖工具或柔性操作。缺少重复训练种子、延迟消融和完整原始成功计数，也限制了小幅领先的解释。
 - **【Analysis】参数量与训练配方混杂**：WSA-L 同时更大且 backbone 不同，WSA 与 baseline 的数据、训练步数和计算预算未完全严格匹配。
-- **【Analysis】部署成本**：Large 依赖 Wan2.2、text encoder 和 diffusion/flow scheduler；README 给出的训练需要 8×H200，实时性和显存门槛仍高。
+- **【Analysis】部署成本**：Large 依赖 Wan2.2、text encoder 和 diffusion/flow scheduler；README 报告使用 8×H200 训练、RTX4090 推理；这是作者使用的配置，不是已证明的最低硬件要求。论文没有完整端到端延迟/FPS表，不能仅凭可运行推断任意机器人上都实时。
 
 ## 8. 启发与研究思考
 
@@ -315,5 +330,6 @@ $$
 5. **长时任务需要 memory**：当前 WSA1 的 action chunk 仍是短期闭环。WSA1.5 README 已提出 memory capabilities，说明下一步自然方向是把 3D world state 从短期 goal 扩展为可检索的长期场景记忆。
 
 <Aside type='note' title='阅读提示'>
-  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】` 表示基于论文和代码的分析推断。
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。
 </Aside>

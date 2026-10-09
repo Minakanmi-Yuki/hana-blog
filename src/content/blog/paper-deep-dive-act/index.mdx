@@ -1,7 +1,7 @@
 ---
 title: 'ACT 论文精读：Action Chunking with Transformers'
 publishDate: 2026-08-23
-updatedDate: 2026-08-23
+updatedDate: 2026-09-22
 description: '精读 ACT：用 Action Chunking、Temporal Ensembling 与 CVAE 让低成本双臂机器人学习精细操作，并对照官方代码逐层分析。'
 heroImage:
   { src: 'https://pic.hana0721.top/67997247_p0_master1200.6po3p2g2e0.webp', color: '#8C8275' }
@@ -112,7 +112,7 @@ $$
 \pi_\theta(\hat a_{t:t+k} \mid o_t)
 $$
 
-其中 $o_t$ 是当前视觉与关节观测，$a_{t:t+k}$ 是从 $t$ 开始的长度为 $k$ 的动作序列。
+其中 $o_t$ 是当前视觉与关节观测，$a_{t:t+k}$ 使用右端不含的切片记号，表示 $a_t,\ldots,a_{t+k-1}$。**【Paper】** 示教标签记录的是 **leader 的目标关节位置**，观测记录 **follower 的实际关节位置**。二者误差经低层 PID 隐式决定接触力；若把 follower 实测位置当作动作标签，会抹去操作者通过位置误差施加的控制信号（§IV）。
 
 ## 4. 方法
 
@@ -156,11 +156,11 @@ ACT 的本质是一个 Conditional VAE。训练时有一个额外的 CVAE encode
 
 #### Transformer Decoder
 
-- **输入**：固定 position embedding 作为 `k` 个 query，以及 encoder 输出的 memory。
+- **输入**：`k` 个时间槽位的 query embedding，以及 encoder 输出的 memory。
 - **输出**：`k x 512` 的动作特征。
-- **功能**：按时间顺序生成一整段连贯动作。
-- **实现方式**：7 层 transformer decoder，query 是固定的 sinusoidal embedding，通过 cross-attention 读取 memory，最后经过线性 action head 输出 `k x 14`。
-- **为什么需要**：动作序列内部有强时间相关性，直接用 transformer decoder 可以让后续动作参考前序动作，生成比独立预测每个时间步更协调的轨迹。
+- **功能**：一次 forward 并行输出按时间槽位排列的整段动作。
+- **实现方式**：7 层 transformer decoder。论文正文/附录写固定 sinusoidal query；**【Code】** `DETRVAE.query_embed` 实际是可训练的 `nn.Embedding(num_queries, hidden_dim)`，不能把两种描述混用。
+- **为什么需要**：各时间槽位通过 self-attention 联合建模，再 cross-attend 当前观测。**【Code】** decoder 从全零 `tgt` 和 query embedding 开始，默认不施加 causal target mask；它不是自回归逐步读取前一个已生成动作。推理一次就得到整个 `k x 14` chunk。
 
 ### 4.3 关键公式
 
@@ -186,7 +186,7 @@ $q_\phi$ 是 CVAE encoder，$\bar o_t$ 是不含图像、只含关节位置的�
 
 **【Paper】** 需要注意一处内部不一致：Algorithm 1 写的是 MSE，但正文 4.C 明确说实际使用 L1 loss，因为 L1 对动作序列的精细建模更准确。
 
-**【Code】** 官方 `policy.py` 中 ACT 的 reconstruction loss 确实使用 `F.l1_loss`，总损失为 `l1 + kl_weight * KL`，所以正文描述和代码一致，Algorithm 1 的 MSE 应视为旧写法。
+**【Code】** 官方 `policy.py` 中 ACT 的 reconstruction loss 确实使用 `F.l1_loss`，总损失为 `l1 + kl_weight * KL`，所以本文以正文与可执行代码的 L1 为准；仅凭材料无法确定 Algorithm 1 不一致的编辑原因。
 
 #### Temporal Ensembling
 
@@ -196,7 +196,7 @@ $$
 A_t = \frac{\sum_i w_i A_t[i]}{\sum_i w_i}, \quad w_i = \exp(-m \cdot i)
 $$
 
-其中 $i$ 表示当前 chunk 距离该时间步有多远，$w_0$ 对应最早预测的动作。$m$ 控制新观测进入决策的速度。
+其中 $i$ 是 **针对同一个执行时刻、从最早生成到最新生成** 排列的预测序号，$w_0$ 对应最早预测。$m>0$ 时旧预测权重更大，$m$ 越小，新预测相对获得的权重越大；不能把 $i$ 当作从当前时刻倒数的年龄。它平均的是同一目标时刻的多个预测，不是把相邻执行时刻的不同目标位置直接平滑。
 
 **【Code】** `imitate_episodes.py` 中实现 `all_time_actions` 缓冲，`k = 0.01`，权重归一化后对同一时间步的预测取加权平均。
 
@@ -312,9 +312,9 @@ $$
 
 - **Chunk Size**：在不使用 temporal ensemble 的四个仿真设置上，`k=1` 的平均成功率约 1%，`k=100` 约 44%；继续增大到接近 open-loop 时有所下降。
 - **Action Chunking 的通用性**：给 BC-ConvMLP 和 VINN 加上 action chunking 也能显著提升性能，说明该技巧不限于 ACT。
-- **Temporal Ensembling**：ACT 提升约 3.3%，BC-ConvMLP 提升约 4%，但 VINN 反而下降。
+- **Temporal Ensembling**：ACT 提升约 3.3%，BC-ConvMLP 提升约 4%，但 VINN 反而下降。该比较分别为有/无 TE 调优，并取各自最佳表现，不是严格固定所有其余超参数的单变量增益。
 - **CVAE**：scripted 数据下去掉 CVAE 几乎无影响；human 数据下从 35.3% 降到 2%，说明 CVAE 对多模态人类示教至关重要。
-- **高频率遥操作**：50Hz 相比 5Hz 让参与者完成 zip tie 的时间从平均 33 秒降到 20 秒，unstack cups 从 16 秒降到 10 秒，整体慢约 62%，统计检验 p < 0.001。
+- **高频率遥操作**：50Hz 相比 5Hz 让参与者完成 zip tie 的时间从平均 33 秒降到 20 秒，unstack cups 从 16 秒降到 10 秒，5Hz 条件整体慢约 62%，统计检验 p < 0.001。
 
 ![Action Chunking、Temporal Ensembling、CVAE 和高频率遥操作的消融与用户研究结果（论文 Figure 8）](https://pic.hana0721.top/blog/paper-deep-dive-act/act-ablations-crop.4jou7ruxpt.webp)
 
@@ -334,8 +334,8 @@ $$
 
 **【Analysis】** ACT 的有效性可能来自三个层面：
 
-1. Action Chunking 直接减少策略需要做的“决策次数”。给定当前观测一次性生成 `k` 步动作，错误不会在每个时间步重新放大，短期轨迹更接近示教分布。
-2. CVAE 让模型能区分“同一观测下的不同合理轨迹”。如果直接做确定性回归，遇到多模态示教只会学到平均动作，容易在精细接触任务中失效。
+1. 不重叠执行时，Action Chunking 将策略调用次数约缩短为 $T/k$；但 temporal ensembling 每步都会重新查询，不能再说实际决策次数缩短了 $k$ 倍。此时保留下来的是序列监督、时间相关行为建模与重叠预测的平滑收益，物理轨迹上的误差仍可能累积。
+2. CVAE 在训练时通过 latent 解释示教中的轨迹差异，避免所有变化都由单一回归映射承担；L1 回归对应的也不应笼统称作均值。但标准 ACT 推理固定 $z=0$，给定观测时仍是确定性策略，没有从多个模式中在线随机选择，也不保证 $z=0$ 必然对应某个高概率行为模式。
 3. Temporal Ensembling 同时保留了高频视觉反馈和轨迹平滑性。每步都观察环境，但最终动作是多个重叠预测的加权平均，避免了每 `k` 步硬切换造成的抖动。
 
 ### 6.2 核心创新
@@ -366,7 +366,7 @@ $$
 **【Paper】**
 
 - ALOHA 无法完成需要多手指、高扭矩或“指甲”类动作的任务，例如儿童安全药瓶、密封水瓶、打包胶带、易拉罐、扣衬衫纽扣。
-- ACT 无法学会拆糖果纸：50 条示教后可以捡起糖果 10/10、拉扯两端 8/10，但拆开包装 0/10。
+- ACT 无法学会拆糖果纸：50 条示教后可以捡起糖果 10/10、拉扯两端 8/10，但拆开包装 0/10。附录 F 还报告另一种允许每颗糖尝试 10 次的协议，最终拆开 3/5 颗；不能把单次试验和多次重试成功率混为一谈。
 - ACT 难以完成平放小拉链袋的空中多步操作，模型能稳定捡起袋子，但后续空中的抓取与拉开不稳定。
 
 ### 7.2 自己分析得到的局限
@@ -409,7 +409,7 @@ $$
 
 1. **ACT + 语言/视觉目标条件**：给 action chunk 加上 language or goal image 条件，改多任务训练。为什么：ACT 证明了 chunk 输出有效，但缺乏任务级泛化；可能解决“每任务重新训练”的问题。实现难度：中。
 2. **ACT + Diffusion/Flow Action Model**：保留 chunk 和 temporal ensemble，替换 CVAE 为扩散或 flow matching。为什么：CVAE 的 32 维 latent 表达力有限；可能解决复杂多模态动作建模。实现难度：中。
-3. **Chunk 级 Planning 与 Closed-loop Re-planning**：让模型在 chunk 内部也具备根据观测进行纠错的能力。为什么：当前固定 chunk 在长任务中仍可能偏离；可能提高长 horizon 成功率。实现难度：高。
+3. **Chunk 级 Planning 与 Closed-loop Re-planning**：研究接触事件触发的重规划或对旧预测的自适应淘汰。为什么：现有 temporal ensembling 已能每步读新观测，但固定融合规则仍可能保留过时动作；可能提高长 horizon 成功率。实现难度：高。
 4. **跨 Embodiment Action Chunk 表征**：研究不同机器人共享的动作表示，例如末端位姿、相对动作或 canonical action space。为什么：ACT 的关节空间输出绑定到具体机器人；可能推动低成本和异构机器人上的迁移。实现难度：高。
 
 <Aside type='note' title='阅读提示'>

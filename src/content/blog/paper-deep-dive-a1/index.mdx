@@ -1,7 +1,7 @@
 ---
 title: 'A1 论文精读：Fully Transparent、Adaptive、Efficient 的 Truncated VLA'
 publishDate: 2026-08-27
-updatedDate: 2026-08-27
+updatedDate: 2026-09-22
 description: '精读 A1：用多出口 VLM 与跨层 Truncated Flow Matching 同时压缩 backbone 和 action head 的推理成本，并对照官方代码分析实现。'
 heroImage:
   { src: 'https://pic.hana0721.top/3602563_p0_master1200.8hh43k1p88.webp', color: '#8C8275' }
@@ -103,11 +103,11 @@ A1 依赖三个经验观察：
 
 **【Paper】** 在时刻 $t$，观测为多相机图像、语言指令和机器人状态：
 
-$$o_t=[I^1_t,ldots,I^n_t,q_t],$$
+$$o_t=[I^1_t,\ldots,I^n_t,q_t],$$
 
 其中 $q_t$ 包含关节角、夹爪位姿等 proprioceptive state。策略输出长度为 $H$、动作维度为 $D$ 的 chunk：
 
-$$A_t=[a_t,a_{t+1},ldots,a_{t+H-1}]in\mathbb{R}^{H\times D}.$$
+$$A_t=[a_t,a_{t+1},\ldots,a_{t+H-1}]\in\mathbb{R}^{H\times D}.$$
 
 论文同时实现两种 head：A1-MLP 用 L1 回归直接预测 chunk；A1-FM 学习条件 vector field，生成多模态连续动作。
 
@@ -115,7 +115,7 @@ $$A_t=[a_t,a_{t+1},ldots,a_{t+H-1}]in\mathbb{R}^{H\times D}.$$
 | ------------ | ------------------------------------------------------------- |
 | Observation  | 多视角 RGB、语言、proprioception（具体相机随数据集而变）      |
 | VLM          | Molmo 初始化的 Vision-Language Model                          |
-| Action head  | 400M 级 Qwen2 Flow Matching，或轻量 MLP                       |
+| Action head  | 论文为约 400M Qwen3 FM expert；代码用 Qwen2 类；另有 MLP      |
 | Action chunk | 仿真配置通常为 10 步；预训练配置为 50 步，具体由 YAML 决定    |
 | Robot        | ARX、Franka、UR5、AgiBot、OpenArm、Dobot 等多种 embodiment    |
 | Benchmarks   | LIBERO、VLABench、LIBERO-Plus、RoboChallenge 与真实机器人任务 |
@@ -176,27 +176,28 @@ $$A_t=[a_t,a_{t+1},ldots,a_{t+H-1}]in\mathbb{R}^{H\times D}.$$
 
 #### Flow Matching 训练目标
 
-**【Paper】** 采样噪声 $\epsilon\sim\mathcal N(0,I)$ 与 $\tau\in[0,1]$，构造：
+**【Paper】** §3.2 同时写出 $A^\tau=\tau A+(1-\tau)\epsilon$、监督方向 $u=\epsilon-A$ 和从 $0\rightarrow1$ 的正步长积分。这三者存在符号冲突：对该插值求导应得到 $A-\epsilon$，不能把冲突解释成仅仅换了一种时间记号。
 
-$$A_t^\tau=\tau A_t+(1-\tau)\epsilon,$$
+**【Code】** 官方 `action_heads.py` 与 `affordvla_early_exit.py` 使用另一套自洽约定。为避免把文稿笔误带进实现，这里按代码说明：
 
-并回归条件 vector field：
+$$
+x_\tau=(1-\tau)A_t+\tau\epsilon,\qquad
+\mathcal L_{\rm FM}=\mathbb E\left[\left\|v_\theta(x_\tau,o_t,\ell,\tau)-(\epsilon-A_t)\right\|_2^2\right].
+$$
 
-$$\mathcal L_\tau(\theta)=\mathbb E\left[\|v_\theta(A_t^\tau,o_t)-u(A_t^\tau\mid A_t)\|_2^2\right],\quad u=\epsilon-A_t.$$
-
-$v_\theta$ 是 action head 预测的速度场，$u$ 是连接噪声与真实动作的监督方向；论文使用偏向低噪声阶段的 Beta 分布采样时间。
+其中 $A_t$ 是专家 action chunk，$\epsilon\sim\mathcal N(0,I)$，$\tau=1$ 对应噪声、$\tau=0$ 对应干净动作，$v_\theta$ 输出与 chunk 同形状的速度场。论文将时间采样描述为偏向更嘈杂的区间；不能把正文的 “lower (noisier)” 译成“低噪声”。
 
 #### Euler action integration
 
-$$A_t^{\tau+\delta}=A_t^\tau+\delta v_\theta(A_t^\tau,o_t).$$
+$$x_{\tau+\Delta\tau}=x_\tau+\Delta\tau\,v_\theta(x_\tau,o_t,\ell,\tau),\qquad \Delta\tau=-1/N.$$
 
-$\delta$ 是积分步长；标准推理中总步数为 10。**【Code】** `AffordVLAEarlyExit.predict_actions_flow_matching` 从 $t=1$、`dt=-1/steps` 反向积分到 0，这与论文正文的时间方向写法相反，但和代码训练时的 $A^\tau=\tau\epsilon+(1-\tau)A$ 约定一致，实际含义都是从噪声走向动作。
+**【Code】** `predict_actions_flow_matching` 从 $\tau=1$ 积分至 $0$，$N$ 是单次 head 调用的步数。本文用 $N$ 区分“积分步数”和步长，避免与论文复用的 $\delta$ 混淆。warm-start 版本用上一出口的动作作为下一次调用的 `input_x`，但仍重新从时间 1 开始：它是跨条件的启发式 refinement，不是沿同一条 ODE 时间轴接着积分，也不是复用上一真实控制时刻的动作。
 
 #### Early exit criterion
 
 $$\Delta_t^i=d\left(A_t^{(i)},A_t^{(i-1)}\right)<\eta_i.$$
 
-$d$ 是动作差异度量，$\eta_i$ 是第 $i$ 个出口的阈值。训练集收集每层差异矩阵 $V\in\mathbb R^{K\times N}$，再根据目标概率 $p_k\propto\rho^k$ 对尚未分配的样本做 filtered quantile，从而得到互斥的出口比例。
+$d$ 是动作差异度量，$\eta_i$ 是第 $i$ 个出口的阈值。训练集收集每层差异矩阵 $V\in\mathbb R^{K\times N}$，再根据目标概率 $p_k\propto\rho^k$ 对尚未分配的样本做 filtered quantile，从而得到互斥的样本分配。**【Analysis】** 注意论文 Eq. (9) 直接在剩余样本上取 $p_k$ 分位数；若 $p_k$ 表示全部样本的目标出口占比，数学上应使用条件比例 $p_k/(1-\sum_{j<k}p_j)$。因此“分配互斥”不等于“严格匹配预设总占比”，实现或复现时需要核查这个口径。
 
 #### Inter-Layer warm start
 
@@ -208,7 +209,7 @@ $$A_{t,0}^{(i+1)}=A_{t,1}^{(i)}.$$
 
 **【Paper】** 训练分为两阶段：先用公开与自采多机器人轨迹预训练，再针对具体 robot/task fine-tune。数据统一为同步的 $(o_t,s_t,\ell,a_t)$ episode，过滤缺帧、时间戳异常、极端 outlier、长时间静止段，并做 dataset-level 与 embodiment-level balanced sampling。图像使用 sharpening、random erasing；state 使用随机维度 zero-out。
 
-优化时冻结 ViT；VLM 学习率为 $5\times10^{-5}$，action head 为 $5\times10^{-4}$，前 1,000 步 warm-up，随后 cosine annealing。**【Code】** 训练入口是 `a1/train.py` 与 `launch_scripts/train_vla.py`，具体数据混合和模型类型由 `configs/experiments/*.yaml`、`configs/datasets/*.yaml` 注入，而非写死在脚本中。
+**【Paper】** 优化配置在文内有冲突：§4.2 写 VLM/head 学习率为 $5\times10^{-5}/5\times10^{-4}$；附录 C 与 Tables 8–9 则写 $5\times10^{-6}/5\times10^{-5}$。附录还明确预训练 batch size 1024、200K steps、2,000 步 warm-up，且 VLM 只在前 1,000 步冻结；这两个时长不能混为一谈。ViT 始终冻结，后续使用 cosine decay。复现应以所选 checkpoint 的配置为准，不能在这里无依据选择一个学习率。**【Code】** 训练入口是 `a1/train.py` 与 `launch_scripts/train_vla.py`，具体数据混合和模型类型由 `configs/experiments/*.yaml`、`configs/datasets/*.yaml` 注入，而非写死在脚本中。
 
 <Algorithm number={1} title='A1 多出口训练' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>多机器人 episode、语言指令、模型层索引集合与 action head 配置</div>
@@ -222,7 +223,7 @@ $$A_{t,0}^{(i+1)}=A_{t,1}^{(i)}.$$
     loss。
   </AlgorithmStep>
   <AlgorithmStep>
-    对一个或多个层的动作同时监督，叠加正则项，反向更新 VLM（ViT 除外）与 action head。
+    对一个或多个层的动作同时监督，反向更新 VLM（ViT 除外）与 action head。
   </AlgorithmStep>
   <AlgorithmStep>
     在训练集上收集相邻层 discrepancy，按目标 exit distribution 计算每个出口的 filtered quantile
@@ -287,7 +288,7 @@ $$A_{t,0}^{(i+1)}=A_{t,1}^{(i)}.$$
 | RoboChallenge Table30 | **29.00%** | $\pi_0$ 28.33%，X-VLA 21.33%，RDT-1B 15.00% |
 | LIBERO-Plus zero-shot |  **75.3%** | 高于 OpenVLA-OFT、$\pi_0$、$\pi_0$-FAST     |
 
-真实任务中，A1 在 AgiBot 的 pick glue 和 clean table 分别达到 80% 与 20%；fruit arrangement 只用 50 条样本仍达到 50%。这些结果说明多机器人预训练带来的并非单一轨迹记忆，而是一定程度的跨硬件迁移。
+真实任务中，A1 在 AgiBot 的 pick glue 和 clean table 分别达到 80% 与 20%；fruit arrangement 只用 50 条样本仍达到 50%。**【Analysis】** 这些是预训练后针对目标任务微调的结果，并不能单独证明零样本跨硬件迁移；每任务仅 10 次测试，80% 与 60% 对应 8 次与 6 次成功，也不应直接视为显著性结论。
 
 ### 5.3 Ablation Study
 
@@ -315,13 +316,13 @@ $$A_{t,0}^{(i+1)}=A_{t,1}^{(i)}.$$
 
 ### 5.4 Generalization
 
-**【Paper】** 在未见过的 LIBERO-Plus 上，标准 LIBERO 训练的 A1-FM 达到 75.3% 平均成功率（Spatial 86.6%、Object 80.0%、Goal 66.8%、Long 58.0%）。**【Analysis】** 这项实验把效率方法和表征泛化分开检验：A1 并不是只在熟悉布局里靠提前退出取得高分，而是保留了 Molmo 的跨场景视觉语义能力。
+**【Paper】** 在未见过的 LIBERO-Plus 上，标准 LIBERO 训练的 A1-FM 达到 75.3% 平均成功率（Spatial 86.6%、Object 80.0%、Goal 66.8%、Long 58.0%）。**【Paper】** 此项使用多出口训练后 **不 early exit、10 步 FM** 的配置（§5.5.3、Table 7）。**【Analysis】** 因而 75.3% 验证的是完整策略在这些分布变化下的迁移，不能作为截断推理在 OOD 下仍可靠、或泛化必然来自 Molmo 的因果证据。
 
 ## 6. 方法分析
 
 ### 6.1 为什么有效？
 
-**【Analysis】** A1 同时利用了两种冗余。VLM 深层的表示变化在简单动作上很小，层间 action consistency 可以把这些“无效深度”跳过；Flow trajectory 在当前层已经接近正确 mode 时，下一层不必从噪声重新开始。前者减少 $L$，后者减少每层的 $\delta$，所以收益近似作用在端到端乘积上，而不是单独优化某个模块。
+**【Analysis】** A1 同时利用了两种冗余。VLM 深层的表示变化在简单动作上很小，层间 action consistency 可以把这些“无效深度”跳过；Flow trajectory 在当前层已经接近正确 mode 时，下一层不必从噪声重新开始。实际总开销应拆成视觉编码、已执行的 VLM 层、各出口的 head 调用及调度开销之和；VLM 深度与 head 迭代不是整个流水线的简单乘积。尤其 FM 的 head FLOPs 不大，串行调用仍可能主导时延，Table 3 正展示了 FLOPs 与 wall-clock 不成比例。
 
 ### 6.2 核心创新
 
@@ -342,14 +343,14 @@ $$A_{t,0}^{(i+1)}=A_{t,1}^{(i)}.$$
 
 ### 7.1 作者明确提出的局限
 
-论文结论强调的是效率与开放性，没有单独列出完整的 limitation 清单。论文未明确说明不同 backbone、不同阈值指标在更广泛机器人上的失效边界，也未报告训练数据去重、各数据源规模占比对结果的独立贡献。
+**【Paper】** 附录 A 明确讨论 imitation learning 的累积误差、离线遍历训练集校准阈值的额外成本，以及同步推理/执行与网络延迟造成的操作滞后，提出异步执行作为后续方向。附录还写到标注 affordance 数据依赖，但 §4.1 将训练语料描述为 robot-trajectory-only；正文与附录的这一表述差异尚不足以确定额外 affordance 标注的实际规模。
 
 ### 7.2 自己分析得到的局限
 
 1. **Early exit 可能增加 wall-clock 开销**：MLP 的 `c=1.0` 和 FM 的 `δ=10` 已显示计算量下降但时间上升，真实收益依赖 kernel、KV cache 和通信实现。
 2. **阈值需要离线校准**：换 robot、相机、动作归一化或任务分布后，原有 discrepancy quantile 未必仍对应目标 exit ratio。
 3. **跨层 action head 的训练成本更高**：同时监督多层会增加 forward/head 调用；论文没有给出相对单出口训练的总训练时间和显存曲线。
-4. **Flow Matching 的时间约定存在文稿/代码差异**：正文写作是 $0\rightarrow1$，代码以 $t=1$、负步长反向积分；复现时必须以 checkpoint 与实现的约定为准。
+4. **Flow Matching 的时间约定存在文稿/代码差异**：正文的插值、速度场符号与积分方向并不自洽；代码的噪声到动作约定见 §4.3。另有正文/附录学习率差异，复现必须绑定具体配置。
 5. **RoboChallenge 平均分仍有限**：29.00% 虽超过若干开源基线，但距离闭源强基线还有明显差距，复杂长时序和接触任务仍是瓶颈。
 
 ## 8. 启发与研究思考

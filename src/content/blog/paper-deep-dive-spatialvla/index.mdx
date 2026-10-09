@@ -1,7 +1,7 @@
 ---
-title: 'SpatialVLA 论文精读：用 3D 空间表示统一跨机器人 VLA'
+title: 'SpatialVLA 论文精读：深度位置编码与可迁移动作网格'
 publishDate: 2026-08-26
-updatedDate: 2026-08-26
+updatedDate: 2026-09-22
 description: '精读 SpatialVLA：通过 Ego3D Position Encoding 与 Adaptive Action Grids，把 3D 场景理解和跨机器人动作迁移带入 VLA。'
 heroImage:
   { src: 'https://pic.hana0721.top/56422576_p0_master1200.7i0z6ufn65.webp', color: '#8C8275' }
@@ -27,7 +27,7 @@ paper:
     - 'Jiayuan Gu'
     - 'Bin Zhao'
     - 'Xuelong Li'
-  venue: 'arXiv'
+  venue: 'RSS 2025'
   year: 2025
   code: 'https://github.com/SpatialVLA/SpatialVLA'
   project: 'https://spatialvla.github.io'
@@ -56,7 +56,9 @@ import { Aside } from '@/components/user'
 
 ### 一句话总结
 
-**【Paper】** SpatialVLA 认为，通用机器人策略的瓶颈不只是视觉语义，而是没有把观测和动作都放进可对齐的 3D 空间。它在 PaliGemma 2 上分别加入 Ego3D Position Encoding（观测端）和 Adaptive Action Grids（动作端），再用 110 万条真实机器人轨迹进行跨 embodiment 预训练。
+**【Paper】** SpatialVLA 在 PaliGemma 2 上加入两种空间先验：观测端把估计深度反投影为相机坐标，动作端把归一化平移和旋转编码为联合网格 token。约 110 万条真实机器人轨迹用于跨 embodiment 预训练，新设置再通过重划网格与微调适配。本文按 [RSS 2025 对应的 arXiv v5](https://arxiv.org/abs/2501.15830v5) 核对。
+
+**【Analysis】** 这里的“统一”是共享表示和学习接口，并没有把所有机器人的动作通过外参变换到同一个相机坐标系；同一归一化动作在不同控制器上也不必具有相同物理位移。
 
 ### 核心贡献
 
@@ -71,7 +73,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** RT-2、OpenVLA 等 VLA 通常将图像 token、语言 token 与离散动作 token 放入同一个自回归模型，但图像主要提供 2D 语义，动作则按每个标量独立分桶。跨机器人时，摄像头安装位置、工作空间、自由度和控制器都不同，导致“同一个 token”未必表示相同的空间运动。
 
-已有跨 embodiment 方法（如 Octo、RDT、HPT）主要解决数据或网络接口统一；3D-LLM、LEO、3D-VLA 则增强 3D 场景问答和规划。**【Analysis】** SpatialVLA 的切入点更窄也更实用：不重做一个 3D 世界模型，而是把深度几何注入 VLA 的视觉输入，并让动作 token 本身携带空间邻接关系。
+已有跨 embodiment 方法（如 Octo、RDT、HPT）主要解决数据或网络接口统一；3D-LLM、LEO、3D-VLA 则增强 3D 场景问答和规划。**【Analysis】** SpatialVLA 的切入点更窄也更实用：不重做一个 3D 世界模型，而是把深度几何注入 VLA 的视觉输入，并给动作 token 定义可用于重新离散化和插值的空间位置。
 
 ## 3. 问题定义
 
@@ -82,7 +84,7 @@ $$
 \mathbf{a}_t=\{x,y,z,\mathrm{roll},\mathrm{pitch},\mathrm{yaw},\mathrm{grip}\}.
 $$
 
-平移与旋转被归一化到每个机器人环境的动作范围；平移再变换到 $(\theta,\phi,r)$ 球坐标。模型一次动作只生成 3 个 token（translation、rotation、gripper），而不是 7 个独立标量 token。实现中 action chunk 长度为 $T=4$，因此一次生成 12 个 token。
+**【Code】** 平移与旋转按数据集统计的 1% / 99% 分位数归一化，解码再使用目标数据集的 `unnorm_key` 还原；夹爪通过 mask 保留其编码。这个步骤统一数值范围，不等于统一物理坐标、控制频率或控制器语义。平移再变换到 $(\theta,\phi,r)$ 球坐标。模型一次动作只生成 3 个 token（translation、rotation、gripper），而不是 7 个独立标量 token。实现中 action chunk 长度为 $T=4$，因此一次生成 12 个 token。
 
 ## 4. 方法
 
@@ -97,14 +99,16 @@ $$
 #### Ego3D Position Encoding
 
 - **输入**：RGB 图像 $I_t$、相机内参 $K$。
-- **中间模块**：ZoeDepth 预测深度图 $D$；反投影 $\pi^{-1}$ 得到每个视觉 patch 的相机坐标 $(x,y,z)$；对坐标做 sinusoidal frequency encoding，再经过两层 MLP。
+- **中间模块**：ZoeDepth 预测深度图 $D$；反投影 $\pi^{-1}$ 得到视觉 patch 内采样点的相机坐标 $(x,y,z)$；对坐标做 sinusoidal frequency encoding，再经过两层 MLP。
 - **输出**：与 SigLIP 特征同维度的 $\mathbf{P}'$，并与 2D 特征 $\mathbf{X}$ 相加得到 $\mathbf{O}_{3d}$。
 
 $$
 \mathbf{O}_{3d}=\mathbf{X}+\mathbf{P}'=\mathbf{X}+\mathrm{MLP}(\gamma(\mathbf{P})).
 $$
 
-**【Code】** `modeling_spatialvla.py` 中的 `Ego3DPositionEmbeddingMLP` 使用 8 个频率、以 $(0,0,2)$ 为中心做归一化；`backproject_patch` 在每个 SigLIP patch 内采样 $2\times2$ 个深度点并聚合。**【Analysis】** 因为坐标在相机自 egocentric frame 中，模型不需要知道“这台机器人底座在世界坐标哪里”，降低了跨平台标定依赖。
+**【Code】** `Ego3DPositionEmbeddingMLP` 使用 8 个频率，将坐标减去 $(0,0,2)$ 后除以 2。`backproject_patch` 对每个 SigLIP patch 取 $2\times2$ 个深度采样点，把四点坐标拼成 12 维，保留原坐标并进行正余弦编码，得到 $12(1+2\times8)=204$ 维 MLP 输入。这与附录 B 的“平均编码”文字并不完全一致，但对应其 Table VII 的 204 维输入。
+
+**【Analysis】** 不使用外参减少了预处理要求，却没有消除相机视角变化：同一物体换相机位置后仍会产生不同坐标，模型必须从数据中学习这种变化；反投影还依赖内参与深度质量。
 
 #### Adaptive Action Grids
 
@@ -113,28 +117,28 @@ $$
 - **夹爪**：开、闭两个 token。
 - **总词表**：$4096+4096+2=8194$ 个动作 token。
 
-网格不是等宽划分，而是先统计整个训练混合数据中每个变量的分布，拟合 $\mathcal{N}(\mu^a,\Sigma^a)$，再用等概率区间切分。方向 $(\theta,\phi)$ 分配更多分辨率，以保留精细方向控制。
+网格不是等宽划分：对 $(\theta,\phi,r,\mathrm{roll},\mathrm{pitch},\mathrm{yaw})$ 六个变量分别拟合一维 Gaussian，再沿每个轴划分等概率区间。它不是利用完整协方差拟合联合多峰分布；联合 token 来自这些轴向分桶的笛卡尔积。方向 $(\theta,\phi)$ 分配较多 bin。
 
 **【Code】** `scripts/action_config.json` 固定了上述 bin 数；`TranslationTokenizer` 使用球坐标索引 `disc_theta * (M_phi M_r) + disc_phi * M_r + disc_r`，解码时取网格中心并裁剪回 $[-1,1]^3$。
 
 ### 4.3 关键公式
 
-动作变量 $a$ 的网格边界满足：
+对取值范围 $[l,u]$ 内的某个动作变量，令 $F$ 为拟合 Gaussian 的 CDF。`get_bin_policy` 实际计算：
 
 $$
-\int_{a_i}^{a_{i+1}} f(x)\,dx\approx\frac1M,
+b_i=F^{-1}\!\left(F(l)+\frac{i}{M}[F(u)-F(l)]\right),\qquad i=0,\ldots,M.
 $$
 
-其中 $f$ 是拟合 Gaussian 的概率密度，$M$ 是该变量的 bin 数。这样高密度区域拥有更细的有效分辨率，低频区域不会浪费 token。
+因此每格在**截断到合法范围后的拟合分布**中具有 $1/M$ 概率；未经截断的概率质量是 $[F(u)-F(l)]/M$。高密度区域更细，但真实分布拟合不准时，各格未必有相同真实样本数。低频的大幅动作分辨率也会相应变粗。
 
-训练采用标准自回归交叉熵：
+训练采用 teacher forcing 的 token 交叉熵。把真实 chunk 编码为 $y_{1:3H}=Q(\mathbf A_t)$，可写成：
 
 $$
-\mathcal{L}(\theta)=\mathbb{E}_{p(\mathbf{A}_t|\mathbf{o}_t)}
-\left[\mathrm{CE}(\mathfrak{a}_t,\tilde{\mathfrak{a}}_t)\right].
+\mathcal L=-\mathbb E_{(\mathbf o_t,\mathbf L,\mathbf A_t)\sim\mathcal D}
+\sum_{k=1}^{3H}\log p_\theta(y_k\mid\mathbf o_t,\mathbf L,y_{<k}).
 $$
 
-其中 $\mathfrak{a}_t$ 是由真实动作查询网格得到的 token，$\tilde{\mathfrak{a}}_t$ 是模型预测序列。**【Code】** 代码中的 `SpatialActionTokenizer` 负责离散化和解码，模型语言 embedding 末端的 8194 个位置被替换为可学习空间 token embedding。
+**【Analysis】** 三维网格把一个平移向量合成一个类别，但普通 CE 不知道“错到相邻格”比“错到远处格”更轻。token ID 的线性编号也不会自动让相邻 embedding 接近；空间结构主要来自编码、解码与后续插值，并非显式的几何距离损失。
 
 新机器人适配时，对新分布重新划网格；新网格 token 用相邻旧网格 embedding 三线性插值初始化：
 
@@ -142,16 +146,24 @@ $$
 \mathbf{e}_{new}^{i}=\sum_{j=1}^{K}w_j\mathbf{e}^{j},\qquad \sum_jw_j=1.
 $$
 
+**【Code】** 论文称三线性插值；当前 `spatial_embedding_adaption` 对归一化网格中心及复制填充的边界调用 `scipy.interpolate.griddata(method="linear")`，这是[在单纯形上进行的分片线性插值](https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.griddata.html)，不是规则网格的八邻点三线性插值。`adapt_emb` 提供 Gaussian 参数，而 `adpt_feature` 才决定是否同时插值 embedding。两者之后仍需目标数据微调，不能视为无需训练的跨机器人迁移。
+
 ### 4.4 Training
 
-**【Paper】** 预训练数据是 OXE 子集与 RH20T 的混合，共约 1.1M 条真实机器人 episode。模型从 PaliGemma 2 初始化，优化视觉塔、LLM、Ego3D MLP 和动作 token embedding；文本 token embedding 冻结，预训练最后三分之一阶段移除 DROID 数据。训练使用 64 张 A100、10 天、batch size 2048。
+**【Paper】** 预训练数据是 OXE 子集与 RH20T 的混合，共约 1.1M 条真实机器人 episode。模型从 PaliGemma 2 初始化，优化视觉塔、LLM、Ego3D MLP 和动作 token embedding；文本 token embedding 冻结，ZoeDepth 始终冻结。附录 D 给出的日程是全混合数据 160k 步，再移除 DROID 训练 40k 步，共 200k 步；不是最后三分之一。训练使用 64 张 A100、10 天、batch size 2048。
 
 <Algorithm number={1} title='SpatialVLA Pre-training' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>跨机器人 episode、RGB 图像、语言指令与 7D 动作</div>
   <div slot='output'>预训练 SpatialVLA 策略与动作空间 token</div>
-  <AlgorithmStep>从混合数据中随机采样 episode 和时间步，读取当前图像、指令及未来 4 步动作。</AlgorithmStep>
-  <AlgorithmStep>用 ZoeDepth 反投影 patch 深度，计算 Ego3D 位置嵌入并与 SigLIP 特征相加。</AlgorithmStep>
-  <AlgorithmStep>按 Gaussian action grids 将每个动作编码为 translation、rotation、gripper 三个 token。</AlgorithmStep>
+  <AlgorithmStep>
+    从混合数据中随机采样 episode 和时间步，读取当前图像、指令及未来 4 步动作。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    用 ZoeDepth 反投影 patch 深度，计算 Ego3D 位置嵌入并与 SigLIP 特征相加。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    按 Gaussian action grids 将每个动作编码为 translation、rotation、gripper 三个 token。
+  </AlgorithmStep>
   <AlgorithmStep>用 PaliGemma 2 自回归预测 token，计算交叉熵并更新可训练参数。</AlgorithmStep>
 </Algorithm>
 
@@ -159,36 +171,46 @@ $$
 
 ### 4.5 Inference
 
-**【Paper】** 推理时只使用当前帧和语言指令，不运行 ZoeDepth 之外的额外规划器。模型预测 4 步 action chunk，执行 ensemble 后再请求下一个 chunk；单张 RTX 4090 约需 8.5GB 显存，速度约 20Hz。
+**【Paper】** 推理以当前帧和指令生成动作，训练输出为 4 步 / 12 token。附录 D 说明部署按需要使用 horizon 1 或 4 的 action ensemble，并调整夹爪 sticky step（1–15）。这些执行策略会影响闭环反馈与夹持稳定性，不能只由 chunk 长度推出执行调度。
+
+论文报告 RTX 4090 上约 8.5GB 显存、约 20Hz（讨论节写 21Hz），但附录 C 又称 ZoeDepth 每动作耗时 0.06 秒，没有给出一致的端到端计时分解。因此这里将其保留为作者报告的运行速度，不能进一步推成“完整 12 token 连同深度必在 50ms 内生成”或所有平台的闭环控制频率。
 
 <Algorithm number={2} title='SpatialVLA Inference' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>当前 RGB 图像、相机内参、语言指令</div>
   <div slot='output'>连续 7D 控制动作并发送给机器人</div>
   <AlgorithmStep>估计深度并生成 Ego3D 视觉 token，与语言 token 拼接。</AlgorithmStep>
   <AlgorithmStep>自回归生成 4 个时间步的三元动作 token，共 12 个 token。</AlgorithmStep>
-  <AlgorithmStep>分别调用 translation、rotation、gripper tokenizer 解码，得到连续动作。</AlgorithmStep>
-  <AlgorithmStep>执行 action chunk 的 ensemble 动作，循环读取下一帧。</AlgorithmStep>
+  <AlgorithmStep>
+    分别调用 translation、rotation、gripper tokenizer 解码，得到连续动作。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    按具体部署配置执行或集成重叠动作，处理夹爪 sticky step，再读取下一帧。
+  </AlgorithmStep>
 </Algorithm>
 
-**【Code】** `processing_spatialvla.py` 中 `action_token_num=3`，按 `action_chunk_size` 截取生成序列并调用 `decode_token_ids_to_actions`；模型输出不足时会补零，因此部署时必须保证生成长度和 EOS 设置正确。
+**【Code】** `processing_spatialvla.py` 中 `action_token_num=3`，按 `action_chunk_size` 截取生成序列并调用 `decode_token_ids_to_actions`；模型输出不足时补的是 token ID 0，而不是零位移；后续 tokenizer 会把非法 ID 裁剪到对应词表范围，可能产生边界动作。因而需要在部署层校验输出长度、token 所属组与 EOS，不能把此 fallback 当作安全停止。
 
 ### 4.6 代码实现对照
 
-| 论文描述 | 官方实现 | 需要注意的差异 |
-| --- | --- | --- |
-| 8194 个动作 token | `action_config.json` 与 `SpatialActionTokenizer` | 4096 平移 + 4096 旋转 + 2 夹爪 |
-| Ego3D 位置编码 | `Ego3DPositionEmbeddingMLP`、`backproject_patch` | ZoeDepth 与 SigLIP 使用独立预处理 |
-| 空间 token embedding | `SpatialVLAModel.spatial_embed_tokens` | 推理前复制到语言模型 embedding 尾部 |
-| 预训练 / 微调 | `spatialvla_pretrain.py`、`spatialvla_finetune.py` | 微调支持 LoRA 与 `adapt_emb` |
-| 新分布迁移 | tokenizer 的 `set_bins` 与 embedding adaption 逻辑 | 需要提供新环境统计量，论文未给出自动校准脚本 |
+| 论文描述             | 官方实现                                                  | 需要注意的差异                                                                               |
+| -------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| 8194 个动作 token    | `action_config.json` 与 `SpatialActionTokenizer`          | 4096 平移 + 4096 旋转 + 2 夹爪                                                               |
+| Ego3D 位置编码       | `Ego3DPositionEmbeddingMLP`、`backproject_patch`          | ZoeDepth 与 SigLIP 使用独立预处理                                                            |
+| 空间 token embedding | `SpatialVLAForConditionalGeneration.spatial_embed_tokens` | 独立可学习；加载时复制到语言 embedding 尾部；训练的 LM head 另行解绑                         |
+| 预训练 / 微调        | `spatialvla_pretrain.py`、`spatialvla_finetune.py`        | 微调支持 LoRA 与 `adapt_emb`                                                                 |
+| 新分布迁移           | tokenizer 的 `set_bins` 与 embedding adaption 逻辑        | `adapt_emb` 读取 Gaussian JSON；`adpt_feature` 控制是否插值，不能只改 bin 就宣称完成特征迁移 |
 
 ## 5. 实验
 
+上述实现对照基于[官方仓库 `18fd74b`](https://github.com/SpatialVLA/SpatialVLA/tree/18fd74b2a633ec8d9ec7aadcd803969555cc9fbd)；论文描述和这一公开版本的差异已分别标明。
+
 ### 5.1 Experimental Setup
 
-![SpatialVLA experiment overview from paper Figure 3](https://pic.hana0721.top/blog/paper-deep-dive-spatialvla/experinment_overview.webp)
+![SpatialVLA experiment overview from paper Figure 4](https://pic.hana0721.top/blog/paper-deep-dive-spatialvla/experinment_overview.webp)
 
-**【Paper】** 评估覆盖 7 类机器人学习场景、24 个真实机器人任务和 3 个模拟环境：SimplerEnv 的 Google Robot / WidowX 零样本，BridgeData V2 WidowX 实机，LIBERO 四个 suite，以及 Franka 新设置微调。空间理解任务专门改变物体布局、杯子高度、背景和动态干扰。
+**【Paper】** 评估分为 SimplerEnv 的 Google Robot / WidowX、BridgeData V2 WidowX 实机零样本、Franka 新设置微调、LIBERO 四个 suite，以及专门改变布局和高度的空间任务。附录 E 明确实机 WidowX 的 7 个任务各评估 11 次；Franka 的 13 个任务各评估 11 次。论文正文的“24 个真实任务”与 Figure 4 的汇总口径不同，以下按具体表格和设置解读。
+
+这里 zero-shot 指不对该评测设置额外微调：预训练已包含 Fractal、Bridge 等对应机器人数据，是分布内迁移能力，不能写成从未见过该 embodiment。附录 D 还专门描述了 WidowX 相机与机械臂位置对 BridgeData 场景的匹配。
 
 ### 5.2 Main Results
 
@@ -196,34 +218,44 @@ $$
 
 **【Paper】** 主要结果如下：
 
-| 评估 | SpatialVLA 结果 | 对比结论 |
-| --- | ---: | --- |
-| SimplerEnv Google Robot，zero-shot Visual Matching | 71.9% | 比 RoboVLM 高 15.6 个百分点；超过 RT-2-X 的 60.7% |
-| SimplerEnv Google Robot，zero-shot Variant Aggregation | 68.8% | 使用 3.5B 参数，优于 RT-2-X 的 64.3%（55B） |
-| SimplerEnv WidowX 总体成功率 | 34.4%（zero-shot）/ 42.7%（微调） | 高于 RoboVLM 的 13.5% / 31.3% |
-| LIBERO 平均成功率 | 78.1% | 四个 suite 综合第一；LIBERO-Spatial 为 88.2% |
+| 评估                                                   |                   SpatialVLA 结果 | 对比结论                                               |
+| ------------------------------------------------------ | --------------------------------: | ------------------------------------------------------ |
+| SimplerEnv Google Robot，zero-shot Visual Matching     |                             71.9% | 比 RoboVLM 高 15.6 个百分点；超过 RT-2-X 的 60.7%      |
+| SimplerEnv Google Robot，zero-shot Variant Aggregation |                             68.8% | 使用 3.5B 参数，优于 RT-2-X 的 64.3%（55B）            |
+| SimplerEnv WidowX 总体成功率                           | 34.4%（zero-shot）/ 42.7%（微调） | 高于 RoboVLM 的 13.5% / 31.3%                          |
+| LIBERO 平均成功率                                      |                             78.1% | 四 suite 宏平均；Spatial 为 88.2%，并非每个 suite 第一 |
 
-在实机 WidowX 上，模型能在未见背景、物体姿态和人工移动干扰下保持较高成功率；在 Franka 上，单任务成功率约 82%，指令跟随比 OpenVLA 高 12 个百分点，多任务成功率 57%。
+Table I / X 的 Google 总分应按作者表格口径引用，不能简单重算成三个大类的等权平均。71.9% 高于列出的其他通用零样本基线，但低于专用 RT-1（converged）的 74.6%；不能笼统写成全表第一。Table II 中 WidowX 的茄子任务 100% 来自微调，零样本是 70.8%；微调也并非逐任务都进步，勺子任务从 20.8% 降至 16.7%。
+
+LIBERO 每个 suite 使用 500 次评估并报告 3 个种子的均值及标准误；78.1±0.7% 对比 OpenVLA 76.5±0.6%。SpatialVLA 在 Spatial / Long 上领先表中方法，但 Object 的 Diffusion Policy（92.5%）和 Goal 的 Octo（84.6%）更高。各 suite 分别进行 200 epoch、rank 32 的 LoRA 微调；这不是一个未经目标训练的模型直接得到的分数。
+
+实机要分清抓取与完整任务。Table XI 中 SpatialVLA 七任务最终成功率均领先或并列，但有些抓取指标并非最好。Franka 单任务平均约 81.8%，与 Diffusion Policy 的约 79.5% 接近；多任务为 56.8%，但放白锅任务 36.36% 低于 OpenVLA 的 54.54%。指令跟随五任务平均 54.54%，比 OpenVLA 36.36% 高约 **18.2 个百分点**；正文另称约 12 点，与附录 Table XIV 不一致，这里以可逐项复算的表格为准。每任务仅 11 次，单次成败对应约 9.1 个百分点，不能把细小差距解释为稳健优势。
 
 ### 5.3 Ablation Study
 
-![Adaptive action grids from paper Figure 2](https://pic.hana0721.top/blog/paper-deep-dive-spatialvla/action_grids.webp)
+![Adaptive action grids from paper Figure 3](https://pic.hana0721.top/blog/paper-deep-dive-spatialvla/action_grids.webp)
 
-**【Paper】** 在 Google Fractal + Bridge V2 混合数据上的预训练消融显示：完整模型在 `Move Near` 上达到 79.2% Variant Aggregation / 85.4% Visual Matching；将动作改成线性 256 bins 后分别降至 47.1% / 52.9%，去掉 Ego3D 后为 66.7% / 62.0%。8194 分辨率优于 1026 和 4610，说明空间结构与足够分辨率同时重要。
+**【Paper】** 在 Google Fractal + Bridge V2 混合数据上的预训练消融显示：完整模型在 `Move Near` 上达到 79.2% Variant Aggregation / 85.4% Visual Matching；将动作改成线性 256 bins 后分别降至 47.1% / 52.9%，去掉 Ego3D 后为 66.7% / 62.0%。这些模型在 Fractal + Bridge 子集上从头训练 120k 步（8 A100、batch 128），并非完整 1.1M 预训练模型的直接删模块结果。线性标量分桶同时改变 token 数量与词表结构，因此大幅收益不能全归因于几何信息。
 
-微调消融中，加入 Gaussian adaption 后 `Pick Coke Can` Visual Matching 从 77.0% 提升到 86.0%，`Put Eggplant in Yellow Basket` 成功率从 91.7% 提升到 100%。LIBERO 上，LoRA + Spatial Embedding Adaption 达到 Spatial 88.2%、Object 89.9%、Goal 78.6%、Long 55.5%，均高于仅 LoRA。
+Table VIII 的分辨率趋势也不是单调的：6166 token 的 Coke Can Visual Matching 为 74.0%，高于 8194 的 70.7%；两者茄子完整成功率同为 87.5%。结论是过粗量化会损失控制精度，继续扩大词表存在收益平台。
+
+微调消融中，加入 Gaussian adaption 后 `Pick Coke Can` Visual Matching 从 77.0% 提升到 86.0%，`Put Eggplant in Yellow Basket` 成功率从 91.7% 提升到 100%。LIBERO 上，LoRA + Spatial Embedding Adaption 达到 Spatial 88.2%、Object 89.9%、Goal 78.6%、Long 55.5%，对比仅 LoRA 的 83.6%、84.8%、76.4%、50.1%，四项均提升。这支持“在目标分布重新划网格并初始化特征”的组合策略；它没有单独隔离重划分与插值各自的贡献。
+
+附录 Table IX 补充了更直接的深度消融：擦桌、Push-T、插充电器、泡茶四项平均完整成功率，无深度 45.4%、传感器深度 70.5%、ZoeDepth 72.7%。这支持深度输入有效，但 ZoeDepth 与传感器的差距仅对应四项共 44 次测试中的一次成功；而插充电器仍仅 27.3%，不能宣称离散化已经解决精细接触。
 
 ### 5.4 Generalization
 
 ![Spatial understanding setups from paper Figure 7](https://pic.hana0721.top/blog/paper-deep-dive-spatialvla/spatial_setup.webp)
 
-**【Paper】** 空间理解测试包括“把离机器人最近的玩具放到车上”、改变杯子高度、改变锅高度等任务。SpatialVLA 在 Franka 空间指令任务达到 73% 准确率，并在 WidowX 的高度变化任务中显著超过基线。**【Analysis】** 这些结果更直接验证了 Ego3D 的作用：任务要求的是相对距离和布局，而不是只识别物体类别。
+**【Paper】** 空间理解测试包括“把离机器人最近的玩具放到车上”、改变杯子高度、把目标盘从水槽底移到锅上。Table XV 中 Franka 最近玩具任务的 **72.72% 是抓取率，完整成功率为 63.63%**；其余三项高度任务完整成功率为 72.72%、81.81%、63.63%。
+
+**【Analysis】** 这些任务与空间关系有关，但比较的是不同完整策略，并不能仅凭该表把提升因果归于 Ego3D。更有针对性的证据是前述同架构的去深度消融；还应区分深度感知改善与整条操作序列是否完成。
 
 ## 6. 方法分析
 
 ### 6.1 为什么有效？
 
-**【Analysis】** 观测端的深度坐标为视觉 patch 提供了“在哪儿”，动作端的联合网格提供了“往哪儿移动”的结构；二者都在机器人无关的相机 / 空间坐标系中表达，减少了仅凭纹理学习的捷径。等概率 Gaussian 网格还把 token 容量集中到高频、细粒度运动上。
+**【Analysis】** 观测端的深度坐标为视觉 patch 增加距离线索；动作端在归一化空间中联合表示方向与幅度，减少自回归步骤，并把量化精度集中到高密度动作区域。两端的几何先验互补，但不是在同一坐标系中直接配准，也不保证摆脱纹理依赖。
 
 ### 6.2 核心创新
 
@@ -231,19 +263,19 @@ $$
 
 ### 6.3 与已有方法的本质区别
 
-OpenVLA / RT-2 采用每维独立标量分桶；SpatialVLA 将平移和旋转分别视为 3D 网格，token 索引保留坐标邻接。Octo/HPT 主要在网络模块或 embodiment stem 上对齐数据；SpatialVLA 直接对齐几何观测和动作表示。π0 使用连续 flow matching 解码，而 SpatialVLA 保留 VLM 自回归接口，以更少 token 换取约 20Hz 的推理速度。
+OpenVLA / RT-2 采用每维独立标量分桶；SpatialVLA 将平移和旋转分别视为 3D 网格，token 对应网格位置，但编号和 CE 不保证 embedding 的几何平滑。Octo/HPT 主要在网络模块或 embodiment stem 上对齐数据；SpatialVLA 则同时结构化视觉几何与动作表示。π0 使用连续 flow matching 解码，而 SpatialVLA 保留 VLM 自回归接口，以更少 token 换取约 20Hz 的推理速度。
 
 ### 6.4 关键假设
 
 - 单目 ZoeDepth 的相对深度足以支持任务所需的空间关系；
-- 不同机器人在相机坐标系中的动作分布可以通过 Gaussian 和网格重新参数化；
+- 标准化后的动作分布能用各轴单 Gaussian 近似，旧网格中学到的特征在重划分后仍有迁移价值；
 - 当前帧和短 action chunk 足以处理大多数短时操作，长时记忆不是主要瓶颈。
 
 ## 7. 局限性
 
 ### 7.1 作者明确提出的局限
 
-**【Paper】** Gaussian 假设在单轴运动或噪声较大的数据上可能造成网格聚集，挤压其他方向的动作分辨率。作者建议未来结合 VAE 等隐式分布建模。自回归三 token 解码虽快，但仍慢于能并行输出动作的 diffusion decoder；模型只看当前帧和历史 token，在 LIBERO-Long 等长时任务上表现较弱。
+**【Paper】** Gaussian 假设在单轴运动或噪声较大的数据上可能造成网格聚集，挤压其他方向的动作分辨率。作者建议未来结合 VAE 等隐式分布建模。自回归三 token 解码虽快，但仍慢于能并行输出动作的 diffusion decoder；模型主要依赖当前图像，生成动作的历史 token 不等同于跨时刻视觉记忆；LIBERO-Long 55.5% 仍说明长时任务有较大空间。
 
 ### 7.2 自己分析得到的局限
 
@@ -251,8 +283,9 @@ OpenVLA / RT-2 采用每维独立标量分桶；SpatialVLA 将平移和旋转分
 
 ## 8. 启发与研究思考
 
-SpatialVLA 给出的重要信号是：VLA 的“通用性”可以从表示层获得，而不一定要继续堆大语言模型参数。后续工作可以沿三个方向推进：用混合密度或 normalizing flow 替代单一 Gaussian；把离散空间 token 与 diffusion / flow action head 结合；引入历史帧或显式 3D memory 解决长时任务。对实际部署者而言，先记录目标机器人动作统计量，再做 embedding 插值，可能比从头微调整个 VLA 更节省数据。
+SpatialVLA 给出的重要信号是：VLA 的“通用性”可以从表示层获得，而不一定要继续堆大语言模型参数。后续工作可以沿三个方向推进：用混合密度或 normalizing flow 替代单一 Gaussian；把离散空间 token 与 diffusion / flow action head 结合；引入历史帧或显式 3D memory 解决长时任务。对实际部署者而言，需要同时保存目标数据集的归一化统计、Gaussian 网格参数与模型权重，再用目标示范进行微调；网格与权重不匹配时，即使 token 预测正确，也可能解码成错误幅度。
 
 <Aside type='note' title='阅读提示'>
-  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】` 表示基于论文和代码的分析推断。
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。
 </Aside>

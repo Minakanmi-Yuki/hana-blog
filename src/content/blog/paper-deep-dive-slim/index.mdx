@@ -1,8 +1,8 @@
 ---
 title: 'SLIM-0.5B 论文精读：用 action-grounded predictive latents 做紧凑机器人策略'
 publishDate: 2026-08-26
-updatedDate: 2026-08-26
-description: '精读 SLIM：以逆/前向动力学联合预训练 MoT latent，再以 flow matching 输出连续动作，在不做具身预训练下兼顾鲁棒性与低延迟。'
+updatedDate: 2026-09-22
+description: '精读 SLIM：以逆/前向动力学联合预训练 MoT latent，再以 flow matching 输出连续动作，通过两阶段机器人轨迹训练兼顾鲁棒性与低延迟。'
 heroImage:
   { src: 'https://pic.hana0721.top/67997247_p0_master1200.6po3p2g2e0.webp', color: '#8C8275' }
 category: 'research'
@@ -65,10 +65,12 @@ import { Aside } from '@/components/user'
 
 ### 一句话总结
 
-**【Paper】** SLIM（Self-supervised Latent Interaction Model）用 0.47B 参数的两流
+**【Paper】** SLIM（Self-supervised Latent Interaction Model）用 0.47B 可训练参数的两流
 Mixture-of-Transformers（MoT）替代大 VLM 或像素级 world model：先在轨迹中用互补的
 inverse dynamics（IDM）与 forward dynamics（FDM）学习 action-grounded predictive latents，
 再以 flow matching 根据当前观测、语言和本体状态生成动作 chunk；部署时不生成未来图像。
+
+**【Paper】** 参数口径见 Appendix A.3：0.47214B = 86.58M DINOv2 + 385.56M 动作模型，**不含冻结的 T5-small**，也不含只用于 Stage 1 的 86.58M EMA encoder。论文的 P.T. 标记排除通用视觉/语言初始化；而 Stage 1 本身仍是机器人轨迹上的预训练，且包含 LIBERO-90。读者不能把“无额外具身基座预训练”理解成没有任何机器人预训练或总系统只有 0.47B 参数。
 
 ### 核心贡献
 
@@ -126,11 +128,13 @@ $$
 
 ### 4.2 核心模块
 
-#### 两流 MoT：让动作有机会读取状态，而不让语言主导控制
+#### 两流 MoT：用有方向的 attention 支持训练与缓存
 
 **【Paper】** observation 与 action token 分别具有独立的 $Q,K,V$ 投影、AdaLN 和 FFN，但在同一个 attention 中交互。语言不混入该 attention，而是每个 stream 单独 cross-attend 到语言 token。动作 flow sampling 时，观测/语言保持固定，反复更新的是 action stream。
 
-**【Code】** `slim/model/slim_transformer.py` 的 `SLIMBlock` 正是该分工：`forward_action_only()` 缓存状态和语言的 K/V，仅在每个采样步更新 action token。这解释了论文低延迟的一个工程来源，而不仅是参数量更小。
+**【Paper / Code】** joint attention 并非所有 token 无条件双向互看。IDM 与 policy 分支阻止 observation rows 读取 action columns，动作则可以读当前、未来位置与其他动作；FDM 只阻止当前视觉/状态 rows 直接读取 action，允许 future-slot rows 读取干净动作，从而形成动作条件预测。两张图里的 mask 对应的是不同目标，不能只概括成共享 attention。
+
+**【Code / Analysis】** 在 policy 分支，未来 slots 经过观测流后会依赖当前图像、状态和语言，但不随当前候选动作变化；因此 `build_ctx_cache()` 能一次构建逐层 context K/V，四次 `forward_action_only()` 复用它们。初始 slots 是学习常量，经过网络后并非恒定输出；它们提供的是隐式预测结构，而不是部署时逐候选动作计算未来后果、排序并选动作的规划器。
 
 #### IDM：由状态变化反推动作
 
@@ -142,7 +146,7 @@ $$
 
 ![IDM、FDM 与目标专用 attention mask（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-slim/idm-fdm.39lx6vdbfy.webp)
 
-**【Analysis】** 两个目标构成一个有用的“夹逼”：只做 IDM 可能学习与数据集动作相关、却不稳定的捷径；只做 FDM 又可能把动作忽略为平均未来。两者共享 MoT，才要求同一个空间既能区分动作，也能保留动作可预测的变化。
+**【Analysis】** 两个目标提供互补约束：IDM 让观测差异对动作重建有用，FDM 让干净动作对未来表征预测有用。不过这是来自示范分布的统计约束；多个动作可能导致近似同一视觉终态，环境也可能含外因，所以不能由这些 loss 推出严格的因果可辨识性。论文未做动作干预下的因果识别检验。
 
 ### 4.3 关键公式
 
@@ -175,7 +179,9 @@ $$
 +\lambda_{\mathrm{FDM}}\mathcal L_{\mathrm{FDM}}.
 $$
 
-**【Paper】** $\operatorname{sg}$ 阻断 EMA target 的梯度，LN 令目标与预测在归一化空间比较。论文最佳联合权重为 IDM:FDM = 0.125:1。
+**【Paper / Code】** $\operatorname{sg}$ 阻断 target 梯度；当前实现对每个 patch 的 feature 维分别做 LayerNorm，再平均 L1 差异。这会忽略各 patch 向量的整体平移和尺度，强调归一化特征结构；它既不是像素误差，也不是全局语义 token 的单点匹配。IDM 的未来条件走 online encoder，保留梯度；FDM 的未来 target 才走 EMA、stop-gradient。论文最佳联合权重为 IDM:FDM = 0.125:1。
+
+**【Code】** 一个复现差异是训练时间采样：论文 Eq. (4) 写 $\tau\sim U(0,1)$，当前 `sample_time()` 默认先采样 $b\sim\operatorname{Beta}(1.5,1)$、截到 0.999，再令 $\tau=(0.999-b)/0.999$，并将时间离散到 1,000 个 embedding buckets。它更偏向近噪声端，不是均匀采样。Stage 2 的 `repeated_diffusion_steps=4` 是同一条件下独立重采样四组噪声/时间来估计训练 loss，不是训练时做四步 Euler 积分；部署的四步采样是另一项参数。
 
 #### 部署一致的策略目标
 
@@ -199,7 +205,7 @@ $$
   <AlgorithmStep>移除真实 future-latent 条件，最小化 $\mathcal L_{\mathrm{FM}}$，得到 Stage 2 策略。</AlgorithmStep>
 </Algorithm>
 
-**【Code】** 默认 Stage 1 训练 3 epochs，EMA momentum 为 0.999，global batch size 为 128（8 GPU × 每卡 16）；Stage 2 训练 40 epochs。两阶段均采用 AdamW、cosine schedule、action model LR $10^{-4}$、vision encoder LR $10^{-5}$，并把 bias/norm 参数排除在 weight decay 之外。训练入口分别是 `slim/training/stage1.py`、`slim/training/stage2.py`。
+**【Paper / Code】** Appendix A.4 与 [canonical recipe](https://github.com/kzz1031/SLIM/blob/main/reproducibility/canonical_recipe.json) 指定：LIBERO Stage 1 混合四目标套件与 LIBERO-90，清洗后约 5,613 episodes；Stage 2 只用四目标套件、1,692 episodes，共同训练一套策略。两个阶段都未用 LIBERO-Plus 数据。默认 Stage 1 训练 3 epochs，EMA momentum 为 0.999，global batch size 为 128（8 GPU × 每卡 16）；Stage 2 训练 40 epochs，移除 EMA encoder。CALVIN 的 horizon 为 12、global batch 为 256，两个阶段都用 ABC 语言标注 split；实机 Stage 2 为 20 epochs，不能把 LIBERO 的 H=8 / batch=128 / 40 epochs 套到所有实验。两阶段均采用 AdamW、cosine schedule、action model LR $10^{-4}$、vision encoder LR $10^{-5}$，并把 bias/norm 参数排除在 weight decay 之外。训练入口分别是 `slim/training/stage1.py`、`slim/training/stage2.py`。
 
 ### 4.5 Inference
 
@@ -217,7 +223,7 @@ $$
   <AlgorithmStep>数值积分更新 action chunk；返回反归一化后的连续动作。</AlgorithmStep>
 </Algorithm>
 
-**【Code】** `SLIMModel.predict_action()` 仅编码当前 `image`、`state` 和语言，然后调用 `action_model.predict_action()`；默认配置为 4 个 inference steps。`SLIMBlock.forward_action_only()` 复用 context K/V，避免每个采样步重算状态与语言分支。
+**【Code】** `SLIMModel.predict_action()` 编码当前 `image / state`，语言可读冻结 T5 的缓存；`action_model.predict_action()` 从高斯噪声开始，在时间 0、0.25、0.5、0.75 上各预测一次速度，以步长 0.25 做 Euler 更新。LIBERO 每次顺序执行 8 步后重规划。归一化只作用于前六个运动维度的 q01/q99，并截到 $[-1,1]$；夹爪维保留原值。不得把速度场输出、归一化动作和机器人控制量当成同一种量。
 
 ### 4.6 代码实现对照
 
@@ -239,6 +245,8 @@ $$
 
 **【Paper】** 真实世界为五种任务：胡萝卜入碗、叠三盘、把吐司从烤面包机取出放盘、叠积木、擦白板。每项 150 条示教，共 750 条，多任务混合训练；每个任务—条件组合测试 10 次，并考察 nominal、distractor、lighting、background 四种条件。
 
+**【Paper】** 真实 progress score 的单位也需定义：每次试验只记 0 / 0.5 / 1，分别对应未达里程碑、部分完成、全部完成，再乘 100。例如夹住胡萝卜或吐司只得 0.5、放入碗或放到盘才得 1；白板任务夹起板擦只得 0.5、擦完才得 1；叠三盘先叠两盘为 0.5。每模型共 $5\times4\times10=200$ 次试验，67.8 是这些里程碑分数的均值，绝非 67.8% 完整任务成功率。
+
 ### 5.2 Main Results
 
 **【Paper】** 主要数字应按评测协议解读：LIBERO 是成功率，LIBERO-Plus 是对同一 checkpoint 的零样本鲁棒性成功率，而 CALVIN 主指标是平均连续成功指令数，不能与前两者直接相减比较。
@@ -251,7 +259,9 @@ $$
 | 真实世界平均 progress         |               67.8 |                                $\pi_{0.5}$ 56.8，Fast-WAM 40.0 |
 | H100 latency / VRAM           | 60.6 ms / 4.26 GiB | $\pi_{0.5}$ 193.1 ms / 7.94 GiB；Fast-WAM 360.6 ms / 13.63 GiB |
 
-**【Analysis】** SLIM 在 LIBERO-Plus 并非所有扰动均最好：例如 robot initial-state shift 为 36.90%，低于表中 VLA-JEPA 的 67.7%。更准确的结论是其整体鲁棒性强且计算效率突出，而不是在每种 OOD 偏移上全面领先。
+**【Paper / Code】** 官方 canonical 记录给出了分母：LIBERO 为 1,950/2,000；LIBERO-Plus 为 7,768/10,030，是按所有测试 case 汇总，不能简单当成七类扰动百分比的等权平均。CALVIN 的 4.556 等于完成至少 1–5 项的概率之和：0.993 + 0.967 + 0.923 + 0.871 + 0.802；完整五项成功率为 80.2%，不是 91.12%。README 说明 CALVIN 发布的是 40-epoch run 中选出的 epoch 15，文章未交代独立 checkpoint-selection split。
+
+**【Analysis】** SLIM 的 LIBERO-Plus 总体 77.45% 仍低于 VLA-JEPA 79.5%，robot initial-state shift 36.90% 也低于其 67.7%。实机 background 下平均 49，低于 $\pi_{0.5}$ 的 54；叠积木两者都只有 10 分。优势是这个模型规模下较高的整体表现与较低推理开销，不能写成所有视觉扰动或所有任务全面领先。不同基线还带有不同预训练、输入及训练配置，排名并未隔离架构的单一因果贡献。
 
 ![真实世界各条件下的平均 progress score（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-slim/realworld-bars.7lkqeewndo.webp)
 
@@ -259,9 +269,13 @@ $$
 
 ![Stage 1、IDM:FDM 权重和 EMA target 的消融（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-slim/ablation.73uoptv9rr.webp)
 
-**【Paper】** 加上 Stage 1 后，LIBERO-Plus 从约 68.2% 升至 77.45%，CALVIN 从约 4.43 升至约 4.52；IDM:FDM = 0.125:1 给出最好的联合结果，极端权重更差。
+**【Paper】** 加上 Stage 1 后，LIBERO-Plus 从约 68.2% 升至 77.45%，CALVIN 从图中约 4.39 升至 4.556；IDM:FDM = 0.125:1 给出最好的联合结果，极端权重更差。
 
-**【Paper】** EMA target 是必要的稳定器：没有 EMA 时，LIBERO-Plus 从 77.45% 降至 66.82%，CALVIN 从 4.556 降至 4.382。表征有效秩从 61.28 降至 13.95，而 token cosine similarity 从 0.071 升到 0.352；虽然 future-latent MSE 反而更低（0.245→0.166），论文将其解释为低秩坍塌下更容易拟合的退化 target。
+**【Paper】** EMA target 在本实验中是有效的稳定器：没有 EMA 时，LIBERO-Plus 从 77.45% 降至 66.82%，CALVIN 从 4.556 降至 4.382。表征有效秩从 61.28 降至 13.95，而 token cosine similarity 从 0.071 升到 0.352；虽然 future-latent MSE 反而更低（0.245→0.166），论文将其解释为低秩坍塌下更容易拟合的退化 target。
+
+**【Analysis】** Stage 1 消融是整套训练流程的证据，不能直接断言改善只来自未来 loss：Stage 1 还增加 LIBERO-90 数据与计算。官方 direct-policy overlay 写 43 epochs，而 canonical 两阶段是 17,736 + 81,200 optimizer steps；只按 3+40 相加并不自动等于相同更新量、不同目标的 FLOPs 或数据覆盖。Figure 7 没有给误差条，0.125:1 是所测权重中的最佳点；图中 0:1 仅说明去掉 IDM 后变差，并未展示对所有 IDM-only 配方的穷尽比较。
+
+**【Paper】** Figure 8 的 attention 诊断只看两个匹配样例，在第 15 层对 action-to-patch attention 按 action tokens 取最大值，再投影回图像。热图更聚焦物体和夹爪是定性支持，不是因果归因，也不是物体 grounding 的独立准确率。
 
 ### 5.4 Generalization
 
@@ -275,7 +289,7 @@ $$
 
 **【Analysis】** SLIM 将“动作是否合理”转写成两个可学习问题：它是否解释当前到未来的变化（IDM），以及该变化是否能由状态和动作预测（FDM）。这比只从 $o_t$ 做行为克隆提供更密集的结构约束，又不像像素预测那样要求模型分配容量给纹理重建。
 
-**【Analysis】** EMA target 防止 encoder 与 predictor 共同快速漂移到常量或低秩表示；消融中的有效秩和性能同时下降，是这个机制必要性的直接支持。
+**【Analysis】** EMA 缓和 target 的快速漂移；“no EMA” 实现仍然对 online target detach，因此消融比较的是慢速 teacher 与即时 stop-gradient teacher，并非是否阻断 target 梯度。有效秩下降、相似度与能量集中上升支持退化解释，但 EMA 本身不是避免任何形式坍塌的数学保证；两个不同 target 分布的 MSE 也不能单独拿来衡量预测质量。
 
 ### 6.2 核心创新
 
@@ -287,7 +301,7 @@ $$
 | ------------ | --------------------------------------------------- | ------------------------------------------------------------------- |
 | 大型 VLA     | 大 VLM 主导每步控制                                 | 将主干换成紧凑 observation-action interaction，语言为条件而非主序列 |
 | 像素级 WAM   | 预测 future frame/video，可能 test-time imagination | 仅训练期预测 latent；部署不生成未来视觉                             |
-| JEPA 式预测  | embedding prediction                                | 加入 action reconstruction，使 future latent 对动作因果地可辨识     |
+| JEPA 式预测  | embedding prediction                                | 加入 action reconstruction，使 future latent 受到动作重建的统计约束 |
 | 分离 IDM/FDM | 两个模块或表征空间                                  | 两个目标共享同一个 MoT policy backbone                              |
 
 ### 6.4 关键假设
@@ -305,7 +319,7 @@ $$
 **【Analysis】**
 
 1. FDM 只预测固定 horizon 的 latent，无法显式提供长期规划所需的多步分支或不确定性；长程能力主要仍依赖闭环反复执行。
-2. 论文将低延迟与小显存放在单张 H100、PyTorch eager、各模型原生 horizon/sampling schedule 下比较，适合展示部署开销，但不等价于严格统一计算预算的基准。
+2. Table 4 / Appendix A.5 测的是单张 H100、batch=1、BF16、PyTorch eager 的模型调用，排除环境、RPC、模型加载；SLIM / Fast-WAM 缓存语言，$\pi_{0.5}$ 走原生 PyTorch 路径。三者分别预测 8 / 32 / 10 步并采样 4 / 10 / 10 次，490.73 / 2090.07 / 4714.59 GFLOPs 是每 chunk 而非每控制步。60.6 ms 约为每秒 16.5 次模型调用，不是完整闭环频率；4.26 GiB 为论文定义的增量峰值，不宜作为包含所有服务常驻项的总显存承诺。
 3. 使用 DINOv2 与 T5-small 仍带有外部预训练先验；“无 additional embodied pretraining”不应被误读为“从头学视觉与语言”。
 4. Stage 1 需要同一轨迹的 future observation；这在离线示教数据中自然成立，但并不能直接解决在线环境下的因果探索与数据覆盖问题。
 

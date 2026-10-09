@@ -1,7 +1,7 @@
 ---
 title: 'Universal Manipulation Interface 论文精读：让机器人从野外人类示教中学习'
 publishDate: 2026-08-27
-updatedDate: 2026-08-27
+updatedDate: 2026-09-22
 description: '精读 UMI：用手持夹爪、鱼眼相机、隐式双目、视觉惯性 SLAM、延迟匹配与相对轨迹，把任意环境中的人类操作示教迁移到多种机器人。'
 heroImage:
   { src: 'https://pic.hana0721.top/124956717_p0_master1200.83amt2xvmx.webp', color: '#8C8275' }
@@ -25,7 +25,7 @@ paper:
     - 'Siyuan Feng'
     - 'Russ Tedrake'
     - 'Shuran Song'
-  venue: 'arXiv'
+  venue: 'RSS 2024'
   year: 2024
   code: 'https://github.com/real-stanford/universal_manipulation_interface'
   project: 'https://umi-gripper.github.io'
@@ -36,13 +36,19 @@ import Algorithm from '@/components/advanced/Algorithm.astro'
 import AlgorithmStep from '@/components/advanced/AlgorithmStep.astro'
 import { Aside } from '@/components/user'
 
-<ArxivRating id='2402.10329' tldr='UMI 用便携手持夹爪采集带动作的野外示教，再以共享的鱼眼视觉、相对位姿和延迟补偿接口训练 Diffusion Policy，实现跨环境、跨物体和跨机器人迁移。' rank={5} />
+<ArxivRating
+  id='2402.10329'
+  tldr='UMI 用便携手持夹爪采集带动作的野外示教，再以共享的鱼眼视觉、相对位姿和延迟补偿接口训练 Diffusion Policy，实现跨环境、跨物体和跨机器人迁移。'
+  rank={5}
+/>
 
 ## 1. 论文概述
 
-**【Paper】** UMI（Universal Manipulation Interface）要解决的是一个很实际的矛盾：裸手视频足够便携却没有精确动作，传统 teleoperation 有动作却必须把机器人带到每个环境。作者把 GoPro、3D 打印平行夹爪和软指套在手上，直接在家庭、咖啡馆等环境采集“带动作的第一视角数据”，再把同样的摄像头和夹爪装到机器人上执行。
+**【Paper】** UMI（Universal Manipulation Interface）要解决的是一个很实际的矛盾：裸手视频足够便携却没有精确动作，传统 teleoperation 有动作却必须把机器人带到每个环境。作者让人手持装有 GoPro 和柔性指尖的 3D 打印平行夹爪，直接在家庭、咖啡馆等环境采集“带动作的第一视角数据”，再把同样的摄像头和夹爪装到机器人上执行。
 
 ![UMI 硬件与示教接口（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-umi/UMI_hardware_v2.szos3czxc.webp)
+
+本文核对 [arXiv v3 正文与附录](https://arxiv.org/html/2402.10329v3)，以及[官方仓库固定 commit d095ba9](https://github.com/real-stanford/universal_manipulation_interface/tree/d095ba9590df789df5189eea5ee7e431689038a6)；该工作发表于 RSS 2024。
 
 ### 一句话总结
 
@@ -61,7 +67,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** Teleoperation（ALOHA、SpaceMouse、VR 等）通常具有较小的 embodiment gap，但采集成本高、场景受限；被动人类视频覆盖广，却缺少可监督的动作并存在人-机器人形态差异。早期手持夹爪工作提高了可携带性，但受限于单目 SfM 的尺度歧义、窄视野和低精度动作，主要停留在 quasi-static pick-and-place。
 
-**【Analysis】** UMI 的切入点是把“数据采集接口”和“策略网络”分开优化：先让采集设备提供足够可靠的动作与视觉，再让任意序列 Policy（本文使用 Diffusion Policy，ACT 也可作为替换）学习这些动作。
+**【Analysis】** UMI 的切入点是把“数据采集接口”和“策略网络”分开优化：先让采集设备提供足够可靠的动作与视觉，再让任意序列 Policy（本文使用 Diffusion Policy，作者提出 ACT 也可能替换，但本文没有给出 ACT 的对照实验）学习这些动作。
 
 ## 3. 问题定义
 
@@ -84,15 +90,17 @@ import { Aside } from '@/components/user'
 
 #### 手持示教接口
 
-**【Paper】** 780 g 的 3D 打印平行夹爪成本约 73 美元，GoPro 与配件约 298 美元。软指提供被动顺应性，扳机启动录制；连续 fiducial-marker 跟踪夹爪宽度。双臂只需再增加一个相同单元。
+**【Paper】** 780 g 的 3D 打印平行夹爪成本约 73 美元，GoPro 与配件约 298 美元。软指提供被动顺应性，扳机驱动夹爪开合，fiducial marker 用于连续估计夹爪宽度。录像由 GoPro 按钮、遥控器或双臂时的语音命令启停，不是“扳机启动录制”。价格是论文当时的物料清单，不是当前报价。双臂只需再增加一个相同单元。
 
 #### 鱼眼与侧镜
 
-155° 原始鱼眼图像保留中心分辨率并扩大场景上下文；直接矫正为针孔图像会把外围拉伸、中心压缩。侧镜在同一帧内生成两个虚拟相机，裁剪后做数字反射并交换左右镜像，令物体朝向在三个视图中一致。
+155° 原始鱼眼图像保留中心分辨率并扩大场景上下文；直接矫正为针孔图像会把外围拉伸、中心压缩。侧镜在同一帧内生成两个虚拟相机，裁剪后做数字反射并交换左右镜像，令物体朝向在三个视图中一致。这些镜中视图与主视图仍在同一张 RGB 图里，策略隐式利用视差与遮挡线索；论文没有先构建显式深度图或训练独立立体匹配网络。
 
 #### 视觉惯性 SLAM
 
-**【Paper】** 基于 ORB-SLAM3 联合优化视觉和 GoPro 加速度计/陀螺仪约束，在运动模糊或低纹理时短暂维持跟踪并恢复真实尺度；map-then-localize 使不同示教共享场景坐标，从而计算双臂相对位姿。
+**【Paper】** 基于 ORB-SLAM3 联合优化视觉和 GoPro 加速度计/陀螺仪约束，在运动模糊或低纹理时短暂维持跟踪并恢复真实尺度；map-then-localize 使同一场景的不同示教共享坐标，从而计算双臂相对位姿。附录的实现并非直接使用 ORB-SLAM3 原生固定地图 localization：它把约一分钟的预建地图作为初始化，重定位后继续建图和优化，并可用已知大小 marker 改善初始化；marker 不需出现在正式示教中。
+
+**【Analysis】** SLAM 主要用于**离线恢复示教动作**。部署时末端状态来自机器人自身，不要求每次 VLA 推理都重新做视频 SLAM。连续宽度配合软指可间接调节抓持力，但设备并没有据此测得标定的接触力标签。
 
 #### 策略接口
 
@@ -104,7 +112,7 @@ import { Aside } from '@/components/user'
 
 $$a_{t:t+H}=\{(T_{t\rightarrow t+i}, g_{t+i})\}_{i=1}^{H}$$
 
-其中 $T_{t\rightarrow t+i}\in SE(3)$ 是相对于当前 EE 的目标位姿，$g$ 是连续夹爪宽度，$H$ 是 action horizon。
+令 $T_t$ 为当前 EE 在任一共同参考系中的位姿，则 $T_{t\rightarrow t+i}=T_t^{-1}T_{t+i}$；部署时以机器人当前位姿恢复 $\hat T_{t+i}=T_t\hat T_{t\rightarrow t+i}$。其中 $T_{t\rightarrow t+i}\in SE(3)$ 是相对于当前 EE 的目标位姿，$g$ 是连续夹爪宽度，$H$ 是 action horizon。
 
 **【Analysis】** 与 delta 表达不同，$T_{t\rightarrow t+i}$ 不把前一步预测误差写入下一步参考系；与 absolute 表达不同，它不要求 SLAM 坐标和机器人 base 做高精度全局标定。
 
@@ -112,13 +120,17 @@ $$a_{t:t+H}=\{(T_{t\rightarrow t+i}, g_{t+i})\}_{i=1}^{H}$$
 
 $$t_{execute}=t_{obs}+\Delta_{obs}+\Delta_{infer}+\Delta_{act}$$
 
-推理时丢弃时间戳早于 $t_{execute}$ 的动作，仅调度未来动作。观测侧则以最高延迟（通常是相机）为基准，对夹爪和 proprioception 流做线性插值。
+上式是最早可用动作时刻的示意，不能理解为给每个预测动作机械地加一遍所有延迟。更清楚的流程是：预测第 $i$ 步有期望到达时刻 $\tau_i=t_{obs}+i\Delta t$；对设备 $j$，若其执行延迟为 $\ell_j$，应安排在 $\tau_i-\ell_j$ 发送或进入跟踪。已经赶不上该到达时刻的前缀需要舍弃。
+
+观测侧以最高延迟流（通常相机）的**采集时间**对齐历史状态；不能用当前关节位置搭配旧图像。平移与夹爪宽度可线性插值，代码用 PoseInterpolator 处理旋转。延迟匹配减少流之间的时间错位，却不会让旧观测变成当前观测，也不消除控制器的非恒定滞后。
 
 ### 4.4 Training
 
 **【Paper】** UMI 不绑定特定 Policy；实验统一使用 Diffusion Policy，视觉骨干按任务采用 ResNet 或 CLIP ViT。数据先经过 SLAM 与机器人运动学可行性过滤，再组成同步序列训练。
 
-**【Code】** README 的可复现实例是 `07_generate_replay_buffer.py` 生成 Zarr 数据，随后运行 `train.py --config-name=train_diffusion_unet_timm_umi_workspace`；单卡测试目标为 RTX 3090 24 GB。训练配置、数据读取和真实机器人 replay 分别位于 `configs/`、`umi/` 与 `scripts_real/`。
+**【Paper】** 附录 Table A1 使用两步本体状态历史，野外杯子模型只用一帧图像，其余任务两帧；动作/观测名义频率为 10 Hz，投掷为 20 Hz。投掷按示教原速度执行，其他任务以 0.5 倍速度执行。DDIM 使用 50 个训练扩散时间步、16 次推理去噪，不能把 50 写成部署步数，也不能把 10/20 Hz 写成每秒独立重规划次数。
+
+**【Code】** README 的可复现实例是 `07_generate_replay_buffer.py` 生成 Zarr 数据，随后运行 `train.py --config-name=train_diffusion_unet_timm_umi_workspace`；单卡测试目标为 RTX 3090 24 GB。配置位于 `diffusion_policy/config/`，策略数据读取在 `diffusion_policy/dataset/`，部署入口为根目录 `eval_real.py`。公开 `task/umi.yaml` 设置 action horizon 16，评估默认每 6 步推理一次；论文 Table A1 的 `Ta` 栏写 6，不能把公开预测 16、执行/重规划 6 与论文栏名强行视为同一参数。
 
 <Algorithm number={1} title='UMI Policy Training' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>野外视频、IMU、夹爪轨迹、目标机器人运动学</div>
@@ -127,12 +139,16 @@ $$t_{execute}=t_{obs}+\Delta_{obs}+\Delta_{infer}+\Delta_{act}$$
   <AlgorithmStep>运行视觉惯性 SLAM，并将示教重定位到共享场景坐标</AlgorithmStep>
   <AlgorithmStep>按目标机器人运动学过滤不可执行轨迹，构造相对观测和动作序列</AlgorithmStep>
   <AlgorithmStep>用 Diffusion Policy 拟合同步观测到相对 EE/夹爪动作的条件分布</AlgorithmStep>
-  <AlgorithmStep keyword='return'>保存验证集表现最佳的策略</AlgorithmStep>
+  <AlgorithmStep keyword='return'>
+    保存 checkpoint；公开示例按 train_loss 保留 top-k，另保存最后模型
+  </AlgorithmStep>
 </Algorithm>
 
 ### 4.5 Inference
 
-**【Code】** `scripts_real/replay_real_robot.py` 通过 `predict_action` 得到 pose 与 gripper 序列，将动作转换为机器人控制器和夹爪的带时间戳 waypoint；执行循环会考虑帧延迟、命令延迟并丢弃过期动作。
+**【Code】** 实际部署入口 `eval_real.py` 调用 `predict_action`，经 `get_real_umi_action` 把相对输出转换为机器人坐标系目标；`BimanualUmiEnv.exec_actions` 分别减去 `robot_action_latency` 和 `gripper_action_latency` 来调度 waypoint。博客原先写的 `scripts_real/replay_real_robot.py` 不是该版本入口。
+
+**【Code】** 公开代码还有一个不应漏掉的边界：若整段预测均过期，`eval_real.py` 会取**最后一个目标**改约到下个时间步，而不是完全丢弃并停止执行。它也有桌面与双夹爪碰撞近似修正，因此最终命令不一定逐值等于网络原始输出；这不构成所有机器人运动约束的完整规划保证。
 
 <Algorithm number={2} title='Latency-Matched Inference' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>当前 RGB、EE pose、gripper width 与策略</div>
@@ -145,7 +161,9 @@ $$t_{execute}=t_{obs}+\Delta_{obs}+\Delta_{infer}+\Delta_{act}$$
 
 ### 4.6 代码实现对照
 
-**【Code】** 官方仓库同时提供数据采集、SLAM pipeline（`00_process_videos.py` 至 `07_generate_replay_buffer.py`）、Diffusion Policy 训练入口 `train.py`、相机/夹爪/机器人 latency calibration 脚本以及 UR5、Franka 的 replay/evaluation 脚本。论文将接口描述为硬件无关，而代码通过具体 controller wrapper 和 `eval_robots_config.yaml` 将相对动作落到每种机器人。
+**【Code】** 官方仓库同时提供数据采集、SLAM pipeline（`00_process_videos.py` 至 `07_generate_replay_buffer.py`）、Diffusion Policy 训练入口 `train.py`、相机/夹爪/机器人 latency calibration 脚本以及 UR5、Franka 的 replay/evaluation 脚本。论文的硬件无关指策略观测/动作接口可共享；代码仍需 controller wrapper、TCP 偏移和 `example/eval_robots_config.yaml` 中的各设备延迟，双臂还需 base-to-base 变换 `tx_left_right`。因此“无需相机到机器人世界外参”不等于整套系统免标定。
+
+**【Code】** `real_inference_util.py` 与 `pose_repr_util.py` 的 `relative` 路径实现 $T_t^{-1}T_{t+i}$，并将每臂动作编码为 3 维平移、6 维旋转表示、1 维宽度共 10 维；这不是 10 个自由度。另保留名为 `rel` 的历史兼容分支，源码注明其实现有问题，不能将 `rel` 与 `relative` 当成别名。
 
 ## 5. 实验
 
@@ -161,31 +179,33 @@ $$t_{execute}=t_{obs}+\Delta_{obs}+\Delta_{infer}+\Delta_{act}$$
 
 **【Paper】** 主要结果如下：
 
-| 任务 | 示教 | 成功率 |
-| --- | ---: | ---: |
-| Cup arrangement（UR5） | 305 | 20/20 = 100% |
-| Cup arrangement（Franka FR2） | 同一 checkpoint | 18/20 = 90% |
-| Dynamic tossing | 280 | 105/120 = 87.5% |
-| Bimanual cloth folding | 250 | 14/20 = 70% |
-| Dish washing | 258 | 14/20 = 70% |
+| 任务                          |            示教 |                      成功率 |
+| ----------------------------- | --------------: | --------------------------: |
+| Cup arrangement（UR5）        |             305 |                20/20 = 100% |
+| Cup arrangement（Franka FR2） | 同一 checkpoint |                 18/20 = 90% |
+| Dynamic tossing               |             280 | 105/120 = 87.5%（按物体计） |
+| Bimanual cloth folding        |             250 |                 14/20 = 70% |
+| Dish washing                  |             258 |                 14/20 = 70% |
+
+**【Paper】** 投掷的 120 是 20 回合×6 个物体，不是 120 个完整六物体任务；规则允许物体落到目标桶底后弹出仍算成功，也允许失败后再投。杯子成功需直立置于碟上且把手方向误差不超过 ±15°。洗碗成功主要按盘子清洁与放回架子判断，少于 5 mm 的残留可接受，海绵之后滑入水槽不影响该项成功；因此 70% 不宜解释为所有七个子步骤逐项严格满分。
 
 ### 5.3 Ablation Study
 
-**【Paper】** 杯子任务中，去掉鱼眼降至 55%（11/20）；delta action 为 80%，absolute action 仅 25%；镜像未经数字反射为 85%，反射并交换左右后达到 100%。投掷任务关闭延迟匹配后由 87.5% 降至 57.5%；去掉双臂相对位姿后折衣由 70% 降至 30%；洗碗中不用 CLIP ViT、从零训练 ResNet-34 为 0/10。
+**【Paper】** 杯子任务中，将原图矫正并裁剪到 69° FoV 的无鱼眼对照为 55%（11/20）；delta action 为 80%，absolute action 仅 25%；无侧镜为 90%，有侧镜但未数字反射为 85%，反射并交换左右为 100%。投掷任务关闭延迟匹配后由 87.5% 降至 57.5%；去掉双臂相对位姿后折衣由 70% 降至 30%；洗碗中从零训练 ResNet-34 为 0/10。这个对照同时改变 backbone 架构与预训练，不能把全部差距只归因于 CLIP；绝对动作 25% 的差距也包含坐标标定质量，不能推导绝对位姿控制普遍差于相对控制。
 
 ![相对轨迹动作表示（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-umi/UMI-Action_repr.4920k6mkyf.webp)
 
 ### 5.4 Generalization
 
-**【Paper】** 3 名示教者在 30 个地点收集 1400 条杯子示教；在咖啡馆金属桌和流水喷泉两个未见环境、未见杯子上，总成功率 43/60 = 71.7%，测试杯成功率 15/20 = 75%。只用实验室窄域数据的对照在新环境中为 0%，说明多样化 in-the-wild data 而不仅是预训练视觉骨干决定了泛化。
+**【Paper】** 3 名示教者在 12 人时内于 30 个地点收集 1400 条杯子示教；在咖啡馆金属桌和流水喷泉两个未见环境上，总成功率 43/60 = 71.7%，其中**训练杯在新环境**为 28/40，两个未见杯在新环境为 15/20。不能把全部 60 次说成同时未见物体与未见环境。训练杯数量在正文写 15、附录 Figure A2 写 18，版本内口径不一致，本文不据此确定唯一训练物体数。只用实验室窄域数据的对照在新环境中为 0%，支持广泛示教对该设置有效；但野外与窄域数据还同时改变数量、物体覆盖与示教者，不能将其作为仅改变环境多样性的严格因果实验。
 
-数据效率与跟踪精度也很关键：UMI 在杯子任务上的采集速度超过 SpaceMouse teleoperation 的 3 倍；投掷任务中 SpaceMouse 在 15 分钟内没有产生成功示教。SLAM 平均 ATE 为 6.1 mm / 3.5°，双臂相对位姿 RPE 为 10.1 mm / 0.8°。
+数据效率与跟踪精度也很关键：UMI 在杯子任务上的采集速度超过 SpaceMouse teleoperation 的 3 倍；投掷任务中 SpaceMouse 在 15 分钟内没有产生成功示教。SLAM 平均 ATE 为 6.1 mm / 3.5°，双臂相对位姿 RPE 为 10.1 mm / 0.8°。这些来自有 MoCap 真值的 7 个单手与 7 个双手任务，不能当成所有野外视频或最后机器人执行误差的上界；采集吞吐对照也只覆盖同一操作者的两个任务。
 
 ## 6. 方法分析
 
 ### 6.1 为什么有效？
 
-**【Analysis】** UMI 同时压低了三个分布差异：腕部摄像头让视觉输入近似一致；相对轨迹消除全局坐标偏差；时间戳补偿让“看到”和“执行”处于同一时刻。这样 Diffusion Policy 面对的是更接近 i.i.d. 的监督信号，而不是用网络容量硬记住系统误差。
+**【Analysis】** UMI 同时压低了三个分布差异：腕部摄像头让视觉输入近似一致；相对轨迹消除全局坐标偏差；时间戳补偿让各观测对应同一个历史时刻、让各执行器尽量在指定未来时刻到达。它减少了可校正的系统差异，但时序样本仍相关，行为克隆的闭环分布偏移仍存在，不能把数据称为因此变成 i.i.d.。
 
 ### 6.2 核心创新
 
@@ -193,7 +213,7 @@ $$t_{execute}=t_{obs}+\Delta_{obs}+\Delta_{infer}+\Delta_{act}$$
 
 ### 6.3 与已有方法的本质区别
 
-**【Analysis】** ALOHA 等 leader-follower 把机器人带到示教者身边；UMI 把“机器人末端的观测与动作接口”带到示教者手上。被动视频方法从视觉中猜动作，UMI 直接记录可执行的 6DoF 轨迹，因此能覆盖投掷、双臂折衣和洗碗等任务。
+**【Analysis】** ALOHA 等 leader-follower 把机器人带到示教者身边；UMI 把“机器人末端的观测与动作接口”带到示教者手上。被动视频方法从视觉中猜动作，UMI 通过视觉惯性后处理估计 6DoF 轨迹，并再筛选机器人可执行的部分，因此能覆盖投掷、双臂折衣和洗碗等任务。
 
 ### 6.4 关键假设
 
@@ -203,7 +223,7 @@ $$t_{execute}=t_{obs}+\Delta_{obs}+\Delta_{infer}+\Delta_{act}$$
 
 ### 7.1 作者明确提出的局限
 
-**【Paper】** 论文指出直接镜像会混淆视觉编码器，必须数字反射；绝对动作受标定误差影响明显；SLAM 在极端低纹理/强运动模糊时仍可能失败；野外杯子模型在直射阳光下表现较差。动态任务还会受到目标机器人关节速度和可达性的限制。
+**【Paper】** 作者列出三类限制：动作采集时尚不知道下游机器人运动学，需后续过滤；SLAM 依赖足够环境纹理；设备重量、体积与平行夹爪自由度使采集仍慢于裸手。跨机器人杯子实验的两次 Franka 失败都涉及关节限位，也说明接口兼容不等于任意轨迹可执行。**【Code】** “直射阳光下表现不佳”来自官方 README 的部署说明，不是论文局限节的量化结论。
 
 ### 7.2 自己分析得到的局限
 
@@ -214,5 +234,6 @@ $$t_{execute}=t_{obs}+\Delta_{obs}+\Delta_{infer}+\Delta_{act}$$
 **【Analysis】** UMI 给 VLA/机器人基础模型的启发是：大模型之前，先统一数据接口。相对轨迹可以成为跨 embodiment 的 action token，场景级 map 可提供双臂关系，而 latency metadata 则可作为策略条件输入。下一步值得研究的是把 UMI 的野外数据与语言任务描述结合，并让策略显式预测可达性、失败恢复和执行时间，而不只预测几何 waypoint。
 
 <Aside type='note' title='阅读提示'>
-  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】` 表示基于论文和代码的分析推断。
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。
 </Aside>

@@ -1,7 +1,7 @@
 ---
 title: 'Adaptive Action Chunking 论文精读：让 VLA 在推理时自己决定执行多长'
 publishDate: 2026-08-26
-updatedDate: 2026-08-26
+updatedDate: 2026-09-22
 description: '精读 AAC：用多候选动作的 action entropy 在推理时自适应选择 chunk size，在不改训练架构的情况下平衡 VLA 的反应性与时间一致性。'
 heroImage:
   { src: 'https://pic.hana0721.top/74378589_p0_master1200.5j4sgia4w5.webp', color: '#8C8275' }
@@ -67,14 +67,14 @@ import { Aside } from '@/components/user'
 
 1. 将“推理时 action chunk size 的选择”明确为 VLA 部署中的独立问题，并展示固定长度对不同任务并不总是合适。
 2. 提出无需额外训练、无需修改网络结构的 AAC：从多条候选 action chunk 估计 action entropy，以熵曲线的一阶差分选择 chunk size。
-3. 用最小 action magnitude 约束避免模型在近似静止状态下过度自信，保证执行的 chunk 至少包含足够运动。
-4. 在 RoboCasa、LIBERO、LIBERO-Pro、$pi_{0.5}$ 和真实 Realman 机械臂上验证，平均成功率与 OOD 鲁棒性均优于固定 chunk baseline。
+3. 用最小 action magnitude 约束避免模型在近似静止状态下过度自信，把幅度达阈值的最短前缀作为下限；没有达到阈值时实现回退到完整 horizon，因此不是运动量保证。
+4. 在 RoboCasa、LIBERO、LIBERO-Pro、$\pi_{0.5}$ 和真实 Realman 机械臂上验证，平均成功率与 OOD 鲁棒性均优于固定 chunk baseline。
 
-**【Analysis】** AAC 的创新点不在于训练一个新的 Policy，而在于把“模型已经生成的多个可能动作”重新解释为一个可用于控制频率调度的置信度信号。这使它可以作为 GR00T、$pi_{0.5}$ 等 flow-matching action head 的推理插件。
+**【Analysis】** AAC 的创新点不在于训练一个新的 Policy，而在于把“模型已经生成的多个可能动作”重新解释为一个可用于控制频率调度的置信度信号。这使它可以作为 GR00T、$\pi_{0.5}$ 等 flow-matching action head 的推理插件。
 
 ## 2. 背景与相关工作
 
-**【Paper】** Action Chunking 指在一次 observation 后预测一段动作，并连续执行其中一部分，再重新规划。它能降低单步 Behavior Cloning 的 compounding error，已经成为 ACT、Diffusion Policy、GR00T、$pi_0$ 和 SmolVLA 等方法的常见范式。
+**【Paper】** Action Chunking 指在一次 observation 后预测一段动作，并连续执行其中一部分，再重新规划。它能降低单步 Behavior Cloning 的 compounding error，已经成为 ACT、Diffusion Policy、GR00T、$\pi_0$ 和 SmolVLA 等方法的常见范式。
 
 固定执行长度却有结构性矛盾：
 
@@ -136,7 +136,7 @@ AAC 不直接寻找熵最小的时刻，而是先计算前缀 chunk 的平均熵
 
 **【Paper】** 仅靠熵可能在模型预测“原地不动”时给出过短 chunk。作者定义平移、旋转和夹爪切换的总动作幅度，并要求它超过阈值。
 
-**【Code】** `action_magnitude` 默认考察 $k=2,\ldots,16$，平移使用前缀位移的范数，旋转使用四元数复合后的范数，夹爪状态变化加权 `0.2`。`move_th=3` 时，代码取第一个幅度超过阈值的长度，并与熵选择结果取最大值。
+**【Code】** `action_magnitude` 默认考察 $k=2,\ldots,16$，平移使用前缀位移的范数，旋转先复合四元数，再由 `compose_rotations()` 转成 axis-angle 向量并取范数（对应净转角），夹爪状态变化加权 `0.2`。`move_th=3` 时，代码取第一个幅度超过阈值的长度，并与熵选择结果取最大值。
 
 ### 4.3 关键公式
 
@@ -170,7 +170,13 @@ $$
 h^*=\max\left(\arg\max_h(\overline E_{h+1}-\overline E_h),\xi\right),
 $$
 
-其中 $\xi$ 是最小长度约束。**【Code】** 实现中先对 `chunk_mean` 做 `np.diff` 和 `np.argmax`，将候选长度下限设为 2；随后计算幅度对应的 `min_id`，返回 `max(min_id, best_k_entropy)`。补充材料给出的 movement energy 阈值是 $\alpha=3$。
+其中 $\xi$ 是最小长度约束。**【Code】** 实现中先对 `chunk_mean` 做 `np.diff` 和 `np.argmax`，将候选长度下限设为 2；随后计算幅度对应的 `min_id`，返回 `max(min_id, best_k_entropy)`。补充材料给出的 movement magnitude 阈值是 $\alpha=3$。代码 `find_first_idx` 在所有前缀均未过阈值时返回 16，这会压过熵建议，强制完整 chunk；复现到其他 $H$ 必须同步修改硬编码范围。
+
+**【Analysis】** 这个 selector 的准确含义可由恒等式看清：
+
+$$\overline E_{h+1}-\overline E_h=\frac{E^{t+h}-\overline E_h}{h+1}.$$
+
+它找的是新加入一步相对已有前缀的最大平均熵增量，不是最大绝对熵、更不是经过校准的成功概率。若整条轨迹的熵近似恒定，所有差分接近零，`argmax` 可能选很早的索引；所以“低熵一定选长 chunk”只是动机，算法本身没有这一保证。
 
 ### 4.4 Training
 
@@ -190,7 +196,7 @@ $$
 
 ### 4.5 Inference
 
-**【Paper】** 在每个 observation timestep，模型并行采样 $N$ 条候选 chunk，计算每个未来时刻的动作熵和前缀平均熵，得到 $h^*$；随后只执行第一条候选 chunk（默认 chunk id 为 0）的前 $h^*$ 步，执行完再重新观测。
+**【Code】** 默认客户端在每个 observation timestep，模型并行采样 $N$ 条候选 chunk，计算每个未来时刻的动作熵和前缀平均熵，得到 $h^*$；随后只执行第一条候选 chunk（默认 chunk id 为 0）的前 $h^*$ 步，执行完再重新观测。
 
 **【Code】** `inference_client_action_entropy.py` 将输出切成 position / rotation / gripper 三组，调用 `select_chunk_size(..., method='gaussian_bernoulli', move_th=3)`，裁剪到 `:chunk_size` 后逐步执行。可选的 `backward` chunk-id selector 会比较当前候选与上一次未执行动作的重叠部分；默认配置使用第 0 条候选。
 
@@ -222,7 +228,7 @@ $$
 | 推理循环           | `libero/benchmark_scripts/inference_client_action_entropy.py`  | 每次请求后裁剪动作 chunk，执行完 chunk 才发起下一次请求                                                             |
 | 默认样本数         | `scripts/policy_server_robocasa.py`、`policy_server_libero.py` | `n_samples=20`                                                                                                      |
 
-**【Analysis】** 论文把 AAC 描述为通用的 inference-time 算法，但官方仓库目前主要围绕 GR00T server 与 LIBERO/RoboCasa client 组织；$pi_{0.5}$ 的结果来自对应 benchmark 客户端的适配，而不是一个完全独立的统一推理 API。
+**【Analysis】** 论文把 AAC 描述为通用的 inference-time 算法，但官方仓库目前主要围绕 GR00T server 与 LIBERO/RoboCasa client 组织；$\pi_{0.5}$ 的结果来自对应 benchmark 客户端的适配，而不是一个完全独立的统一推理 API。
 
 ## 5. 实验
 
@@ -250,13 +256,13 @@ $$
 
 ### 5.3 Ablation Study
 
-**【Paper】** 样本数实验显示，LIBERO 成功率从 1 个样本的 94.1% 增加到 20 个样本的 95.0%，40 个样本达到 95.5%；相应单张 A800 的推理时间为 83.0、106.0 和 157.0 ms。作者因此在主要 benchmark 中采用 20 个样本，约增加 20 ms 延迟。
+**【Paper】** 样本数实验显示，LIBERO 成功率从 单样本基线的 94.1% 增加到 20 样本 AAC 的 95.0%，40 个样本达到 95.5%；相应单张 A800 的推理时间为 83.0、106.0 和 157.0 ms。作者因此在主要 benchmark 中采用 20 个样本，相对单样本实测增加 23 ms（约 27.7%）。5/10/20/30/40 样本的成功率并非单调增长，不能把表格解释成更多采样必然更好。
 
-补充材料的消融还报告：去掉 minimum action magnitude 后，RoboCasa 平均成功率从 62.0% 降至 60.6%；加入 backward coherence 进行候选 chunk 选择后，平均成功率为 62.5%，比默认选择第一条候选高 0.5 个百分点。**【Analysis】** 这说明熵 selector 是主要收益来源，而幅度约束负责防止极短、近似 idle 的异常决策；候选 chunk id 的系统性选择仍未解决。
+**【Paper】** 现有 arXiv v2 补充材料仅给出 minimum magnitude 的定义和 RoboCasa 逐任务/固定长度结果，未给出“去掉该约束后 60.6%”或“backward coherence 后 62.5%”的消融表，因此不保留这两个无法定位出处的数字。**【Code】** 客户端确有候选选择选项，但支持某个选项不等于论文验证了其收益。
 
 ### 5.4 Generalization
 
-**【Paper】** 将 AAC 接到 $pi_{0.5}$ 后，LIBERO 平均成功率从 97.0% 提升到 97.9%，Spatial / Long / Object 分别为 99.1% / 95.2% / 99.2%。在 LIBERO-Pro 的位置扰动 OOD 设置中，GR00T 的平均成功率由 3.9% 提升到 6.3%，$pi_{0.5}$ 由 30.9% 提升到 34.8%。
+**【Paper】** 将 AAC 接到 $\pi_{0.5}$ 后，LIBERO 平均成功率从 97.0% 提升到 97.9%，Spatial / Long / Object 分别为 99.1% / 95.2% / 99.2%。在 LIBERO-Pro 的位置扰动 OOD 设置中，GR00T 的平均成功率由 3.9% 提升到 6.3%，$\pi_{0.5}$ 由 30.9% 提升到 34.8%。
 
 ![真实机器人上的香蕉、紧急按钮和长时抽屉任务（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-adaptive-action-chunking/aac-real-world.webp)
 
@@ -269,7 +275,7 @@ $$
 | Toy → drawer → close drawer | 65.0% |   **80.0%** |
 | 平均                        | 67.0% |   **82.0%** |
 
-作者还展示了香蕉抓取的安全性对比：固定 chunk 的 GR00T 在低质量早期动作下会撞到桌面，而 AAC 会在高熵阶段缩短执行并及时重规划。
+**【Paper】** Figure 6 展示了一段基线碰桌而 AAC 停在合适高度的定性案例。**【Analysis】** 这是个案证据；论文没有碰撞率、风险上界或安全约束评估，不能据此保证 AAC 避免碰撞。
 
 ## 6. 方法分析
 
@@ -277,13 +283,15 @@ $$
 
 **【Analysis】** AAC 利用的是一个简单但有用的闭环信号：多次采样若在某个未来时刻分歧变大，说明当前 observation 对 action head 来说并不确定。此时缩短 chunk 会更快取得新观测；反之，候选动作集中时，长 chunk 可以减少调用次数并保持轨迹平滑。
 
+**【Analysis】** 还需区分预测 horizon $H$ 与实际执行长度 $h$：AAC 不减少网络每次预测的 $H$，而是决定何时丢弃未执行后缀、重新观测。它改变的是重规划间隔，低层伺服频率并未随之改变。
+
 关键是 selector 不只看当前一步熵，而是看前缀平均熵的变化。这把“未来几步是否仍值得 open-loop 执行”转成一个可比较的曲线，而不是依赖绝对熵阈值，从而减轻不同任务和动作尺度之间的校准问题。
 
 ### 6.2 核心创新
 
 1. **Inference-time only**：不引入额外 reward、value model 或训练参数。
 2. **Mixed action spaces**：Gaussian differential entropy 与 Bernoulli entropy 可以在同一个 selector 中合并。
-3. **动态控制频率**：chunk size 随 episode 的语义阶段变化，而非整个任务固定一个超参数。
+3. **动态重规划频率**：chunk size 随 episode 的语义阶段变化，而非整个任务固定一个超参数。
 4. **可插拔**：官方实现只改变多候选采样和执行前缀，保留原 VLA backbone 与 action head。
 
 ### 6.3 与已有方法的本质区别
@@ -310,15 +318,15 @@ $$
 
 ### 7.1 作者明确提出的局限
 
-**【Paper】** 补充材料指出，当前对候选 chunk id 的选择仍较简单；backward coherence 只带来有限增益，如何联合一致性与前瞻性选择最佳候选值得进一步研究。作者也承认每个任务的最优 chunk size 尚未被完全达到。
+**【Paper】** 补充材料 B 指出逐任务的最佳性能尚未全部达到。**【Analysis】** 默认执行第 0 条候选说明 AAC 主要优化执行长度，并不识别最佳动作模式；联合选择 chunk id 和长度仍值得研究，但不是本文已完成的实验结论。
 
 ### 7.2 自己分析得到的局限
 
 1. **多样本成本与时延**：20 个样本在 A800 上约增加 20 ms；边缘设备或更大 action horizon 可能无法承受。
-2. **熵的尺度敏感性**：代码默认位置、旋转和夹爪权重均为 1，只有 gripper movement magnitude 使用 0.2；换机器人、归一化方式或 action dimension 后需要重新校准。
+2. **混合熵估计的限制**：连续部分使用高斯近似，忽略平移/旋转/夹爪间相关性，且 differential entropy 可以为负。理想固定线性缩放只给每步熵加常数，会在前缀差分中抵消；但有限样本、协方差正则和非线性归一化会改变排序，movement threshold 也仍依赖单位。
 3. **高熵不一定代表错误**：真正的多模态决策、视觉遮挡和接触动力学都可能导致合理但分散的候选动作。
 4. **候选相关性**：并行样本仅由初始噪声区分，若 flow-matching head 的随机性不足，熵估计的有效样本数会低于 $N$。
-5. **动作幅度阈值仍是超参数**：`move_th=3` 和 $\alpha=3$ 并非完全免调参；论文只在给定的机器人与归一化设置中验证。
+5. **动作幅度阈值仍是超参数**：`move_th=3` 和 $\alpha=3$ 并非完全免调参；论文只在给定的机器人与归一化设置中验证。其位置项是净位移范数，不是路径长度；往返动作可能相互抵消。附录 Eq. (9) 若字面理解为单位四元数乘积的范数恒为 1，不能代表转角，官方 `help_function.py` 实际返回 axis-angle 向量，其范数才代表净转角，复现应依照这一转换而非直接取四元数范数。
 
 ## 8. 启发与研究思考
 

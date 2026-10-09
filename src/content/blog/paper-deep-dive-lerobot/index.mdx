@@ -1,7 +1,7 @@
 ---
 title: 'LeRobot 论文精读：把机器人学习做成端到端开源基础设施'
 publishDate: 2026-08-26
-updatedDate: 2026-08-26
+updatedDate: 2026-09-22
 description: '精读 LeRobot：统一机器人中间件、LeRobotDataset、可异步推理栈与可复用策略实现，分析其如何降低真实机器人学习的工程门槛。'
 heroImage:
   { src: 'https://pic.hana0721.top/133376054_p0_master1200.1ziuqmv790.webp', color: '#8C8275' }
@@ -59,7 +59,7 @@ import { Aside } from '@/components/user'
 **【Paper】核心贡献**：
 
 1. 用 Python-native、可组合的 middleware 统一低成本机械臂、移动操作平台和 humanoid 的控制接口。
-2. 提出可存储多路相机、状态、动作、任务文本和元数据的 `LeRobotDataset`，并支持远程 streaming。
+2. 提出可存储多路相机、状态、动作、任务文本和元数据的 `LeRobotDataset`，并支持远程 streaming。标准化的是容器和读取接口，不会自动把不同机器人动作的单位、坐标系、维度或控制含义统一。
 3. 提供覆盖 imitation learning、reinforcement learning 与 VLA 的 PyTorch 策略实现，以及可在远程机器运行的 asynchronous inference。
 4. 通过 Hugging Face Hub 的公开数据和模型生态，形成“采集—训练—分享—复用”的闭环。
 
@@ -77,19 +77,19 @@ import { Aside } from '@/components/user'
 
 **【Analysis】** 因此 LeRobot 不是要取代 ACT、Diffusion Policy 或 Pi0，而是为它们提供共同的 data contract、robot contract 和 runtime contract。
 
-![Open hardware and data accessibility from paper Figure 3](https://pic.hana0721.top/blog/paper-deep-dive-lerobot/sec2-robot-and-data-accessibility-crop.3d5j4fuwwf.webp)
+![Open hardware and data accessibility from paper Figure 4](https://pic.hana0721.top/blog/paper-deep-dive-lerobot/sec2-robot-and-data-accessibility-crop.3d5j4fuwwf.webp)
 
 ## 3. 问题定义
 
 **【Paper】** 给定一个真实机器人及其传感器，系统需要支持以下闭环：
 
-| 环节 | 输入 | 输出 |
-| --- | --- | --- |
-| Control / middleware | 机器人配置、低层 SDK | 统一的 observation 与 action 接口 |
-| Teleoperation | leader 状态、follower 状态、相机 | 专家轨迹 episode |
-| Dataset | 多模态时间序列 | 可检索、可分享、可 streaming 的 `LeRobotDataset` |
-| Policy training | episode、任务文本、策略配置 | checkpoint 与 normalization stats |
-| Inference | 实时 observation、策略 checkpoint | action chunk 及逐步执行的 action |
+| 环节                 | 输入                              | 输出                                             |
+| -------------------- | --------------------------------- | ------------------------------------------------ |
+| Control / middleware | 机器人配置、低层 SDK              | 统一的 observation 与 action 接口                |
+| Teleoperation        | leader 状态、follower 状态、相机  | 专家轨迹 episode                                 |
+| Dataset              | 多模态时间序列                    | 可检索、可分享、可 streaming 的 `LeRobotDataset` |
+| Policy training      | episode、任务文本、策略配置       | checkpoint 与 normalization stats                |
+| Inference            | 实时 observation、策略 checkpoint | action chunk 及逐步执行的 action                 |
 
 机器人状态和动作的维度由 embodiment 决定；论文不假设统一的 action space。**【Code】** 当前仓库通过 `Robot`/`RobotConfig` 注册不同硬件，并由 policy 的 `PolicyFeature` 声明输入输出形状；因此扩展机器人主要是实现接口和特征映射，而不是修改训练器核心。
 
@@ -119,7 +119,7 @@ import { Aside } from '@/components/user'
 - **存储**：`data/**/*.parquet` 保存表格状态，`videos/**/*.mp4` 保存视频，`meta/info.json`、`stats.json`、`tasks.parquet` 保存 schema、归一化统计与任务索引。
 - **为什么需要**：把“不同机器人、不同相机、不同采样率”的数据变成可组合的统一 contract。
 
-**【Code】** `LeRobotDataset` 从本地目录或 Hugging Face Hub 加载数据；`StreamingLeRobotDataset` 使用 `IterableDataset`、有限长度 backtrack buffer 和 `torchcodec` 按需解码远程视频，内存占用不再随 episode 总数线性增长。
+**【Code】** `LeRobotDataset` 从本地目录或 Hugging Face Hub 加载数据；`StreamingLeRobotDataset` 使用 `IterableDataset`、有限长度 backtrack buffer 和 `torchcodec` 按需解码远程视频，高体积的帧内容不必全部常驻内存；全量 metadata、shuffle buffer、时间窗口与解码器缓存仍需占用资源。普通 `LeRobotDataset` 的本地可索引读取也不等于把全部 MP4 解码到 RAM，不能将两者简单写成“全数据进内存”和“恒定总内存”的对立。
 
 #### 策略与可复用 recipe
 
@@ -127,22 +127,22 @@ import { Aside } from '@/components/user'
 
 **【Code】** `PreTrainedPolicy` 约定 `forward`、`predict_action_chunk` 和 `select_action`。ACT、Diffusion、VQ-BeT、Pi0、SmolVLA 等策略用相同的 action-chunk 消费接口，训练器不需要知道每个模型的内部网络。
 
-![Robot learning algorithms supported by LeRobot](https://pic.hana0721.top/blog/paper-deep-dive-lerobot/sec3-robot-learning-algos-crop.7ehiitz22x.webp)
+![Robot learning algorithms supported by LeRobot (paper Figure 6)](https://pic.hana0721.top/blog/paper-deep-dive-lerobot/sec3-robot-learning-algos-crop.7ehiitz22x.webp)
 
 #### Asynchronous inference
 
 - **物理解耦**：policy server 可以运行在有 GPU 的远程机器，robot client 只运行低层控制。
 - **逻辑解耦**：producer 预测未来 action chunk，consumer 以固定控制频率消费队列。
-- **重叠 chunk**：对相同 timestep 的动作调用可插拔聚合函数 `f`；默认实现取最新动作，也可使用 weighted average。
-- **【Code】** `policy_server.py` 负责 observation 到 chunk 的推理，`robot_client.py` 的 `_aggregate_action_queues` 合并时间戳重叠的 chunk，并通过 gRPC 传输。
+- **重叠 chunk**：对相同 timestep 的动作调用可插拔聚合函数 `f`；正常 client 配置默认使用 `weighted_average`（0.3×旧动作 + 0.7×新动作）；只有直接调用 `_aggregate_action_queues` 且不传聚合函数时，内部 fallback 才是 latest。
+- **【Code】** `policy_server.py` 负责 observation 到 chunk 的推理，`robot_client.py` 的 `_aggregate_action_queues` 合并时间戳重叠的 chunk，并通过 gRPC 传输。接收端丢弃 timestep 不晚于已执行动作的旧预测，再按新 chunk 的有效 timestep 构造新队列；这不是把两个队列简单拼接。发出新观测也受队列阈值控制，默认剩余比例不超过 0.5 才请求，而不是每个控制周期都强制调用模型。
 
-![Asynchronous inference schema from paper Figure 6](https://pic.hana0721.top/blog/paper-deep-dive-lerobot/sec3-async-inf-crop.9gxb6vxlje.webp)
+![Asynchronous inference schema from paper Figure 8](https://pic.hana0721.top/blog/paper-deep-dive-lerobot/sec3-async-inf-crop.9gxb6vxlje.webp)
 
 ### 4.3 关键公式
 
 #### 数据样本与时间对齐
 
-**【Paper】** 每一帧可以表示为
+**【Analysis】** 将论文的数据接口写成便于阅读的示意记号（不是原文提出的新公式），每一帧可以表示为
 
 $$
  x_t = \{o_t^{state},\ o_t^{image_1},\ldots,o_t^{image_m},\ a_t,\ task_t\},
@@ -168,7 +168,9 @@ $$
 
 #### Streaming 的内存边界
 
-**【Code】** `StreamingLeRobotDataset` 只保留元数据、有限 backtrack/look-ahead 缓冲和当前视频解码帧；若缓冲上限为 `B`，运行时缓存近似为 `O(B)`，而不是完整数据集的 `O(N)`。论文未给出统一的 `B` 数值，因为它取决于 delta timestamp 和采样配置。
+**【Code】** `StreamingLeRobotDataset` 使用有限 shuffle buffer（当前构造器默认 1000）以及由 `delta_timestamps` 决定的回看/前看窗口；这两类缓存承担不同职责：前者近似打乱样本顺序，后者支持 history 与 future action chunk 查询。它保留 `IterableDataset` 的顺序消费性质，不能提供与任意索引、全局均匀随机采样完全等价的语义。
+
+**【Analysis】** 更准确的内存预算是 metadata + shuffle/frame window + video decoder cache，而不是只写一个 $O(B)$ 就宣称总内存严格独立于数据规模。连续时间窗口还必须限定在 episode 内并保留 padding mask；文件格式统一并不保证多相机物理同步已经正确。
 
 ### 4.4 Training
 
@@ -179,14 +181,20 @@ $$
 <Algorithm number={1} title='LeRobot policy training' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>`LeRobotDataset`、policy 配置、optimizer 配置、训练步数</div>
   <div slot='output'>可部署的 policy checkpoint 与数据统计</div>
-  <AlgorithmStep keyword='Given'>从 Hub 或本地加载 dataset schema、任务文本和 normalization stats</AlgorithmStep>
+  <AlgorithmStep keyword='Given'>
+    从 Hub 或本地加载 dataset schema、任务文本和 normalization stats
+  </AlgorithmStep>
   <AlgorithmStep>根据 policy type 构造对应 `PreTrainedPolicy` 与 processor pipeline</AlgorithmStep>
   <AlgorithmStep keyword='for'>每个训练 step</AlgorithmStep>
-  <AlgorithmStep indent={1}>读取多模态 batch，执行图像、语言、state 和 action 的预处理</AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    读取多模态 batch，执行图像、语言、state 和 action 的预处理
+  </AlgorithmStep>
   <AlgorithmStep indent={1}>调用 `policy.forward`，得到总 loss 与分项指标</AlgorithmStep>
   <AlgorithmStep indent={1}>反向传播、更新 optimizer，并周期性运行 validation/eval</AlgorithmStep>
   <AlgorithmStep keyword='end for' />
-  <AlgorithmStep keyword='return'>保存验证指标最佳或指定 step 的 checkpoint</AlgorithmStep>
+  <AlgorithmStep keyword='return'>
+    按保存周期及训练终点保存 checkpoint；如需最佳模型，另行明确选择指标
+  </AlgorithmStep>
 </Algorithm>
 
 ### 4.5 Inference
@@ -195,28 +203,39 @@ $$
 
 **【Code】** 本地策略也遵循同一约定：`predict_action_chunk` 产生 `[batch, horizon, action_dim]`，`select_action` 负责 action queue；ACT 在开启 temporal ensemble 时在线维护加权平均，Pi0/SmolVLA 等策略则按配置缓存 chunk。
 
-<Algorithm number={2} title='Asynchronous action-chunk inference' inputLabel='输入' outputLabel='输出'>
+<Algorithm
+  number={2}
+  title='Asynchronous action-chunk inference'
+  inputLabel='输入'
+  outputLabel='输出'
+>
   <div slot='input'>实时 observation、policy server、控制频率 `f_c`、chunk horizon `H`</div>
   <div slot='output'>以 `f_c` 执行的连续 robot actions</div>
   <AlgorithmStep keyword='while'>机器人 episode 未结束</AlgorithmStep>
-  <AlgorithmStep indent={1}>client 发送当前 observation 和 timestep</AlgorithmStep>
-  <AlgorithmStep indent={1}>server 调用 `predict_action_chunk`，返回带时间戳的 `H` 步动作</AlgorithmStep>
-  <AlgorithmStep indent={1}>client 将新 chunk 与队列中相同 timestep 的动作交给 `f` 聚合</AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    队列剩余比例低于阈值时，client 发送当前 observation 和 timestep
+  </AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    server 调用 `predict_action_chunk`，返回带时间戳的 `H` 步动作
+  </AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    client 将新 chunk 与队列中相同 timestep 的动作交给 `f` 聚合
+  </AlgorithmStep>
   <AlgorithmStep indent={1}>以固定控制频率弹出队首动作并调用 `robot.send_action`</AlgorithmStep>
   <AlgorithmStep keyword='end while' />
 </Algorithm>
 
 ### 4.6 代码实现对照
 
-| 论文描述 | 官方代码位置 | 对照结论 |
-| --- | --- | --- |
-| 统一 middleware | `src/lerobot/robots/robot.py`、各平台目录 | `Robot` 生命周期接口与注册机制落地，硬件细节被隔离。 |
-| 多模态数据格式 | `datasets/lerobot_dataset.py`、`dataset_metadata.py` | Parquet/MP4/JSON 元数据结构与论文一致。 |
-| Streaming | `datasets/streaming_dataset.py` | 通过 `IterableDataset` 和 backtrack buffer 实现按需读取。 |
-| 可复用 policy | `policies/pretrained.py`、各 policy 子目录 | `forward`/`predict_action_chunk`/`select_action` 形成统一策略 API。 |
-| 异步推理 | `async_inference/policy_server.py`、`robot_client.py` | gRPC producer-consumer 与可插拔 chunk 聚合已实现。 |
+| 论文描述        | 官方代码位置                                          | 对照结论                                                            |
+| --------------- | ----------------------------------------------------- | ------------------------------------------------------------------- |
+| 统一 middleware | `src/lerobot/robots/robot.py`、各平台目录             | `Robot` 生命周期接口与注册机制落地，硬件细节被隔离。                |
+| 多模态数据格式  | `datasets/lerobot_dataset.py`、`dataset_metadata.py`  | Parquet/MP4/JSON 元数据结构与论文一致。                             |
+| Streaming       | `datasets/streaming_dataset.py`                       | 通过 `IterableDataset` 和 backtrack buffer 实现按需读取。           |
+| 可复用 policy   | `policies/pretrained.py`、各 policy 子目录            | `forward`/`predict_action_chunk`/`select_action` 形成统一策略 API。 |
+| 异步推理        | `async_inference/policy_server.py`、`robot_client.py` | gRPC producer-consumer 与可插拔 chunk 聚合已实现。                  |
 
-**【Analysis】** 论文统计的是 2025 年 9 月的生态状态，而当前 main 分支（代码提交时间 2026-08-25）已经新增更多 robot、policy 和仿真环境。因此代码适合说明架构演进，不应把 README 的最新清单当作论文实验结果。
+**【Code】** 本文代码核对基于 2026-09-22 取得的官方提交 [`240ea44`](https://github.com/huggingface/lerobot/tree/240ea44cf9f887df944019cf46e18a0d496e1a56)，关键位置包括 [`async_inference/configs.py`](https://github.com/huggingface/lerobot/blob/240ea44cf9f887df944019cf46e18a0d496e1a56/src/lerobot/async_inference/configs.py)、[`robot_client.py`](https://github.com/huggingface/lerobot/blob/240ea44cf9f887df944019cf46e18a0d496e1a56/src/lerobot/async_inference/robot_client.py) 和 [`streaming_dataset.py`](https://github.com/huggingface/lerobot/blob/240ea44cf9f887df944019cf46e18a0d496e1a56/src/lerobot/datasets/streaming_dataset.py)。论文统计的是 2025 年 9 月的生态状态，代码已经新增更多 robot、policy 和仿真环境。因此代码适合说明架构演进，不应把 README 的最新清单当作论文实验结果。
 
 ## 5. 实验
 
@@ -228,17 +247,28 @@ $$
 
 **【Paper】** 截至 2025 年 9 月，`LeRobotDataset` 已有 16K+ 个公开数据集、2.2K+ 位贡献者。数据不仅来自原生支持的平台，Franka Panda、xArm、R1Pro 等机器人也被社区转换到统一格式，说明 schema 的价值超出硬件支持范围。
 
-![Dataset downloads by robot type from paper Figure 4](https://pic.hana0721.top/blog/paper-deep-dive-lerobot/sec3-downloads_over_time_by_robot_type-crop.2a5ttjz3di.webp)
+![Dataset downloads by robot type from paper Figure 5](https://pic.hana0721.top/blog/paper-deep-dive-lerobot/sec3-downloads_over_time_by_robot_type-crop.2a5ttjz3di.webp)
 
-**【Paper】** 在策略生态中，轻量的单任务 ACT 因体积小、推理快、约 50 条轨迹即可起效而拥有最高上传/使用热度；SmolVLA 则通过语言条件获得更广的任务适用性。ACT 在 RTX 4090/A100 上约可达到 100–200 Hz，而较大的 `π_0` 在低端设备上可能超过 5 秒超时。
+**【Paper】** 在策略生态中，轻量的单任务 ACT 因体积小、推理快、作者观察到在部分场景约 50 条轨迹即可训练有用策略，因而拥有很高上传/使用热度；SmolVLA 则通过语言条件获得更广的任务适用性。Table 3 中 ACT 的 RTX 4090 延迟为 5.013 ms、A100 为 13.77 ms，倒数分别约 199 Hz 和 73 Hz；正文概括的“100–200 Hz”并不严格覆盖表内 A100 数字。它们是模型 forward 吞吐，不是完整机器人闭环频率。`π_0` 在 CPU/MPS 上的 100 次测试均触发 5 s 超时，GPU 上则正常完成。
 
-![Policy uploads over time from paper Figure 5](https://pic.hana0721.top/blog/paper-deep-dive-lerobot/sec3-models_uploaded_over_time_by_policy-crop.4g58fbqrv5.webp)
+**【Paper】** 延迟在 fp32、扩散/flow 模型 10 个去噪步、保留各自原始输出形状下测量；均值只计算未超时样本，SmolVLA CPU 还有 2% 超时。因此它不是相同 chunk 长度、相同输入规模或相同精度优化下的算法效率排名。Table 2 的 MPS/CPU 峰值内存受统一内存与 swap 影响，不能把 `π_0` 的 MPS 97 MB 当作完整 3.5B 模型的部署内存需求。
+
+![Policy uploads over time from paper Figure 7](https://pic.hana0721.top/blog/paper-deep-dive-lerobot/sec3-models_uploaded_over_time_by_policy-crop.4g58fbqrv5.webp)
 
 ### 5.3 Ablation Study
 
 **【Paper】** 这篇工作没有针对单一模型的结构 ablation；主要对比的是系统设计的可扩展性：预加载 dataset 与 streaming dataset 的读取耗时、同步推理与异步 action-chunk 推理的 cycle time，以及不同 policy 的显存/延迟。
 
-**【Paper】** streaming 在初始化后保持接近预加载格式的 steady-state 读取性能，同时把视频按需解码；异步推理的加速来自“计算下一段 chunk 与执行当前 chunk 重叠”，而非简单提高控制线程频率。
+**【Paper】** Appendix C.1 的 streaming 读取性能是在良好网络连接下、初始化后接近本地格式；没有证明任意网络或任意时间窗口都同样快。Appendix E / Table 5 的异步测试使用 SO-100 + SmolVLA，server/client 在**同一台机器**：该实验验证计算与执行重叠的收益，没有测跨机器网络延迟收益。
+
+| Table 5 指标                           |          Sync |         Async | 能支持的结论                                 |
+| -------------------------------------- | ------------: | ------------: | -------------------------------------------- |
+| Pick-place / stacking / sorting 成功率 | 75 / 90 / 70% | 80 / 90 / 50% | sorting 下降 20 个百分点，并非全面保持成功率 |
+| 三任务平均成功率                       |         78.3% |         73.3% | 小样本中存在速度—成功率取舍                  |
+| 所测任务平均 cycle time                |       13.75 s |        9.70 s | 约减少 29.5%                                 |
+| 固定 60 s 内平均处理方块数             |           1.8 |           3.8 | 该设定吞吐约翻倍                             |
+
+**【Analysis】** 非空动作队列不是异步机制自动保证的性质：近似需要剩余动作时长大于推理、传输与调度延迟。若模型或网络比队列预算更慢，仍会耗尽动作；chunk 更长虽可缓冲延迟，也增加依据旧观测执行的时间。论文的少量测试未建立一般的实时性或闭环稳定性保证。
 
 ### 5.4 Generalization
 
@@ -292,5 +322,6 @@ $$
 
 <Aside type='note' title='阅读提示'>
   本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
-  表示基于论文和代码的分析推断。论文统计截止 2025 年 9 月；代码对照基于 2026-08-25 的 main 分支。
+  表示基于论文和代码的分析推断。论文统计截止 2025 年 9 月；代码对照基于官方提交
+  240ea44（2026-09-22）。
 </Aside>

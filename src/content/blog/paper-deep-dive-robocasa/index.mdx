@@ -1,7 +1,7 @@
 ---
 title: 'RoboCasa 论文精读：把日常机器人训练数据扩展到十万条轨迹'
 publishDate: 2026-08-27
-updatedDate: 2026-08-27
+updatedDate: 2026-09-22
 description: '精读 RoboCasa：用可交互厨房、LLM 任务设计与 MimicGen 轨迹扩增构建大规模仿真数据，并验证模拟数据的规模效应和真实迁移价值。'
 heroImage:
   { src: 'https://pic.hana0721.top/86800103_p0_master1200.4qrwyrtj6a.webp', color: '#8C8275' }
@@ -64,7 +64,7 @@ import { Aside } from '@/components/user'
 
 ### 一句话总结
 
-**【Paper】** RoboCasa 不是单一策略或单一基准，而是一套面向日常厨房操作的可扩展数据生产线：用多样的可交互场景承载任务，用 LLM 提议有语义的复合活动，再用少量人类遥操作示教驱动 MimicGen 大规模合成轨迹；实验表明，生成数据从每任务 100 条增加到 3,000 条时，多任务行为克隆的成功率持续上升。
+**【Paper】** RoboCasa 不是单一策略或单一基准，而是一套面向日常厨房操作的可扩展数据生产线：用多样的可交互场景承载任务，用 LLM 提议有语义的复合活动，再用少量人类遥操作示教驱动 MimicGen 大规模合成轨迹；实验中，生成数据从每任务 100 条增加到 300、3,000 条时，多任务 BC 的平均成功率为 **26.3% → 35.0% → 47.6%**；100 条生成数据尚低于 50 条人工示教的 28.8%，因此论证重点是扩增后的覆盖度与规模，而非生成数据单条质量天然更好。
 
 ### 核心贡献
 
@@ -110,11 +110,13 @@ import { Aside } from '@/components/user'
 
 **【Paper】** 论文收集常见厨房平面图并建模 10 种布局；再组合 Industrial、Scandinavian、Coastal、Modern 等 12 种风格。墙面、地板、台面和橱柜面板各有 100 张由 MidJourney 生成的纹理，可作为视觉 domain randomization。电器被处理为可关节化对象：例如微波炉门可开合、炉灶旋钮可旋转，且旋钮会触发炉眼点亮等状态变化。
 
-**【Analysis】** 这里的随机化不是只改背景颜色。布局改变可达性，家具与电器改变交互状态，纹理改变视觉外观；三者分别覆盖几何、动力学前提与感知域。它们共同决定“同一个语言任务”是否会在训练集中呈现足够多的实现方式。
+**【Analysis】** 这里的随机化不是只改背景颜色。布局改变可达性，家具与电器改变交互状态，纹理改变视觉外观；三者分别覆盖几何、动力学前提与感知域。它们共同决定“同一个语言任务”是否会在训练集中呈现足够多的实现方式。但“打开炉灶”“用微波炉解冻”等名字应按可计算的状态判据理解：论文展示关节与开关状态变化，没有证明模拟了完整传热、烹饪或流体动力学。
+
+**【Paper】** 框架支持 Omniverse 的高质量渲染，但附录 VIII-C 明确：论文训练数据实际采用较轻量的 **MuJoCo renderer**。不能由首页的照片级渲染效果，推断主实验模型也是用那些渲染图训练的；论文也没有单独消融证明更逼真的渲染导致了迁移收益。
 
 #### 任务层级：atomic 与 composite
 
-**【Paper】** 25 个 atomic tasks 将 8 类基础技能显式拆开，便于复用轨迹分段逻辑；75 个 composite tasks 则描述“准备咖啡”“解冻食物”“整理食品柜”等有语义的厨房活动。任务设计分两步：先让 GPT-4 列出 20 类高层厨房活动，再由 GPT-4 或 Gemini 1.5 为每类活动提出代表性任务。论文明确说明，LLM 输出会被过滤或修改，最终任务仍需人工编程实现。
+**【Paper】** 25 个 atomic tasks 将 8 类基础技能显式拆开，便于复用轨迹分段逻辑；75 个 composite tasks 则描述“准备咖啡”“解冻食物”“整理食品柜”等有语义的厨房活动。任务设计分两步：先让 GPT-4 列出 20 类高层厨房活动，再由 GPT-4 或 Gemini 1.5 为每类活动提出代表性任务。论文明确说明，LLM 输出会被过滤或修改，最终任务仍需人工编程实现。附录提示词会列出允许的技能、物体与家具，以及不能抓取小物件、变形操作支持有限等约束；作者仍发现模型虚构 blender、用按咖啡机按钮模拟开酒瓶等错误。“100 个任务”是经人工校正的可执行集合，不是把语言建议直接转成自动运行的机器人任务。
 
 <img
   src='https://pic.hana0721.top/blog/paper-deep-dive-robocasa/robocasa-task-generation.26m7w5drzj.webp'
@@ -133,9 +135,11 @@ import { Aside } from '@/components/user'
 
 **【Paper】** 该过程依赖两个前提：任务需具有已知的 object-centric subtask 序列，且 seed trajectory 要带有相应分段标注。RoboCasa 利用 8 个基础技能的共享结构缓解人工负担，例如所有抓放任务都能复用“抓取参考物 → 放置到目标物”的分段模板和终止检测器。
 
+**【Analysis】** 生成器访问参考物体真值位姿，策略训练则只读取图像、本体状态和语言；应区分“特权状态帮助制造标签”和“策略部署时需要特权状态”。拒绝失败轨迹也会改变训练分布：更容易由已有片段适配的状态更可能留下，故随机采样环境并不自动等于均匀覆盖所有可行状态。
+
 ### 4.3 关键公式
 
-**【Paper】** 论文的策略学习部分采用条件行为克隆。令 $o_{t-H+1:t}$ 是长度为 $H$ 的观测历史，$l$ 是语言指令，$a_{t:t+A-1}$ 是要预测的 $A$ 步动作序列，则可写为：
+**【Analysis】** 论文采用条件行为克隆；以下公式是对监督关系的说明，不是论文给出的新目标。令 $o_{t-H+1:t}$ 是长度为 $H$ 的观测历史，$l$ 是语言指令，$a_{t:t+A-1}$ 是要预测的 $A$ 步动作序列，则可写为：
 
 $$
 \hat a_{t:t+A-1} = \pi_\theta(o_{t-H+1:t}, l)
@@ -151,13 +155,13 @@ $$
 
 其中 $\mathcal D$ 可为人类遥操作数据或 MimicGen 生成数据；$\ell$ 是动作误差。**【Paper】** 原文将具体 BC-Transformer 实现交由 RoboMimic，并未在正文为该损失指定单独的新公式；上式用于明确其监督对象，而非论文额外提出的算法贡献。
 
-**【Paper】** 轨迹生成的缩放变量是每任务示教数 $N$：Human-50、Generated-100、Generated-300 与 Generated-3000 仅在数据来源/规模上变化。实验由此将“更多生成数据是否有用”转化为受控比较。
+**【Paper】** Generated-100 和 Generated-300 分别从完整 Generated-3000 随机抽取 $1/30$ 与 $1/10$，因此三者比较主要控制生成数据规模。Human-50 则还改变了轨迹来源，且训练包含额外的 navigation task；它与 Generated-3000 的比较不能隔离为“人类标签 vs 机器标签”的单因素实验。
 
 ### 4.4 Training
 
-**【Paper】** 首先，4 名操作者用 3D SpaceMouse 为每个 atomic task 收集 50 条示教，共 1,250 条；每条示教均在随机厨房布局、风格和 AI 纹理下采集。随后，MimicGen 以这些示教为种子，对 24 个 non-navigation atomic tasks 每个合成 3,000 条轨迹，得到 72,000 条；另有 28,000 条使用 AI 生成物体的轨迹，组成逾 10 万条的发布数据。
+**【Paper】** 首先，4 名操作者用 3D SpaceMouse 为每个 atomic task 收集 50 条示教，共 1,250 条；每条示教均在随机厨房布局、风格和 AI 纹理下采集。随后，MimicGen 以这些示教为种子，对 24 个 non-navigation atomic tasks 每个合成 3,000 条轨迹，得到 72,000 条；另有 28,000 条使用 AI 生成物体的轨迹，构成 100,000 条生成轨迹；加上人工数据才是 100K+ 发布规模。主规模实验使用的却是 **72,000 条 Objaverse 物体轨迹**，没有把全部 100K 都用于该表格。导航被排除是因为当时的 MimicGen 无法生成相应移动操作轨迹；仿真器支持移动机器人，不等于数据生成实验已验证整屋移动能力。
 
-**【Paper】** 主实验用 RoboMimic 的 BC-Transformer 训练四个多任务数据设置。模型读取过去 10 帧观测和语言目标，预测未来 10 步动作；每步重规划一次。三个相机各用一个 ResNet-18 编码器，视觉特征由 FiLM 融合，再输入约 2,000 万参数、6 层的 Transformer。训练 50 万个 gradient steps，学习率 $10^{-4}$ 并使用 warmup。
+**【Paper】** 主实验用 RoboMimic 的 BC-Transformer 训练四个多任务数据设置。模型用 CLIP sentence encoder 编码语言，读取过去 10 帧观测并预测未来 10 步动作；每步重规划一次。三个相机各用一个 ResNet-18 编码器，视觉特征由 FiLM 融合，再输入约 2,000 万参数、6 层的 Transformer。训练 50 万个 gradient steps，学习率 $10^{-4}$ 并使用 warmup。
 
 <Algorithm number={1} title='RoboCasa 轨迹数据生成与策略训练' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>
@@ -204,13 +208,13 @@ $$
 | 数据下载与格式 | `robocasa/scripts/download_datasets.py`、`docs/datasets/using_datasets.md` | 当前发布数据支持 LeRobot 格式下载。                                          |
 | MimicGen 使用  | `docs/use_cases/mimicgen.md`                                               | 文档给出以已有 seed demonstrations 为起点生成新轨迹的流程。                  |
 
-**【Analysis】** 代码演进本身很有信息量：论文建立的是“可扩展的接口与数据生产范式”，而非固定 100 任务的封闭系统。阅读复现实验时应固定到论文对应版本或数据快照；直接使用今日主分支能获得更多功能，却无法复现本文表格里的任务数与数据规模。
+**【Analysis】** 代码演进本身很有信息量：论文建立的是“可扩展的接口与数据生产范式”，而非固定 100 任务的封闭系统。阅读复现实验时应固定到论文对应版本或数据快照；直接使用今日主分支能获得更多功能，却无法复现本文表格里的任务数与数据规模。例如当前文档说明 MimicGen 覆盖 64/65 个 atomic tasks，而本文是 24/25；当前 `v1.0.1` 又把评测 horizon 增加了 1.5 倍。这些改动都会影响可比性，复现时需记录环境、数据和 horizon 版本，不能只记录 task 名称。
 
 ## 5. 实验
 
 ### 5.1 Experimental Setup
 
-**【Paper】** atomic-task 对比包括 Human-50（25 task、每 task 50 条，合计 1,250 条）与 Generated-100/300/3000（24 task，分别合计 2,400/7,200/72,000 条）。训练图像使用 AI 纹理，评估时换为人工精选纹理；每个 task 在 5 个固定评估场景运行 50 次，并只评估未见物体实例。五个场景中有两个使用训练未见的风格。
+**【Paper】** atomic-task 对比包括 Human-50（25 task、每 task 50 条，合计 1,250 条）与 Generated-100/300/3000（24 task，分别合计 2,400/7,200/72,000 条）。训练图像使用 AI 纹理，评估时换为人工精选纹理；每个 task 在 5 个固定评估场景中**合计评估 50 次**，并只评估未见物体实例；不是每场景 50 次的 250 次协议。五个场景中有两个使用训练未见的风格。
 
 **【Paper】** composite-task 实验选择 ArrangeVegetables、MicrowaveThawing、RestockPantry、PreSoakPan 和 PrepareCoffee：每个任务只有 50 条人类示教，比较从零训练与在 Generated-3000 atomic policy 上微调。真实机器人实验使用 DROID 硬件上的 Franka Panda，覆盖 counter→sink、sink→counter、counter→cabinet 三个抓放任务；每任务收集 50 条、横跨 5 种物体类别的真实示教。
 
@@ -227,7 +231,7 @@ $$
 
 ### 5.2 Main Results
 
-**【Paper】** 在 24 个 atomic tasks 上，Human-50 的总体成功率为 **28.8%**，Generated-3000 为 **47.6%**。从图中可见 Generated-100、Generated-300、Generated-3000 随数据量增大而逐步提升，说明收益并非只来自“生成轨迹替换人工轨迹”，还与规模直接相关。
+**【Paper】** 在 24 个 atomic tasks 上，Human-50 的总体成功率为 **28.8%**，Generated-3000 为 **47.6%**。这是 24 个评估任务的平均，Generated-3000 相比 Human-50 提升 **18.8 个百分点**；不能称为在全部 100 个任务上取得 47.6%。Generated-100、300、3000 的平均随规模增加，但 Figure 13 中个别任务会下降，例如 CloseDoubleDoor 的 62% → 46%、PickPlaceMicrowaveToCounter 的 12% → 8%。平均趋势并不保证每个技能随数据规模单调变好。
 
 <img
   src='https://pic.hana0721.top/blog/paper-deep-dive-robocasa/robocasa-main-results.3nscxwhxri.webp'
@@ -242,19 +246,19 @@ $$
 
 **【Paper】** 不同技能的难度并不均匀：门/抽屉开关和按钮按压的成功率较高；抓放和插入较难。作者将其归因于物体可供性多样、精细接触要求更高等因素。该差异提醒我们，“总成功率提升”并不等于每种具身能力都已被解决。
 
-**【Paper】** 真实机器人中，Real only 在 seen objects 上平均成功率为 **13.6%**，Real + Sim 为 **24.4%**；在 unseen objects 上则由 **2.6%** 升至 **9.3%**。论文报告 seen-object 平均值相对提高 79%。这些结果支持仿真数据可作为真实小数据训练的补充，但绝对成功率仍有限。
+**【Paper】** 真实机器人中，Real only 在 seen objects 上平均成功率为 **13.6%**，Real + Sim 为 **24.4%**；在 unseen objects 上则由 **2.6%** 升至 **9.3%**。seen-object 是 **+10.8 个百分点 / 约 79% 相对提升**；unseen 是 **+6.7 个百分点**。Figure 10 报告 3 个 seed 的均值与标准差，部分 unseen 结果的方差很大，例如 counter→cabinet 的 Real+Sim 为 $11.1\pm11.0\%$。这里的 unseen 指相对真实示教未见的物体类别，未必相对全部仿真数据也未见。每个真实任务各训练一个模型，Real+Sim 同时使用目标真实示教与全部单阶段仿真数据，因此验证的是 co-training，而非零真实数据迁移或一个通用真实策略。
 
 ### 5.3 Ablation Study
 
-**【Paper】** 论文最核心的 ablation 是数据规模：Generated-100、Generated-300、Generated-3000 共享生成机制与策略训练设置，区别是每 task 的保留示教数。总体柱状图从 34.9%、35.2% 到 47.6% 上升，而 Human-50 为 28.8%。因此作者的结论是：经过成功筛选的自动生成轨迹能以较低人工成本形成可缩放的训练集。
+**【Paper】** 论文最核心的 ablation 是数据规模：Generated-100、Generated-300、Generated-3000 共享生成机制与策略训练设置，区别是每 task 的保留示教数。以附录 Figure 13 的完整结果为准，平均成功率依次为 **26.3%、35.0%、47.6%**，而 Human-50 为 **28.8%**。因此有证据支持“扩大生成数据可提升该设置的平均性能”，但只有三个规模点，没有拟合可外推的 scaling law，也没有按生成失败次数或算力归一化的完整成本曲线。
 
-**【Paper】** 附录还以相同观测编码器比较 Diffusion Policy 与 BC-Transformer：在单阶段 PickPlaceCounterToSink 上，BC-Transformer 达到 56%，Diffusion Policy 为 12%。作者指出两者采用的 observation history 不同（BC-Transformer 为 10，Diffusion Policy 为 2），因而这不是对架构能力的完全隔离比较。
+**【Paper】** 附录还以相同观测编码器比较 Diffusion Policy 与 BC-Transformer：在单阶段 PickPlaceCounterToSink 上，BC-Transformer 达到 56%，Diffusion Policy 为 12%。作者指出两者采用的 observation history 不同（BC-Transformer 为 10，Diffusion Policy 为 2），而且 DP 每次执行 8 步、预测 horizon 16、DDIM 推理 10 步，BC-Transformer 每步重规划；历史长度和反馈频率同时改变。因此这个单任务结果不能代表 Diffusion Policy 在整个 RoboCasa 上的上限。BC 主多任务表的该任务是 44%，也不能与这个单任务比较的 56% 混用。
 
 ### 5.4 Generalization
 
 **【Paper】** 仿真评估刻意把训练纹理与评估纹理分离，并保留未见物体实例、未见厨房风格，测试的是视觉与物体泛化，而不只是回放训练场景。
 
-**【Paper】** 对 composite tasks，从 atomic 数据预训练后再微调优于从零训练，并使 5 个任务中的 4 个获得非零成功率；但整体仍然困难。作者观察到的失败包括精细操作失误和阶段间切换失败。
+**【Paper】** 五个 composite tasks 的 scratch → fine-tune 分别为：ArrangeVegetables **2% → 12%**、MicrowaveThawing **0% → 2%**、RestockPantry **0% → 6%**、PreSoakPan **0% → 4%**、PrepareCoffee **0% → 0%**（Figure 8）。均值仅 **0.4% → 4.8%**。所谓“四个任务获得非零成功率”意味着弱正迁移，远未证明可靠的长程技能组合；典型失败包括精细操作和阶段切换。
 
 **【Analysis】** 真实迁移与 composite 微调共同描述了一个边界：RoboCasa 的规模化数据能提供有用先验，但长程阶段组合与 sim-to-real 的视觉/控制差异不会因单纯增加单阶段成功轨迹而自动消失。
 
@@ -309,6 +313,7 @@ $$
 
 <Aside type='note' title='阅读提示'>
   本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码当前实现，`【Analysis】`
-  表示基于论文和代码的分析推断。RoboCasa 当前主分支已演进为
-  RoboCasa365；本文中的任务数、轨迹数与实验结果均以 2024 论文为准。
+  表示基于论文和代码的分析推断。来源为 [2024 论文全文与附录](https://arxiv.org/pdf/2406.02523v1) 及
+  [官方仓库](https://github.com/robocasa/robocasa)。当前主分支已演进为 RoboCasa365；
+  本文中的任务数、轨迹数与实验结果均以 2024 论文为准。
 </Aside>

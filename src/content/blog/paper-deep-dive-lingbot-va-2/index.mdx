@@ -1,7 +1,7 @@
 ---
 title: 'LingBot-VA 2.0 论文精读：原生视频-动作预训练如何服务通用机器人控制'
 publishDate: 2026-08-26
-updatedDate: 2026-08-26
+updatedDate: 2026-09-22
 description: '精读 LingBot-VA 2.0：以语义视觉-动作 tokenizer、因果 MoE DiT、Multi-Chunk Prediction 与异步闭环推理，实现可泛化的 video-action robot control。'
 heroImage:
   { src: 'https://pic.hana0721.top/94819769_p0_master1200.4xv4u7folx.webp', color: '#8C8275' }
@@ -65,7 +65,7 @@ import { Aside } from '@/components/user'
 
 ## 1. 论文概述
 
-![LingBot-VA 2.0 overview from paper Figure 2](https://pic.hana0721.top/blog/paper-deep-dive-lingbot-va-2/framework.26m7vrtpfv.webp)
+![LingBot-VA 2.0 overview from paper Figure 1](https://pic.hana0721.top/blog/paper-deep-dive-lingbot-va-2/framework.26m7vrtpfv.webp)
 
 ### 一句话总结
 
@@ -75,11 +75,11 @@ import { Aside } from '@/components/user'
 
 **【Paper】**
 
-1. 提出 native video-action pretraining：因果地从零训练完整 stack，避免双向 video backbone 改成因果控制器时的灾难性遗忘。
+1. 提出 native video-action pretraining：从零训练因果 video-action DiT，并自行训练语义 tokenizer，减少从双向生成器改造带来的目标错配。冻结的 Perception Encoder 教师、文字编码器及高层 VLM planner 仍继承预训练模型，并非所有组件都从零开始。
 2. 用 semantic visual-action tokenizer 同时做视觉语义对齐和无动作标注视频的 latent-action 学习。
 3. 在 video stream 使用 sparse MoE，并用 Multi-Chunk Prediction（MCP）迫使表示预测更远未来的动力学。
 4. 以人类视频作 in-context demonstration，以 human-robot co-training 增加可扩展的 embodiment 数据。
-5. 结合 Foresight Reasoning、consistency distillation 与部署优化，把异步控制频率由 35 Hz 提升至 225 Hz。
+5. 结合 Foresight Reasoning、consistency distillation 与部署优化，把 32 步动作 chunk 的推理时间从 927 ms 降至 142 ms，对应动作点吞吐从约 35 提升至 225 个/秒；这不是 225 次/秒的视觉闭环重规划。
 
 ## 2. 背景与相关工作
 
@@ -105,7 +105,7 @@ p_\theta(z_{t+1}\mid z_{\le t},a_{<t})
 p_\theta(a_t\mid z_{\le t},a_{<t},z_{t+1}).
 $$
 
-前一项以历史和过去动作预测下一状态；后一项是 inverse dynamics，在给定状态转移后解码本 chunk 动作。$a_t$ 不是单个电机命令，而是一段与一个 visual transition 对齐的动作块。
+前一项以历史和过去动作预测下一状态；后一项是 inverse dynamics，在给定状态转移后解码本 chunk 动作。$a_t$ 不是单个电机命令。还要区分两种监督：无动作标签视频的预训练把 $a_t$ 记作由 IDM 提取的 $\ell_t$；机器人数据则使用归一化的 30 维动作布局。二者共享训练框架，并不意味着从任意视频提取的 latent action 可直接发送给机器人，或它与视觉 latent 有相同维数。
 
 ## 4. 方法
 
@@ -115,27 +115,27 @@ $$
 
 ### 4.2 核心模块
 
-![LingBot-VA 2.0 semantic visual-action tokenizer from paper Figure 3](https://pic.hana0721.top/blog/paper-deep-dive-lingbot-va-2/vae.4xva3uftlk.webp)
+![LingBot-VA 2.0 semantic visual-action tokenizer from paper Figure 2](https://pic.hana0721.top/blog/paper-deep-dive-lingbot-va-2/vae.4xva3uftlk.webp)
 
 #### Semantic visual-action tokenizer
 
 **【Paper】** ViT autoencoder 对视频 $o_{1:T}$ 将首帧按 $16\times16$ patch、后续帧按 $4\times16\times16$ tubelet 编码；帧内是 full attention，跨帧是 causal attention。除重建外，冻结的 Perception Encoder $G$ 提供 clip-level semantic alignment。
 
-冻结 visual tokenizer 后，inverse dynamics model（IDM）从连续 $z_t,z_{t+1}$ 压缩出 latent action $\ell_t$；forward dynamics model（FDM）以 transport map 与 residual 重建下一 latent。因此没有动作标签的 web video 也会成为 action-relevant 表示学习数据。
+冻结 visual tokenizer 后，inverse dynamics model（IDM）从连续 $z_t,z_{t+1}$ 压缩出 latent action $\ell_t$；forward dynamics model（FDM）以 transport map 与 residual 重建下一 latent。因此没有动作标签的 web video 也能提供转移监督。低维瓶颈限制直接复制整幅状态，却不保证提取到机器人可控因素：相机运动、他人动作或环境变化同样可能被编码，仍须用机器人动作监督把它与可执行控制对应起来。
 
 #### Causal MoT、MoE 和层次上下文
 
 **【Paper】** video 与 action 分别有前馈 expert，却共享 causal self-attention；video expert 使用 sparse MoE，action expert 保持 dense。主模型有 30 个 blocks、2048 维 video hidden state、768 维 action hidden state、128 个 routed SwiGLU experts 和 top-8 routing；二者在 3072 维 joint attention space 交互。
 
-planner 约以 2 Hz 后台运行，将 `done`、`instruction`、`generation_instruction`、`local_scene_description` 写入共享 buffer。低层 policy 在 action-chunk 边界读取后三个字段，故 planner 的低频和 latency 不会阻塞控制。
+planner 约以 2 Hz 后台运行，将 `done`、`instruction`、`generation_instruction`、`local_scene_description` 写入共享 buffer。低层 policy 在 action-chunk 边界读取后三个字段，故 planner 推理不会同步阻塞每个动作 chunk。它不是无监督涌现的规划器：训练用人工/流水线分段及四字段标注，在子任务边界两侧采样，输入最近 2 秒的三张关键帧、总目标与已完成子任务历史，以 LoRA 微调且冻结视觉塔。异步接口减少阻塞，但不消除过期子任务描述造成的控制错误。
 
 **【Analysis】** 容量被非对称地分配给承载复杂动力学的 video stream，而共享 attention 保留“动作是视觉转移解释”的耦合；这样比把两个完全独立的预测器拼接更易共同受益于长视频表征。
 
 #### MCP、ICL 和 human-robot co-training
 
-![LingBot-VA 2.0 Multi-Chunk Prediction from paper Figure 4](https://pic.hana0721.top/blog/paper-deep-dive-lingbot-va-2/mcp.45iem3z7ym.webp)
+![LingBot-VA 2.0 Multi-Chunk Prediction from paper Figure 5](https://pic.hana0721.top/blog/paper-deep-dive-lingbot-va-2/mcp.45iem3z7ym.webp)
 
-**【Paper】** MCP 从 main DiT 的特征同时预测后面 1--3 个视觉 chunks，loss 权重为 $(0.5,0.2,0.1)$。它只在训练时使用，通常可在部署时删除。
+**【Paper】** MCP 在主模型 next-chunk 目标之外，额外监督再往后 1–3 个视觉 chunks，loss 权重为 $(0.5,0.2,0.1)$。它融合主干第 4、12、20、30 层的表示，再用每组 3 个 Transformer blocks 的辅助模块逐级传递特征；较远模块条件于前一级 hidden state，而不是前一级已经解码的未来图像。MCP 分支使用更大的噪声 timestep shift，减少从自身带噪输入复制目标的捷径。论文报告的标准推理移除这些头；§2.3.3 另提出保留它们以并行预测未来的可选模式，未将其单独的控制收益量化。
 
 human-video ICL 将语义一致、但场景/视角/对象实例可不同的演示编码为 $z_{\mathrm{icl}}$，将其作为每个 robot chunk 可见的 task prompt。human-robot co-training 则把手的 6-DoF pose 和从手指关节导出的夹爪开度重定向为统一动作布局；world model 共享，动作 encoder/decoder 由人类或机器人本体分别拥有。
 
@@ -176,13 +176,15 @@ $$
 \alpha_i(h)=\gamma\frac{r_i(h)}{\sum_{j\in\mathcal R(h)}r_j(h)}.
 $$
 
-其中 $r_i(h)=\sigma(g_i^\top h)$ 为 router score，$\mathcal R(h)$ 是 group-limited top-$k$ expert 集合，$\gamma$ 为缩放系数。论文用 auxiliary-loss-free balancing 根据实际 token load 更新 selection bias，而不是给主 diffusion loss 添加额外均衡梯度。
+其中 $r_i(h)=\sigma(g_i^\top h)$ 为 router score，$\mathcal R(h)$ 是 group-limited top-$k$ expert 集合，$\gamma$ 为缩放系数。论文用 auxiliary-loss-free balancing 根据实际 token load 更新 selection bias，以减少均衡损失对主生成目标的干扰。这里不能理解为完全没有路由正则：§2.3.2 还保留轻量的 sequence-wise router regularizer。Figure 4 中稀疏模型与 Dense-5B 的训练损失接近、按步数比较时 dense 略低；该图支持稀疏扩容未显著恶化优化，不是 MoE 已单独提高操控成功率的证据。
 
 ### 4.4 Training
 
 **【Paper】** 先训练 tokenizer，后在共享 latent 空间预训练 causal video-action model。后阶段并非严格串行 curriculum：T2I、T2V、TI2VA、ICL、HCT 五个任务持续共同优化，只改变采样比例；早期偏 T2I、中期偏 T2V、后期偏 video-action，保留较小的早期任务比例防止遗忘。
 
-主目标采用 rectified-flow / flow-matching MSE。chunk size 每步在 1--4 latent frames 之间重采样，attention window 在 1--64 chunks 间变化；以 0.5 概率为历史加小噪声，缓解 autoregressive exposure bias。优化器为 Muon（Transformer block 内二维权重，lr $2\times10^{-3}$）和 AdamW（其余参数，lr $10^{-4}$）的混合，warm-up 2000 steps，global gradient norm clip 为 1。
+**【Paper】** 数据来源也应分开看：无标签 web 视频供 latent-action 学习；HCT 使用 65.4k episodes 的内部第一人称视频及双手姿态/手指标签；ICL 的人类—机器人配对则主要由生成流水线构造。§3.4 从机器人示范分析任务、编辑首帧、生成保持任务语义的人类视频，再用 VLM 筛选，得到超过 50k 对、覆盖超过 5k 任务。因此 ICL 训练集并不等于 50k 对真实同步拍摄的人机示范，语义保持也依赖生成与筛选质量。
+
+主目标采用 rectified-flow / flow-matching MSE。chunk size 每步在 1--4 latent frames 之间重采样，attention window 在 1--64 chunks 间变化；以 0.5 概率为历史加小噪声，缓解 autoregressive exposure bias。部署报告使用 2 latent frames/chunk、64 chunks 历史窗口；因果性在 chunk 之间施加，不代表 chunk 内所有 token 都严格单向。优化器为 Muon（Transformer block 内二维权重，lr $2\times10^{-3}$）和 AdamW（其余参数，lr $10^{-4}$）的混合，warm-up 2000 steps，global gradient norm clip 为 1。
 
 <Algorithm number={1} title='LingBot-VA 2.0 原生预训练' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>图像/视频、机器人轨迹、可选 human-video ICL 对、语言与本体标签</div>
@@ -204,9 +206,9 @@ $$
 
 ### 4.5 Inference
 
-![LingBot-VA 2.0 Foresight Reasoning from paper Figure 5](https://pic.hana0721.top/blog/paper-deep-dive-lingbot-va-2/async.3gp523bp3h.webp)
+![LingBot-VA 2.0 Foresight Reasoning from paper Figure 6](https://pic.hana0721.top/blog/paper-deep-dive-lingbot-va-2/async.3gp523bp3h.webp)
 
-**【Paper】** Foresight Reasoning 同步维持 execution stream 与 prediction stream。机器人执行 $a_t$ 时，模型从真实观测已校正的 cache $C_t$ 出发，先基于当前动作预测 $\hat z_{t+1}$，再以它预取 $a_{t+1}$；真实 $o_{t+1}$ 到达后会被编码为 $z_{t+1}$ 并覆盖 cache 中的 imagined latent。即在隐藏预测延迟的同时避免持续自回归变为 open loop。
+**【Paper】** Foresight Reasoning 同步维持 execution stream 与 prediction stream。机器人执行 $a_t$ 时，模型从真实观测已校正的 cache $C_t$ 出发，先基于当前动作预测 $\hat z_{t+1}$，再以它预取 $a_{t+1}$；真实 $o_{t+1}$ 到达后会被编码为 $z_{t+1}$ 并覆盖 cache 中的 imagined latent。即在隐藏预测延迟的同时周期性纠正预测。这里的在线 FDM 是 **policy video expert**，不是 tokenizer 训练中冻结的 $f_\psi$；后训练新增的 $\mathcal L_{\mathrm{FDM}}$ 比原始视频目标多条件于当前执行动作 $a_t$，使它能预测“这段已选动作将导致什么”。修正 cache 会影响后续 chunk，但不能让已经预取/执行的动作追溯性地使用后来才收到的观测。
 
 <Algorithm number={2} title='Foresight Reasoning 闭环控制' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>观测编码、当前 action chunk、语言/子任务上下文、KV cache</div>
@@ -217,11 +219,11 @@ $$
   <AlgorithmStep>收到真实 $o_{t+1}$ 后，以其 latent 覆盖 $\hat z_{t+1}$，再开始下一轮。</AlgorithmStep>
 </Algorithm>
 
-**【Paper】** post-training 把 video 5-step、action 10-step 的 PF-ODE sampler distill 到各 2 steps，并结合 FP8 TensorRT、paged/ragged KV cache、FlashInfer attention plugin 和 runtime caching。论文报告异步 chunk latency 从 BF16 PyTorch baseline 的 927 ms 下降至 142 ms；每个 chunk 含 32 个低层控制步。
+**【Paper】** post-training 把 video 5-step、action 10-step 的 PF-ODE sampler distill 到各 2 steps，并结合 FP8 TensorRT、paged/ragged KV cache、FlashInfer attention plugin 和 runtime caching。论文报告异步 chunk latency 从 BF16 PyTorch baseline 的 927 ms 下降至 142 ms；每个 chunk 含 32 个低层控制步。Table 3 明确定义 $f_{\mathrm{async}}=32/(t_{\mathrm{chunk}}/1000)$，故 $32/0.142\approx225$。对应的完整 chunk 推理吞吐仅约 7.0 次/秒；它衡量产生足够动作点的速度，不能替代传感器到动作的闭环延迟。表中也未分别报告各优化后的成功率或误差条。
 
 ### 4.6 代码实现对照
 
-**【Code】** 官方项目页为 [LingBot-VA 2.0](https://technology.robbyant.com/lingbot-va-v2)。截至本文撰写时，论文 arXiv 页面、论文源码和项目页均未提供 LingBot-VA 2.0 的训练/推理公开仓库。因此不能将文中的 TensorRT、FlashInfer、FSDP、Muon 或 planner 写成可核验的具体文件和配置。
+**【Paper】** 官方项目页为 [LingBot-VA 2.0](https://technology.robbyant.com/lingbot-va-v2)。截至 2026-09-22，本次检查未找到可核验的 2.0 训练/推理实现。上一代官方 `robbyant/lingbot-va` 仓库虽包含 `LingBot_VA2_paper.pdf`，其 README 和公开配置仍主要对应上一代；不能把该仓库的 Wan2.2 实现当作 2.0 的语义 tokenizer 与 MoE 实现。因此不能将文中的 TensorRT、FlashInfer、FSDP、Muon 或 planner 写成可核验的具体文件和配置。
 
 **【Analysis】** 本文对架构和超参数只以论文为据。特别是 225 Hz 依赖专门的 FP8 编译与运行时优化，不能由模型参数规模推断为任意 PyTorch 环境可复现的吞吐。
 
@@ -235,7 +237,7 @@ real-world benchmark 包括 Fruit Sorting、Pen Collection、Drawer Tidying、Pl
 
 ### 5.2 Main Results
 
-![LingBot-VA 2.0 real-world results from paper Figure 7](https://pic.hana0721.top/blog/paper-deep-dive-lingbot-va-2/manipulation_bar.3nscxixun6.webp)
+![LingBot-VA 2.0 real-world results from paper Figure 8](https://pic.hana0721.top/blog/paper-deep-dive-lingbot-va-2/manipulation_bar.3nscxixun6.webp)
 
 **【Paper】** RoboTwin success rate（%）为：
 
@@ -247,7 +249,7 @@ real-world benchmark 包括 Fruit Sorting、Pen Collection、Drawer Tidying、Pl
 | LingBot-VA     |     92.9 |       91.6 |     92.2 |
 | LingBot-VA 2.0 | **93.8** |   **93.4** | **93.6** |
 
-相对 $\pi_{0.5}$ 的平均提升为 13.8 points，相对上一代 LingBot-VA 为 1.4 points（均按表中四舍五入值计算）。真实机器人柱状图中，LingBot-VA 2.0 在四个任务的 success rate 与 progress rate 都高于图示的 LingBot-VA 1.0、$\pi_{0.5}$；正文未提供柱状图的原始精确数值，故不将视觉读数写成精确百分比。
+相对 $\pi_{0.5}$ 的平均提升为 13.8 points，相对上一代 LingBot-VA 为 1.4 points（均按表中四舍五入值计算）。真实机器人柱状图中，LingBot-VA 2.0 在四个任务的 success rate 与 progress rate 都高于图示的 LingBot-VA 1.0、$\pi_{0.5}$；Figure 8 在柱上直接标出整数百分比：Pen Collection、Fruit Sorting、Drawer Tidying、Plate Handover 的本方法成功率依次为 77%、67%、82%、64%，进度为 88%、90%、89%、84%。这些是图中报告值，不是从柱高估计；论文未交代足以恢复统计不确定性的 rollout 总数和误差条，不能据 77% 等数字反推出试验次数。
 
 ### 5.3 Ablation Study
 
@@ -260,7 +262,7 @@ real-world benchmark 包括 Fruit Sorting、Pen Collection、Drawer Tidying、Pl
 | Horizon 3 average |            67.2 / 68.0 |            **92.0 / 85.4** |
 | 50 tasks average  |            78.0 / 76.0 |            **86.6 / 83.1** |
 
-MCP 消融在 12 fps 和 50 fps 都更快收敛、最终更高。在 50 fps randomized setting，MCP 5k steps 时领先 29.7 points，且用 20k steps 达到 baseline 45k steps 的精度，即约 $2.3\times$ 训练加速。
+MCP 消融在 12 fps 和 50 fps 都更快收敛、最终更高。在 50 fps randomized setting，MCP 5k steps 时领先 29.7 points，且用 20k steps 达到 baseline 45k steps 的精度，即约 $2.3\times$ 的**优化步数效率**；由于 MCP 增加训练分支，没有每步耗时就不能将它换算为 2.3 倍 wall-clock 或 FLOPs 节省。Table 2 的 Horizon 1–3 沿用 RoboTwin 任务长度分组，不是把同一任务的预测 chunk 长度改成 1–3 做控制对照。
 
 推理优化的累积结果为：927 ms / 35 Hz（BF16 PyTorch），466 ms / 69 Hz（+ consistency distillation），369 ms / 87 Hz（+ compiled low precision），272 ms / 118 Hz（+ long-horizon attention），最终 142 ms / 225 Hz（+ runtime overhead reduction）。
 
@@ -302,13 +304,13 @@ MCP 消融在 12 fps 和 50 fps 都更快收敛、最终更高。在 50 fps rand
 
 ### 7.2 自己分析得到的局限
 
-**【Analysis】** 15.3B 总参数模型的 225 Hz 来自重型硬件/编译栈，且本版尚无官方公开代码，外部复核较困难。相对上一代 1.4 points 的 RoboTwin 增益也应与新增系统复杂度一同看待。最后，重落地能纠正可见的状态误差，却无法观测抓取滑移、力或被遮挡物体的内部状态。
+**【Analysis】** 参数口径是约 13.0B video backbone、0.6B action expert、1.7B MCP 训练头，合计 15.3B 训练参数；标准推理删掉 MCP，约 2.5B 参数/每 token 激活。激活数不等于权重存储量，225 动作点/秒也不等于 225 Hz 视觉反馈。尚缺可核验的 2.0 实现、明确部署设备和各加速阶段的控制质量对照，外部复核较困难。相对上一代 1.4 points 的 RoboTwin 增益也应与新增系统复杂度一同看待。最后，重落地能纠正可见的状态误差，却无法观测抓取滑移、力或被遮挡物体的内部状态。
 
 ## 8. 启发与研究思考
 
 **【Analysis】** 这篇论文的启发不是单纯“给 policy 加 MoE”，而是将 action representation、world modeling 与运行时调度放进同一训练—部署闭环。值得检验的下一步包括：把 tactile/force 也做成可预测、可重落地的 latent；让 planner boundary 与 MCP horizon 联合优化；在多本体、latency-matched 的公开 benchmark 上同时报告 active parameters、端到端延迟、能耗和成功率。
 
 <Aside type='note' title='阅读提示'>
-  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方项目/代码公开状态，`【Analysis】`
-  表示基于论文的分析推断。该论文截至本文撰写时未发布 LingBot-VA 2.0 的官方代码仓库。
+  本精读依据 arXiv v2 全文；`【Paper】` 表示论文报告，`【Analysis】`
+  表示解释与证据边界。代码公开情况核验于 2026-09-22，未将上一代实现作为 2.0 的代码证据。
 </Aside>

@@ -1,7 +1,7 @@
 ---
 title: 'LIBERO-Plus 论文精读：VLA 鲁棒性的系统性体检'
 publishDate: 2026-08-27
-updatedDate: 2026-08-27
+updatedDate: 2026-09-22
 description: '精读 LIBERO-Plus：在 7 类扰动、10,030 个任务上拆解 VLA 的脆弱性，解释位置偏置、语言忽略与组合泛化缺口。'
 heroImage:
   { src: 'https://pic.hana0721.top/78391247_p0_master1200.5j4sgia4wg.webp', color: '#6F7F95' }
@@ -49,7 +49,7 @@ import { Aside } from '@/components/user'
 ## 1. 论文概述
 
 **论文名称**：《LIBERO-Plus: In-depth Robustness Analysis of Vision-Language-Action Models》  
-**作者**：Senyu Fei、Siyin Wang、Junhao Shi 等（复旦大学、上海人工智能实验室等）  
+**作者**：Senyu Fei、Siyin Wang、Junhao Shi 等（复旦大学、同济大学、上海创智学院、新加坡国立大学）\
 **论文链接**：[arXiv](https://arxiv.org/abs/2510.13626)  
 **代码与基准**：[GitHub](https://github.com/sylvestf/LIBERO-plus) · [项目主页](https://sylvestf.github.io/LIBERO-plus/) · [Hugging Face 数据集](https://huggingface.co/datasets/Sylvest/LIBERO-plus)
 
@@ -57,17 +57,17 @@ import { Aside } from '@/components/user'
 
 ### 一句话总结
 
-**【Paper】** 论文不再把“原始 LIBERO 成功率”当作能力代理，而是对物体布局、相机、机器人初始状态、语言、光照、背景和传感器噪声做可控扰动；结果显示，许多 VLA 在轻微变化下从约 95% 跌到 30% 以下，甚至把语言输入完全忽略。
+**【Paper】** 论文不再把“原始 LIBERO 成功率”当作能力代理，而是对物体布局、相机、机器人初始状态、语言、光照、背景和传感器噪声做可控扰动；结果显示，许多 VLA 在轻微变化下从约 95% 跌到 30% 以下，语言干预实验还显示，部分任务可以在没有指令时完成。该结果支持对语言利用不足的诊断，不能外推为所有 VLA、所有任务都完全忽略语言；例如 LONG 上移除指令仍明显伤害表现。
 
 ### 核心贡献
 
 **【Paper】**
 
-1. 提出七维鲁棒性分析协议，覆盖视觉、状态和语言输入，并将每一维继续拆成可量化的 21 个子组件。
+1. 提出七维鲁棒性分析协议，覆盖视觉、状态和语言输入，并将每一维继续拆成可量化的 21 个子组件；10,030 是原 40 个任务的扰动实例数，不是 10,030 种独立操作技能。
 2. 构建自动化的 LIBERO-Plus 基准：10,030 个任务、五级难度（L1–L5），可直接替换原 LIBERO 安装包。
 3. 对 10 个代表性开源模型做统一评测，发现相机视角和机器人初始状态是最危险的分布偏移；语言扰动的“稳定”主要来自模型不看语言。
 4. 定义组合泛化缺口（Compositionality Gap），用成功条件下的协方差刻画两种扰动叠加是否产生额外损失。
-5. 用超过 20,000 条成功轨迹做 mix-SFT，OpenVLA-OFT+ 在 LIBERO-Plus 上达到 79.5%（项目 README 四舍五入为 79.6%），说明多样化训练确实能改善鲁棒性。
+5. 用超过 20,000 条成功轨迹做 mix-SFT，OpenVLA-OFT+ 在 LIBERO-Plus 上达到 79.5%（正文与 README 写 79.6%，与 Table 2 的 79.5% 存在 0.1 点口径差异），说明多样化训练确实能改善鲁棒性。
 
 ## 2. 背景与相关工作
 
@@ -79,15 +79,15 @@ import { Aside } from '@/components/user'
 
 **【Paper】** 给定 LIBERO episode 和策略 $\pi$，对一个输入因素施加扰动 $D_i$，测量成功指示变量 $Y\in\{0,1\}$ 的条件概率：
 
-| 维度 | 具体操作 | 主要考察能力 |
-| --- | --- | --- |
-| Objects Layout | 加入干扰物、移动/旋转目标物 | 目标识别与空间不变性 |
-| Camera Viewpoints | 改变第三视角位姿和 FOV | 视角变化下的几何推理 |
-| Robot Initial States | 改变机械臂初始关节状态 | proprioception 与运动学 |
-| Language Instructions | LLM 改写、增加语言复杂度 | 指令理解与跟随 |
-| Light Conditions | 强度、方向、颜色、阴影 | 光照不变视觉 |
-| Background Textures | 桌面/场景材质替换 | 背景域泛化 |
-| Sensor Noise | jitter、Gaussian blur 等图像退化 | 感知抗噪 |
+| 维度                  | 具体操作                         | 主要考察能力            |
+| --------------------- | -------------------------------- | ----------------------- |
+| Objects Layout        | 加入干扰物、移动/旋转目标物      | 目标识别与空间不变性    |
+| Camera Viewpoints     | 改变第三视角位姿和 FOV           | 视角变化下的几何推理    |
+| Robot Initial States  | 改变机械臂初始关节状态           | proprioception 与运动学 |
+| Language Instructions | LLM 改写、增加语言复杂度         | 指令理解与跟随          |
+| Light Conditions      | 强度、方向、颜色、阴影           | 光照不变视觉            |
+| Background Textures   | 桌面/场景材质替换                | 背景域泛化              |
+| Sensor Noise          | jitter、Gaussian blur 等图像退化 | 感知抗噪                |
 
 **【Code】** 官方仓库把扰动后的 BDDL 任务和分类写入 `libero/libero/benchmark/task_classification.json`；每项任务包含 `category` 与 `difficulty_level`。评测时 README 要求把 `num_trials_per_task` 从 50 改成 1，以便大规模跑完 10,030 个任务。
 
@@ -96,6 +96,8 @@ import { Aside } from '@/components/user'
 ### 4.1 Overall Architecture
 
 LIBERO-Plus 不是一个新的 Policy，而是一套“生成扰动 → 分层任务 → 统一 rollout → 统计分析”的诊断管线。原始 LIBERO 任务先按七维因素扩展，再过滤、平衡并由四个代表模型的准确率划分难度；最终将模型输出汇总为单维、双维和极端遮挡实验。
+
+**【Paper】** Appendix C 从 14,000 个候选实例筛选到 10,030 个 test-only 实例。L1–L5 的划分是四个参照模型（OFT、$\pi_0$、$\pi_0$-Fast、UniVLA）分别有 4/3/2/1/0 个成功，**不是固定物理扰动幅度从轻到重**。因此参照模型本身的难度曲线部分由建集规则决定，不能再将其当作独立证明“扰动越强性能越低”的证据。Appendix C.1 说过滤多数模型都能成功的任务，C.3 又保留四参照模型全成功的 L1；两处“多数”的模型集合与具体阈值没有完全交代，复现时应使用发布的任务划分。
 
 ![LIBERO-Plus 难度等级下的模型性能曲线（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-libero-plus/diff-crop.64elcqfkfq.webp)
 
@@ -145,18 +147,26 @@ $$
  =p(1,1\mid Y=1)-p(D_i=1\mid Y=1)p(D_j=1\mid Y=1).
 $$
 
-其中 $\Delta_{ij}<0$ 表示两种扰动共同出现时，比“单独影响相乘”的预期更差；$\Delta_{ij}=0$ 才符合独立性假设。这个指标测量的是成功事件中的交互，而不是简单把两个百分比相减。
+**【Analysis】** 上述归一化隐含四个扰动条件等概率采样；若每组试验数不同，必须额外乘先验权重。令 $s_{ab}=s(a,b)$、$Z=\sum_{a,b}s_{ab}$，可直接化简：
+
+$$
+\Delta_{ij}=\frac{s_{00}s_{11}-s_{10}s_{01}}{Z^2}.
+$$
+
+所以负值等价于 $s_{11}<s_{10}s_{01}/s_{00}$（$s_{00}>0$），并非一般情况下 $s_{11}<s_{10}s_{01}$；只有 baseline 成功率为 1 才能省掉 $s_{00}$。Figure 4 比较的是**成功条件下的概率乘积**与联合概率，不是把 Table 1 两个成功率直接相乘。条件化在成功事件上也不能自动定位神经网络内部的因果机制；它是统计交互诊断。
 
 ### 4.4 Training
 
-**【Paper】** 论文没有提出新的 Policy loss，而是用自动化扰动管线收集超过 20,000 条成功轨迹，并从官方 OpenVLA-OFT 权重出发进行 mixed fine-tuning。数据增加了场景、物体和扰动的多样性，目标是让策略在训练时就看到测试分布之外的变化。
+**【Paper】** 论文没有提出新的 Policy loss，而是用自动化扰动管线收集超过 20,000 条成功轨迹，并从官方 OpenVLA-OFT 权重出发进行 mixed fine-tuning。Appendix D 明确做法是把原始 LIBERO 的 state/action 序列在新环境中重放，保留成功轨迹并滤除 no-op；先收集 22,400 条，过滤后保留 20,000+。训练覆盖六类变化：干扰物、背景、光照、相机、语言和噪声；**没有机器人初始状态变化，也没有目标物 pose 改动**，后者因自动生成轨迹不可靠而被排除。它主要扩充既有动作在新观测条件下的覆盖，并非重新学习任意初始姿态下的恢复轨迹。训练/测试参数做了分离，例如相机角度相差 5°、背景与干扰物不重合。
 
 <Algorithm number={1} title='LIBERO-Plus 数据增强与后训练' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>原始 LIBERO 任务、七类扰动生成器、OpenVLA-OFT checkpoint</div>
   <div slot='output'>在 LIBERO-Plus 上后训练的鲁棒策略</div>
   <AlgorithmStep keyword='for'>遍历原始任务与扰动配置</AlgorithmStep>
   <AlgorithmStep indent={1}>生成 BDDL、场景资产或语言的单维变体</AlgorithmStep>
-  <AlgorithmStep indent={1}>用已有策略或脚本执行 rollout，只保留成功轨迹</AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    重放原始 LIBERO 的 state/action 轨迹，只保留成功结果并滤除 no-op
+  </AlgorithmStep>
   <AlgorithmStep>混合原始 LIBERO 与新增轨迹，执行 mix-SFT</AlgorithmStep>
   <AlgorithmStep>在未参与训练的 LIBERO-Plus 任务上按七维统计成功率</AlgorithmStep>
 </Algorithm>
@@ -193,20 +203,20 @@ $$
 
 论文评测十个开源 checkpoint：OpenVLA、OpenVLA-OFT、去 wrist 的 OpenVLA-OFT_w、mix-SFT 的 OpenVLA-OFT_m、$\pi_0$、$\pi_0$-Fast、Nora、WorldVLA、UniVLA 和 RIPT-VLA。原始列 `Original` 是未扰动 LIBERO 成功率，其余列是七个扰动维度的成功率。
 
-![相机视角扰动示例（论文 Figure 11–16 中的 Camera dimension）](https://pic.hana0721.top/blog/paper-deep-dive-libero-plus/camera-crop.70b2s6p92h.webp)
+![相机视角扰动示例（论文 Figure 12；原图 caption 误写为背景纹理）](https://pic.hana0721.top/blog/paper-deep-dive-libero-plus/camera-crop.70b2s6p92h.webp)
 
 ### 5.2 Main Results
 
-**【Paper】** 代表性结果如下（单位：成功率 %）：
+**【Paper】** 以下是 **Table 1 的初始扰动诊断**（单位：成功率 %），不是最终 10,030 实例 leaderboard 的 Table 2。后者经过筛选和平衡，OFT 的 Camera/Robot 分别为 56.4/31.9，而这里是 59.7/37.2；两表数字不应混用来计算后训练增益。
 
-| 模型 | Original | Camera | Robot | Language | Light | Background | Noise | Layout |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| OpenVLA | 76.5 | 1.1 | 4.1 | 26.8 | 4.4 | 25.3 | 19.3 | 31.6 |
-| OpenVLA-OFT | 97.1 | 59.7 | 37.2 | 81.5 | 85.8 | 92.4 | 76.7 | 77.1 |
-| $\pi_0$ | 94.2 | 15.8 | 6.6 | 61.0 | 79.6 | 78.5 | 79.4 | 70.4 |
-| $\pi_0$-Fast | 85.5 | 66.4 | 24.8 | 63.3 | 73.0 | 67.7 | 75.8 | 70.3 |
-| RIPT-VLA | 97.5 | 58.3 | 36.7 | 80.1 | 87.9 | 90.4 | 73.8 | 76.5 |
-| OpenVLA-OFT_m | 97.6 | 57.9 | 30.6 | 83.6 | 91.6 | 83.6 | 76.3 | 73.2 |
+| 模型          | Original | Camera | Robot | Language | Light | Background | Noise | Layout |
+| ------------- | -------: | -----: | ----: | -------: | ----: | ---------: | ----: | -----: |
+| OpenVLA       |     76.5 |    1.1 |   4.1 |     26.8 |   4.4 |       25.3 |  19.3 |   31.6 |
+| OpenVLA-OFT   |     97.1 |   59.7 |  37.2 |     81.5 |  85.8 |       92.4 |  76.7 |   77.1 |
+| $\pi_0$       |     94.2 |   15.8 |   6.6 |     61.0 |  79.6 |       78.5 |  79.4 |   70.4 |
+| $\pi_0$-Fast  |     85.5 |   66.4 |  24.8 |     63.3 |  73.0 |       67.7 |  75.8 |   70.3 |
+| RIPT-VLA      |     97.5 |   58.3 |  36.7 |     80.1 |  87.9 |       90.4 |  73.8 |   76.5 |
+| OpenVLA-OFT_m |     97.6 |   57.9 |  30.6 |     83.6 |  91.6 |       83.6 |  76.3 |   73.2 |
 
 **【Paper】** 平均来看，相机和机器人初始状态最具破坏性；背景和光照通常较温和，但这并不代表模型学到了语义不变性。带 wrist camera 的 OpenVLA-OFT 比仅第三视角的 OFT_w 更能抵抗视角变化；多样化 co-training 的 $\pi_0$ 系列在噪声和背景上相对稳健。
 
@@ -216,21 +226,23 @@ $$
 
 **对象布局。** 加入干扰物时，$\pi_0$、$\pi_0$-Fast、RIPT-VLA、UniVLA 和 WorldVLA 的下降较小；但移动目标物会让成功率显著下滑，说明模型更像记住目标的空间位置。
 
-**光照与黑屏。** 所有相机都置黑（`all-black`）后性能几乎归零；只遮第三视角（`3rd-black`）时，OpenVLA-OFT、$\pi_0$-Fast 等仍分别达到约 43.6、43.0、67.3% 的准确率。wrist view 提供了近距离几何和接触线索，解释了光照扰动下的表面稳定性。
+**光照与黑屏。** 所有相机都置黑（`all-black`）后性能几乎归零；只遮第三视角（`3rd-black`）时，OpenVLA-OFT、$\pi_0$、$\pi_0$-Fast 分别达到 43.6、43.0、67.3%（Figure 2）。wrist view 提供了近距离几何和接触线索，解释了光照扰动下的表面稳定性。
 
-**语言。** 空指令对 object suite 影响很小，仅 long suite 明显下降；将目标从 alphabet soup 换成 tomato sauce 等 OOD 物体后，成功率接近零。模型常执行原目标动作，所谓“语言鲁棒”实质上是 language-agnostic。
+**语言。** Figure 3 中 OFT 在 Object 上移除指令影响很小，而 LONG 明显下降；目标替换则同时改变语言和成功判据，并保持场景不变。替换的对象来自**同一场景已有物体**，OOD 主要指新的场景—目标组合，不应写成从未见过的新物体实例。Appendix E 与 Figure 3 标为 Object suite，Sec. 4.2 正文却写 layout suite，本文按附录的具体案例解释。接近零的替换目标成功率与继续抓原物体的轨迹，支持学到固定视觉—动作关联的解释；它不能单独排除运动技能覆盖或目标识别不足等其他原因。
 
 ### 5.4 Generalization
 
-论文进行 2,000 次独立重复实验，对六类非语言扰动计算组合指标。热图中大多数联合结果低于单维成功率乘积，得到一致的负 $\Delta_{ij}$：扰动并非可独立分解，而是在共享特征空间中耦合成更强的噪声。
+论文只用 **OpenVLA-OFT** 对六类非语言扰动的单维与两两组合进行每条件 2,000 次试验，区别于最终 benchmark 每扰动实例 1 次的协议。15 对的 $\Delta_{ij}$ 均为负，但 Appendix F / Table 9 中 Layout–Light（p=0.268）、Background–Light（0.124）、Light–Robot（0.0948）未达到 0.05；其余是未校正多重比较的显著性结果。因此可说该模型表现出广泛负交互，不能宣称所有组合显著，也不能直接证明所有 VLA 的表示必然“不可分解”。
 
-进一步的 post-training 结果：OpenVLA-OFT+ 在 Camera、Robot、Language、Light、Background、Noise、Layout 上分别为 **92.8、30.3、85.8、94.9、93.9、89.3、77.6%**，总成功率 **79.5%**，相对 OFT_m 提升 11.6 个百分点；相机提升 37.2 个百分点最明显。
+进一步的 post-training 结果：OpenVLA-OFT+ 在 Camera、Robot、Language、Light、Background、Noise、Layout 上分别为 **92.8、30.3、85.8、94.9、93.9、89.3、77.6%**，总成功率 **79.5%**，相对 OFT_m 提升 11.6 个百分点；这里相机的 +37.2 是相对 OFT_m 的 55.6；相对表中相机最强基线 $\pi_0$-Fast 65.1 则为 +27.7，原文“超过 next best 37.2”并不符合 Table 2。Robot 的 30.3 仍低于 UniVLA 46.2，也略低于普通 OFT 31.9；这与增强数据未覆盖机器人初始状态相吻合，但不是单独因果消融。
+
+**【Analysis】** Total 按发布任务实例汇总，各维数量不同（Table 7：Camera 1599、Robot 1550、Language 1537、Light 1142、Background 1076、Noise 1601、Layout 1525），不能把七列简单取平均当作论文 Total。79.5/79.6 的小差异也应保留为原文/README 不一致，而不是编造“同一位小数的四舍五入”解释。
 
 ## 6. 方法分析
 
 ### 6.1 为什么有效？
 
-**【Analysis】** LIBERO-Plus 的价值不在于把任务数量简单做大，而在于把“输入因素”与“失败模式”对齐。相机扰动直接测试坐标变换，初始状态扰动测试本体感与运动学，目标位移测试语义是否脱离绝对像素位置，空语言测试多模态融合是否真的发生。这样才能将一个低分归因到可研究的机制，而不是笼统地说模型不泛化。
+**【Analysis】** LIBERO-Plus 的价值不在于把任务数量简单做大，而在于把“输入因素”与“失败模式”对齐。相机扰动直接测试坐标变换，初始状态扰动测试本体感与运动学，目标位移测试语义是否脱离绝对像素位置，空语言测试多模态融合是否真的发生。这使低分对应到可进一步检验的假设，但并未唯一识别机制。例如相机变化也会改变可见性、目标尺寸和遮挡，目标位移也会改变可达性与运动分布；缺少反事实控制时，不宜把每次失败都归结为“不理解几何/语义”。
 
 ### 6.2 核心创新
 
@@ -259,9 +271,9 @@ $$
 
 **【Analysis】**
 
-1. 语言实验集中在空指令和目标替换，尚未系统区分语法改写、否定、指代和长程组合指令。
+1. 语言扰动已经包含 distraction、commonsense 描述和 reasoning-chain 改写；空指令与目标替换是额外诊断。它仍没有充分分离否定、指代、组合语义与动作覆盖问题。
 2. 10,030 个任务虽大，但七个维度的采样分布、难度阈值和四模型分层会影响 leaderboard 的可迁移性。
-3. 组合缺口目前主要是 pairwise covariance；三维及更高阶交互仍可能被遗漏。
+3. 组合缺口目前只有 OFT 的 pairwise covariance；三维及更高阶交互、其他模型和多重检验校正仍未覆盖。
 4. 训练增强使用成功轨迹，失败恢复、碰撞安全和闭环纠错没有纳入目标函数。
 5. benchmark 代码不包含各 VLA 的统一实现，复现实验仍依赖不同仓库、权重和预处理细节。
 
@@ -272,5 +284,6 @@ $$
 对模型设计而言，wrist view 的结果说明局部几何观测可能比更大的 backbone 更能提升鲁棒性；空语言和目标替换则提示需要显式的 language grounding 或 goal-conditioned action decoder。对评测而言，未来 leaderboard 至少应同时报告单维曲线、组合缺口、失败恢复率和真实部署转移，而不是只给一个 Original 平均分。
 
 <Aside type='note' title='阅读提示'>
-  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码或 README 可核对的实现，`【Analysis】` 表示基于论文和代码的分析推断。
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码或 README
+  可核对的实现，`【Analysis】` 表示基于论文和代码的分析推断。
 </Aside>

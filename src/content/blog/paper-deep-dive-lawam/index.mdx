@@ -1,7 +1,7 @@
 ---
 title: 'LaWAM 论文精读：用潜空间世界模型预测机器人动作的视觉子目标'
 publishDate: 2026-08-26
-updatedDate: 2026-08-26
+updatedDate: 2026-09-22
 description: '精读 LaWAM：把 Latent Action Model 的前向解码器复用为 Latent World Model，在 DINOv3 特征空间预测动作相关的未来视觉子目标，兼顾动力学预见与低延迟控制。'
 heroImage:
   { src: 'https://pic.hana0721.top/90399055_p0_master1200.4g535npbv6.webp', color: '#8C8275' }
@@ -52,7 +52,7 @@ import { Aside } from '@/components/user'
 **时间**：arXiv 预印本，2026 年 6 月  
 **论文链接**：[arXiv](https://arxiv.org/abs/2606.15768)
 
-![LaWAM 两阶段训练与推理总览（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-lawam/lawam-overview.4920k1cypw.webp)
+![LaWAM 两阶段训练与推理总览（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-lawam/lawam-overview.4920k1cypw.webp)
 
 ### 一句话总结
 
@@ -127,9 +127,11 @@ LaWAM 先用冻结视觉编码器 $f_{\psi}$ 得到当前和未来特征：$u=f_
 
 策略先验 $p_{\theta}(\hat z\mid o,l)$ 从当前视觉和指令预测部署时的 latent action。LaWM 将其展开为 $\hat u_T$。动作专家采用 Alternate-DiT：一条流承载 VLM 的语义上下文，另一条流承载 $(u,\hat u_T)$ 的动力学上下文，两条流交替交互后对 action chunk 做 flow matching 去噪。
 
+**【Paper】** Appendix C.2 给出的实际接口还有两个重要约束：VLM 使用 Qwen3-VL 的前 16 层，动作专家是 4 个 Alternate-DiT block（共 16 层、hidden size 1024）；输入按主相机、指令、latent-action queries、可选辅助相机、action queries 排列，并使用 causal mask。因此 latent-action prior 看不到排在其后的辅助视角，动作查询才可读取完整语义上下文。这里的“两条流”是交替注意力的条件来源，不是两个独立输出动作的策略。
+
 **【Code】** 论文没有给出可核验的官方代码仓库或项目页面，因此这里不推断具体文件、DataLoader 或 checkpoint 行为；本节只记录论文明确的架构。
 
-![一个 action chunk 内的 latent subgoal 引导执行（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-lawam/libero-chunk.64elcnpejx.webp)
+![一个 action chunk 内的 latent subgoal 引导执行（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-lawam/libero-chunk.64elcnpejx.webp)
 
 ### 4.3 关键公式
 
@@ -140,7 +142,7 @@ z\sim q_{\phi}(z\mid u,u_T),\qquad
 \tilde u_T=\mathrm{LaWM}_{\omega}(u,z)
 $$
 
-$q_{\phi}$ 是只在训练阶段可用的 latent inverse-dynamics posterior；$\tilde u_T$ 是 decoder 重建的 horizon feature。$u_T$ 与 $s_T$ 都对应固定物理时间 $\tau$，因此子目标表示的是一致的实际运动时长，而不是某个数据集的固定帧偏移。
+$q_{\phi}$ 是只在训练阶段可用的 latent inverse-dynamics posterior；$\tilde u_T$ 是 decoder 重建的 horizon feature。$u_T$ 与 $s_T$ 都对应该样本采用的物理时间 $\tau$，而不是固定帧偏移。这里的“一致”主要针对不同频率的机器人分支；Appendix C.5 对机器人视频使用 1.2 s、对人类视频使用 0.4 s，并非所有视频都共享同一个时间跨度。
 
 #### LaWAM 分解
 
@@ -177,6 +179,8 @@ $$
 
 $\mathcal L_{\mathrm{act}}$ 是以 $(o,l,u,\hat u_T)$ 为条件的 action flow-matching loss；论文在所有实验中设置 $\lambda_{\mathrm{distill}}=\lambda_{\mathrm{wm}}=0.1$。
 
+**【Analysis】** 三个目标承担不同职责：distillation 用见过未来的 posterior 给 prior 一个直接的运动目标；feature loss 要求 prior 产生的 latent action 经 decoder 后仍能抵达正确未来；action loss 再把这种未来转成可执行动作。部署不读取真实未来。Knowledge Insulation 则阻断动作专家的梯度回写 LaWM 动力学路径，不能据此说 LaWM 在第二阶段被完全冻结：正文只明确限制动作梯度，Appendix C.5 还给出了“其他模块”的学习率，没有公开逐参数冻结表。
+
 ### 4.4 Training
 
 **【Paper】** LaWM 训练使用连续 latent action、AdamW、16 张 H100、100k steps、全局 batch size 1024、学习率 $3\times10^{-4}$、weight decay $10^{-2}$，KL 权重 $\beta=10^{-5}$。机器人 teleoperation 的物理 horizon 为 1.2 s，egocentric human 视频为 0.4 s。第二阶段在 64 张 H100 上进行 200k steps 的 policy-integration pretraining，action expert 学习率 $10^{-4}$，其他模块为 $3\times10^{-5}$。
@@ -189,7 +193,7 @@ $$H_b=\mathrm{round}(\tau h_b),\qquad t_{b,i}=i/h_b$$
 
 <Algorithm number={1} title='LaWAM 两阶段训练' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>带时间间隔配对的观测 (o, oT)、机器人状态、语言指令和动作 chunk</div>
-  <div slot='output'>冻结的 LaWM、策略 latent-action prior 与 action expert</div>
+  <div slot='output'>经过动力学梯度保护的 LaWM、策略 latent-action prior 与 action expert</div>
   <AlgorithmStep>用冻结 DINOv3 编码 o 和 oT，得到 (u, uT)。</AlgorithmStep>
   <AlgorithmStep>
     由 inverse-dynamics encoder 采样 z，训练 LaWM 重建 uT，并用 sT 辅助约束 z。
@@ -224,11 +228,11 @@ $$H_b=\mathrm{round}(\tau h_b),\qquad t_{b,i}=i/h_b$$
 
 **【Paper】** 实验覆盖四个 LIBERO suite、RoboTwin 2.0 的 50 个双臂任务，以及真实世界的 pick-and-place、drawer opening 和 towel folding。LIBERO 报告 40 个任务、每任务 50 次试验；RoboTwin 每任务 100 次；真实任务各 30 次。延迟在 A100 上重复 1000 次 action-chunk prediction 后取平均。
 
-![真实机器人任务：抓取放置、打开抽屉和折叠毛巾（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-lawam/real-world.5xbdh83954.webp)
+![真实机器人任务：抓取放置、打开抽屉和折叠毛巾（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-lawam/real-world.5xbdh83954.webp)
 
 ### 5.2 Main Results
 
-**【Paper】** LIBERO 的 LaWAM 平均成功率为 **98.6%**，Long / Goal / Object / Spatial 分别为 97.0 / 98.4 / 99.6 / 99.4；模型规模 2.3B，单 chunk 延迟 187 ms。相比像素空间 WAM，LaWAM 的 world-modeling 模块仅 230M 参数，论文称比 5B WAN backbone 少约 95%，墙钟延迟最高可降低 24×。
+**【Paper】** LIBERO 的 LaWAM 平均成功率为 **98.6%**，Long / Goal / Object / Spatial 分别为 97.0 / 98.4 / 99.6 / 99.4；模型规模 2.3B，单 chunk 延迟 187 ms。相比像素空间 WAM，LaWAM 的 world-modeling 模块仅 230M 参数，论文称比 5B WAN backbone 少约 95%，墙钟延迟最高可降低 24×。这里的 24× 是 4482/187，相对于表中 LingBot-VA；不是相对于所有 WAM。Appendix C.5 的 WAM 参数统计排除了视频 VAE 与 text encoder，Table 1 延迟仅计模型预测、排除环境和机器人执行开销。成功率也混合了原论文数字与作者复现值，不能将此表视为相同数据、相同训练预算下的纯架构实验。
 
 | 方法          | 模型规模 |       延迟 | LIBERO 平均 |
 | ------------- | -------: | ---------: | ----------: |
@@ -238,7 +242,7 @@ $$H_b=\mathrm{round}(\tau h_b),\qquad t_{b,i}=i/h_b$$
 | Fast-WAM      |       6B |     486 ms |       97.6% |
 | **LaWAM**     | **2.3B** | **187 ms** |   **98.6%** |
 
-RoboTwin 的 clean-scene / randomized-scene 平均成功率为 92.64% / 89.80%，两者平均为 91.22%。真实世界 LaWAM 在 pick-and-place、drawer opening、towel folding 上分别达到 93.3%、86.7%、90.0%，平均 90.0%，高于对比方法的平均 83.3%（π0.5）。
+RoboTwin 的 clean-scene / randomized-scene 平均成功率为 92.64% / 89.80%，两者平均为 91.22%。优势主要在 clean：randomized 低于 LingBot-VA 的 90.92% 和 Fast-WAM 的 90.52%；Fast-WAM 两种条件平均为 91.25%，因此 91.22% 不能解读为 RoboTwin 全口径第一。所有方法都在含随机化示教的设定下比较，不能把 randomized 结果当作完全未见域的零样本迁移。真实世界 LaWAM 在 pick-and-place、drawer opening、towel folding 上分别达到 93.3%、86.7%、90.0%，平均 90.0%，高于对比方法的平均 83.3%（π0.5）。
 
 ![LIBERO 上的延迟—成功率权衡（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-lawam/libero-latency.102wndphfb.webp)
 
@@ -246,17 +250,19 @@ RoboTwin 的 clean-scene / randomized-scene 平均成功率为 92.64% / 89.80%�
 
 ![LaWAM 组件消融：预训练、distillation、Knowledge Insulation 与 LaWM（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-lawam/ablation.2yz3dpuzpg.webp)
 
-**【Paper】** LIBERO 消融显示，移除 LaWM 的性能下降最大，尤其是 LIBERO-Long；移除 latent-action distillation 也会明显变差；同时移除 KI 与 distillation 进一步退化。说明最终收益来自一条完整接口：策略要能稳定驱动 LaWM，且动作专家不能反向改写其动力学。
+**【Paper】** LIBERO 消融显示，移除 LaWM 的性能下降最大，尤其是 LIBERO-Long；移除 latent-action distillation 也会明显变差；同时移除 KI 与 distillation 进一步退化。这些消融支持“对齐 latent action，再通过视觉子目标供动作专家使用”这一整条设计。需要注意，图中没有单独的 w/o KI：只能在已经移除 distillation 的条件下观察再移除 KI 的影响，不能独立量化完整模型中 KI 的收益，也不能把组件差值相加。
 
-混合频率实验还表明，不加 physical-time encoding 时联合训练 5/10/20 Hz 数据会明显下降；加入时间编码后，性能大幅恢复到 20 Hz reference 附近。
+混合频率实验还表明，不加 physical-time encoding 时联合训练 5/10/20 Hz 数据会明显下降；加入时间编码后，性能大幅恢复到 20 Hz reference 附近。Appendix C.4 是从同一批 20 Hz LIBERO 示教下采样出 10/5 Hz，再从头联合训练；没有增加独立示教。因此它检验的是时间索引歧义及其修复，不能推出混合频率本身比更多原生 20 Hz 数据更有价值。
 
-![混合控制频率训练与 physical-time encoding（论文 Appendix Figure）](https://pic.hana0721.top/blog/paper-deep-dive-lawam/mixed-frequency.3d5j4l3aol.webp)
+![混合控制频率训练与 physical-time encoding（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-lawam/mixed-frequency.3d5j4l3aol.webp)
 
 ### 5.4 Generalization
 
-**【Paper】** LaWM 的 open-loop rollout 在未见环境和未见 embodiment 上使用同一 latent-action trajectory 时，仍产生上下文相关且连贯的 latent 变化。真实测试还包含超出部分示教空间的物体、碗和抽屉初始位置；LaWAM 在这些配置下保持较高成功率。
+**【Paper】** LaWM 的 open-loop rollout 在未见环境和未见 embodiment 上使用同一 latent-action trajectory 时，仍产生上下文相关且连贯的 latent 变化。真实测试还包含超出部分示教空间的物体、碗和抽屉初始位置。Table 3 的每任务 30 次试验合并了 seen/unseen 配置，没有分别给出 OOD 成功率；训练仍使用每个 Franka 任务 150 条示教和毛巾任务 280 条示教。
 
-![500 条 LIBERO 轨迹上的 LaWM rollout 特征相似度（论文 Appendix Figure）](https://pic.hana0721.top/blog/paper-deep-dive-lawam/lawm-rollout.99u3bljtl5.webp)
+**【Analysis】** 两类泛化证据要分开：Figure 5/14/15 把源视频反推的 latent-action 序列用在新截图上，是表征空间中的定性 rollout，不是新机器人执行成功率。Figure 10 的 500 条轨迹 feature cosine similarity 则检验预测是否偏离初始帧并接近真实未来。热力图来自“初始机械臂 patch 与预测 feature 各 patch 的余弦相似度”（Appendix B），并非未来 RGB 重建、运动分割真值或物理可行性证明。
+
+![500 条 LIBERO 轨迹上的 LaWM rollout 特征相似度（论文 Figure 10）](https://pic.hana0721.top/blog/paper-deep-dive-lawam/lawm-rollout.99u3bljtl5.webp)
 
 ## 6. 方法分析
 
@@ -284,7 +290,7 @@ RoboTwin 的 clean-scene / randomized-scene 平均成功率为 92.64% / 89.80%�
 
 ### 6.4 关键假设
 
-**【Analysis】** 方法隐含三个假设：DINOv3 特征保留了对控制有用的空间结构；固定物理时间 $\tau$ 足以定义稳定的 chunk-level subgoal；连续 latent action 可以被当前 observation 与 language 预测。若相机剧烈运动、特征空间对细粒度接触不敏感，或任务需要比一个 chunk 更长的多步规划，这些假设都会变弱。
+**【Analysis】** 方法隐含三个假设：DINOv3 特征保留了对控制有用的空间结构；固定物理时间 $\tau$ 足以定义稳定的 chunk-level subgoal；连续 latent action 可以被当前 observation 与 language 预测。若相机剧烈运动、特征空间对细粒度接触不敏感，或任务需要比一个 chunk 更长的多步规划，这些假设都会变弱。另一个边界是 LaWM 条件中的 $z$ 由视觉转移学习，既不是机器人的原始 EEF action，也没有被证明是可跨平台唯一对应的物理控制量。系统先预测目标未来再生成动作，不会对多组候选真实动作分别仿真并择优；“action-conditioned”不应自动理解为已验证的反事实物理模拟器。
 
 ## 7. 局限性
 

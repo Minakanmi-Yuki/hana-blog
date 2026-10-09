@@ -1,7 +1,7 @@
 ---
 title: 'DUST 论文精读：双流扩散增强 World-Model VLA'
 publishDate: 2026-08-26
-updatedDate: 2026-08-26
+updatedDate: 2026-09-22
 description: '精读 DUST：用双流 MMDiT、解耦噪声与异步采样，把未来视觉状态建模融入 VLA，并在仿真、真实机器人和跨 embodiment 数据上验证。'
 heroImage:
   { src: 'https://pic.hana0721.top/72072963_p0_master1200.mo0d1wsi.webp', color: '#8C8275' }
@@ -34,7 +34,7 @@ import { Aside } from '@/components/user'
 
 <ArxivRating
   id='2510.27607'
-  tldr='DUST 用双流 MMDiT 保持动作与未来视觉 token 的模态特性，再以独立噪声和异步采样学习双向因果关系；4 步采样约 40Hz，在 RoboCasa、GR-1 和 Franka Research 3 上均超过强基线。'
+  tldr='DUST 用双流 MMDiT 保持动作与未来视觉 token 的模态特性，再以独立噪声和异步采样学习动作与未来状态的双向条件依赖；RTX 5090 编译推理的 4 步采样约 40Hz，在 RoboCasa、GR-1 和 Franka Research 3 上均超过强基线。'
   rank={4}
 />
 
@@ -42,12 +42,14 @@ import { Aside } from '@/components/user'
 
 **论文名称**：《Dual-Stream Diffusion for World-Model Augmented Vision-Language-Action Model》  
 **作者**：John Won、Kyungmin Lee、Huiwon Jang、Dongyoung Kim、Jinwoo Shin（KAIST、RLWRLD）  
-**会议 / 期刊**：ICML 2026  ￼  
+**会议 / 期刊**：ICML 2026\
 **论文链接**：[arXiv:2510.27607](https://arxiv.org/abs/2510.27607)  
 **项目主页**：[periphanes.github.io/dust](https://periphanes.github.io/dust)  
 **代码**：项目页截至本文撰写时标注为 “Code (Coming Soon)”，因此没有可核对的官方实现。
 
 ![统一联合扩散、因果扩散与 DUST 双流扩散的对比（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-dust/concept-joint.szorxxiqk.webp)
+
+**阅读版本**：本文依据 [arXiv v3（2026-05-28）](https://arxiv.org/html/2510.27607v3) 核对；正文数值优先使用结果表。该版本正文与附录的 GR-1 任务分组存在不一致，下面保留这一出处差异。
 
 ### 一句话总结
 
@@ -101,17 +103,17 @@ $$
 
 ### 4.2 核心模块
 
-| 模块 | 输入 | 输出 | 作用 |
-| --- | --- | --- | --- |
-| Frozen VLM（Eagle-2） | 当前 RGB、任务指令 | $\Phi_t$ | 提供高层语义条件；论文使用第 12 层特征 |
-| Action stream | 状态 token、16 个加噪动作 token | $V_\theta^A$ | 学习低维、时序平滑的控制轨迹 |
-| Vision stream | 64 个加噪未来图像 embedding token | $V_\theta^o$ | 预测动作执行后的语义场景状态 |
-| Shared MMDiT | 两条 token 流 | 更新后的两流表示 | 在 cross-modal attention 中交换信息 |
-| AdaLN | 各自的 $(\tau_A,\tau_o)$ | 模态条件 | 让两条流感知不同噪声等级 |
-| Modality-specific DiT | 各自的共享层输出 | 动作/视觉速度场 | 最后阶段恢复模态专属建模能力 |
+| 模块                  | 输入                              | 输出             | 作用                                   |
+| --------------------- | --------------------------------- | ---------------- | -------------------------------------- |
+| Frozen VLM（Eagle-2） | 当前 RGB、任务指令                | $\Phi_t$         | 提供高层语义条件；论文使用第 12 层特征 |
+| Action stream         | 状态 token、16 个加噪动作 token   | $V_\theta^A$     | 学习低维、时序平滑的控制轨迹           |
+| Vision stream         | 64 个加噪未来图像 embedding token | $V_\theta^o$     | 预测动作执行后的语义场景状态           |
+| Shared MMDiT          | 两条 token 流                     | 更新后的两流表示 | 在 cross-modal attention 中交换信息    |
+| AdaLN                 | 各自的 $(\tau_A,\tau_o)$          | 模态条件         | 让两条流感知不同噪声等级               |
+| Modality-specific DiT | 各自的共享层输出                  | 动作/视觉速度场  | 最后阶段恢复模态专属建模能力           |
 
 **【Paper】** 扩散主干由 12 个 MMDiT blocks 和每个模态 4 个 DiT blocks 组成；VLM 特征以交错 self-attention / cross-attention 方式注入。  
-**【Analysis】** 视觉流并非为了生成可直接观看的 RGB，而是作为动作生成的“可预测后果”表示；这解释了为什么语义 embedding 比像素 latent 更适合控制。
+**【Analysis】** 视觉流并非为了生成可直接观看的 RGB，而是作为动作生成的“可预测后果”表示；这给出了使用语义 embedding 的动机；Table 8 的结果仅支持在这里的编码器和训练配置下，像素 VAE 没有胜过语义编码器，不能据此推出所有控制任务都应舍弃像素细节。
 
 ### 4.3 关键公式
 
@@ -139,7 +141,7 @@ $$
 \mathcal L_{Joint}=\mathcal L_A+\lambda_{WM}\mathcal L_{WM}.
 $$
 
-**【Paper】** 主实验取 $\lambda_{WM}=1.0$，即动作和 world-modeling 等权。独立噪声使模型看到“干净未来 + 全噪声动作”（偏 inverse dynamics）以及“干净动作 + 噪声未来”（偏 forward dynamics）等组合，从而学习双向因果关系。
+**【Paper】** 主实验取 $\lambda_{WM}=1.0$，即动作和 world-modeling 等权。独立噪声使模型看到“干净未来 + 全噪声动作”（偏 inverse dynamics）以及“干净动作 + 噪声未来”（偏 forward dynamics）等组合，从而学习两种方向的条件预测。**【Analysis】** 这里的“因果”是作者对 forward/inverse dynamics 的描述：仅凭示教联合分布和独立加噪，并不能证明模型已经识别出干预意义上的因果机制。尤其两项损失虽然相加，两个速度场都依赖两条流；它们并不是两个互不相干的边缘分布模型。
 
 ### 4.4 Training
 
@@ -153,6 +155,8 @@ $$
   <AlgorithmStep>将 state、action 和 vision token 送入双流 MMDiT，得到两个速度场。</AlgorithmStep>
   <AlgorithmStep>计算 $\mathcal L_A+\lambda_{WM}\mathcal L_{WM}$，反向传播更新扩散模块。</AlgorithmStep>
 </Algorithm>
+
+**【Paper】** 附录 A.3 使用 AdamW，学习率 $10^{-4}$、weight decay $10^{-5}$、5% warmup 后 cosine decay。RoboCasa 的 batch 为 32，100/300/1000 demos 对应 60k/420k/600k 步；GR-1 则为 batch 960、60k 步。因此跨数据规模结果同时改变了数据量与优化预算，不能解读为固定计算量的纯数据 scaling law。
 
 ### 4.5 Inference
 
@@ -169,7 +173,12 @@ $$
 
 ![异步 vision-action joint sampling：视觉步数可多于动作步数（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-dust/diffusion-steps.7axwl98i0s.webp)
 
-<Algorithm number={2} title='Asynchronous vision-action sampling' inputLabel='输入' outputLabel='输出'>
+<Algorithm
+  number={2}
+  title='Asynchronous vision-action sampling'
+  inputLabel='输入'
+  outputLabel='输出'
+>
   <div slot='input'>当前图像、指令、状态，动作步数 $N_A$，视觉倍率 $q$</div>
   <div slot='output'>动作 chunk $A_t$ 与未来视觉 embedding 预测</div>
   <AlgorithmStep>初始化动作和视觉高斯噪声，计算冻结 VLM 条件 $\Phi_t$。</AlgorithmStep>
@@ -178,52 +187,60 @@ $$
   <AlgorithmStep>执行最终动作 chunk；根据延迟预算选择 $q$，在速度和精度之间折中。</AlgorithmStep>
 </Algorithm>
 
-**【Analysis】** 主实验使用 $q=1,N_A=N_o=4$，因此与基线公平；$q>1$ 是可选的“精度旋钮”，不是必须的在线控制步骤。
+**【Paper】** 主实验使用 $q=1,N_A=N_o=4$，因此与基线公平；$q>1$ 是可选的“精度旋钮”，不是必须的在线控制步骤。
 
 ### 4.6 代码实现对照
 
-**【Code】** 官方项目页显示 Code 为 “Coming Soon”，论文也没有给出可下载的 DUST 仓库、配置或 checkpoint。因此本文不能对模型定义、DataLoader、优化器和推理脚本做逐文件核对。论文只说明实现基于 GR00T-N1.5 codebase，并重新实现了没有官方代码的 FLARE baseline；这些信息属于论文附录，而非可运行的 DUST 官方实现。
+**【Paper / 项目页】** [官方项目页](https://periphanes.github.io/dust/)截至 2026-09-22 显示 Code 为 “Coming Soon”，论文也没有给出可下载的 DUST 仓库、配置或 checkpoint。因此本文不能对模型定义、DataLoader、优化器和推理脚本做逐文件核对。论文只说明实现基于 GR00T-N1.5 codebase，并重新实现了没有官方代码的 FLARE baseline；这些信息属于论文附录，而非可运行的 DUST 官方实现。
 
 ## 5. 实验
 
 ### 5.1 Experimental Setup
 
-![Franka Research 3 真实任务：4 个 pick-and-place、1 个 insertion、2 个 tool-use（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-dust/real-tasks.6f1f5sytmp.webp)
+![Franka Research 3 真实任务：4 个 pick-and-place、1 个 insertion、2 个 tool-use（原图对应早期版本 Figure 4，v3 编号为 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-dust/real-tasks.6f1f5sytmp.webp)
 
 **【Paper】**
 
 - **RoboCasa**：24 个单臂厨房任务，覆盖 8 个 pick-and-place、6 个开关门/旋钮 contraption、10 个其他任务。
-- **GR-1**：24 个 humanoid tabletop 任务，含 18 个 pick-and-place 和 6 个 articulated 任务。
+- **GR-1**：24 个 humanoid tabletop 任务，共 24 个任务；Table 2 标为 18 个 pick-and-place / 6 个 articulated，附录 A.4 则写 16 / 8。本文不自行裁定分组，以 Table 2 的总体结果为准。
 - **Real world**：Franka Research 3，7-DoF，状态和动作由关节位置与二值夹爪组成；7 个任务各 60 条 teleoperation demos。
-- **对比方法**：GR00T-N1.5、重实现的 FLARE、(pi_0)、(pi_0)-FAST，以及在部分数据规模下的 PAD/VPP。
+- **对比方法**：GR00T-N1.5、重实现的 FLARE、$\pi_0$、$\pi_0$-FAST，以及在部分数据规模下的 PAD/VPP。
+
+**【Paper】** GR00T 系列的 VLM 冻结、action expert 随机初始化；$\pi_0$ 与 $\pi_0$-FAST 也从 PaliGemma 初始化，而非加载机器人预训练策略。FLARE 是作者在相同 backbone/目标 embedding 上重新实现的 loss 版本，未复刻其原始 Q-Former。这里比较的是这些受控训练配置，不能把表中数字当作官方完整 checkpoint 的通用排名。
+
+**【Paper】** 真机每任务 24 次试验，而且并非所有项目都是二元成功：PnP 偶尔计半分，擦板完成超过 50%/90% 分别记 0.5/1，扫螺栓每入簸箕一颗计 $1/6$。因此下表 59.9% 是含部分完成分数的任务平均成绩。
 
 ### 5.2 Main Results
 
 **【Paper】** 关键平均成功率如下（单位：%）：
 
-| Benchmark / 数据量 | GR00T-N1.5 | + FLARE | + DUST | DUST 增益 |
-| --- | ---: | ---: | ---: | ---: |
-| RoboCasa / 100 demos | 41.7 | 44.6 | **50.1** | +8.4 vs GR00T |
-| RoboCasa / 300 demos | 45.0 | 55.3 | **58.5** | +13.5 vs GR00T |
-| RoboCasa / 1000 demos | 50.8 | 64.6 | **66.3** | +15.5 vs GR00T |
-| GR-1 / 300 demos | 20.3 | 33.7 | **36.0** | +15.7 vs GR00T |
-| GR-1 / 1000 demos | 30.8 | 36.3 | **42.0** | +11.2 vs GR00T |
-| Franka Research 3 / 7 tasks | 46.5 | 49.5 | **59.9** | +13.4 vs GR00T |
+| Benchmark / 数据量          | GR00T-N1.5 | + FLARE |   + DUST |      DUST 增益 |
+| --------------------------- | ---------: | ------: | -------: | -------------: |
+| RoboCasa / 100 demos        |       41.7 |    44.6 | **50.1** |  +8.4 vs GR00T |
+| RoboCasa / 300 demos        |       45.0 |    55.3 | **58.5** | +13.5 vs GR00T |
+| RoboCasa / 1000 demos       |       50.8 |    64.6 | **66.3** | +15.5 vs GR00T |
+| GR-1 / 300 demos            |       20.3 |    33.7 | **36.0** | +15.7 vs GR00T |
+| GR-1 / 1000 demos           |       30.8 |    36.3 | **42.0** | +11.2 vs GR00T |
+| Franka Research 3 / 7 tasks |       46.5 |    49.5 | **59.9** | +13.4 vs GR00T |
 
-**【Paper】** RoboCasa 100 demos 下 DUST 的 50.1% 平均成功率超过 FLARE 5.5 个百分点；真实机器人平均 59.9%，比 GR00T-N1.5 高 13.4 个百分点、比 FLARE 高 10.4 个百分点。4 步去噪约 40Hz，32 步仍约 8Hz。
+**【Paper】** RoboCasa 100 demos 下 DUST 的 50.1% 平均成功率超过 FLARE 5.5 个百分点；真实机器人平均 59.9%，比 GR00T-N1.5 高 13.4 个百分点、比 FLARE 高 10.4 个百分点。延迟测量在 RTX 5090 上使用 TorchInductor：4 步为 24.6 ms（约 40.7 次推理/秒），32 步为 127.1 ms（约 7.9 次/秒）。这是特定硬件下的推理吞吐，不能直接等同于含相机采集、通信和动作执行的机器人闭环频率。
 
 ### 5.3 Ablation Study
 
 **【Paper】** 在 RoboCasa 100 demos/task 上：
 
-| 配置 | 平均成功率 |
-| --- | ---: |
-| DiT + joint noise | 38.0 |
-| DiT + decoupled noise | 42.5 |
-| MMDiT + joint noise | 38.2 |
-| **MMDiT + decoupled noise（DUST）** | **50.1** |
+| 配置                                | 平均成功率 |
+| ----------------------------------- | ---------: |
+| DiT + joint noise                   |       38.0 |
+| DiT + decoupled noise               |       42.5 |
+| MMDiT + joint noise                 |       38.2 |
+| **MMDiT + decoupled noise（DUST）** |   **50.1** |
 
 去掉双流结构下降约 8 个百分点，去掉 decoupled noise 下降约 12 个百分点，说明两者互补。MMDiT 深度在 12 层时最好（50.1%）；$\lambda_{WM}$ 在 0.5–2.0 区间较稳定，偏离到 0.2 时降至 34.3%。SigLIP-2、DINOv2、Flux.1 VAE 三种目标的平均成功率分别为 50.1%、51.6%、49.1%，像素重建能力更强的 VAE 并未带来更好的控制。
+
+**【Paper】** v3 附录提供了两个更直接的机制检验。Table 12 将真实未来观测逐渐加噪，动作 MSE 从 0.0318 上升到 0.0865，支持动作流确实使用未来状态条件；但输入真实未来属于诊断实验，不是在线策略可获得的信息。Table 13 关闭推理时视觉去噪后，RoboCasa 成绩由 50.1% 降为 47.9%，仍高于 GR00T 的 41.7%。这把收益拆成了“训练时塑造表示”与“推理时联合精修”两部分。
+
+**【Paper】** 异步采样还需要与同步加步数比较：附录 Table 11 中 RoboCasa 100 demos 的同步 4→64 步从 50.1% 降到 39.7%，而固定动作 4 步、视觉升到 64 步达到 51.8%。证据支持按模态分配计算，而不是笼统的“采样越多越好”。
 
 ### 5.4 Generalization
 
@@ -231,6 +248,7 @@ $$
 
 - **异构联合训练**：在 RoboCasa 300 demos 基础上加入 GR-1 300 demos 和 46k episodes 的 EgoDex（MANO hand pose retarget 到 Fourier hands），DUST 平均成功率从 58.5% 提升到 64.4%；GR00T-N1.5 从 45.0% 到 46.9%，FLARE 从 55.3% 到 57.6%。
 - **action-free video 预训练**：先用 BridgeV2 仅优化 world-modeling loss，再用 RoboCasa 100 demos 微调，DUST 从 50.1% 提升到 58.5%。
+- **额外 benchmark**：附录 Table 9 的 LIBERO 平均值 DUST 与重实现 FLARE 均为 96.2%，并非处处领先；Table 10 的 CALVIN ABC-D 平均连续完成长度是 3.91 vs 3.75，单任务成功率却是 93.8% vs 96.0%。收益更突出地出现在较长任务链，不能归纳为每项指标全面最优。
 - **test-time scaling**：固定动作 4 步，把视觉步数 (N_o) 提到 16/32/64；RoboCasa 1000 demos 的平均成功率从 66.3% 升到 69.7%，GR-1 1000 demos 在 32 步达到 47.1%，相对 4 步高 5.1 个百分点，但并非单调增加。
 
 ## 6. 方法分析
@@ -249,11 +267,12 @@ $$
 
 ### 6.3 与已有方法的本质区别
 
-| 方法 | 模态结构 | 信息流 | 噪声/采样 |
-| --- | --- | --- | --- |
-| Joint diffusion | 单流 | 双向但模态混杂 | 通常同步 |
-| Causal diffusion / FLARE | 多模型 | 单向条件 | 模态专属但耦合较弱 |
-| **DUST** | 双流 MMDiT | attention 双向交换 | 训练独立噪声，推理异步步长 |
+| 方法                                   | 模态结构               | 信息流                         | 噪声/采样                  |
+| -------------------------------------- | ---------------------- | ------------------------------ | -------------------------- |
+| Joint diffusion                        | 单流                   | 双向但模态混杂                 | 通常同步                   |
+| Causal diffusion（Video Policy / VPP） | 分离模型               | 单向条件                       | 分别建模未来与动作         |
+| FLARE                                  | 动作模型加隐式对齐目标 | 中间动作特征对齐未来 embedding | 不直接联合扩散未来视觉     |
+| **DUST**                               | 双流 MMDiT             | attention 双向交换             | 训练独立噪声，推理异步步长 |
 
 ### 6.4 关键假设
 
@@ -270,11 +289,13 @@ $$
 
 **【Paper】** 论文指出异步采样的收益存在非单调性：确定性 Euler/ODE 采样虽然减少截断误差，却可能累积梯度近似误差；因此 (N_o=64) 并不总是优于 32。额外视觉步数也会增加延迟，不能无条件用于高频闭环控制。
 
+**【Paper】** 附录 A.11 还展示了遮挡失败：侧相机被机械臂挡住、腕部相机看不到目标时，未来状态预测也无法可靠补回缺失信息。作者提出多视角、更强状态条件或历史观测作为后续方向；当前模型主要从当前状态出发。
+
 ### 7.2 自己分析得到的局限
 
 **【Analysis】**
 
-1. 官方代码和 checkpoint 尚未公开，社区无法复现实验，也无法确认论文中“基于 GR00T codebase”的具体工程改动。
+1. 官方代码和 checkpoint 尚未公开，本文无法基于完整官方实现逐项复现实验，也无法确认论文中“基于 GR00T codebase”的具体工程改动。
 2. 未来视觉 embedding 是单个 horizon 的目标，可能遗漏接触瞬间、遮挡和多步不确定性；论文没有报告更长 horizon 或多模态未来分布的系统实验。
 3. 所有主实验冻结 VLM，DUST 的收益与“更强的联合视觉—语言—动作预训练”之间的关系尚未被隔离。
 4. 真实实验使用同一 Franka embodiment 的示教和测试；跨硬件零样本迁移仍主要由异构训练实验间接支持。

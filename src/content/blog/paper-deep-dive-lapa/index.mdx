@@ -1,7 +1,7 @@
 ---
 title: 'LAPA 论文精读：从无动作标签视频学习 Vision-Language-Action 模型'
 publishDate: 2026-08-25
-updatedDate: 2026-08-25
+updatedDate: 2026-09-22
 description: '精读 LAPA：用 VQ-VAE 从相邻视频帧学习离散 latent action，再让 VLM 预测它，最后用少量机器人动作标签完成真实控制映射。'
 heroImage:
   { src: 'https://pic.hana0721.top/69606244_p0_master1200.64eg2rlm3q.webp', color: '#8C8275' }
@@ -54,7 +54,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】**《Latent Action Pretraining from Videos》提出 LAPA（Latent Action Pretraining for general Action models）。它针对一个很现实的瓶颈：机器人视频往往只有昂贵的 teleoperation 才能得到 action label，而互联网上的大量人类操作视频只有图像和语言，没有机器人末端位姿、关节或力矩标签。
 
-论文把“动作”拆成一个可从视频自监督学习的中间语言：先用两帧图像学习离散 latent action，再让 Vision-Language Model（VLM）根据当前图像和任务描述预测这个 latent action，最后只用少量带真实动作的机器人轨迹重新训练 action head，把 latent policy 迁移到可执行的机器人动作空间。
+论文把“动作”拆成一个可从视频自监督学习的中间语言：先用两帧图像学习离散 latent action，再让 Vision-Language Model（VLM）根据当前图像和任务描述预测这个 latent action，最后用目标机器人的带动作轨迹替换输出 head，并微调整个语言模型（视觉编码器冻结），迁移到可执行动作空间。不是只拟合一个 latent-code 查表，也不是无需目标机器人数据的零样本控制。
 
 ![LAPA 从视频到机器人动作的三阶段问题设定（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-lapa/Figure1.73uooala4k.webp)
 
@@ -68,9 +68,9 @@ import { Aside } from '@/components/user'
 
 1. 提出不依赖 ground-truth robot action 的 Latent Action Pretraining，并将训练拆成 Latent Action Quantization、Latent Pretraining 和 Action Finetuning 三个阶段。
 2. 用 VQ-VAE/NSVQ 从相邻帧的视觉变化中学习离散 codebook；latent action 不预先规定是 end-effector、joint 还是 torque，而是由视频中的观测变化决定粒度。
-3. 在 Language Table、SIMPLER 和 Franka 真实机器人上验证跨任务、跨环境、跨 embodiment 泛化；LAPA（Open-X）真实任务平均成功率达到 50.1%，高于 OpenVLA（Open-X）的 43.9%。
-4. 证明只用 Something-Something V2 人类操作视频也能带来正迁移：在真实机器人上平均成功率 34.0%，超过 OpenVLA（Bridge）的 30.8%。
-5. **【Paper】** LAPA（Open-X）预训练使用 8 张 H100、34 小时，作者估计相对 OpenVLA 约 30–40 倍更高效；这是训练效率的报告，不等同于总研究成本。
+3. 在 Language Table、SIMPLER 和 Franka 真实机器人上验证跨任务、跨环境、跨 embodiment 泛化；LAPA（Open-X）真实任务平均分阶段得分达到 50.1%，高于 OpenVLA（Open-X）的 43.9%；严格完整成功率分别是 35.19% 与 27.78%。
+4. 证明只用 Something-Something V2 人类操作视频也能带来正迁移：在真实机器人上平均分阶段得分 34.0%，超过 OpenVLA（Bridge）的 30.8%；双方均已在目标机器人上微调。
+5. LAPA（Open-X）预训练使用 8 张 H100、34 小时，作者估计相对 OpenVLA 约 30–40 倍更高效；这是基于不同 GPU 的估算，且 backbone 与预训练任务不同，不是同硬件、同初始化的端到端计时对照；也不能直接包含 LAQ、伪标签生成、已有 VLM 预训练和全部研究成本。
 
 ## 2. 背景与相关工作
 
@@ -91,7 +91,9 @@ import { Aside } from '@/components/user'
 2. **Latent Policy**：$\pi_\theta(x_t,l) \rightarrow z_t$，VLM 根据当前观察和任务描述预测 latent action。
 3. **Action Finetuning**：$\pi_\psi(x_t,l) \rightarrow a_t$，用少量真实机器人动作标签训练新的 action head。
 
-论文主实验的 latent code 默认是 $s=4$ 个 token、每个 token 来自大小为 $|C|=8$ 的 codebook，因此单个时间步的输出空间是 $8^4$；官方 README 也明确提醒，这个输出不是可以直接发送给机械臂的真实 action space。
+除 Language Table 的不同配置外，主实验的 latent code 默认是 $s=4$ 个 token、每个 token 来自大小为 $|C|=8$ 的 codebook，因此单个时间步的输出空间是 $8^4$；官方 README 也明确提醒，这个输出不是可以直接发送给机械臂的真实 action space。$s=4$ 是一对帧转移的压缩 token 长度，不是未来 4 个控制时刻，也不是 4 个独立物理自由度。
+
+**【Paper】** 附录 F 按视频帧率选择窗口：机器人视频约预测 0.6 秒后的变化（Bridgev2 5 Hz，对应 $H=3$），人类视频约 2.4 秒。因此“相邻帧”应理解为采样对，不一定是原视频连续两帧；调整窗口同时改变动作语义尺度与重建难度。
 
 **【Paper】** 主要 embodiment 与数据如下：
 
@@ -110,7 +112,7 @@ import { Aside } from '@/components/user'
 
 ![LAPA 三阶段总览：Latent Action Quantization、Latent Pretraining 和 Action Finetuning（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-lapa/latent_action_pretraining.7lkqcvmnud.webp)
 
-**【Paper】** 整体数据流是：相邻视频帧先经过 LAQ encoder 得到离散 $z_t$；VLM 再以当前帧和语言描述为条件预测 $z_t$；fine-tuning 时替换 latent head，用带标签轨迹学习真实 action head。LAQ 的 decoder 还可以把 latent action 解码回下一帧，用于可视化和 neural closed-loop rollout。
+**【Paper】** 整体数据流是：相邻视频帧先经过 LAQ encoder 得到离散 $z_t$；VLM 再以当前帧和语言描述为条件预测 $z_t$；fine-tuning 时重新初始化真实 action head，并继续更新语言模型。部署不需要先生成 latent token、再经 LAQ decoder 或 IDM 转成机器人动作。LAQ 的 decoder 还可以把 latent action 解码回下一帧，用于可视化和 neural closed-loop rollout。
 
 ### 4.2 核心模块
 
@@ -121,7 +123,7 @@ import { Aside } from '@/components/user'
 - **输出**：离散 latent token 序列 $z_t \in C^s$，以及重建帧 $\hat x_{t+H}$。
 - **为什么需要**：直接把连续像素变化交给 VLM 难以生成；离散 codebook 把“动作词表”变成标准分类/next-token prediction 问题。
 
-![LAQ encoder-decoder 与 NSVQ codebook 的结构（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-lapa/latent_action_model.b9n1tv3ay.webp)
+![LAQ encoder-decoder 与 NSVQ codebook 的结构（论文 Figure 8）](https://pic.hana0721.top/blog/paper-deep-dive-lapa/latent_action_model.b9n1tv3ay.webp)
 
 **【Paper】** 论文对 GENIE 的改动包括：只使用当前帧和未来帧（不拼接更多历史帧），decoder 用 cross-attention 而不是简单相加 latent embedding，并采用只对两帧做输入的 C-ViViT 风格结构。**【Code】** `laq/laq_model/latent_action_quantization.py` 中确实实现了 `enc_spatial_transformer`、`enc_temporal_transformer`、带 context 的 `dec_spatial_transformer` 和 `NSVQ`；`laq/laq_model/data.py` 当前数据加载器按“每个轨迹目录包含多张帧图像”的 Something-Something V2 结构取随机起始帧和 offset 帧。
 
@@ -145,21 +147,29 @@ import { Aside } from '@/components/user'
 
 #### VQ-VAE / NSVQ 量化
 
-设 encoder 产生连续差分表示 $d_t$，codebook 为 $C=\{c_1,\ldots,c_{|C|}\}$，量化结果为：
+**【Paper】** 设 encoder 的时空特征经过 CNN 压缩后产生每个位置的差分 $d_{t,i}$，codebook 为 $C=\{c_1,\ldots,c_{|C|}\}$。对每个 $i\in\{1,\ldots,s\}$ 取最近 code 的索引：
 
 $$
-z_t = \arg\min_{c_k\in C}\|d_t-c_k\|_2^2
+z_{t,i}=\arg\min_{k\in\{1,\ldots,|C|\}}\|d_{t,i}-c_k\|_2^2
 $$
 
-其中 $z_t$ 是被 VLM 预测的离散 token，$s$ 是 token 序列长度，$|C|$ 是每个位置可选的词表大小。**【Paper】** NSVQ 用带归一化噪声的量化误差替换原始 VQ 误差，并在训练早期替换未使用 codebook，以降低 codebook collapse；decoder 的输入帧 patch embedding 使用 stop-gradient，避免表示塌缩。
+其中 $z_{t,i}$ 是索引，$c_{z_{t,i}}$ 才是 code 向量；$s$ 是 token 序列长度，$|C|$ 是每个位置可选的词表大小。**【Paper】** NSVQ 用带归一化噪声的量化误差替换原始 VQ 误差，并在训练早期替换未使用 codebook，以降低 codebook collapse；decoder 的输入帧 patch embedding 使用 stop-gradient，避免表示塌缩。
 
-#### 重建目标
+#### NSVQ 与重建目标
+
+**【Paper】** 附录 A 的 Eq. 2–4 明确给出训练时的噪声替代与唯一重建目标：
 
 $$
-\mathcal L_{LAQ}=\mathcal L_{recon}(x_{t+H},\hat x_{t+H})+\mathcal L_{VQ/NSVQ}
+\widehat d_{t,i}=d_{t,i}+\frac{\|d_{t,i}-c_{z_{t,i}}\|_2}{\|v_i\|_2}v_i,
+\qquad v_i\sim\mathcal N(0,I),
 $$
 
-其中第一项要求 latent action 保留足以重建未来帧的视觉变化，第二项约束连续 embedding 与 codebook 的量化关系。论文没有把所有 NSVQ 实现项展开成一个统一闭式公式，具体权重以官方实现为准。
+$$
+\widehat x_{t+H}=D\!\left(\operatorname{Attn}(\operatorname{sg}(p_t),\widehat d_t,\widehat d_t)\right),
+\qquad\mathcal L_{\mathrm{LAQ}}=\|x_{t+H}-\widehat x_{t+H}\|_2^2.
+$$
+
+NSVQ 用与量化残差等范数的随机方向替代不可微的硬量化误差，训练时向解码器提供 $\widehat d$；推理和打标签使用最近 code。**【Code】** `NSVQ.forward` 明确不要求再加独立 VQ loss，LAQ 的 `forward` 返回 MSE reconstruction loss。因此不能套用一般 VQ-VAE 写成“重建损失 + 额外 commitment/codebook 损失”。stop-gradient 只作用于 decoder 读取当前帧 patch 的路径，encoder 仍可从两帧差分路径获得梯度。
 
 #### Latent Pretraining 交叉熵
 
@@ -172,10 +182,10 @@ $z_{t,i}$ 是第 $i$ 个 codebook token；$p_\theta$ 来自 VLM 的 latent actio
 #### Action Finetuning
 
 $$
-\mathcal L_{action}=-\sum_{j=1}^{D}\log p_\psi(a_{t,j}^{bin}\mid x_t,l)
+\mathcal L_{action}=-\sum_{j=1}^{D}\log p_\psi(a_{t,j}^{bin}\mid x_t,l,a_{t,<j}^{bin})
 $$
 
-其中 $D$ 是机器人 action 维度，$a_{t,j}^{bin}$ 是第 $j$ 维连续动作经过等频分箱后的类别。**【Paper】** 论文将动作离散化以匹配 OpenVLA/RT-1 风格的 action token 训练；真实值在部署时通过数据集统计量反量化。
+其中 $D$ 是机器人 action 维度，$a_{t,j}^{bin}$ 是第 $j$ 维连续动作经过等频分箱后的类别。**【Paper】** 论文将动作离散化以匹配 OpenVLA/RT-1 风格的 action token 训练；维度 token 自回归生成，不能省略对前面动作维度的条件。**【Code】** `data/finetune_preprocess.py` 对前 6 维用 `pandas.qcut` 生成等频箱边界，重复边界会被丢弃，夹爪则直接保留二值类别。`deploy.py` 按 CSV 中对应箱的两端取中点；并非通用 q01/q99 线性反归一化。
 
 ### 4.4 Training
 
@@ -183,13 +193,13 @@ $$
 
 1. 在无动作标签视频上训练 LAQ，使其能从 $x_t,x_{t+H}$ 产生稳定的离散 latent action。
 2. 用冻结的 LAQ encoder 给所有预训练帧打 latent label，训练 7B VLM 预测这些 token。
-3. 在小规模 action-labeled robot trajectories 上替换 latent head，训练真实 action head。
+3. 在目标机器人有标签轨迹上替换 latent head，训练新 head 与语言模型；视觉编码器继续冻结。
 
-**【Code】** 官方命令把三个阶段分开：`laq/train_sthv2.py` 训练 LAQ；`laq/inference_sthv2.py` 生成 latent labels；`scripts/latent_pretrain_openx.sh` 以 LWM checkpoint 继续训练；`scripts/finetune_real.sh` 以 `vision,action,delta` modality 做机器人动作 fine-tuning。README 报告 Open-X latent pretraining 使用 8 张 H100、34 小时，batch size 256；真实 fine-tuning 脚本默认 4 张 GPU、2000 steps、batch size 128。
+**【Code】** 官方命令把三个阶段分开：`laq/train_sthv2.py` 训练 LAQ；`laq/inference_sthv2.py` 生成 latent labels；`scripts/latent_pretrain_openx.sh` 以 LWM checkpoint 继续训练；`scripts/finetune_real.sh` 以 `vision,action,delta` modality 做机器人动作 fine-tuning。README 报告 Open-X latent pretraining 使用 8 张 H100、34 小时，batch size 256；真实 fine-tuning 脚本默认 4 张 GPU、2000 steps、batch size 128。注意论文 §4.6 的 34 小时实验写 batch=128，而 README 和公开预训练脚本写 256 / 70k steps；这是来源间的差异，不能混写为同一个精确运行配置。
 
 <Algorithm number={1} title='LAPA Training' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>无动作标签视频、少量带动作标签机器人轨迹、预训练 LWM-VLM</div>
-  <div slot='output'>可预测 latent action 并能输出真实机器人动作的 LAPA VLA</div>
+  <div slot='output'>完成有标签适配、输出真实机器人动作的 LAPA VLA</div>
   <AlgorithmStep keyword='Stage 1'>
     从随机采样的 $x_t,x_{t + H}$ 训练 LAQ，量化帧间差分并重建 $x_{t + H}$
   </AlgorithmStep>
@@ -220,13 +230,13 @@ $$
   <div slot='input'>当前 RGB 帧 $x_t$、语言指令 $l$、训练好的 LAPA checkpoint</div>
   <div slot='output'>真实机器人 action，或用于 rollout 的 latent action</div>
   <AlgorithmStep>将图像 resize/normalize，并按训练 prompt 模板拼接任务描述</AlgorithmStep>
-  <AlgorithmStep>VLM 根据 $x_t,l$ 自回归生成 $s$ 个 latent/action tokens</AlgorithmStep>
+  <AlgorithmStep>
+    预训练模型自回归生成 $s=4$ 个 latent token；实机微调模型生成 $D=7$ 个动作维度 token
+  </AlgorithmStep>
   <AlgorithmStep>
     若是预训练模型，返回 $z_t$；若是 fine-tuned 模型，取 action head 的离散 action token
   </AlgorithmStep>
-  <AlgorithmStep>
-    把 action token 按训练时的 q01/q99 或等频 bin 统计量反量化为连续动作
-  </AlgorithmStep>
+  <AlgorithmStep>把每维 action token 解码到对应等频箱中点，夹爪按二值类别解释</AlgorithmStep>
   <AlgorithmStep>
     将当前动作交给机器人低层控制器；或把 $x_t,z_t$ 送入 LAQ decoder 生成下一帧并闭环迭代
   </AlgorithmStep>
@@ -253,15 +263,17 @@ $$
 
 ### 5.1 Experimental Setup
 
-![LAPA 真实机器人实验的平均成功率对比（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-lapa/real_robot.54yhxyfski.webp)
+![LAPA 真实机器人实验的平均成功率对比（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-lapa/real_robot.54yhxyfski.webp)
 
 **【Paper】** 实验覆盖三类问题：
 
 - **Language Table**：2-DoF 推块仿真，测试 in-domain、cross-task 和 real-to-sim cross-environment。
 - **SIMPLER**：7-DoF WidowX 仿真，4 个任务；使用 100 条 fine-tuning trajectories，重点考察复杂动作空间下的迁移。
-- **Real-world tabletop**：7-DoF Franka，`Pick <object> into Sink`、`Cover <object> with Towel`、`Knock <object> Over` 三类任务，每类 15 个物体、150 条轨迹；每个模型共 54 次 rollout，分别测试已见物体的新组合、未见物体、已见物体但未见指令。
+- **Real-world tabletop**：7-DoF Franka，`Pick <object> into Sink`、`Cover <object> with Towel`、`Knock <object> Over` 三类任务，每类 15 个物体、150 条轨迹，合计 450 条目标机器人示范；每个模型共 54 次 rollout，分别测试已见物体的新组合、未见物体、已见物体但未见指令。
 
-比较方法包括只在下游训练的 Scratch、视频扩散 + IDM 的 UniPi、用 IDM 伪标签的 VPT、使用真实动作标签预训练的 ActionVLA，以及 OpenVLA。
+**【Paper】** SIMPLER 的 100 条轨迹是从 Bridgev2 训练策略的成功仿真 rollout 中筛选，每任务 25 条；所有方法用相同数据微调，再每任务测试 24 次。因此结果不是 Bridge 或人类视频到 SIMPLER 的零样本成功率。Language Table 每任务类型 50 次、每 seen/unseen 设置共 250 次。真实机器人每任务 × 泛化类型仅 6 次，统一初始物体位置并交替评测模型。
+
+比较方法包括只在下游训练的 Scratch、视频扩散 + IDM 的 UniPi、用 IDM 伪标签的 VPT、使用真实动作标签预训练的 ActionVLA，以及 OpenVLA。Scratch 仍从预训练 LWM 开始，不是随机初始化；ActionVLA 与 LAPA 共用 LWM，OpenVLA 使用另一 VLM backbone，故 OpenVLA 比较同时改变初始化。
 
 ### 5.2 Main Results
 
@@ -276,11 +288,13 @@ $$
 | Cross-env / seen    |    15.6 |  13.6 |     18.0 | **33.6** |      64.8 |
 | Cross-env / unseen  |    15.2 |  12.0 |     18.4 | **29.6** |      54.0 |
 
-**【Analysis】** LAPA 并非所有列都达到上限：在 cross-task unseen 上 VPT 更高，说明更准确的 IDM 伪标签仍然有价值。但 LAPA 在跨环境列的优势更明显，符合“latent action 不绑定某个具体 action coordinate system”的设计目标。
+**【Paper】** 上表按正文 Table 1 报数；附录 Table 5 的 in-domain seen 从逐任务值求均值得 UniPi 22.4、VPT 43.6、ActionVLA 76.8，与正文的 22.0/44.0/77.0 略不同，不能把差别归结为新的复现实验。
+
+**【Analysis】** LAPA 并非所有列都达到上限：在 cross-task unseen 上 VPT 更高，而这一设置用 7k 条有标签 Separate 轨迹，比 in-domain 的 1k 多；ActionVLA 参照行仍沿用 1k 结果。它考察的是预训练已见的其他技能能否在单任务微调后保留，不是从未见过那些任务。但 LAPA 在跨环境列的优势更明显，符合“latent action 不绑定某个具体 action coordinate system”的设计目标。
 
 **【Paper】** SIMPLER 的 Bridgev2 预训练平均成功率为：Scratch 34.4、UniPi 1.3、VPT 51.0、LAPA 57.3、ActionVLA 63.5、OpenVLA 36.4。LAPA 在没有使用 Bridgev2 action label 的前提下接近 ActionVLA，并显著超过其他无标签视频基线。
 
-真实机器人结果的关键汇总：
+**【Paper】** 下面是真实机器人 **平均分阶段得分 ×100**，不是完整成功率。击倒任务到达目标即得 0.5；盖毛巾拿起毛巾得 0.33；放水槽任务到达、抓起、运到水槽分别得 0.25/0.5/0.75，只有完成才得 1。
 
 | 预训练              | Seen object / unseen combo | Unseen object | Unseen instruction |     平均 |
 | ------------------- | -------------------------: | ------------: | -----------------: | -------: |
@@ -290,27 +304,29 @@ $$
 | **LAPA (Open-X)**   |                   **57.8** |      **43.9** |           **48.5** | **50.1** |
 | LAPA (Human Videos) |                       36.5 |          37.4 |               28.1 |     34.0 |
 
-**【Paper】** LAPA（Open-X）在三种泛化设置都超过 OpenVLA（Open-X）；但在 pick-and-place 的早期 grasping 上仍可能失败，OpenVLA 在该子任务更强。论文报告 LAPA 的 reaching performance 为 83.33%，高于 OpenVLA 的 66.67%。
+**【Paper】** LAPA（Open-X）在三种泛化设置都超过 OpenVLA（Open-X）；但在 pick-and-place 的早期 grasping 上仍可能失败，OpenVLA 在该子任务更强。这个 83.33% 对 66.67% 的 reaching 比较仅指 Pick & Place（Table 15），不是三任务总到达率。
+
+**【Paper】** 附录 Table 16 另报严格成功率：LAPA/Open-X 为 35.19%（19/54），OpenVLA/Open-X 为 27.78%（15/54）；对应 50.09 对 43.87 是进度得分。配对分阶段评分的 54 次比较中，LAPA 赢 31.5%、输 16.7%、平 51.9%；去掉平局才是 65.4% 胜率。小样本及不同任务评分阶梯限制了总均值的解释，不能把所有语言泛化能力归因于 latent code。
 
 ### 5.3 Ablation Study
 
-![LAPA 的模型规模、数据规模与 latent space scaling 消融（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-lapa/ablation_model_scale.4ubo4t0kjz.webp)
+![LAPA 的模型规模、数据规模与 latent space scaling 消融（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-lapa/ablation_model_scale.4ubo4t0kjz.webp)
 
-**【Paper】** 消融显示三类 scaling 都有收益：
+**【Paper】** Figure 5 在所测范围显示扩规模通常有收益；这是经验消融，不是拟合或验证了幂律 scaling law：
 
 1. 增大 LAQ model 参数量，SIMPLER 成功率上升；
 2. 增加预训练数据比例，性能持续提升；
 3. 扩大 latent action 的 sequence length 或 vocabulary，通常能提高下游成绩。
 
-但 latent space 的最佳形状取决于数据中的动作复杂度：Language Table 这类视觉简单、动作维度低的环境，扩大 vocabulary 比扩大 sequence length 更有效；对于更复杂的行为，增加 sequence length 才有更多表达空间。窗口 $H$ 过大时性能下降，因为 300M 规模的 LAQ 难以建模很大的视觉 delta。
+但 latent space 的最佳形状取决于数据中的动作复杂度：Language Table 这类视觉简单、动作维度低的环境，扩大 vocabulary 比扩大 sequence length 更有效；对于更复杂的行为，增加 sequence length 也可增加表达空间，二者改变的都是可表示 code 组合而非物理动作维数。Table 12 中人类数据从 10% 扩至全量，SIMPLER 均值仅 50.0→52.1，Spoon2Towel 还从 66.6 降到 50.0；不能称为每个任务都随数据量单调提升。窗口 $H$ 过大时性能下降，因为 300M 规模的 LAQ 难以建模很大的视觉 delta。
 
 ### 5.4 Generalization
 
-![不同离散 latent action 在视频重建中的语义对应关系（论文 Figure 8）](https://pic.hana0721.top/blog/paper-deep-dive-lapa/latent_analysis.58i3vo8vhu.webp)
+![不同离散 latent action 在视频重建中的语义对应关系（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-lapa/latent_analysis.58i3vo8vhu.webp)
 
 **【Paper】** 在 Language Table 中，不同 latent token 对应左/右、前/后等稳定移动方向；在 Something-Something V2 中，latent action 还会编码相机移动；在 Open-X 多 embodiment 数据上，相同 latent action 在不同机器人和环境中能诱导相似的视觉变化。
 
-**【Paper】** 人类视频预训练并非只在仿真有效：LAPA（Sthv2）在 SIMPLER 平均成功率 52.1%，高于 UniPi 0.7%，也高于 VPT 45.8%；真实机器人平均 34.0%，说明“人类手部操作视频 → 机器人 manipulation prior”确实存在正迁移。
+**【Paper】** 人类视频预训练并非只在仿真有效：LAPA（Sthv2）在 SIMPLER 平均成功率 52.1%，高于 UniPi 0.7%，也高于 VPT 45.8%；真实机器人平均分阶段得分 34.0%、严格成功率 20.37%（11/54），说明“人类手部操作视频 → 机器人 manipulation prior”在目标机器人微调后存在正迁移。附录 D 用词汇匹配发现 Sthv2 的 knocking/covering 视频更多、pick-and-place 更少，这也是结果差别的潜在原因；并未把“人类来源”与任务分布、物体多样性完全隔离。
 
 ## 6. 方法分析
 
@@ -320,7 +336,7 @@ $$
 
 1. **表示层**：VQ codebook 把连续视觉变化压缩成可预测 token，让 VLM 能用成熟的 token prediction 学动作先验。
 2. **迁移层**：latent action 主要描述“观测如何变化”，而不是 WidowX 或 Franka 的绝对关节坐标，因此跨 embodiment 时少了一层 action-space overfitting。
-3. **数据层**：LAQ 只需要两帧，预训练数据从“有 action label 的机器人轨迹”扩展到任意带时间顺序的视频；视频规模和物体多样性直接转化为 policy 的先验。
+3. **数据层**：LAQ 只需要两帧，预训练数据从“有 action label 的机器人轨迹”扩展到任意带时间顺序的视频；语言描述仍用于第二阶段监督，时序也需可靠；代码在片段尾端会截断 offset，甚至取到同一帧，因此窗口采样与静态转移比例会影响学到的 code。
 
 ### 6.2 核心创新
 
@@ -359,22 +375,22 @@ $$
 **【Analysis】**
 
 - LAQ 的监督是未来图像重建，因此一个 token 可能同时解释机械臂运动、物体运动、相机运动和遮挡变化，语义不一定是可执行 action。
-- 当前公开的 `ImageVideoDataset` 针对 Sthv2 目录结构，且随机采样轨迹目录而不是精确的 frame-level episode index；换数据集需要自行改 loader。
+- 当前公开的 `ImageVideoDataset` 针对 Sthv2 目录结构，目录由 dataset index 指定、在目录内随机选起始帧；dataset 长度是轨迹数而不是帧数；换数据集需要自行改 loader。
 - latent pretraining 与 action fine-tuning 是顺序训练，fine-tuning 会替换 latent head；如果目标机器人与预训练视频差异很大，少量标签可能不足以恢复接触动力学、抓取姿态和夹爪时序。
 - 论文的 real-world 结果使用 partial success criteria，平均分能够反映泛化趋势，但不能完全等价于端到端任务完成率。
 
 ## 8. 启发与研究思考
 
-**【Analysis】** LAPA 给后续工作留下了三个清晰方向：
+**【Analysis】** LAPA 给后续工作留下了四个清晰方向：
 
 1. **从 transition token 到 hierarchical action language**：当前 $8^4$ latent space 对粗粒度移动有效，但抓取仍不够细。可以让高层 latent token 表示技能阶段，让低层 action decoder 负责接触和力控制。
 2. **把 camera-centric latent 与 robot-centric latent 分离**：人类视频中的相机移动是有用信号，也可能是噪声。显式分解 object motion、camera motion 和 agent motion，可能让跨场景迁移更稳定。
 3. **利用 decoder 做 test-time planning**：论文已经展示 latent policy + LAQ decoder 的 neural rollout。下一步可以采样多个 latent plan，用视觉目标判别器或语言评分器筛选，再执行最有希望的候选轨迹。
 4. **扩大到互联网视频前先解决数据质量**：真正的 YouTube-scale 训练需要过滤剪辑、镜头切换、第三视角与手持相机运动，并构建语言描述与帧窗口的可靠对齐。
 
-LAPA 最值得借鉴的并不是“把 action 离散成 8 个 codebook”，而是它重新定义了预训练的最小监督单位：只要视频能说明“状态发生了变化”，就可以先学习一个中间动作语言；物理可执行性则留到目标 embodiment 的小规模 fine-tuning 再解决。
+LAPA 最值得借鉴的并不是“把 action 离散成 8 个 code”，而是它重新定义了预训练的最小监督单位：只要视频能说明“状态发生了变化”，就可以先学习一个中间动作语言；物理可执行性则留到目标 embodiment 的小规模 fine-tuning 再解决。
 
 <Aside type='note' title='阅读提示'>
   本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
-  表示基于论文和代码的分析推断。论文图床 CDN 尚未刷新时，正文使用 GitHub Raw 作为稳定回退地址。
+  表示基于论文和代码的分析推断。本文以 ICLR 2025 / arXiv v2 正文、附录与公开实现核验。
 </Aside>

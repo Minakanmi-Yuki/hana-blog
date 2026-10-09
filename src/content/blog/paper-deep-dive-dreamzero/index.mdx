@@ -1,7 +1,7 @@
 ---
 title: 'DreamZero 论文精读：World Action Models are Zero-shot Policies'
 publishDate: 2026-08-26
-updatedDate: 2026-08-26
+updatedDate: 2026-09-22
 description: '精读 DreamZero：把 14B 视频扩散模型改造成同时预测未来视频与动作的 World Action Model，并分析其零样本泛化、跨本体迁移与 7Hz 实时控制。'
 heroImage:
   { src: 'https://pic.hana0721.top/71187447_p0_master1200.13mdb6lism.webp', color: '#8C8275' }
@@ -57,7 +57,7 @@ import { Aside } from '@/components/user'
 
 1. 提出 14B DreamZero，使用单一 autoregressive DiT 端到端联合去噪视频和动作，在约 500 小时、7,193 条、非重复的 AgiBot 数据上训练。
 2. 在 AgiBot G1 与 DROID-Franka 上实现对新环境、新物体和未见动作的 zero-shot generalization；AgiBot seen-task 平均 task progress 为 62.2%，unseen-task 为 39.5%。
-3. 通过 CFG parallelism、DiT caching、Torch Compile、CUDA kernel 优化、NVFP4 量化和 DreamZero-Flash，将单 chunk 延迟从约 5.7 s 降至约 150 ms，支持约 7 Hz 闭环控制。
+3. 结合 CFG 并行、缓存、编译、量化与 DreamZero-Flash，在两张 GB200 上将单 chunk 推理降至约 150 ms，约每秒生成 7 次动作 chunk；这是特定硬件上的模型刷新率，不是机器人底层关节控制频率。
 4. 仅用 10–20 分钟其他机器人或人类视频即可提升目标机器人未见任务表现超过 42%；用 30 分钟新本体 play data 即可把 AgiBot 预训练模型适配到 YAM。
 5. 开源 DROID checkpoint、训练/推理代码和数据转换工具，仓库为 `dreamzero0/dreamzero`。
 
@@ -86,7 +86,7 @@ $$
 \pi_0(a_{l:l+H}\mid o_{0:l+H},q_l).
 $$
 
-这一定义把 action prediction 解释成 inverse dynamics：先预测“想要看到的未来”，再从未来视觉和状态中恢复控制命令。机器人包括双臂移动操作的 AgiBot G1 与单臂 Franka；跨本体实验使用 YAM 和人类 egocentric video。
+这一定义把 action prediction 解释成 inverse dynamics，但运行时并不是先完整生成视频、再串行调用另一个 IDM；单个 DiT 联合去噪两种模态。严格按概率链式法则，第二项还应保留语言 $c$；论文将它省略，隐含了视频未来与状态已承载动作所需任务信息的建模假设。机器人包括双臂移动操作的 AgiBot G1 与单臂 Franka；跨本体实验使用 YAM 和人类 egocentric video。
 
 ## 4. 方法
 
@@ -102,17 +102,17 @@ $$
 
 **【Paper】** backbone 是 Wan2.1-I2V-14B-480P。为保留 web-scale video prior，作者冻结 text encoder、image encoder 和 VAE，只新增或更新 state encoder、action encoder/decoder 及 DiT blocks；多视角机器人帧在输入侧拼成单帧，不改变 backbone 的空间结构。
 
-**【Code】** `WANPolicyHeadConfig` 的默认 `input_embedding_dim` 与 `backbone_embedding_dim` 均为 1536，动作头通过 `action_dim`、`action_horizon` 注入 DiT；DROID 配置使用相对 joint position，并过滤 idle action。
+**【Code】** `WANPolicyHeadConfig` 中部分接口维度的默认值是 1536，但这不代表 14B 主干宽度；实际 action-head YAML 将 `CausalWanModel` 配为 `dim=5120, num_layers=40, num_heads=40`。动作维度与 horizon 来自外层任务配置；DROID 采用相对 joint position，并过滤 idle action。
 
 #### Autoregressive chunk 与注意力
 
-**【Paper】** 视频按固定 $K$ 个 latent frame 的 chunk 自回归生成。当前 noisy chunk 可以 attend 到前面 clean chunks；动作 chunk 与对应视频 chunk 对齐。相比 bidirectional WAM，autoregressive 结构允许 KV cache、保留原生 FPS，并能接收任意长度视觉历史。
+**【Paper】** 视频按固定 $K$ 个 latent frame 的 chunk 自回归生成。当前 noisy chunk 可以 attend 到前面 clean chunks；动作 chunk 与对应视频 chunk 对齐。这种结构便于 KV cache 与分块时序对齐，但论文实例不是无限历史：每 chunk 为 2 个视频 latent frame，默认最多 4 chunks，即 33 个原始视频帧、约 6.6 秒。AgiBot 视频采样 5 FPS、动作 30 Hz，48 动作对应 1.6 秒；DROID 同样 5 FPS，但动作 15 Hz、horizon 24。“保留时间对齐”不等于保留相机原始拍摄帧率。
 
 **【Code】** `CausalWanModel` 的 `max_chunk_size`、`num_frame_per_block` 和 `num_action_per_block` 控制 chunk 形状；推理函数维护正负 CFG 两套 KV cache。
 
 #### 闭环 KV cache
 
-**【Paper】** 每执行完一个 action chunk，真实相机观测会替换 cache 中相应的预测帧。因此自回归视频不会像离线生成那样无限累积误差；同时，历史帧让 stateful policy 能处理需要记忆的任务。
+**【Paper】** 每执行完一个 action chunk，真实相机观测会替换 cache 中相应的预测帧。这避免把先前臆测的视频持续当作真实历史，减少这一类误差传播；但动作执行已改变环境，失败动作的物理后果并不会因替换 cache 消失。历史帧提供记忆接口，论文脚注明确没有专门测试必须依靠记忆才能成功的任务。
 
 **【Code】** `WANPolicyHead` 在 `current_start_frame == 0` 时创建 cache；之后把新观测编码后写入 cache，并以 `update_kv_cache=False` 运行当前 chunk 的扩散步骤。
 
@@ -136,10 +136,12 @@ $$
 
 $$
 v_k=[z_k^1,a_k^1]-[z_k^0,a_k^0],\qquad
-\mathcal C_k=\{(z_j^1,a_j^1)\}_{j<k}.
+\mathcal C_k=\{z_j^1\}_{j<k}.
 $$
 
-**【Code】** 代码在视频和动作上分别计算加权 MSE；动作项还乘以 `action_mask` 与 `has_real_action`，没有真实动作的 video-only 样本不会错误地监督 action head。默认 DROID 配置采用 4 个 inference timesteps，训练配置提供独立的 video/action noise 开关。
+**【Paper / Code】** 正文 Eq. (3) 与 Algorithm 1 将历史写成视频/动作对，但 §3.1 说明只对视频做跨 chunk 自回归，Figure 14 和推理伪代码也缓存真实视觉、不给历史动作。因此这里按实际注意力结构将 $\mathcal C_k$ 写为视觉历史；当前 chunk 的 noisy video/action 与本体状态仍会相互交互。
+
+**【Code】** `FlowMatchScheduler` 用噪声比例 $\sigma$，写成 $(1-\sigma)x+\sigma\epsilon$，目标为 $\epsilon-x$；论文则用干净信号比例 $t=1-\sigma$、目标 $x-\epsilon$。这是时间方向及速度符号的对应，不能把论文速度直接塞入反向约定的 scheduler。视频和动作分别算加权 MSE；动作项乘 `action_mask`、`has_real_action`，video-only 样本仅训练视频项。默认 DROID 配置采用 4 个 inference timesteps，训练配置提供独立的 video/action noise 开关。
 
 #### DreamZero-Flash 的解耦噪声
 
@@ -148,10 +150,10 @@ $$
 **【Paper】** 标准 DreamZero 让视频和动作共享 uniform timestep；少步推理时视频仍然很 noisy，却要求动作已经干净，出现 train-test mismatch。Flash 令视频 timestep 偏向高噪声（例如 $t_{video}=1-\eta,\eta\sim Beta(7,1)$），动作 timestep 仍 uniform：
 
 $$
-\mathbb E[t_{video}]=0.125\quad\text{（按论文的噪声比例记法）}.
+\mathbb E[t_{video}]=0.125\quad\text{（干净信号比例；越小越 noisy）}.
 $$
 
-这样模型直接学习“从 noisy video context 预测 clean action”，4 步降到 1 步时延迟约从 350 ms 降到 150 ms，性能损失很小。额外的 action chunk smoothing 是 2× 上采样、Savitzky–Golay 滤波后再下采样。
+这样模型在训练时见到视频与动作噪声等级不同的组合，而非假定每个 denoising 阶段二者都同等清晰。Table 3 的 table-bussing progress 从 4 步模型 83% 降至 Flash 单步 74%，是 9 个百分点损失；同为单步的原模型只有 52%。150 ms 对 350 ms 是约 2.33 倍速度提升，这是测得的速度—精度权衡，不能称完全无损。正文与附录 Eq. (5) 的 $1-\mathrm{Beta}(7,1)$ 一致，但 Algorithm 1 第 13 行漏了 $1-$；复现应核对噪声方向，不能照抄该行。额外的 action chunk smoothing 是 2× 上采样、Savitzky–Golay 滤波后再下采样。
 
 ### 4.4 Training
 
@@ -170,7 +172,7 @@ $$
   </AlgorithmStep>
 </Algorithm>
 
-**【Code】** 训练入口由 Hydra 配置驱动，`scripts/train/droid_training.sh` 使用 DeepSpeed ZeRO；仓库 README 的 sanity-check 默认 `max_steps=10`，完整复现实验需显式提高步数。代码支持 LoRA，但论文报告 LoRA 效果不如更新全部可训练模块。
+**【Code】** 训练入口由 Hydra 配置驱动；当前仓库提供 `scripts/train/droid_training_full_finetune_wan21.sh` 等完整微调脚本，也包含 Wan2.2 和 LoRA 路径，不能把这些更新路径都归于论文实验；仓库 README 的 sanity-check 默认 `max_steps=10`，完整复现实验需显式提高步数。代码支持 LoRA，但论文报告 LoRA 效果不如更新全部可训练模块。
 
 ### 4.5 Inference
 
@@ -213,7 +215,7 @@ $$
 
 ![AgiBot evaluation setup from paper Figure 7](https://pic.hana0721.top/blog/paper-deep-dive-dreamzero/main_eval_setting.8l0trd50uh.webp)
 
-**【Paper】** 基线为 GR00T N1.6 与 $\pi_{0.5}$，分别比较 from-scratch 和官方 pretrained checkpoint。AgiBot seen tasks 共 80 rollouts，unseen tasks 另 80；DROID-Franka 在 40 个任务上共 80 rollouts。默认测试地点、物体和摆放都与训练不同，因此重点是 OOD generalization。
+**【Paper】** 基线为 GR00T N1.6 与 $\pi_{0.5}$，分别比较 from-scratch 和官方 pretrained checkpoint。这里 scratch 是“没有机器人策略预训练”，VLA 仍使用预训练 VLM，DreamZero 仍使用预训练视频模型，均非随机初始化。论文匹配 batch size 和梯度步数，不等于严格匹配 FLOPs、参数规模或预训练数据。AgiBot seen tasks 共 80 rollouts，unseen tasks 另 80；DROID-Franka 在 40 个任务上共 80 rollouts。默认测试地点、物体和摆放都与训练不同，因此重点是 OOD generalization。
 
 ### 5.2 Main Results
 
@@ -223,13 +225,15 @@ $$
 
 ![Unseen task evaluation from paper Figure 9](https://pic.hana0721.top/blog/paper-deep-dive-dreamzero/unseen_success_rates.73uopm0xub.webp)
 
-**【Paper】** AgiBot 的 10 个训练中不存在的任务上，DreamZero 平均 39.5%，pretrained VLA 为 16.3%；“Remove Hat from Mannequin” 达 85.7%，“Shake Hands” 达 59.2%。DROID-Franka 上 DreamZero 达 49% task progress、22.5% success rate，亦高于 GR00T 的 31%/12.5% 与 $\pi_{0.5}$ 的 33%/7.5%。
+**【Paper】** AgiBot 的 10 个训练中不存在的任务上，DreamZero 平均 39.5%，pretrained VLA 为 16.3%；“Remove Hat from Mannequin” 达 85.7%，“Shake Hands” 达 59.2%。这些 AgiBot 数值都是部分完成度，不是全任务成功率。DROID-Franka 的 49% task progress、22.5% success rate 对应 20 个 unseen-verb 任务、40 次 rollout；seen 子集另报 82% progress、75% success。不能把 49%/22.5% 当成全部 40 个任务的总成绩。
 
-**【Analysis】** 失败案例显示，DreamZero 通常忠实执行生成视频中的轨迹；失败更多来自 video prediction，而不是 action decoder 偏离视频。这给出清晰的 scaling 方向：更好的视频生成质量应直接改善策略性能，但也意味着世界模型 hallucination 会成为控制风险。
+**【Paper】** 附录 H 展示的失败中，机器人把笔递给另一只手而没有画线，或拿着面包才发现烤箱未打开，均与生成视频中的错误计划一致。
+
+**【Analysis】** 这些案例支持视频计划是重要瓶颈，但论文没有给出所有失败的定量归因，不能据此证明大多数错误都只来自视频，或视频质量提高必然等比例提高控制成功率。视频逼真度、任务正确性与动作可执行性仍是三个不同问题。
 
 ### 5.3 Ablation Study
 
-**【Paper】** 论文消融了 backbone 规模、autoregressive/bidirectional 结构、数据重复度与 DreamZero-Flash。14B Wan 初始化优于 5B；autoregressive 结构动作更平滑、modality alignment 更高；相同小时数下，跨环境多样数据优于多任务重复示范。Flash 在 1 denoising step 上恢复大部分 4-step task progress。
+**【Paper】** Table 4 的消融只在 PnP-Easy 上，使用较小预算（50K steps、batch 32），不能与主模型 100K/128 的数字直接混比。相同 500 小时数据量下，多样数据 50% 对重复数据 33%；14B 对 5B 为 50% 对 21%。AR 与双向模型的 task progress 都是 50%，AR 的优势主要是更平滑的定性表现、较小标准误和 KV cache 带来的速度提升，而非该表证明成功率更高。两个模型规模点提供扩展趋势，论文自己仍将 scaling law 列为未解决问题。
 
 **【Code】** 仓库配置明确暴露 `num_inference_timesteps`、`decouple_video_action_noise`、`video_noise_beta_alpha` 和 `max_chunk_size`，因此这些实验变量可复现；不过论文中的 AgiBot 原始 500 小时数据尚未随仓库完全公开，公开复现路径主要是 DROID。
 
@@ -237,15 +241,17 @@ $$
 
 ![Cross-embodiment transfer from paper Figure 10](https://pic.hana0721.top/blog/paper-deep-dive-dreamzero/embodiment_transfer.4qs28en4x5.webp)
 
-**【Paper】** 只加入 20 分钟 YAM video 或 12 分钟人类 egocentric video（没有目标机器人动作）就能提升 AgiBot 未见任务表现超过 42%。另一条路线从 AgiBot checkpoint 出发，用 30 分钟 YAM play data 做 few-shot embodiment adaptation，同时保留 zero-shot generalization。
+**【Paper】** video-only 迁移收集 9 个目标任务各 8 条、总计 72 条示教，YAM 为 20 分钟、人类为 12 分钟；与 AgiBot 原训练数据按 1:1 混合再训练 10K steps。任务进度从同一九任务子集的 38.3% 提升到人类视频 54.3%、YAM 视频 55.4%，相对约增加 41.8%/44.6%，绝对增加 16.0/17.1 个百分点。38.3% 与前面十任务 39.5% 的分母不同，因为此处排除了 Pulling Cart。
 
-**【Analysis】** 视频-only transfer 的前提是任务中的视觉状态变化比关节坐标更具可迁移性；30 分钟 play data 则负责学习“同一视觉未来如何映射到新本体的关节空间”。这暗示 WAM 可将跨本体问题拆成共享 world dynamics 与轻量 embodiment interface。
+**【Analysis】** 新增样本没有动作标签，但训练仍依靠原 AgiBot 动作数据；而模型已经看过目标任务视频，迁移后的成绩不是“对该任务完全无示教”。另一实验用 55 条、11 个任务、约 30 分钟有动作的 YAM play data 适配新本体，并展示新物体的 pick-and-place；论文没有为这部分提供与主实验同规模的量化成功率表，也未证明任意形态机器人都只需 30 分钟。
+
+**【Analysis】** 此外，DROID 的 unseen 主要按动词是否出现划分：附录同时列出 seen 的“push the lever on the toaster downwards”和 unseen 的“depress the lever on the toaster”。因此 unseen verb 不总等同于全新物理运动；AgiBot 则结合动作与物体类型定义任务。视频-only transfer 的前提是任务中的视觉状态变化比关节坐标更具可迁移性；30 分钟 play data 则负责学习“同一视觉未来如何映射到新本体的关节空间”。这暗示 WAM 可将跨本体问题拆成共享 world dynamics 与轻量 embodiment interface。
 
 ## 6. 方法分析
 
 ### 6.1 为什么有效？
 
-**【Analysis】** 第一，视频是逐帧密集监督，长 episode 中的每个状态转移都可训练，而不是只在 episode 末端监督一个动作标签。第二，Wan2.1 已从 web video 学到物体运动、遮挡和接触的先验，机器人数据主要负责对齐本体与动作。第三，autoregressive cache 让策略看到真实历史，闭环替换帧又切断了视频预测误差的长期累积。
+**【Analysis】** 第一，视频增加了密集未来观测监督，而常规行为克隆本来就具有逐时间步动作标签，并非只在 episode 末端监督。这里的差异是辅助预测目标及视频预训练，而不是是否拥有稠密动作监督。第二，Wan2.1 已从 web video 学到物体运动、遮挡和接触的先验，机器人数据主要负责对齐本体与动作。第三，autoregressive cache 让策略看到真实历史，闭环更新避免持续依赖自己生成的历史帧，仍需要策略从执行误差造成的新状态恢复。
 
 ### 6.2 核心创新
 
@@ -270,7 +276,7 @@ $$
 
 ### 7.1 作者明确提出的局限
 
-**【Paper】** 论文指出当前实验分别在单一本体上预训练，尚未进行真正的 multi-embodiment joint pretraining；AgiBot 约 500 小时私有数据也尚未完全开放。视频扩散的计算成本仍高，7 Hz 部署依赖多 GPU 和 NVIDIA 特定优化。作者还观察到多数失败源于视频预测错误。
+**【Paper】** 论文指出当前实验分别在单一本体上预训练，尚未进行真正的 multi-embodiment joint pretraining；AgiBot 约 500 小时私有数据也尚未完全开放。视频扩散的计算成本仍高，7 Hz 的具体配置是两张 GB200，H100 的 Table 1 没有报告同一 Flash/量化组合；不能将仓库“至少两张 GPU”解读为任意双卡都能达到 7 Hz。历史窗口约 6.6 秒，作者明确长时规划与亚厘米级精细操作仍有限。作者还观察到多数失败源于视频预测错误。
 
 ### 7.2 自己分析得到的局限
 
@@ -291,5 +297,5 @@ $$
 
 <Aside type='note' title='阅读提示'>
   本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
-  表示基于论文和代码的分析推断。论文图床 URL 暂时使用已验证 HTTP 200 的 GitHub Raw 回退地址。
+  表示基于论文和代码的分析推断。本次按原论文正文、附录与官方公开代码核对；代码默认配置不自动等于论文实验配置。
 </Aside>

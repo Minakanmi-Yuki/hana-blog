@@ -1,7 +1,7 @@
 ---
 title: 'Diffusion Policy 论文精读：用动作扩散学习视觉运动策略'
 publishDate: 2026-08-23
-updatedDate: 2026-08-23
+updatedDate: 2026-09-22
 description: '精读 Diffusion Policy：用条件去噪扩散在动作空间生成动作序列，结合 receding-horizon、视觉 conditioning 和 Time-series Diffusion Transformer，并对照官方代码拆解训练与推理。'
 heroImage:
   { src: 'https://pic.hana0721.top/105886628_p0_master1200.5fl6its319.webp', color: '#8C8275' }
@@ -71,7 +71,7 @@ import { Aside } from '@/components/user'
 
 ### 一句话总结
 
-**【Paper】** 本文把 robot visuomotor policy 表示成 conditional denoising diffusion process，让网络不直接回归单步动作，而是学习动作分布 score function 的梯度场；推理时从高斯噪声出发，经过多步 denoise 生成一整段动作序列，并在闭环中只执行前 `Ta` 步。
+**【Paper】** 本文把 robot visuomotor policy 表示成 conditional denoising diffusion process，让网络不直接回归单步动作，而是学习与带噪动作分布 score（对数密度的梯度）成比例的去噪方向；推理时从高斯噪声出发，经过多步 denoise 生成一整段动作序列，并在闭环中只执行前 `Ta` 步。
 
 ### 核心贡献
 
@@ -146,7 +146,7 @@ $$
 - **执行**：只把前 `Ta` 步交给 low-level controller，之后用新观测重新规划。
 - **为什么需要**：输出整个 action sequence 可以鼓励时间一致性，同时避免预测完整 episode 带来的响应延迟。
 
-**【Code】** 官方代码中 `horizon` 对应 `Tp`，`n_obs_steps` 对应 `To`，`n_action_steps` 对应 `Ta`。仿真 CNN 默认常见配置是 `horizon=16, n_obs_steps=2, n_action_steps=8`。`MultiStepWrapper` 每次执行 `n_action_steps` 个动作后再查询 policy。
+**【Code】** 官方代码中 `horizon` 对应采样片段长度，`n_obs_steps` 对应 `To`，`n_action_steps` 对应 `Ta`；常见 CNN 配置为 16、2、8。注意片段从最早观测时刻对齐，`predict_action` 实际截取 `action_pred[:, To-1:To-1+Ta]`，不是无条件取数组前 8 项；前 `To-1` 项对应历史时刻。`MultiStepWrapper` 执行这一动作窗口后才查询新策略。
 
 #### Visual encoder
 
@@ -160,7 +160,7 @@ $$
 1. 把 global average pooling 替换为 spatial softmax pooling，保留空间信息。
 2. 把 BatchNorm 替换为 GroupNorm，因为 DDPM 常与 EMA 一起使用，BatchNorm 会破坏 EMA 训练稳定性。
 
-**【Code】** `diffusion_unet_image_policy.py` 的 `MultiImageObsEncoder` 直接使用 `resnet18`，`weights=null`，`use_group_norm=True`，并支持 random crop。Robomimic hybrid policy 则通过 `get_robomimic_config` 构造 Robomimic 的 observation encoder，再用 `replace_submodules` 把 BatchNorm 替换为 GroupNorm。
+**【Code】** 仓库有两条不同视觉路径，不能都概括成论文的 spatial softmax。`diffusion_unet_image_policy.py` 的示例配置使用 `MultiImageObsEncoder`；`get_resnet` 仅把最后的 `fc` 替换成 Identity，保留 torchvision ResNet 的 average pooling。`diffusion_unet_hybrid_image_policy.py` 则调用 Robomimic observation encoder，再替换 BatchNorm 为 GroupNorm，更直接对应论文描述的视觉结构。复现时应核对 workspace/config，而不只看文件名中都有 image。
 
 #### CNN noise prediction network
 
@@ -178,7 +178,7 @@ $$
 - **功能**：缓解 CNN 对高频动作变化的过平滑。
 - **为什么需要**：velocity command、快速切换动作等任务更适合 transformer。
 
-**【Code】** 对应 `TransformerForDiffusion`。代码里 observation 条件先通过 `cond_obs_emb` 线性投影，再通过一个 shared MLP（默认 `n_cond_layers=0` 时为 `Linear-Mish-Linear`），作为 transformer decoder 的 memory；action token 使用 causal attention。
+**【Code】** 对应 `TransformerForDiffusion`。观测先经 `cond_obs_emb`，再通过条件 encoder（`n_cond_layers=0` 时为 `Linear-Mish-Linear`）作为 decoder memory；启用 `causal_attn` 后动作 token 使用因果 mask。因果注意力并不使推理变成逐动作自回归：每个扩散步仍并行更新所有动作位置，时间一致性来自整段轨迹的联合去噪。
 
 ### 4.3 关键公式
 
@@ -221,20 +221,19 @@ $$
 \right)
 $$
 
-训练 loss：
+**【Paper】** 原文 Eq. (3)/(5) 用 $A_t^0+\epsilon^k$ 简写加噪。对照官方 `DDPMScheduler.add_noise`，更精确的标准参数化是：
 
 $$
-\mathcal L
-=
-\mathrm{MSE}\left(
-\epsilon^k,
-\epsilon_\theta(O_t, A_t^0 + \epsilon^k, k)
-\right)
+A_t^k=\sqrt{\bar\alpha_k}A_t^0+\sqrt{1-\bar\alpha_k}\epsilon,
+\qquad \epsilon\sim\mathcal N(0,I),
 $$
 
-- $O_t$：最近 `To` 步 observation。
-- $A_t^0$：真实未来动作序列。
-- $\epsilon^k$：扩散步 $k$ 采样的 Gaussian noise。
+$$
+\mathcal L=\mathbb E_{A_t^0,O_t,k,\epsilon}
+\left[\|\epsilon-\epsilon_\theta(O_t,A_t^k,k)\|_2^2\right].
+$$
+
+$\bar\alpha_k$ 是前向过程逐步保留信号比例的累积乘积，与上面论文简写反向更新中的 $\alpha$ 不是同一个量。网络同时看到噪声等级 $k$：高噪声阶段主要确定动作模式，低噪声阶段细化轨迹。这是理解“从噪声生成动作”的关键，不能把训练理解为对干净动作简单叠加同方差噪声。
 
 #### 与 implicit policy 的关系
 
@@ -253,12 +252,11 @@ $$
 其中 $Z$ 是难以估计的归一化常数。Diffusion Policy 直接建模 score function：
 
 $$
-\nabla_{\mathbf a} \log p(\mathbf a \mid \mathbf o)
-\approx
--\epsilon_\theta(\mathbf a, \mathbf o)
+\nabla_{A^k}\log p_k(A^k\mid O)
+\approx-\frac{\epsilon_\theta(O,A^k,k)}{\sqrt{1-\bar\alpha_k}}
 $$
 
-$Z$ 对 $\mathbf a$ 的梯度为零，因此训练和推理都不需要估计 $Z$。这是 Diffusion Policy 相比 IBC 训练更稳定的核心原因。
+这里 $p_k$ 是第 $k$ 级带噪条件分布；score 本身已经是对数密度的梯度，并不是“score 的梯度”。$Z$ 对动作的梯度为零，去噪回归因而绕开显式估计这个归一化常数。论文据此解释相对 IBC 的训练稳定性；这不意味着任意有限网络和有限采样步数都能精确恢复所有动作模式。
 
 ### 4.4 Training
 
@@ -325,15 +323,15 @@ $Z$ 对 $\mathbf a$ 的梯度为零，因此训练和推理都不需要估计 $Z
 
 **【Code】**
 
-| 论文描述                                          | 官方代码实现                                       | 实际行为                                                                      |
-| ------------------------------------------------- | -------------------------------------------------- | ----------------------------------------------------------------------------- |
-| CNN 用 FiLM 注入 observation 与 diffusion step    | `ConditionalUnet1D` + `ConditionalResidualBlock1D` | 每个 residual block 预测 scale/bias，对卷积特征做逐通道调制                   |
-| Transformer 用 cross-attention 条件化 observation | `TransformerForDiffusion`                          | observation embedding 作为 decoder memory，action token causal self-attention |
-| 视觉编码器 ResNet-18，spatial softmax + GroupNorm | `MultiImageObsEncoder` / Robomimic obs encoder     | 从零训练 ResNet-18，`use_group_norm=True`，多相机不共享 encoder               |
-| action min-max 到 `[-1,1]`                        | `LinearNormalizer` 的 `limits` mode                | 低方差维度不会按接近零的 range 缩放                                           |
-| receding-horizon 只执行 `Ta` 步                   | `MultiStepWrapper`                                 | 环境接收 `n_action_steps` 个动作后返回新观测                                  |
-| DDIM 加速真实推理                                 | `DDIMScheduler` / `eval_real_robot.py`             | 代码真实 eval 设置 16 inference steps                                         |
-| 论文提到可用前次预测 warm-start                   | 未实现                                             | `conditional_sample` 每次重新从 Gaussian 采样                                 |
+| 论文描述                                          | 官方代码实现                                                   | 实际行为                                                                        |
+| ------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| CNN 用 FiLM 注入 observation 与 diffusion step    | `ConditionalUnet1D` + `ConditionalResidualBlock1D`             | 每个 residual block 预测 scale/bias，对卷积特征做逐通道调制                     |
+| Transformer 用 cross-attention 条件化 observation | `TransformerForDiffusion`                                      | observation embedding 作为 decoder memory，action token causal self-attention   |
+| 视觉编码器 ResNet-18，spatial softmax + GroupNorm | Robomimic hybrid obs encoder；另有 `MultiImageObsEncoder` 路径 | 两条路径的 pooling 不同，应核对训练配置；GroupNorm 与各视角独立编码也由配置决定 |
+| action min-max 到 `[-1,1]`                        | `LinearNormalizer` 的 `limits` mode                            | 低方差维度不会按接近零的 range 缩放                                             |
+| receding-horizon 只执行 `Ta` 步                   | `MultiStepWrapper`                                             | 环境接收 `n_action_steps` 个动作后返回新观测                                    |
+| DDIM 加速真实推理                                 | `DDIMScheduler` / `eval_real_robot.py`                         | 代码真实 eval 设置 16 inference steps                                           |
+| 论文提到可用前次预测 warm-start                   | 未实现                                                         | `conditional_sample` 每次重新从 Gaussian 采样                                   |
 
 **【Analysis】** 论文对 receding-horizon 描述中的 warm-start 是一个潜在优化方向，但官方仓库当前没有把上一段 noisy action 作为下一次采样起点；因此代码层面的 receding-horizon 更接近“每 `Ta` 步重新采样”，而不是严格 warm-started model predictive control。
 
@@ -348,7 +346,7 @@ $Z$ 对 $\mathbf a$ 的梯度为零，因此训练和推理都不需要估计 $Z
 - **Observation**：state 和 image 两类；image 分辨率根据任务为 `84x84`、`96x96`、`240x240` 或真实任务的 `320x240`。
 - **Baselines**：LSTM-GMM / BC-RNN、IBC、BET。
 - **Metrics**：多数任务为 success rate；Push-T 使用 target area coverage，真实 sauce tasks 使用 IoU 或 coverage。
-- **Evaluation**：仿真报告 best checkpoint 与最后 10 个 checkpoint 平均，跨 3 seeds 和多个 initial conditions。
+- **Evaluation**：仿真报告 best checkpoint 与最后 10 个 checkpoint 平均，跨 3 seeds。§5.2 声明一般用 50 个初始状态，但脚注明确指出评估代码 bug 使 Robomimic 实际只有 22 个初始状态；不能把表头的 50 原样当作所有结果的样本数。
 
 <img
   src='https://pic.hana0721.top/blog/paper-deep-dive-diffusion-policy/real_task_setup-1.8hh7pc4pcy.webp'
@@ -363,7 +361,9 @@ $Z$ 对 $\mathbf a$ 的梯度为零，因此训练和推理都不需要估计 $Z
 
 ### 5.2 Main Results
 
-**【Paper】** 在仿真 benchmark 上，Diffusion Policy 在所有 state/image 任务和 variant 上都超过 baselines，按论文给出的相对改进计算方法，平均提升 46.9%。
+**【Paper】** 附录 B.2 的 46.9% 是特定汇总口径：取 Table 1、2、4 的任务列，排除 multi-human（MH）结果，每列先选 CNN/Transformer 中较好的 DP 与较好的 baseline，再计算 $(s_{DP}-s_{base})/s_{base}$ 后等权平均。它是不同任务指标上的相对增幅，不是增加 46.9 个百分点，也不是同一个固定 DP 架构逐项胜出。
+
+例如 state ToolHang 的 CNN 为 0.50/0.30，低于 LSTM-GMM 的 0.67/0.31；Transformer 则为 1.00/0.87。Block Push p2 的 CNN 只有 0.11，Transformer 为 0.94。理解主结果时需要同时看架构选择、动作空间和 checkpoint 选择：论文使用各方法表现较好的控制方式，DP 通常为 position，baseline 通常为 velocity，并非只替换生成头的单变量实验。
 
 部分 Robomimic 视觉 policy 的 best/avg checkpoint 成功率如下：
 
@@ -376,7 +376,7 @@ $Z$ 对 $\mathbf a$ 的梯度为零，因此训练和推理都不需要估计 $Z
 | ToolHang PH  | 0.68 / 0.49 | 0.00 / 0.00 |       0.95 / 0.73 |       0.76 / 0.47 |
 | Push-T       | 0.69 / 0.54 | 0.75 / 0.64 |       0.91 / 0.84 |       0.78 / 0.66 |
 
-多阶段 state 任务中，Diffusion Policy 尤其能处理 long-horizon multimodality。论文报告 Block Push `p2` 相对改进 32%，Kitchen `p4` 相对改进 213%。
+多阶段 state 任务中，Diffusion Policy 尤其能处理 long-horizon multimodality。论文报告 Block Push `p2` 相对改进 32%，Kitchen `p4` 正文声称相对改进 213%，但 Table 4 给出的最佳 DP 0.99 与最佳 baseline 0.44 计算为 125%，二者不一致。本文保留表内数值并标注这处原文差异，不把 213% 当作可由该表复算的结果。
 
 <img
   src='https://pic.hana0721.top/blog/paper-deep-dive-diffusion-policy/multimodal_sim-1.51evx8v1sk.webp'
@@ -435,7 +435,7 @@ $Z$ 对 $\mathbf a$ 的梯度为零，因此训练和推理都不需要估计 $Z
 - **Latency robustness**：receding-horizon position control 在模拟 latency 最多 4 步时仍能维持 peak performance；velocity control 受 latency 影响更大。
 - **Observation horizon**：state-based policy 对 observation horizon 不敏感；vision-based CNN policy 偏好较小的 `To`，2 步在多数任务中是较好折中。
 - **Data efficiency**：在每个训练数据规模上，Diffusion Policy 都优于 LSTM-GMM。
-- **Vision encoder**：从零训练 ResNet、frozen pretrained、finetune pretrained 三种设置中，finetune 最好，尤其 CLIP ViT-B/16 达到 0.98；但从零训练 ResNet 已经接近，真实系统仍以 end-to-end training 为最佳。
+- **Vision encoder**：模拟 Square-PH 的 Table 5 中，finetuned CLIP ViT-B/16 达到 0.98；但 ResNet-18 从零训练 0.94，高于其微调版本 0.92，不能概括为所有架构都微调最好。真实 Push-T 比较的是从零端到端学习与预训练特征路径，E2E 0.95 胜过 R3M 0.80；这两组实验回答的问题不同。
 
 <img
   src='https://pic.hana0721.top/blog/paper-deep-dive-diffusion-policy/ablation_figure-1.icuu9pkse.webp'
@@ -448,7 +448,7 @@ $Z$ 对 $\mathbf a$ 的梯度为零，因此训练和推理都不需要估计 $Z
   style='max-width:100%; height:auto;'
 />
 
-**【Analysis】** 这张消融图说明了 Diffusion Policy 与一般“predict full trajectory”方法的关键区别：它并不是预测一整条开环轨迹，而是预测一段足够长的局部轨迹，再通过高频重新规划保持闭环反应能力。
+**【Analysis】** 这张消融图说明了 Diffusion Policy 与一般“predict full trajectory”方法的关键区别：它并不是预测一整条开环轨迹，而是预测一段足够长的局部轨迹，再定期根据新观测重规划。真实任务的 10 Hz 是动作网格，$T_a=6$ 或 8 对应约 0.6 或 0.8 秒的开放执行窗口；它不等于每 0.1 秒都进行一次完整模型推理。
 
 ### 5.4 Generalization
 
@@ -466,7 +466,7 @@ $Z$ 对 $\mathbf a$ 的梯度为零，因此训练和推理都不需要估计 $Z
 
 **【Analysis】** Diffusion Policy 的有效性来自三个层面的协同：
 
-1. 扩散模型允许 policy 输出任意可归一化分布，因此同一观测下多个合理 action mode 可以被保留，并在单次采样中 commit 到其中一个。
+1. 扩散模型避免预先指定 GMM 的模式个数，给多模态动作分布提供灵活参数化；实验展示了左右绕行模式可以同时保留，但有限数据、模型容量与采样步数仍限制其覆盖范围。
 2. 高维 action sequence 一次生成，使连续动作共享同一去噪过程，避免 BC-RNN、BET 等把每个时间步独立 sample 时出现的 jittery mode switch。
 3. observation 被移到 diffusion loop 外，使视觉编码只需执行一次；这降低了实时推理成本，同时让 end-to-end visual encoder 训练可行。
 
@@ -487,7 +487,7 @@ $Z$ 对 $\mathbf a$ 的梯度为零，因此训练和推理都不需要估计 $Z
 
 **【Paper】**
 
-- 当前 observation 足够决定未来 `Tp` 步动作。
+- 有限观测历史应包含决定局部动作分布所需的信息；它不需要唯一决定动作，但隐藏状态缺失仍会使模仿学习困难。
 - 专家示教质量足够高，且 action 可被 min-max normalization 合理表示。
 - 任务的控制频率适合 diffusion inference latency；论文真实任务通常运行在 10Hz 左右。
 - `Ta` 需要在时间一致性与响应性之间选择，缺少自适应 horizon 机制。

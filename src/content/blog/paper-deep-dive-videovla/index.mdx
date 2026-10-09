@@ -1,7 +1,7 @@
 ---
 title: 'VideoVLA 论文精读：让视频生成器同时想象与执行'
 publishDate: 2026-08-26
-updatedDate: 2026-08-26
+updatedDate: 2026-09-22
 description: '精读 VideoVLA：基于 CogVideoX-5B 的多模态 DiT 同时预测未来视频 latent 与 7D 动作，在 SIMPLER 和真实 Realman 上验证视频想象带来的泛化能力。'
 heroImage:
   { src: 'https://pic.hana0721.top/92079701_p0_master1200.64eg2t4l77.webp', color: '#8C8275' }
@@ -55,6 +55,8 @@ import { Aside } from '@/components/user'
 
 **论文 / 代码 / 项目**：[arXiv](https://arxiv.org/abs/2512.06963) · [官方代码](https://github.com/VideoVLA-Project/VideoVLA) · [项目主页](https://videovla-nips2025.github.io/)
 
+本文核对 [arXiv v1 正文及附录 A–D](https://arxiv.org/html/2512.06963v1)，与[官方代码 commit 05b5cca](https://github.com/VideoVLA-Project/VideoVLA/tree/05b5cca7d4ec32e786b7e10dcbfbf5926637b293)。代码分析为静态核验，未运行大模型或机器人实验。
+
 ### 一句话总结
 
 **【Paper】** VideoVLA 不把视频生成仅当作可视化副产品：给定当前图像和语言指令，它在一个多模态 Diffusion Transformer 中**联合预测未来视频 latent 和将要执行的动作 chunk**，借由二者在每一次去噪中的耦合，把预训练视频模型的条件理解、未来演化与物理先验迁移为机器人操控的泛化能力。
@@ -68,7 +70,7 @@ import { Aside } from '@/components/user'
 3. 在 SIMPLER 和 Realman 真实机器人上测试 in-domain、新物体、跨 embodiment 新技能三类能力，并报告优于所列基线的总体结果。
 4. 分析视觉想象与执行结果的相关性：高质量 imagined future 与更可靠的动作、较高的任务成功率相关。
 
-**【Analysis】** 论文的关键转向不是“在 VLA 旁边再生成一段视频”，而是要求 action token 与 future-video token 在同一生成过程里彼此解释。视频预测因此为动作施加了一个很强的反事实约束：如果这段动作真会完成指令，模型也应能同时想象出合理的后果。
+**【Analysis】** 论文的关键转向不是“在 VLA 旁边再生成一段视频”，而是要求 action token 与 future-video token 在同一生成过程里彼此解释。更精确地说，它学习 $p(A,V_{future}\mid I_t,\ell)$ 的联合分布，在示教中同时拟合动作及其视觉伴随结果。训练没有对同一状态主动干预不同动作，也没有额外的因果一致性判别器，因此不宜把它称为已经验证的“反事实约束”。
 
 ## 2. 背景与相关工作
 
@@ -76,7 +78,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** VideoVLA 的出发点是两类条件生成问题的结构相似性：视频模型根据文本和首帧预测未来世界，操控策略根据语言和当前观测预测未来行为。前者的“未来”尚没有可执行动作，后者的动作也未必被显式约束其视觉后果；论文用联合生成弥合这个缺口。
 
-**【Analysis】** 相比把视频生成器作为高层 planner、再由另一个 policy 跟踪计划，VideoVLA 的耦合更紧：它只训练一个生成器。代价是不能在推理时先筛选多个未来视频再选动作；收益是 action 和 video 能在扩散的每个时间步交换信息，而不是只在两个模块接口处相接。
+**【Analysis】** 相比把视频生成器作为高层 planner、再由另一个 policy 跟踪计划，VideoVLA 的耦合更紧：它只训练一个联合生成器（仍有 T5 与 VAE 编码器）。论文默认未实现候选视频/动作评分与筛选；从联合模型采多组候选在原理上并非不可能。其设计特点是 action 和 video 能在扩散的每个时间步交换信息，而不是只在两个模块接口处相接。
 
 ## 3. 问题定义
 
@@ -91,7 +93,7 @@ $$
 - $\mathcal{F}$ 是执行该 chunk 后预期看到的未来视频。模型实际预测其 latent，而非 RGB 像素。
 - 每次执行一个 chunk 后获取新观测，再重复预测；动作频率和视频帧频率可以不同。
 
-**【Paper】** 预训练使用 OXE（Open X-Embodiment）中与前作相同的子集：约 2,250 万帧，来自 60 个数据集、22 类机器人 embodiment；真实实验另采集 5,824 个 Realman 样本，覆盖 pick、stack、place 三项任务。
+**【Paper】** 预训练使用 OXE（Open X-Embodiment）中与前作相同的子集：约 2,250 万帧。60 个数据集、22 类 embodiment 是 OXE 总体介绍，论文未给出所用子集逐数据集清单，不能直接把总体覆盖算作实际训练混合；真实实验另采集 5,824 个 Realman 样本，覆盖 pick、stack、place 三项任务。
 
 | Embodied AI 项目      | VideoVLA 的选择                                         |
 | --------------------- | ------------------------------------------------------- |
@@ -141,23 +143,21 @@ $$
 
 ### 4.3 关键公式
 
-**【Paper】** 对目标 future-video latents 与 action chunk 加高斯噪声后，DiT 学习同时预测噪声。可将训练目标概括为：
+**【Paper】** 论文说明两模态使用 DDPM 去噪损失，但没有在正文固定一个“网络原始输出必为 epsilon”的完整公式。为了与公开实现对应，令 $x_t=\alpha_t x_0+\sigma_t\epsilon$、$\alpha_t^2+\sigma_t^2=1$；对视频与动作分别预测 velocity $v_t=\alpha_t\epsilon-\sigma_t x_0$，可写成：
 
 $$
 \mathcal{L}_{\mathrm{dual}}
-= \lambda_v\left\lVert\widehat{\boldsymbol{\epsilon}}_v-\boldsymbol{\epsilon}_v\right\rVert_2^2
-+ \lambda_a\left\lVert\widehat{\boldsymbol{\epsilon}}_a-\boldsymbol{\epsilon}_a\right\rVert_2^2.
+=\lambda_v\,\mathrm{mean}\|\hat v_v-v_v\|^2
++\lambda_a\,\mathrm{mean}\|\hat v_a-v_a\|^2.
 $$
 
-- $\boldsymbol{\epsilon}_v,\boldsymbol{\epsilon}_a$：分别加到视频 latent、动作上的高斯噪声；
-- $\widehat{\boldsymbol{\epsilon}}_v,\widehat{\boldsymbol{\epsilon}}_a$：模型预测的噪声；
-- $\lambda_v,\lambda_a$：两项损失的权重。
+**【Code】** `VideoScaling` 与 `DiscreteDenoiser_withact` 将网络输出转为 $\hat x_0=\alpha_t x_t-\sigma_t\hat v$；loss 实际计算 $\|\hat x_0-x_0\|^2/\sigma_t^2$，代入后等价于上面的 v-prediction MSE。变量名 `action_pred_noise` 不能单独证明它是 epsilon prediction；若照原博客的噪声公式对接网络，会弄错目标。
 
-**【Code】** 公开配置 `config_use/action_config/videovla_config.yaml` 的 `VideoDiffusionLoss_withact` 将 `vd_lw` 与 `act_lw` 都设为 1，和上述等权的 dual loss 对应；该配置没有替代论文的理论定义。
+**【Code】** 视频、动作各自采独立高斯噪声，但共享 diffusion timestep；同步不等于使用同一份噪声。两项分别对自身元素求 mean，再以 `vd_lw=act_lw=1` 相加，故视频 token 多不意味着按总元素数自动压倒动作损失。论文概念图将当前首帧作为条件，公开 image-to-video 路径则将首帧 latent 加零填充后作为额外 channel concat；这应与待去噪的视频张量区分。
 
 ### 4.4 Training
 
-**【Paper】** 论文采用 CogVideoX-5B 初始化，预训练 100K iterations、微调 15K iterations，使用 32 张 AMD MI300X、batch size 256、AdamW（learning rate $10^{-5}$，weight decay $10^{-4}$）。仿真推理预测 13 个 future latents（49 帧）；真实机器人为效率预测 4 个 future latents（13 帧）。两种情形均预测 6 个动作。
+**【Paper】** 论文采用 CogVideoX-5B 初始化，预训练 100K iterations、微调 15K iterations，使用 32 张 AMD MI300X、batch size 256、AdamW（learning rate $10^{-5}$，weight decay $10^{-4}$）。仿真使用 49 帧/13 个视频 latent 的长度配置，真实机器人使用 13 帧/4 latent。按论文 causal VAE 定义，首个 latent 对应当前帧，因此严格说分别含 12/3 个未来 latent；作者把整段简称 future latents，不能据此再额外加一个首帧。两种情形均预测 6 个动作。
 
 <Algorithm
   number={1}
@@ -175,7 +175,9 @@ $$
     保留首帧 latent 作为条件，并取未来 latent 和 action chunk 为目标
   </AlgorithmStep>
   <AlgorithmStep indent={1}>对未来 latent 与动作使用同一扩散 timestep 加噪</AlgorithmStep>
-  <AlgorithmStep indent={1}>拼接所有模态 token，DiT 同时预测两类噪声</AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    输入条件和带噪两模态，DiT 预测两类去噪量（公开实现为 v-prediction）
+  </AlgorithmStep>
   <AlgorithmStep indent={1}>计算视频与动作的去噪损失，反向传播更新模型</AlgorithmStep>
   <AlgorithmStep keyword='end for' />
   <AlgorithmStep keyword='return'>训练后的 VideoVLA checkpoint</AlgorithmStep>
@@ -185,7 +187,7 @@ $$
 
 ### 4.5 Inference
 
-**【Paper】** 每轮推理只输入当前观测：编码首帧后，模型从噪声中同时去噪出视频 latent 和 6 步动作；部署时只执行前 3 步，获取新图像后再次调用策略。论文默认使用 50 个 DDIM denoising steps；局限性实验为了实时性改为预测 4 个 future latents、以 10 steps 去噪，单张 H100 约 1.1 秒，有效控制频率约 3 Hz。
+**【Paper】** 每轮推理只输入当前观测：编码首帧后，模型从噪声中同时去噪出视频 latent 和 6 步动作；部署时只执行前 3 步，获取新图像后再次调用策略。正文默认 50 个 DDIM denoising steps；附录 D 的真实部署效率配置使用 4 latent、10 steps，单张 H100 一次约 1.1 秒。作者称约 3 Hz，来自每次执行 3 个动作的有效输出量级；串行重规划本身至多约 $1/1.1=0.91$ 次/秒，且还未计入其他执行开销，不能称为 3 Hz 视觉闭环。正文没有逐表明确切换 50/10 步，本文不替作者推定每张表的精确 sampler 配置。
 
 <Algorithm
   number={2}
@@ -208,33 +210,35 @@ $$
 
 ### 4.6 代码实现对照
 
-| 论文描述            | 官方代码位置                                    | 可确认的实际行为                                                                                               |
-| ------------------- | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| Video-Action DiT    | `dit_video_concat_withact.py`                   | 用线性层将 7D 动作投影为 action token；最后一个 action head 输出 7D noise prediction。                         |
-| 多模态损失          | `config_use/action_config/videovla_config.yaml` | `VideoDiffusionLoss_withact`，视频与动作权重均为 1。                                                           |
-| 输入与 action shape | `sample_video_action.py`、`inference.yaml`      | 推理初始化 `[1, 6, 7]` 的零动作；`action_lenght`（仓库拼写）为 6。                                             |
-| 采样配置            | `videovla_config.yaml`                          | 配置列出 `VPSDEDPMPP2MSampler_withact`、50 steps、Dynamic CFG scale 6。                                        |
-| 输出                | `sample_video_action.py`                        | 代码取得 `samples_z, action_samples_z`，但示例脚本只把解码视频写为 MP4，未把动作样本序列化或接入机器人控制器。 |
+| 论文描述            | 官方代码位置                                    | 可确认的实际行为                                                                                                 |
+| ------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Video-Action DiT    | `dit_video_concat_withact.py`                   | 用线性层将 7D 动作投影为 action token；action head 输出 7D 去噪量，denoiser 再转换为干净动作估计。               |
+| 多模态损失          | `config_use/action_config/videovla_config.yaml` | `VideoDiffusionLoss_withact`，视频与动作权重均为 1。                                                             |
+| 输入与 action shape | `sample_video_action.py`、`inference.yaml`      | 脚本构造 `[1, 6, 7]` 零占位以传递形状；引擎随后用 `randn_like` 初始化扩散噪声；`action_lenght`（仓库拼写）为 6。 |
+| 采样配置            | `videovla_config.yaml`                          | 配置列出 `VPSDEDPMPP2MSampler_withact`、50 steps、Dynamic CFG scale 6。                                          |
+| 输出                | `sample_video_action.py`                        | 示例期望解包视频/动作二元组，但引擎 `sample` 当前只返回动作 tensor；接口不一致，不能称为已跑通的视频输出示例。   |
 
-**【Analysis】** 论文写作中的“DDIM 50 steps”和发布 YAML 的 sampler 类名 / CFG scale 并不完全同名同值；在无训练、部署与评测脚本的情况下，不能把这份最小推理仓库视作论文全部实验的逐行复现。因此上表只报告能从公开文件直接确认的事实。
+**【Analysis】** 论文写作中的“DDIM 50 steps”和发布 YAML 的 sampler 类名 / CFG scale 并不完全同名同值；在无训练、部署与评测脚本的情况下，不能把这份最小推理仓库视作论文全部实验的逐行复现。另外，`sampling_num_frames=13` 在脚本中直接用作 latent 时间维，对应 49 个解码帧，而不是 13 个 RGB 帧。示例还将 `robot_ids` 误读为 `action_dim`；这些是公开代码静态可见问题，不是已复现实验结果。README 提供的是 T5/VAE 下载说明及本地 `ckpts/base_ckpt` 路径，不能由此断言完整 VideoVLA policy 权重与全部实验训练 recipe 均已发布。
 
 ## 5. 实验
 
 ### 5.1 Experimental Setup
 
-**【Paper】** 仿真使用 SIMPLER：WidowX 在 Visual Matching（VM）下评 4 个任务；Google Robot 在 VM 与 Variant Aggregation（VA）下评 Pick Up Coke Can、Move Near、Open/Close Drawer、Open and Place。VA 会改变背景、光照和桌面纹理。所有仿真模型从 OXE 训练，指标为多次 trial 的 success rate。
+**【Paper】** 仿真使用 SIMPLER：WidowX 在 Visual Matching（VM）下评 4 个任务；Google Robot 在 VM 与 Variant Aggregation（VA）下评 Pick Up Coke Can、Move Near、Open/Close Drawer、Open and Place。VA 会改变背景、光照和桌面纹理。比较使用 OXE 训练的模型；$\pi_0$ 在该表特意去掉 proprioception，仅保留视觉输入，故其分数不能代表带本体状态的标准配置。Appendix A 给 Google-VM 四任务 300/240/216/108 次，VA 为 825/600/378/189 次，WidowX 每任务 24 次。
 
 **【Paper】** 真实实验用配有 7-DoF 手臂与夹爪的 Realman；论文采集 5,824 个 pick、stack、place 样本，并对预训练模型进行微调。真实新物体测试使用 12 个训练未见物体，跨 embodiment 新技能则让 Realman 执行只在 WidowX 训练数据中出现过的动作技能。
 
 ### 5.2 Main Results
 
-**【Paper】** 在 12 个 SIMPLER in-domain 任务的总体平均上，VideoVLA 为 **63.0%**，高于表中 CogACT 的 62.6%、$\pi_0$ 的 50.0%、SpatialVLA 的 47.1%、OpenVLA 的 26.0%。分组看，VideoVLA 的 WidowX-VM 平均为 53.1%，Google-VA 平均为 62.8%，Google-VM 为 73.1%（后者略低于 CogACT 的 75.2%）。
+**【Paper】** 在 12 个“任务×协议”单元的等权平均上，VideoVLA 为 **63.0%**，略高于表中 CogACT 的 62.6%、$\pi_0$ 的 50.0%、SpatialVLA 的 47.1%、OpenVLA 的 26.0%。分组看，VideoVLA 的 WidowX-VM 平均为 53.1%，Google-VA 平均为 62.8%，Google-VM 为 73.1%（后者略低于 CogACT 的 75.2%）。这里平均不按各单元 trial 数加权，Google 的相同四项任务分别在 VM/VA 计入；0.4 个百分点差距未附多训练 seed 置信区间，不足以证明稳定领先。
 
-**【Paper】** 真实 Realman 的 in-domain 三类任务总平均为 **64.6%**，高于 CogACT（58.4%）、$\pi_0$（50.7%）、SpatialVLA（22.9%）和 OpenVLA（9.7%）。在 12 个真实新物体上，VideoVLA 平均为 **50.6%**；相较 CogACT 的 26.9%、$\pi_0$ 的 21.8%，优势主要出现在 Clear Tape、Toy Duck 等多个物体，但不是每一项都第一。
+**【Paper】** 真实 Realman 的 in-domain 三类任务**报告分数**平均为 **64.6%**，高于 CogACT（58.4%）、$\pi_0$（50.7%）、SpatialVLA（22.9%）和 OpenVLA（9.7%）。注意 Table 4 的 Place 分数 56.3 是抓起 87.5 与最终放置 25.0 的均值，64.6 又对 Pick/Stack/Place 三组均值再平均，因此含中间步骤得分，不能等同于所有 rollout 的完整任务成功率。按组取最终阶段等权平均会约为 $(70.8+66.7+25.0)/3=54.2\%$，这只是本文解释指标的重算，非论文另报结果。
+
+**【Paper】** 在真实新物体测试上，VideoVLA 平均为 **50.6%**；相较 CogACT 的 26.9%、$\pi_0$ 的 21.8%，优势主要出现在 Clear Tape、Toy Duck 等多个物体，但不是每一项都第一。正文称 12 个物体，Table 5 实际列 13 个评估条件（同一黑瓶分直立/平放）；50.6% 是这 13 列的均值，每列 12 次。
 
 <img
   src='https://pic.hana0721.top/blog/paper-deep-dive-videovla/videovla-qualitative-crop.4g58f9akk0.webp'
-  alt='VideoVLA 论文 Figure 5：动作实际执行与模型预测未来视频的定性对比'
+  alt='VideoVLA 论文 Figure 4：动作实际执行与模型预测未来视频的定性对比'
   class='zoomable'
   width='2398'
   height='968'
@@ -253,13 +257,13 @@ $$
 | CogVideoX-5B 从头训练            |    18.6 | 10.8 |        9.2 |     12.6 |
 | OpenSora-1.1 backbone            |    67.7 | 57.1 |       25.9 |     50.2 |
 
-**【Paper】** 预测更长未来也更好：49 / 25 / 13 个 future frames 的平均成功率依次为 80.4% / 77.4% / 75.2%。作者据此认为，更长的视觉时间视野能帮助动作预测提前考虑后果。
+**【Paper】** 在固定 6 步动作预测的消融中，增加视觉长度有益：49 / 25 / 13 个 future frames 的平均成功率依次为 80.4% / 77.4% / 75.2%。作者据此认为更长视觉视野有益；但同时增加了 latent token、计算与监督信息，未证明仅时间跨度一项造成提升。所有上述 80.4% 消融只含 Google-VM 三任务，不含 Open and Place，也不等于主表四任务均值 73.1%。附录单向注意力对照（动作读视频，视频不读动作）为 75.5%，支持该设定中双向交互有益。
 
 ### 5.4 Generalization
 
-**【Paper】** 在 SIMPLER 的 10 个新物体上，VideoVLA 平均 success rate 为 **65.2%**，对第二名 SpatialVLA（50.8%）领先 14.4 个点，并在 10 个物体中的 8 个上最好。Google Robot 的跨 embodiment 新技能迁移平均为 **48.6%**，高于 CogACT 的 20.4% 与 SpatialVLA 的 18.9%。
+**【Paper】** 在 Google 机器人训练数据未见的 10 个 SIMPLER 物体上，VideoVLA 平均 success rate 为 **65.2%**，对第二名 SpatialVLA（50.8%）领先 14.4 个点，并在 10 个物体中的 8 个上最好，每物体 25 次。“未见”限定 Google 的训练数据，不证明这些物体从未出现于 OXE 其他机器人或通用视频预训练。Google Robot 的跨 embodiment 新技能迁移平均为 **48.6%**，高于 CogACT 的 20.4% 与 SpatialVLA 的 18.9%。
 
-**【Paper】** Realman 跨 embodiment 新技能迁移平均为 **58.0%**，超过 CogACT 的 35.1%。这些技能在 WidowX 的训练数据中存在、在 Realman 的训练数据中不存在；实验试图区分“换物体”与“换 embodiment 后学习未演示技能”。
+**【Paper】** Realman 跨 embodiment 新技能迁移平均为 **58.0%**，超过 CogACT 的 35.1%。该实验将 WidowX 数据与 Realman 自采数据混合训练；测试物体已被 Realman 见过，仅这些技能没有其示教。因此是跨已适配 embodiment 的技能迁移，不能说 Realman 完全没有机器人训练数据。附录称每新技能 16 次，但表中 Wipe 的 8.3%/16.7%/41.7% 不符合单组 16 次的比例步长；仿真新技能“每项 20 次”也与若干表值不吻合，完整分组/聚合细节仍未交代。
 
 ## 6. 方法分析
 
@@ -287,7 +291,7 @@ $$
 
 ### 7.1 作者明确提出的局限
 
-**【Paper】** 最大限制是推理速度。面向真实部署时，预测 4 个 future latents（13 帧）和 6 个动作、执行其中 3 步，在单张 H100 上约需 1.1 秒，约 3 Hz。作者将瓶颈归于 CogVideoX-5B，建议后续使用更小的 robot-oriented video generator、one-step denoising 或模型蒸馏。
+**【Paper】** 最大限制是推理速度。面向真实部署时，预测 4 个 future latents（13 帧）和 6 个动作、执行其中 3 步，在单张 H100 上约需 1.1 秒；作者所称约 3 Hz 是动作输出量级，不是重新感知与重规划频率。作者将瓶颈归于 CogVideoX-5B，建议后续使用更小的 robot-oriented video generator、one-step denoising 或模型蒸馏。
 
 ### 7.2 自己分析得到的局限
 
@@ -295,8 +299,8 @@ $$
 
 1. **想象不是验证。** 模型生成的未来视频与动作来自同一个生成模型，二者自洽不必然代表二者都对真实环境正确；论文的相关性分析也没有把 imagined future 接入显式选择、拒绝或闭环纠错机制。
 2. **视觉后果未必可辨识动作。** 第三人称图像下，多种 action trajectory 可能产生相近未来帧；特别是接触力、精细夹爪状态、遮挡区域很难仅凭视频确定。
-3. **公开复现链尚不完整。** 官方仓库已发布模型和示例推理，但没有完整训练/数据加载/机器人部署流程；论文的训练数据变换与全部评测细节不能只靠当前代码仓库复现。
-4. **高成本限制控制频率与探索。** 3 Hz 对慢速 pick-and-place 可用，却难以应对快速接触、扰动恢复或需要大量 candidate sampling 的场景。
+3. **公开复现链尚不完整。** 官方仓库已发布模型实现和推理示例，但没有完整训练/数据加载/机器人部署流程；论文的训练数据变换与全部评测细节不能只靠当前代码仓库复现。
+4. **高成本限制控制频率与探索。** 上述秒级重规划在论文慢速 pick-and-place 场景得到验证，却难以应对快速接触、扰动恢复或需要大量 candidate sampling 的场景。
 
 ## 8. 启发与研究思考
 
@@ -306,7 +310,7 @@ $$
 
 <img
   src='https://pic.hana0721.top/blog/paper-deep-dive-videovla/SIM_google.1apqgbg5si.webp'
-  alt='VideoVLA 论文 Figure 6a：Google Robot 上视觉想象与实际执行的运动相似度和任务成功率关系'
+  alt='VideoVLA 论文 Figure 3a：Google Robot 上视觉想象与实际执行的运动相似度和任务成功率关系'
   class='zoomable'
   width='5168'
   height='3353'
@@ -315,10 +319,9 @@ $$
   style='max-width:100%; height:auto;'
 />
 
-**【Paper】** 作者以 SIFT、SAM、SAM-PT 与 Hungarian matching 比较 imagined video 和实际 execution 的前景关键点轨迹；Google 与 WidowX 图中更高的运动相似度对应更高成功概率。在新物体 / 新技能设置中，人工评定的 visual-imagination success rate 为 84.0% / 63.4%，实际执行 success rate 为 65.2% / 48.6%。这表明 imagination 有信息量，也同时显示从“看起来合理”到“真实执行成功”仍有明显落差。
+**【Paper】** 作者以 SIFT、SAM、SAM-PT 与 Hungarian matching 比较 imagined video 和实际 execution 的前景关键点轨迹；Google 与 WidowX 图中更高的运动相似度对应更高成功概率。在新物体 / 新技能设置中，人工评定的 visual-imagination success rate 为 84.0% / 63.4%，实际执行 success rate 为 65.2% / 48.6%。该运动相似度必须先取得真实执行视频，是事后关联指标，不能在执行前直接给候选动作打可靠性分。人工 imagination 成功按语义正确且无显著几何/物理失真判断，与机器人判据不同；两项总体成功率也不能推出条件概率“想象成功时执行成功的概率”。
 
 <Aside type='note' title='阅读提示'>
   本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
-  表示基于论文和代码的分析推断。论文图片已裁剪并使用 GitHub Raw 回退链接：图床自定义域在发布时返回
-  404，Raw 链接已逐一确认 HTTP 200。
+  表示基于论文和公开实现的分析推断；代码行为与论文实验配置的差异已单独标注。
 </Aside>

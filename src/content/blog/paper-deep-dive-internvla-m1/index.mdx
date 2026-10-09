@@ -1,7 +1,7 @@
 ---
 title: 'InternVLA-M1 论文精读：用空间先验连接 VLM 推理与机器人动作'
 publishDate: 2026-08-25
-updatedDate: 2026-08-25
+updatedDate: 2026-09-22
 description: '精读 InternVLA-M1：通过 230 万条空间 grounding 数据、空间提示和双监督训练，让 Qwen2.5-VL 的空间推理迁移到 DiT 动作专家。'
 heroImage:
   { src: 'https://pic.hana0721.top/126903857_p0_master1200.2dpaix2l3u.webp', color: '#8C8275' }
@@ -66,7 +66,7 @@ import { Aside } from '@/components/user'
 
 ## 3. 问题定义
 
-**【Paper】** 给定多视角 RGB 观测 $o_t$ 与自然语言指令 $l$，模型输出长度为 $H=16$ 的连续动作块：
+**【Paper】** 给定 RGB 观测 $o_t$ 与自然语言指令 $l$，模型输出连续动作块。SimplerEnv 与自建 pick-and-place 实验使用 $H=16$，LIBERO 则使用 $H=8$；下面以主要单臂 7D 接口表示：
 
 $$
 \pi(o_t,l) = (a_t,a_{t+1},\ldots,a_{t+H-1}),\qquad a_i\in\mathbb{R}^{7}.
@@ -74,17 +74,17 @@ $$
 
 在主要设置中，7 维动作是末端执行器的平移增量、旋转增量和夹爪状态；具体控制空间会随 benchmark 使用 delta end-effector 或 delta joint space。论文使用单目/双目 RGB 输入，代码的公开 action demo 默认接收两个视角。
 
-**【Paper】** 空间 grounding 任务则把图像和指令映射到 box、point、trajectory 或 QA 文本。点坐标归一化为绝对坐标，box 常以 `[x1,y1,x2,y2]` 的 JSON/XML 形式输出。
+**【Paper】** 空间 grounding 任务则把图像和指令映射到 box、point、trajectory 或 QA 文本。点采用图像绝对坐标约定（并非机器人基座坐标或归一化三维位置），box 常以 `[x1,y1,x2,y2]` 的 JSON/XML 形式输出。
 
-| 项目 | InternVLA-M1 设置 |
-| --- | --- |
-| Planner | Qwen2.5-VL-3B-Instruct |
-| Action Expert | 86M Diffusion Policy/DiT（公开配置为 DiT-B） |
-| 额外视觉编码器 | DINOv2 ViT-S/14，约 21M 参数 |
-| 总参数量 | 约 4.1B |
-| Action chunk | 16 步（当前动作 + 15 个 future actions） |
-| 主要数据 | 3M+ 多模态数据、244K InternData-M1 仿真 episode |
-| 部署 | 单张 RTX 4090，约 12GB；论文报告 VLM 约 10 FPS |
+| 项目           | InternVLA-M1 设置                                    |
+| -------------- | ---------------------------------------------------- |
+| Planner        | Qwen2.5-VL-3B-Instruct                               |
+| Action Expert  | 86M Diffusion Policy/DiT（公开配置为 DiT-B）         |
+| 额外视觉编码器 | DINOv2 ViT-S/14，约 21M 参数                         |
+| 总参数量       | 约 4.1B                                              |
+| Action chunk   | SimplerEnv/自建任务 16 步；LIBERO 8 步，各自重新训练 |
+| 主要数据       | 3M+ 多模态数据、244K InternData-M1 仿真 episode      |
+| 部署           | 单张 RTX 4090，约 12GB；论文报告 VLM 约 10 FPS       |
 
 **【Code】** `internvla_cotrain_oxe.yaml` 将 `action_dim` 设为 7、`future_action_window_size` 设为 15、`action_model_type` 设为 `DiT-B`，并把 VLA 输入图像调整为 224×224。
 
@@ -94,7 +94,7 @@ $$
 
 ![InternVLA-M1 overall framework from paper Figure 2](https://pic.hana0721.top/blog/paper-deep-dive-internvla-m1/main_framework-crop.2h91nlhdh8.webp)
 
-**【Paper】** Stage 1 只训练 VLM Planner，使其获得 embodiment-agnostic spatial prior；Stage 2 以 spatial prompt 激活这些先验，并把 Planner 的 latent planning tokens 交给 DiT Actor，联合学习“where to act”和“how to act”。
+**【Paper】** Stage 1 只训练 VLM Planner，使其获得 embodiment-agnostic spatial prior；Stage 2 以 spatial prompt 激活这些先验，并把 Planner 的 hidden states 经 Q-Former 聚合后交给 DiT Actor，联合学习“where to act”和“how to act”。
 
 ### 4.2 核心模块
 
@@ -104,7 +104,7 @@ $$
 - **输出**：语言 head 的 grounding/QA 输出，以及供动作专家使用的 latent condition。
 - **作用**：通过 Qwen2.5-VL 的视觉-语言融合，把“目标物、容器、相对位置、轨迹约束”编码成可迁移特征。
 
-**【Paper】** 论文把 Planner 解释为 System 2：它不直接输出关节动作，而是先形成可靠的空间计划。空间提示的例子是“Identify all relevant toys and their spatial relationships to the container.”，模型不必把这段辅助思考显式回答出来，但它会改变条件特征。
+**【Paper】** 论文把 Planner 解释为 System 2：它不直接输出关节动作，而是先形成可靠的空间计划。空间提示的例子是“Identify all relevant toys and their spatial relationships to the container.”，模型不必把这段辅助思考显式回答出来，但它会改变条件特征。常规动作调用是一次 VLM 前向，不会先自回归生成 box/point/trajectory 文本再把坐标交给控制器；长任务的显式子任务生成是另外训练的 language-head 用法，两者不能混同。
 
 #### DINOv2 视觉分支
 
@@ -121,7 +121,7 @@ $$
 - **输出**：固定长度的 action condition，维度与 DiT hidden size 对齐。
 - **为什么需要**：VLM token 长度会随图像和文本变化，动作专家则更适合接收固定大小的条件序列。
 
-**【Code】** `LayerwiseQFormer` 先把 hidden states 投影到 768 维，再逐层 cross-attend；公开 OXE 配置只选 Qwen 的第 36 层（`start_layer=36, end_layer=37`），所以配置中的“layerwise”当前实际上是单层聚合。代码还定义了 `scale_hook`，但 `forward` 没有调用它，意味着配置里的 `grad_scale: 0.5` 在当前公开路径中不一定真正生效；这是论文叙述与仓库实现需要区分的地方。
+**【Code】** `LayerwiseQFormer` 先把 hidden states 投影到 768 维，再逐层 cross-attend；公开 OXE 配置只选 Qwen 的第 36 层（`start_layer=36, end_layer=37`），所以配置中的“layerwise”当前实际上是单层聚合。代码还定义了 `scale_hook`，但 `forward` 没有调用它，意味着配置里的 `grad_scale: 0.5` 在所核验的默认路径中没有被应用；这是论文叙述与仓库实现需要区分的地方。
 
 #### DiT Action Expert：连续动作生成器
 
@@ -131,15 +131,19 @@ $$
 
 公开代码提供三种规模：
 
-| 变体 | 深度 | hidden/token size | heads | 论文参数量 |
-| --- | ---: | ---: | ---: | ---: |
-| DiT-S | 6 | 384 | 4 | 13M |
-| DiT-B | 12 | 768 | 12 | 89M |
-| DiT-L | 24 | 1024 | 16 | 308M |
+| 变体  | 深度 | hidden/token size | heads | 结构来源 |
+| ----- | ---: | ----------------: | ----: | -------: |
+| DiT-S |    6 |               384 |     4 | 官方代码 |
+| DiT-B |   12 |               768 |    12 | 官方代码 |
+| DiT-L |   24 |              1024 |    16 | 官方代码 |
+
+**【Code】** 论文 §2.1 还描述一个可选的轻量 state encoder；当前 `M1.py` 的动作 `forward/predict_action` 只从 image、lang 构造条件，没有接入 proprioception。不能把架构图的可选状态输入当作公开默认实现已有的能力。
 
 **【Analysis】** 这里的“动作专家”不是把空间坐标直接硬编码到控制器，而是让 DiT 学会把空间条件转换为某个 embodiment 的连续运动分布；因此同一个 Planner 可以在下游换用不同 action dataset 和控制空间。
 
 ### 4.3 关键公式
+
+**【Analysis】** 以下公式将论文描述与官方扩散实现形式化；技术报告本身以文字说明 L2 噪声监督，未给出这组编号公式。
 
 #### 扩散动作目标
 
@@ -174,7 +178,9 @@ $$
 **【Paper】** 训练分成两阶段：
 
 1. **Spatial grounding pre-training**：使用 General QA（约 637K）、Box QA（约 879K）、Trajectory QA（约 684K）和 Point QA（约 832K），合计超过 3M 样本，其中空间数据超过 2.3M。
-2. **Spatially guided action post-training**：在机器人 demonstration 上训练 DiT，并交替/联合采样 spatial grounding batch；空间提示把 instruction 改写为带有“定位关键物体/关系”的输入。
+2. **Spatially guided action post-training**：在机器人 demonstration 上训练 DiT，并联合采样 spatial grounding batch；空间提示把 instruction 改写为带有“定位关键物体/关系”的输入。
+
+§3.2 还引入可选的合成动作 mid-training（文中称 Post-Pre-Training），先用 244K InternData-M1 初始化动作能力，再做目标任务微调。它是大规模 pick-and-place 实验中的额外阶段，不应默认所有基准都用了这批合成动作数据。SimplerEnv 的明确配方是 RT-1/Bridge 加空间 QA，50K steps，机器人/多模态 batch 分别 256/64。
 
 **【Paper】** InternData-M1 的仿真引擎使用 14K 标注物体、211 张桌面、1.6K 纹理和 87 个 dome lights。规划、物理验证和渲染解耦：只有通过闭环执行和 scene-graph validator 的 episode 才会进入数据集。
 
@@ -189,36 +195,48 @@ $$
 
 ### 4.5 Inference
 
-**【Code】** `predict_action` 将 instruction 转为小写，按训练分辨率处理每个视角，然后重复训练时的 Qwen+DINO+Q-Former 特征提取。动作从 Gaussian noise 开始，默认支持 DDIM；开启 `cfg_scale > 1` 时，代码把有条件与 null condition 拼接做 classifier-free guidance。README 的示例使用 `cfg_scale=1.5`、DDIM 10 steps。
+**【Code】** `predict_action` 将 instruction 转为小写；共享的 `build_qwenvl_inputs` 会在训练和推理两边读取 `CoT_prompt` 并替换 `{instruction}`，空间提示并非只用于训练。随后按训练分辨率处理每个视角，然后重复训练时的 Qwen+DINO+Q-Former 特征提取。动作从 Gaussian noise 开始，默认支持 DDIM；开启 `cfg_scale > 1` 时，代码把有条件与 null condition 拼接做 classifier-free guidance。README 示例使用 `cfg_scale=1.5`、DDIM 10 steps，而函数默认是 5 steps；DDIM sampler 只在首次调用时创建，改变步数做速度对比时需要重新创建或重置 sampler，不能只改后续调用参数。
 
-真实机器人接口随后读取第一个 action，做 unnormalization，并可用 `AdaptiveEnsembler` 融合历史预测。代码中的 ensemble 是 cosine-similarity 加权，而不是简单的时间平均；LIBERO 接口则按 action chunk 逐步消费预测序列。
+真实机器人接口先将整块动作反归一化，再可选地用 `AdaptiveEnsembler` 对不同历史 chunk 中对应当前时刻的预测融合；关闭融合时才直接取新 chunk 的第一个动作。代码中的 ensemble 是 cosine-similarity 加权，而不是简单的时间平均；LIBERO 接口则按 action chunk 逐步消费预测序列。
 
-<Algorithm number={2} title='Spatially conditioned action inference' inputLabel='输入' outputLabel='输出'>
+<Algorithm
+  number={2}
+  title='Spatially conditioned action inference'
+  inputLabel='输入'
+  outputLabel='输出'
+>
   <div slot='input'>多视角 RGB、自然语言 instruction、已训练的 Planner/DiT</div>
   <div slot='output'>当前时刻应执行的 7D action</div>
-  <AlgorithmStep>把图像和 instruction 编码为 Qwen hidden states，并用 DINOv2 提取密集视觉 token。</AlgorithmStep>
-  <AlgorithmStep>用 Q-Former 得到固定长度 spatial condition；从 Gaussian noise 初始化 16 步 action chunk。</AlgorithmStep>
+  <AlgorithmStep>
+    把图像和 instruction 编码为 Qwen hidden states，并用 DINOv2 提取密集视觉 token。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    用 Q-Former 得到固定长度 spatial condition；从 Gaussian noise 初始化 16 步 action chunk。
+  </AlgorithmStep>
   <AlgorithmStep>运行 DDIM 反向扩散（可选 CFG）得到 normalized actions。</AlgorithmStep>
-  <AlgorithmStep>按 checkpoint 中的统计量反归一化，执行当前 action；将未消费的预测留给下一时刻的 chunking/ensemble。</AlgorithmStep>
+  <AlgorithmStep>
+    按 checkpoint 中的统计量反归一化，执行当前 action；将未消费的预测留给下一时刻的
+    chunking/ensemble。
+  </AlgorithmStep>
 </Algorithm>
 
 ### 4.6 代码实现对照
 
-| 论文描述 | 官方代码对应 | 需要注意的差异 |
-| --- | --- | --- |
-| Qwen2.5-VL Planner | `InternVLA/model/modules/vlm/QWen2_5.py` | 使用 `Qwen2.5-VL-3B-Instruct` 配置 |
-| 空间 latent adaptor | `model/modules/projector/QFormer.py` | 公开配置只聚合第 36 层，并拼接 DINO token |
-| DiT Actor | `model/modules/action_model/DiTActionHeader.py` | 默认 `DiT-B`，7D、16-step action chunk |
-| 双监督 | `training/train_internvla_cotrain.py` | action 与 VLM batch 分开 forward/backward 后同一 optimizer step |
-| 空间提示 | `config/training/*.yaml` 的 `CoT_prompt` | 默认 prompt 要求输出目标物 bounding box |
-| 梯度衰减 | 配置有 `grad_scale: 0.5` | `scale_hook` 当前未在 Q-Former `forward` 中调用，不能直接视为已生效 |
-| 推理部署 | `examples/real_robot/controller_dual.py` | 支持 action unnormalization、chunking、ensemble 和 Franka 控制 |
+| 论文描述            | 官方代码对应                                    | 需要注意的差异                                                    |
+| ------------------- | ----------------------------------------------- | ----------------------------------------------------------------- |
+| Qwen2.5-VL Planner  | `InternVLA/model/modules/vlm/QWen2_5.py`        | 使用 `Qwen2.5-VL-3B-Instruct` 配置                                |
+| 空间 latent adaptor | `model/modules/projector/QFormer.py`            | 公开配置只聚合第 36 层，并拼接 DINO token                         |
+| DiT Actor           | `model/modules/action_model/DiTActionHeader.py` | 默认 `DiT-B`，7D、16-step action chunk                            |
+| 双监督              | `training/train_internvla_cotrain.py`           | action 与 VLM batch 分开 forward/backward 后同一 optimizer step   |
+| 空间提示            | `config/training/*.yaml` 的 `CoT_prompt`        | 默认 prompt 要求输出目标物 bounding box                           |
+| 梯度衰减            | 配置有 `grad_scale: 0.5`                        | `scale_hook` 在所核验 Q-Former `forward` 中被注释，默认路径未生效 |
+| 推理部署            | `examples/real_robot/controller_dual.py`        | 支持 action unnormalization、chunking、ensemble 和 Franka 控制    |
 
 ## 5. 实验
 
 ### 5.1 Experimental Setup
 
-**【Paper】** 实验覆盖四类场景：SimplerEnv 的 Google Robot/WidowX、LIBERO Franka、包含 200 个任务和 3K+ 物体的 Isaac Sim，以及真实 Franka Research 3 和 ARX LIFT2。SimplerEnv 主要测试视觉匹配、颜色/纹理变化和跨机器人泛化；LIBERO 测试 Spatial、Object、Goal 和 Long 四种语言条件任务。
+**【Paper】** 实验覆盖四类场景：SimplerEnv 的 Google Robot/WidowX、LIBERO Franka、包含 200 个任务和 3K+ 物体的 Isaac Sim，以及真实 Franka Research 3 和 ARX LIFT2。SimplerEnv 分别评估已包含在训练数据中的 Google/WidowX 平台，不能把 WidowX 结果称为零样本跨 embodiment；LIBERO 四个 suite 各自微调、每 suite 测试 500 次，95.9% 是四个专门微调模型的平均表现。
 
 ![InternVLA-M1 simulated instruction-following setup from paper](https://pic.hana0721.top/blog/paper-deep-dive-internvla-m1/sim-instruction-following-pick-and-place-result-crop.8z79gwscwm.webp)
 
@@ -226,14 +244,14 @@ $$
 
 **【Paper】** 相对同一 Qwen2.5-VL-3B + DiT 的 Vanilla VLA，空间引导训练在 SimplerEnv 上带来明显提升：
 
-| Benchmark | Vanilla VLA | InternVLA-M1 | 提升 |
-| --- | ---: | ---: | ---: |
-| Google Robot Visual Matching | 66.1 | 80.7 | +14.6 |
-| Google Robot Variant Aggregation | 63.5 | 76.0 | +12.5 |
-| WidowX Visual Matching | 54.7 | 71.7 | +17.0 |
-| LIBERO 平均 | 91.6 | 95.9 | +4.3 |
+| Benchmark                        | Vanilla VLA | InternVLA-M1 |  提升 |
+| -------------------------------- | ----------: | -----------: | ----: |
+| Google Robot Visual Matching     |        66.1 |         80.7 | +14.6 |
+| Google Robot Variant Aggregation |        63.5 |         76.0 | +12.5 |
+| WidowX Visual Matching           |        54.7 |         71.7 | +17.0 |
+| LIBERO 平均                      |        91.6 |         95.9 |  +4.3 |
 
-论文还报告 InternVLA-M1 超过 GR00T N1.5 和 $\pi_0$ 的公开结果；在 LIBERO-Spatial、Object、Goal、Long 上分别为 98.0%、99.0%、93.8% 和 92.6%。这些数字支持的不是“所有任务都更强”，而是空间变化和长时程任务的优势更明显。
+论文还报告 InternVLA-M1 超过 GR00T N1.5 和 $\pi_0$ 的公开结果；在 LIBERO-Spatial、Object、Goal、Long 上分别为 98.0%、99.0%、93.8% 和 92.6%。相对 Vanilla VLA，LIBERO 最大增益实际来自 Goal（81.4→93.8，+12.4 个百分点），Spatial 反而从 98.8 降到 98.0，不能仅因方法名含“空间”就把收益归结为空间 suite。SimplerEnv Google-VA 的 Pick Coke Can 也从 92.3 降到 86.1。另有部分公开基线缺失第四项任务，却按前三项求平均，跨方法 Avg 的任务集合未完全一致；与任务齐全的 Vanilla VLA 对照更直接。
 
 ### 5.3 Ablation Study
 
@@ -241,17 +259,17 @@ $$
 
 **【Paper】** 去掉 spatial data 和 spatial prompt 后，RefCOCO-g grounding 很快退化，SimplerEnv-WidowX 收敛也更慢；加入 spatially guided action post-training 后，两条曲线同时改善。论文用 Projection-space Similarity 衡量两个任务的梯度子空间：普通 co-training 约为 0.25，空间引导方案约为 0.42。
 
-**【Analysis】** 这项 ablation 说明空间提示不是推理时的装饰词，而是一个优化接口：它让 action loss 更容易沿着与 grounding loss 相容的表示方向更新。
+**【Analysis】** Table 3 比“有/无全部空间训练”更能分清贡献：普通 co-training 的 WidowX 为 61.1，空间引导方案为 71.7；RefCOCO-g 为 47.1→71.2。但 PSS 是子空间相似性，不保留梯度方向的正负含义，同一子空间内也可能存在相反更新；0.25→0.42 是机制的相关证据，并非冲突已经消失的数学证明。Figure 5 caption 称 RefCOCO-g，而正文一处称 RefCOCO+，本文沿用图注与 Table 3 的口径。
 
 ### 5.4 Generalization
 
 ![InternVLA-M1 simulated and real-world generalization results](https://pic.hana0721.top/blog/paper-deep-dive-internvla-m1/instruction-following-pick-and-place-result-crop.7lkqcvhax7.webp)
 
-**【Paper】** 在 200-task 仿真中，加入 244K InternData-M1 mid-training 后平均提升 6.2%，并在 unseen objects、new backgrounds 和 paraphrased instructions 上稳定优于 $\pi_0$ 与 GR00T N1.5。真实 clustered pick-and-place 中，sim-to-real co-training 对未见物体与新位置尤其有效，论文摘要报告未见物体/新配置最高提升 20.6%。
+**【Paper】** 在 200-task 仿真中，每个目标任务仍提供 5 条示范做后训练；含 244K InternData-M1 mid-training 的变体相对 GR00T N1.5 报告平均高 6.2 个百分点，并在 unseen objects、new backgrounds 和 paraphrased instructions 上稳定优于 $\pi_0$ 与 GR00T N1.5。这里的 6.2 并不是“加 mid-training 相对自身”的增益。真实 clustered pick-and-place 另收集了 6 小时示范，比较是否再混入合成动作数据；这与前文 spatial-QA co-training 是两种不同的数据混合。Figure 10 中加合成动作数据使未见物体 49→58、新位置 24→52、新朝向 50→72，更明确地展示了受益方向。每模型共 300 次 rollout、各设置至少 50 次，一个 trial 可属于多个设置，因此这些柱子不是互不重叠的样本组，不能简单相加。
 
 ![InternVLA-M1 real-world long-horizon results](https://pic.hana0721.top/blog/paper-deep-dive-internvla-m1/long_horizon_result-crop.6t7uv50pbl.webp)
 
-长时程任务包括桌面分类、抽屉整理、三明治制作、数学按钮选择和按价格购物。**【Paper】** Ours-3B 的 planner scheduling 成功率为 90/91/91/93/92，超过 GPT-5、Gemini-2.5 Pro、GPT-4o 和 Qwen2.5-VL-72B；在物理干扰和中途新增指令时，性能下降也更小。
+长时程任务包括桌面分类、抽屉整理、三明治制作、数学按钮选择和按价格购物。**【Paper】** Table 5 的 Ours-3B 在抽屉整理、三明治、桌面分类、数学、购物的 planner scheduling 分数分别为 90/91/91/93/92，优于列出的通用 VLM。这是经过任务监督的调度指标，不是完整机器人任务成功率。Figure 12 的分布内机器人指标仅为 59/70/67，而且抽屉和三明治采用前序步骤均成功才计入的逐步执行口径。模型使用 22 小时、每任务约 500 条示范及人工子任务切分；每段末尾补零动作帮助触发下一子任务，不能把长程行为理解为仅凭空间预训练就自动出现。物理干扰和新增指令实验支持在线适应，但没有给出所有任务统一的整条 episode 成功率。
 
 ## 6. 方法分析
 
@@ -279,16 +297,18 @@ $$
 
 ## 7. 局限性
 
-### 7.1 作者明确提出的局限
+### 7.1 论文覆盖范围与未报告的证据
 
-**【Paper】** 论文主要展示桌面抓取、放置、抽屉、三明治和按钮等任务；对移动机器人、双臂协同、力控和长时间持续任务没有系统评估。论文也没有给出完整的 failure taxonomy 或不同空间数据源的独立贡献分解。
+**【Paper】** 技术报告没有单列作者局限性清单，不能把读者推断冒充作者声明。评测覆盖 Franka 桌面操作与 ARX LIFT2 购物，但未系统测试移动操作、力控或长时间持续运行；ARX 的存在也不能等同于已经全面评估双臂协调。
+
+**【Analysis】** 各空间数据源的独立边际贡献、失败类型与跨平台零样本控制仍需要额外实验。
 
 ### 7.2 自己分析得到的局限
 
 **【Analysis】**
 
-1. 论文声称的 gradient decay 与仓库实现存在不确定性：配置有 `grad_scale`，但公开 Q-Former forward 没有调用 `scale_hook`，复现实验者需要自行确认 checkpoint 的实际训练路径。
-2. 训练与评测大量依赖 224×224 图像和 16-step chunk；更高分辨率、小物体、遮挡和快速接触动作可能暴露感知或控制瓶颈。
+1. 论文声称的 gradient decay 与仓库实现存在不确定性：配置有 `grad_scale`，但公开 Q-Former forward 没有调用 `scale_hook`；该函数还读取 `config.vla`，而所核验配置位于 `config.framework`，恢复 hook 时也需核对路径。已发布 checkpoint 是否来自不同历史实现不能由当前默认分支推定。
+2. 训练与评测大量依赖 224×224 图像，以及 8/16-step chunk；更高分辨率、小物体、遮挡和快速接触动作可能暴露感知或控制瓶颈。
 3. 公开代码把 action normalization statistics 保存在 checkpoint 中，跨数据集切换控制空间时必须正确加载对应 key；否则模型看似能输出动作，实际尺度会错误。
 4. 长时程实验展示了很强的结果，但每个任务的 teleoperation 数据和 subtask 标注成本仍然不低，距离完全自动化的数据闭环还有差距。
 
@@ -299,7 +319,7 @@ $$
 - 用统一的 3D point/trajectory token 替代部分 2D box QA，让空间先验直接对齐深度和可达性。
 - 让 Q-Former 动态选择不同 VLM 层，而不是当前 OXE 配置固定只取第 36 层。
 - 将 gradient routing 从实验配置变成显式、可测试的模块，并报告不同衰减系数的 Pareto 曲线。
-- 用在线场景图和不确定性估计触发 re-planning，使 System 2 不只在长时程任务开始时工作。
+- 用在线场景图和不确定性估计触发 re-planning，使 System 2 能以明确的置信度阈值决定何时重规划。
 - 研究一个 Planner 迁移到多种 action expert、控制频率和 embodiment 的真正 zero-shot 边界。
 
 <Aside type='note' title='阅读提示'>

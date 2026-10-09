@@ -1,7 +1,7 @@
 ---
 title: 'π₀.₅ 论文精读：面向开放世界泛化的 Vision-Language-Action 模型'
 publishDate: 2026-08-23
-updatedDate: 2026-08-23
+updatedDate: 2026-09-22
 description: '精读 π₀.₅：通过异构数据 co-training、层级 subtask 推理与 FAST/Flow 混合动作表示，让移动操作机器人在未见过的家庭环境中执行长时程整理任务。'
 heroImage:
   { src: 'https://pic.hana0721.top/42175762_p0_master1200.6m4jay5vlg.webp', color: '#8C8275' }
@@ -90,7 +90,7 @@ import { Aside } from '@/components/user'
 
 ### 一句话总结
 
-**【Paper】** π₀.₅ 的核心不是再收集一个更大的单一机器人数据集，而是把“不同 embodiment 的动作经验”“高层语义 subtask”“人工语言示教”和“web 视觉语言知识”映射到同一个 VLA 序列建模框架，再在后训练阶段加入 Flow Matching action expert。运行时，同一个模型先输出“下一步该做什么”，再输出“机械臂和底盘如何做”，从而把开放世界泛化拆成语义层与物理执行层两个互补问题。
+**【Paper】** π₀.₅ 的核心不是再收集一个更大的单一机器人数据集，而是把“不同 embodiment 的动作经验”“高层语义 subtask”“人工语言示教”和“web 视觉语言知识”映射到同一个 VLA 序列建模框架，再在后训练阶段加入 Flow Matching action expert。运行时，同一套模型参数分别进行高层语义预测和低层动作预测，高层更新慢于低层，从而把开放世界泛化拆成语义层与物理执行层两个互补问题。
 
 ### 核心贡献
 
@@ -141,7 +141,7 @@ $$
 | High-level policy | 多相机观测、机器人状态、高层 prompt   | 文本 subtask 与可选 bounding boxes | 判断下一步要完成的语义动作        |
 | Low-level policy  | 观测、subtask 文本、噪声 action chunk | 50 步连续 action chunk             | 执行关节、夹爪、底盘和 torso 控制 |
 
-**【Paper】** 实验使用两类移动操作平台：双 6-DoF 手臂、平行夹爪、全向底盘、torso lift 和四路相机；不同平台的状态 / 动作空间为 18 或 19 维。控制器以 50 Hz 接收手臂目标位姿、夹爪、torso lift 和底盘速度，目标由简单 PD 控制器跟踪，没有额外的轨迹规划或碰撞检测。
+**【Paper】** 实验使用两类移动操作平台：双 6-DoF 手臂、平行夹爪、全向底盘、torso lift 和四路相机；不同平台的状态 / 动作空间为 18 或 19 维。高层使用全部四路相机，低层只使用前方与两路腕部相机。控制器以 50 Hz 接收手臂目标位姿、夹爪、torso lift 和底盘速度，目标由简单 PD 控制器跟踪，没有额外的轨迹规划或碰撞检测。
 
 **【Analysis】** 因此这里的“开放世界”不是任意家庭机器人任务，而是一个边界明确的测试：训练任务类别大体相近，但测试地点、物体实例、摆放关系和视觉背景全新；模型需要在这些变化上组合已有技能。
 
@@ -149,7 +149,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-**【Paper】** π₀.₅ 以 PaliGemma VLM 为语义 backbone，并在其旁边放置约 300M 参数的 action expert。预训练阶段，图像、语言、proprioception 和 FAST 动作都以离散 token 形式进入同一个自回归 transformer；后训练阶段保留文本 next-token loss，同时把 action token 替换为 Flow Matching 的连续 noisy action。
+**【Paper】** π₀.₅ 以 PaliGemma VLM 为语义 backbone，并在其旁边放置约 300M 参数的 action expert。预训练阶段，文本、离散化 state 和 FAST 动作进入同一个序列；图像仍由视觉编码器转换为连续 patch embedding，并非离散图像码。后训练保留文本和 FAST 动作的 next-token loss，另加连续 noisy action 与 flow matching loss，属于并行监督两种动作表示，并未将 FAST 训练分支删除。
 
 整体数据流只有一句话：多相机图像和 prompt 形成 prefix，模型先自回归生成高层 subtask，再将 subtask 作为条件输入 action expert，经过 10 次 flow integration 输出 50 步连续动作。
 
@@ -174,7 +174,7 @@ $$
 - **输入**：连续 action chunk。
 - **输出**：压缩后的离散 action tokens。
 - **作用**：把机器人动作转换为标准 next-token prediction，使预训练可以高效使用大规模异构数据。
-- **【Paper】**：预训练同时预测文本、目标框和 FAST action token；动作统一归一化到 $[-1,1]$，不同 robot 的低维动作通过 zero-padding 对齐到最大维度。
+- **【Paper】**：预训练同时预测文本、目标框和 FAST action token；每个数据集、每个动作维度以 1% 和 99% 分位数定义归一化尺度，低维动作再 zero-padding。关节目标与末端目标都用于训练，通过 prompt 中的 `<control mode> joint/end effector <control mode>` 区分，不能把不同控制模式仅靠 padding 混在一起。
 
 #### Flow Matching Action Expert
 
@@ -184,9 +184,9 @@ $$
 - **【Paper】**：action expert 宽度为 1024、深度为 18、MLP 维度为 4096，约 300M 参数；动作 horizon 为 $H=49$，即 50 个动作 token。
 - **【Code】**：在 `pi0.py` 中，π₀.₅ 用独立 MLP 编码 timestep，再通过 adaptive RMSNorm 注入 action expert；这与 π₀ 直接把 timestep 和 action 拼接的实现不同。
 
-#### Attention Mask 与知识隔离
+#### Attention Mask 与两种动作表示的隔离
 
-**【Paper】** 图像、语言和 state 使用 full prefix attention；FAST token 可看 prefix 和此前的 FAST token；action expert token 可看 prefix 与 action expert 内部 token，但不能看 FAST token。信息只从 VLM 流向 action expert，避免两种 action 表示互相泄漏。
+**【Paper】** 图像、语言和 state 使用 full prefix attention；FAST token 可看 prefix 和此前的 FAST token；action expert token 可看 prefix 与 action expert 内部 token，但不能看 FAST token。前向信息只从 VLM prefix 流向 action expert；FAST 与 continuous 两个动作块互不可见，避免动作真值的另一种编码成为去噪捷径。这里描述的是 attention 可见性，不等于对 VLM K/V 使用 stop-gradient，论文附录 E 没有把二者画等号。
 
 **【Analysis】** 这使离散 token 更像“便宜的语义 / 预训练通道”，连续 expert 更像“专门的执行通道”。两者共享输入和上游表征，却不强迫同一个 token 同时承担语言生成与精确控制。
 
@@ -194,13 +194,13 @@ $$
 
 #### 混合训练目标
 
-**【Paper】** 对文本与 FAST token 的交叉熵，以及连续 action expert 的 flow matching loss，论文使用如下联合目标：
+**【Paper / Analysis】** 论文式 (1) 联合训练文本 / FAST 交叉熵与 flow matching。原文把插值写成 $\tau a+(1-\tau)\omega$，却把速度目标写成 $\omega-a$，二者时间方向不一致。为给出可直接实现的公式，下面统一采用官方代码的噪声时间 $s$：
 
 $$
-\mathcal{L}(\theta)=\mathbb{E}_{\mathcal{D},\tau,\omega}\left[
+\mathcal{L}(\theta)=\mathbb{E}_{\mathcal{D},s,\omega}\left[
 H\left(x_{1:M}, f^\ell_\theta(\mathbf{o}_t,\ell)\right)
 + \alpha \left\|\omega-\mathbf{a}_{t:t+H}
-- f^a_\theta(\mathbf{a}^{\tau,\omega}_{t:t+H},\mathbf{o}_t,\ell)\right\|_2^2
+- f^a_\theta(\mathbf{x}_{s},\mathbf{o}_t,\ell)\right\|_2^2
 \right]
 $$
 
@@ -208,15 +208,17 @@ $$
 
 - $H(\cdot,\cdot)$ 是文本与 FAST action token 的 cross-entropy；
 - $\omega \sim \mathcal{N}(0,\mathbf{I})$ 是噪声；
-- $\mathbf{a}^{\tau,\omega}=\tau\mathbf{a}+(1-\tau)\omega$ 是 flow 路径上的 noisy action；
+- $\mathbf{x}_s=(1-s)\mathbf{a}_{t:t+H}+s\omega$，$s=1$ 是噪声、$s=0$ 是动作，故对 $s$ 求导得到 $\omega-\mathbf a$；
 - $f^a_\theta$ 是 action expert 输出的 vector field；
-- $\alpha$ 控制连续动作损失的权重。
+- $\alpha$ 控制连续动作损失的权重，预训练为 0、后训练为 10；无动作标签的 web / HL 样本只使用相应的 token 监督。
+
+这里的输入命令取决于训练任务：高层样本以整体任务为 prompt，低层动作样本以标注 subtask 为条件。不能从统一记号推导出每条 web 样本都有机器人 action loss，或低层额外读取被层级分解排除的整体任务。
 
 #### Flow Matching 采样
 
-**【Paper】** 推理时从噪声 $\mathbf{a}^{1}\sim\mathcal{N}(0,I)$ 出发，沿模型预测的向量场积分到数据端 $\mathbf{a}^{0}$。论文采用偏向低 timestep 的 Beta 采样，并在运行时使用 10 次 denoising / integration steps。
+**【Paper / Code】** 推理从高斯噪声出发，使用 10 次 Euler 更新。以上述代码约定，采样 $s=0.999z+0.001$、$z\sim\operatorname{Beta}(1.5,1)$，更新为 $x_{s-1/N}=x_s-v_\theta(x_s,s)/N$。较大的 $s$ 对应较高噪声；论文附录 E 采用反向时间 $\tau=1-s$，所以称为“强调低 timestep”。不能同时采用论文插值、代码速度和正时间积分。
 
-**【Code】** 当前 `openpi` 的 `sample_actions` 以 $t=1$ 为噪声端，令 $dt=-1/N$，在 `jax.lax.while_loop` 中反复执行 action expert，直到得到 $x_0$。代码中的时间方向约定与论文符号相反，但实现的是同一条从噪声到动作的积分过程。
+**【Code】** 当前 `openpi` 的 `sample_actions` 以 $t=1$ 为噪声端，令 $dt=-1/N$，在 `jax.lax.while_loop` 中反复执行 action expert，直到得到 $x_0$。代码的插值、监督速度与负步长彼此一致；上述公式已按这个约定统一。
 
 #### 层级策略分解
 
@@ -225,7 +227,7 @@ $$
 = \sum_{\hat\ell}\pi_\theta(\mathbf{a}\mid\mathbf{o},\hat\ell)\pi_\theta(\hat\ell\mid\mathbf{o},\ell)
 $$
 
-**【Analysis】** 这个表达式强调：高层文本不是额外的外部 planner，而是同一模型内部的 latent decision interface。显式生成 subtask 相当于增加一次 test-time computation；“implicit HL” 消融说明，即使不在运行时输出文本，高层标注本身也会改善低层策略。
+**【Analysis】** 这是对高层预测求边缘化的概率表达，不表示部署时真的枚举所有 subtask；实际先选出一个文本 subtask，再生成条件动作。低层分布省去整体指令 $\ell$ 是模型做出的条件独立假设：高层须把必要意图压缩到 $\hat\ell$，未表达的约束可能丢失。显式生成 subtask 相当于增加一次 test-time computation；“implicit HL” 消融说明，即使不在运行时输出文本，高层标注本身也会改善低层策略。
 
 ### 4.4 Training
 
@@ -233,42 +235,57 @@ $$
 
 **【Paper】** 训练分两个阶段：
 
-1. **Pre-training**：280k steps。混合 mobile manipulator（约 400 小时、约 100 个家庭环境）、多环境非移动机器人、实验室 cross-embodiment、high-level subtask 和 web 多模态数据。第一阶段 97.6% 的样本不是目标移动机器人家庭任务。
-2. **Post-training**：80k steps，$\alpha=10.0$。保留文本 loss，随机初始化 action expert，并用成功的移动 / 非移动机器人片段、web 数据、high-level 数据和 verbal instruction 数据训练 Flow Matching head。
+1. **Pre-training**：280k steps。混合 mobile manipulator（约 400 小时、约 100 个家庭环境）、多环境非移动机器人、实验室 cross-embodiment、high-level subtask 和 web 多模态数据。第一阶段 97.6% 的训练样本不是目标移动机器人家庭动作数据；这是训练样本占比，不能换算为总数据小时数或 97.6% 的 web 数据。
+2. **Post-training**：80k steps，$\alpha=10.0$。保留文本 / FAST loss，随机初始化 action expert。动作数据保留 MM 与 ME 中成功且长度小于阈值的 episodes；移除实验室 CE 动作数据，保留 WD、相应多环境 HL，并加入 VI。Flow loss 只施加于有动作监督的样本。
 
-**【Paper】** verbal instruction 数据由专家实时选择合适的 subtask 来“用语言遥操作”机器人，例如先说 `put cup in sink`，再在低层 policy 执行期间继续给出下一步语言。它不是给每个动作打低层标签，而是为高层策略提供可执行的语义轨迹。
+**【Paper】** verbal instruction 数据由专家实时选择合适的 subtask 来“用语言遥操作”机器人，例如先说 `put cup in sink`，再在低层 policy 执行期间继续给出下一步语言。它让专家在已经学会的低层策略实际访问的状态上提供合适 subtask，区别于仅在遥操作示范轨迹上离线打标签。VI 约占高层移动操作训练样本的 11%，并非占全部训练数据的 11%；它监督高层选择，而不直接要求专家提供关节动作。
 
 **【Code】** 官方仓库公开的是面向微调和推理的实现。`training/config.py` 提供 `pi05_droid`、`pi05_libero`、`pi05_aloha` 等配置；`Pi0Config(pi05=True)` 默认 `action_horizon=50`、`action_dim=32`、`gemma_2b + gemma_300m`。README 明确说明当前仓库主要支持 π₀.₅ 的 Flow Matching head，论文中的 FAST + Flow 联合预训练配方并未完整公开成一个可直接复现实验的配置。
 
 <Algorithm number={1} title='π₀.₅ 两阶段训练' inputLabel='输入' outputLabel='输出'>
-  <div slot='input'>异构数据集 $\mathcal{D}_{MM},\mathcal{D}_{ME},\mathcal{D}_{CE},\mathcal{D}_{HL},\mathcal{D}_{WD}$ 与后训练 verbal-instruction 数据</div>
+  <div slot='input'>
+    异构数据集 $\mathcal{D}_{MM},\mathcal{D}_{ME},\mathcal{D}_{CE},\mathcal{D}_{HL},\mathcal{D}_{WD}
+    $ 与后训练 verbal-instruction 数据
+  </div>
   <div slot='output'>具备 high-level / low-level 推理能力的 VLA 策略</div>
-  <AlgorithmStep keyword='Stage 1'>从预训练 VLM 初始化 backbone，将图像、文本、state、bounding box 和动作统一成 token</AlgorithmStep>
-  <AlgorithmStep indent={1}>在异构数据混合物上执行 next-token prediction，动作使用 FAST tokenizer</AlgorithmStep>
-  <AlgorithmStep keyword='Stage 2'>保留文本与 subtask 监督，加入随机初始化的 Flow Matching action expert</AlgorithmStep>
-  <AlgorithmStep indent={1}>采样噪声 $\omega$ 和 timestep $\tau$，构造 noisy action $\mathbf{a}^{\tau,\omega}$</AlgorithmStep>
-  <AlgorithmStep indent={1}>最小化文本 / FAST cross-entropy 与 vector-field MSE 的加权和</AlgorithmStep>
-  <AlgorithmStep indent={1}>使用移动机器人、成功片段、web 和 verbal instruction 数据专门化到家庭操作</AlgorithmStep>
+  <AlgorithmStep keyword='Stage 1'>
+    从预训练 VLM 初始化 backbone，将图像、文本、state、bounding box 和动作统一成 token
+  </AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    在异构数据混合物上执行 next-token prediction，动作使用 FAST tokenizer
+  </AlgorithmStep>
+  <AlgorithmStep keyword='Stage 2'>
+    保留文本与 subtask 监督，加入随机初始化的 Flow Matching action expert
+  </AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    采样噪声 $\omega$ 和噪声时间 $s$，构造 noisy action $x_s=(1-s)a+s\omega$
+  </AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    最小化文本 / FAST cross-entropy 与 vector-field MSE 的加权和
+  </AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    使用移动机器人、成功片段、web 和 verbal instruction 数据专门化到家庭操作
+  </AlgorithmStep>
   <AlgorithmStep keyword='return'>训练后的共享 VLM + action expert</AlgorithmStep>
 </Algorithm>
 
 ### 4.5 Inference
 
-**【Paper】** 给定高层 prompt 和当前观测，模型先自回归生成一个 subtask；如果训练样本包含目标框，它会在 subtask 前预测相关 bounding boxes。然后把该文本 subtask 作为低层命令，action expert 从高斯噪声开始做 10 次 flow integration，得到 50 步动作 chunk。执行若干动作后再次观察并重复这一过程，因此高层决策频率低于 50 Hz 的低层控制频率。
+**【Paper】** 给定高层 prompt 和当前观测，模型先自回归生成一个 subtask；高层预测还可包含 subtask 前的目标框文本，用于定位相关物体。然后把该文本 subtask 作为低层命令，action expert 从高斯噪声开始做 10 次 flow integration，得到 50 步动作 chunk。高层 subtask 更新慢于低层动作推理，低层又通过 chunk 支持 50 Hz 动作执行；这三个频率不能混同。论文没有完整公开各次高层更新触发机制与部署重规划周期，不应将“每个动作”解释为都重新生成语言。
 
-**【Code】** `src/openpi/models/pi0.py` 的 `sample_actions` 先对 prefix 做一次 forward 并缓存 KV，再在每个 integration step 只计算 suffix；`policy_config.create_trained_policy` 将输出的 action chunk 交给平台特定 policy。当前公开实现的常规调用是 `policy.infer(example)['actions']`。
+**【Code】** `src/openpi/models/pi0.py` 的 `sample_actions` 先对 prefix 做一次 forward 并缓存 KV，再在每个 integration step 只计算 suffix；`policy_config.create_trained_policy` 将输出的 action chunk 交给平台特定 policy。当前公开实现的常规调用是 `policy.infer(example)['actions']`，它直接返回连续动作，没有自动执行论文的高层文本解码循环。`compute_loss` 也只有 flow MSE，不能将本文的完整联合目标映射为这个函数已经实现。
 
 <Algorithm number={2} title='π₀.₅ 层级推理与 Flow Matching' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>相机图像 $\mathbf{I}_{1:n}$、状态 $\mathbf{q}_t$、高层任务 $\ell$、训练好的策略</div>
   <div slot='output'>当前时刻的连续 action chunk $\mathbf{a}_{t:t+49}$</div>
   <AlgorithmStep>用 VLM prefix 编码多相机图像、离散 state 与高层 prompt</AlgorithmStep>
   <AlgorithmStep>自回归生成 high-level subtask $\hat\ell$（可选先生成 bounding boxes）</AlgorithmStep>
-  <AlgorithmStep>初始化 $\mathbf{x}_1\sim\mathcal{N}(0,I)$，并缓存 prefix KV</AlgorithmStep>
+  <AlgorithmStep>将选中的 subtask 作为低层 prompt，使用前方与两路腕部图像、state 重新构造低层 prefix 并缓存 KV；初始化 $\mathbf{x}_1\sim\mathcal{N}(0,I)$</AlgorithmStep>
   <AlgorithmStep keyword='for'>重复 10 次 flow integration</AlgorithmStep>
-  <AlgorithmStep indent={1}>用 timestep MLP、adaptive RMSNorm 和 action expert 预测 vector field $v_\theta(\mathbf{x}_\tau)$</AlgorithmStep>
-  <AlgorithmStep indent={1}>沿负时间步更新 noisy chunk，得到更接近真实动作的 $\mathbf{x}_{\tau-dt}$</AlgorithmStep>
+  <AlgorithmStep indent={1}>用 timestep MLP、adaptive RMSNorm 和 action expert 预测 vector field $v_\theta(\mathbf{x}_s,s)$</AlgorithmStep>
+  <AlgorithmStep indent={1}>按 $\mathbf{x}_{s-1/N}=\mathbf{x}_s-v_\theta(\mathbf{x}_s,s)/N$ 更新 noisy chunk</AlgorithmStep>
   <AlgorithmStep keyword='end for'>得到连续 action chunk</AlgorithmStep>
-  <AlgorithmStep>将目标关节位姿、夹爪、torso 和底盘速度送入 50 Hz PD 控制器</AlgorithmStep>
+  <AlgorithmStep>按平台控制频率执行 chunk 前缀，并在下一次低层推理时更新观测；按较慢的高层周期重新选择 subtask</AlgorithmStep>
 </Algorithm>
 
 ### 4.6 代码实现对照
@@ -280,8 +297,10 @@ $$
 | 图像编码               | `src/openpi/models/siglip.py`、`pi0.py`          | SigLIP `So400m/14`，输入通过 transform resize 到 `224x224`。                                       |
 | Flow loss              | `Pi0.compute_loss`                               | Beta(1.5, 1) 采样 timestep，再用 $\|v_t-u_t\|^2$ 训练。                                            |
 | Flow inference         | `Pi0.sample_actions`                             | prefix KV cache + 迭代 suffix，默认 10 steps。                                                     |
-| 数据与动作维度         | `src/openpi/transforms.py`、`training/config.py` | state / action pad 到模型维度，DROID、LIBERO、ALOHA 有独立 policy transform。                      |
+| 数据与动作维度         | `src/openpi/transforms.py`、`training/config.py` | state / action pad 到模型维度，平台 transform 与配置可覆盖默认项。                                 |
 | 论文两阶段 FAST 预训练 | 当前仓库 README / configs                        | 仓库公开版本说明“目前只支持 π₀.₅ Flow Matching head”，不能据代码宣称完整复现论文内部 co-training。 |
+
+**【Code】** 默认离散 state 由 `PaligemmaTokenizer` 用 256 个等距 bin 量化，再把整数写入文本 prompt；但当前 `pi05_libero` 显式设 `discrete_state_input=False`，不可把默认值推广到全部配置。`pi05_droid` 的 horizon 也为 15，而非论文的 50。quantile transform 将 1% / 99% 分位映射到 −1 / +1，本身没有 clip，尾部样本可越界。README 将后续公开 π₀.₅ checkpoint 描述为使用 knowledge insulation 训练；这是公开模型的说明，不代表这篇 2025 年 4 月论文已完整给出该后续训练机制。
 
 **【Analysis】** 代码与论文最值得注意的差异是“研究系统”与“开放源码产品”的边界：论文描述的是包含 FAST 预训练、web / HL / VI 数据的内部训练配方；公开仓库则重点提供 base checkpoint 的推理与下游微调接口。复现实验时应把二者分开引用。
 
@@ -289,9 +308,9 @@ $$
 
 ### 5.1 Experimental Setup
 
-![π₀.₅ 在新家庭中的高层 subtask 预测与动作执行（论文 real-home evaluation figure）](https://pic.hana0721.top/blog/paper-deep-dive-pi05/pi05-real-home.96ah9nv8ih.webp)
+![π₀.₅ 在新家庭中的高层 subtask 预测与动作执行（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-pi05/pi05-real-home.96ah9nv8ih.webp)
 
-![π₀.₅ 使用的双臂移动操作平台与四路相机（论文 robot system figure）](https://pic.hana0721.top/blog/paper-deep-dive-pi05/pi05-robot-system.2ksnimr69k.webp)
+![π₀.₅ 使用的双臂移动操作平台与四路相机（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-pi05/pi05-robot-system.2ksnimr69k.webp)
 
 **【Paper】** 作者主要回答四个问题：
 
@@ -300,13 +319,13 @@ $$
 3. 哪些 co-training 数据源真正有贡献？
 4. 显式 high-level inference 是否优于直接低层控制？
 
-标准 quantitative evaluation 包含四个任务：`Items in Drawer`、`Dishes in Sink`、`Laundry Basket`、`Make Bed`。每个任务在多个新地点进行，每个 policy / task 通常执行 10 次，并以完成 rubric 的百分比计分。另有 language following 测试：给定五个物体和一句指令，要求识别正确物体并放入 sink 或 drawer；OOD 版本使用训练中没有出现过的物体类别。
+标准 quantitative evaluation 包含四个任务：`Items in Drawer`、`Dishes in Sink`、`Laundry Basket`、`Make Bed`。每个任务在多个新地点进行，每个 policy / task 通常执行 10 次，并以完成 rubric 的百分比计分。附录 B 的四项评分分别是：碗碟入水槽 8 分（四件物体各抓取、放入各 1 分），物品入抽屉 4 分（抓取、开、放、关），衣物入篮 3 分（取起、放到篮内或篮上、完全入篮），铺床 5 分（展开、两枕及整齐度）。因此 50% 进度不等于 50% 完整成功。作者交错运行不同策略，并剔除部分硬件故障、时间限制等取消的试验；最终样本数可能略有差异，图中显著性来自双侧 t 检验。另有 language following 测试：给定五个物体和一句指令，要求识别正确物体并放入 sink 或 drawer；该指标先判断是否选对物体，再另报是否成功放到指定位置；目标刻意摆得比干扰物更远，避免只抓最近物体。OOD 扩展只使用 Items in Drawer，物体为漏斗、药瓶、烧烤点火器、打火机、护目镜；“未见类别”指机器人任务训练覆盖，不能据此断言 VLM 预训练或 web co-training 从未见过这些概念。
 
-**【Paper】** 训练环境数量实验使用 3、12、22、53、82、104 个地点；所有模型在相同测试 mock homes 上评估，以分离“数据量”与“场景多样性”的影响。
+**【Paper】** 地点数量实验使用 3、12、22、53、82、104 个地点，但没有为每一点重跑完整 280k + 80k 流程：先用排除 MM 的机器人动作混合物预训练，再用不同地点的 MM 数据后训练 40k steps。作者报告这样使各模型看到相同数量的独特样本，并在固定 mock homes 测试，以控制样本量差异。应把结果理解为这一简化设置下增加环境覆盖的收益，不是完整 π₀.₅ 配方的精确 scaling law。
 
 ### 5.2 Main Results
 
-**【Paper】** 在三个未见过的真实家庭中，π₀.₅ 能根据简单高层命令完成厨房和卧室清理：多个物品被分步放入 drawer / sink，衣物被放入 laundry basket，模型还展示了整理床铺、挂毛巾等更长的行为。单个多阶段 episode 通常持续 2–5 分钟，完整清理厨房或卧室的演示可达到 10–15 分钟。
+**【Paper】** 在三个未见过的真实家庭中（每家厨房与卧室），π₀.₅ 能根据简单高层命令完成厨房和卧室清理：多个物品被分步放入 drawer / sink，衣物被放入 laundry basket，模型还展示了整理床铺、挂毛巾等更长的行为。单个多阶段 episode 通常持续 2–5 分钟，完整清理厨房或卧室的演示可达到 10–15 分钟。Figure 7 的定量任务为 items in drawer、dishes in sink、laundry basket，不能把其他展示行为或整屋 15 分钟演示全部当作有同等重复次数的成功率实验。
 
 **【Paper】** 当训练地点从 3 增加到 104，四项 mock-home 任务的平均得分总体上升；104-location 模型在未见测试地点上的表现接近“直接把测试地点加入训练”的控制组。论文将此视为 co-training recipe 缩小 generalization gap 的证据，而不是简单记忆某个房间。
 
@@ -314,15 +333,15 @@ $$
 
 ### 5.3 Ablation Study
 
-![不同 co-training 数据源的任务与语言泛化消融（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-pi05/pi05-data-ablation.2rvve2dc1v.webp)
+![不同 co-training 数据源的任务与语言泛化消融（论文 Figure 10）](https://pic.hana0721.top/blog/paper-deep-dive-pi05/pi05-data-ablation.2rvve2dc1v.webp)
 
-**【Paper】** 去掉任一 cross-embodiment 数据源（多环境非移动数据 ME，或实验室 cross-embodiment 数据 CE）都会显著降分，同时去掉两者下降更大。它们对 `Dishes in Sink`、`Laundry Basket` 等需要通用操控策略的任务尤其重要。
+**【Paper】** 去掉任一 cross-embodiment 数据源（多环境非移动数据 ME，或实验室 cross-embodiment 数据 CE）都会显著降分，同时去掉两者下降更大。它们对 `Items in Drawer`、`Dishes in Sink` 等需要通用操控策略的任务尤其重要。
 
 **【Paper】** web data 在四项 mock-home 总分上的差异不总是显著，但对 OOD object language following 影响明显；这与 web 数据提供广泛物体知识的解释一致。对 `Items in Drawer` 这类需要识别陌生物体和抽屉语义的任务，web data 的作用更突出。
 
-**【Paper】** 高层策略消融包括完整 π₀.₅、no web、no verbal instruction、implicit HL、no HL、GPT-4 HL 和 human HL。完整模型最好；implicit HL（训练有高层标注、运行时不显式输出 subtask）次之；no HL、no VI、no WD 均明显下降；zero-shot GPT-4 HL 最差，甚至不如训练过 robot data 的统一模型。完整模型还超过 human HL oracle。
+**【Paper】** 高层策略消融包括完整 π₀.₅、no web、no verbal instruction、implicit HL、no HL、GPT-4 HL 和 human HL。完整模型最好；implicit HL（训练有高层标注、运行时不显式输出 subtask）次之；no HL、no VI、no WD 均明显下降；zero-shot GPT-4 HL 最差，甚至不如训练过 robot data 的统一模型。这些变体共享完整 π₀.₅ 的低层控制器，主要改变高层模型、训练数据或是否显式推理，应与上一组整体数据配方消融区分。完整模型均分还超过 human HL，但这里“oracle”只是专家选 subtask 的参考，并非理论最优上界，也不能推出机器人拥有高于人的通用规划能力；指令选择与已训练低层控制器的匹配程度也会影响结果。
 
-![高层推理策略消融（论文 Figure 10）](https://pic.hana0721.top/blog/paper-deep-dive-pi05/pi05-high-level-ablation.pg2q0er5z.webp)
+![高层推理策略消融（论文 Figure 13）](https://pic.hana0721.top/blog/paper-deep-dive-pi05/pi05-high-level-ablation.pg2q0er5z.webp)
 
 ### 5.4 Generalization
 
@@ -386,7 +405,7 @@ $$
 
 **【Analysis】** 第一，论文只公开了整体配方和结果曲线，没有公开足以复现内部 280k + 80k co-training 的完整数据、采样权重、标注规范和 checkpoint，因此“数据源贡献”难以被外部研究者完全独立复核。
 
-**【Analysis】** 第二，层级文本输出依赖预先定义的 subtask vocabulary。模型可以在词汇内重组技能，但对“先把易碎杯子放到最安全的位置，再按颜色整理”的新目标，未必能生成训练标签之外的可执行计划。
+**【Analysis】** 第二，层级文本输出受训练标注分布约束。论文的 subtask 由普通文本自回归生成，没有说明用硬性候选表限制 π₀.₅ 的输出；最常见标签列表是 GPT-4 基线的提示设置。因此只能说在已标注语义附近更可靠，但对“先把易碎杯子放到最安全的位置，再按颜色整理”的新目标，未必能生成训练标签之外的可执行计划。
 
 **【Analysis】** 第三，底盘、torso 和双臂动作被统一放进一个 action vector，虽然便于跨 embodiment pad，但也可能掩盖不同自由度、控制延迟和安全约束；论文中的简单 PD 跟踪器不等于工业部署所需的碰撞检测与故障恢复。
 

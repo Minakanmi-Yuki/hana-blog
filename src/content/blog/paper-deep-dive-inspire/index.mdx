@@ -1,7 +1,7 @@
 ---
 title: 'InSpire：用内在空间推理提升 VLA 泛化能力'
 publishDate: 2026-08-25
-updatedDate: 2026-08-25
+updatedDate: 2026-09-22
 description: '精读 InSpire：在动作生成前插入目标物体相对机器人方向的 VQA 桥接，用粗粒度空间推理抑制 VLA 的 shortcut learning 与 spurious correlation。'
 heroImage:
   { src: 'https://pic.hana0721.top/102841826_p0_master1200.4clh7xw95k.webp', color: '#8C8275' }
@@ -71,7 +71,7 @@ import { Aside } from '@/components/user'
 - **CoT / intermediate reasoning**：在动作前增加目标预测、子任务规划或迭代推理，通常依赖额外模型、额外数据或较长推理链。
 - **Spatial reasoning**：SpatialVLM、SpatialVLA 等方法使用 2D/3D 空间信息；InSpire 选择把空间信息编码成自然语言答案，而不是把坐标或深度直接塞进输入。
 
-**【Analysis】** InSpire 的“空间”不是完整的 3D 场景重建。它只保留对当前动作足够有用的方向类别，因此更像一个 action-relevant bottleneck，而不是一个通用 world model。
+**【Analysis】** InSpire 的“空间”不是完整的 3D 场景重建。它把部分几何关系压缩成方向类别，作为动作相关的辅助监督和文本提示；它没有重建完整场景，也没有强制全部视觉信息都经过这个提示。
 
 ## 3. 问题定义
 
@@ -81,7 +81,9 @@ $$
 \pi_\theta(a\mid o,l) \approx p(a\mid o,l).
 $$
 
-论文把观测中的潜在因素拆成任务相关因素 $u$ 与任务无关因素 $v$。真实因果过程满足 $p(a\mid o,l)=p(a\mid u)$，但训练分布中可能出现 $p_{train}(u,v)\neq p_{train}(u)p_{train}(v)$，于是模型错误地学到 $a$ 与 $v$ 的统计相关性。
+论文把观测中的潜在因素拆成任务相关因素 $u$ 与任务无关因素 $v$。作者假设任务相关因素足以决定动作分布，即 $p(a\mid o,l)=p(a\mid u)$，但训练分布中可能出现 $p_{train}(u,v)\neq p_{train}(u)p_{train}(v)$，于是模型错误地学到 $a$ 与 $v$ 的统计相关性。
+
+这个假设并不自动保证边缘分布中动作与 $v$ 独立：当 $u,v$ 相关时，无因果作用的 $v$ 仍可能预测动作。论文提供的是建模动机，尚未用干预实验识别真实因果因素。
 
 InSpire 引入一个由空间问答得到的中间表示 $u'$：
 
@@ -114,6 +116,8 @@ $$
 
 **【Paper】** 图像与语言指令进入 VLA 后，模型先回答目标物体相对机器人的方向，再将问题和答案作为文本上下文，输出最终 action token；同一次观测可以对指令中识别出的多个目标物体重复这个过程。
 
+**【Analysis】** 上式动作分支仍接收原始 $o,l$，所以 $u'$ 不是严格的信息瓶颈。它通过额外监督鼓励模型读懂空间关系，但网络仍有绕过答案、直接利用背景特征的路径；注意力可视化只能提供相关证据，不能证明捷径已经被消除。
+
 ### 4.2 核心模块
 
 #### 1. 目标物体抽取与空间问题
@@ -134,7 +138,7 @@ $$
 
 取 $|d_x|,|d_y|,|d_z|$ 最大的轴，并根据符号映射到一个粗粒度方向；若夹爪闭合且物体被抓住，则标签为 `grasped`。这相当于把精确几何压缩成与动作更直接相关的离散语义。
 
-**【Code】** `get_relation_to_robot()` 默认使用 `coarse_direction`：先用 `np.argmax(np.abs(gripper_to_obj))` 选择主轴，再按阈值判断 `front/back`、`left/right` 或 `up/down`；`check_catch` 会优先输出 `catch`，`check_close` 控制近距离是否输出 `close`。代码还提供 `coarse_direction_3d`、`fine_direction_3d`、`coarse_distance` 和 `fine_distance` 等替代模式。
+**【Code】** `get_relation_to_robot()` 默认使用 `coarse_direction`：先用 `np.argmax(np.abs(gripper_to_obj))` 选择主轴，再按阈值判断 `front/back`、`left/right` 或 `up/down`；`check_catch` 会优先输出 `catch`，`check_close` 控制近距离是否输出 `close`。代码还提供 `coarse_direction_3d`、`fine_direction_3d`、`coarse_distance` 和 `fine_distance` 等替代模式。具体坐标约定也要核对：实现将 x 轴映射为 front/back、y 轴映射为 right/left，且为柜子、篮子、酒架等对象添加高度偏移；它读取对象 JSON 的 `is_grasp`，不是仅凭夹爪闭合判定抓住了任何目标。这些环境规则构成了标注管线的一部分。
 
 #### 3. 空间 VQA 与动作生成
 
@@ -169,11 +173,11 @@ $$
 \log p_\theta(y_t\mid y_{<t},o,l,q).
 $$
 
-其中 $Τ_answer$ 与 $Τ_action$ 是未被 mask 的 assistant token 位置。论文强调空间答案和动作同时监督；**【Code】** 官方 collator 通过 `mask_labels()` 实现这一点，未见额外的 VQA loss 权重。
+其中 $\mathcal T_{\mathrm{answer}}$ 与 $\mathcal T_{\mathrm{action}}$ 是未被 mask 的 assistant token 位置。论文强调空间答案和动作同时监督；**【Code】** 官方 collator 通过 `mask_labels()` 实现这一点，未见额外的 VQA loss 权重。因而改变对象数或答案长度，也会改变答案 token 在联合损失中的相对占比，不能视为监督强度完全相同。
 
 ### 4.4 Training
 
-**【Paper】** 训练样本从 $(o_i,l_i,a_i)$ 扩展为 $(o_i,l_i,a_i,u'_i)$。仿真中目标位置直接来自环境；真实环境中使用夹爪打开或闭合时记录的末端位置作为目标位置代理。VLA 使用 teacher-forcing 学习方向答案和动作 token。
+**【Paper】** 训练样本从 $(o_i,l_i,a_i)$ 扩展为 $(o_i,l_i,a_i,u'_i)$。仿真中目标位置直接来自环境；真实环境中使用夹爪打开或闭合时记录的末端位置作为目标位置代理。VLA 使用 teacher-forcing 学习方向答案和动作 token。“无额外数据”指无需新增示范或外部大模型生成推理数据，仍依赖这些可获得的几何标签；真实物体位置代理尤其不能等同于逐帧精确跟踪。训练时动作条件中的答案是真值，测试时答案由模型预测，存在中间答案的分布差异。
 
 **【Code】** `train_vqa.py` 将 `vqa_mode='coarse_direction'`、`check_catch=True`、`check_close=False` 作为默认配置，训练步数默认 50,000；其余学习率、batch size、冻结策略和 action tokenizer 从 VLA 配置继承。官方脚本通过 RLDS 数据集、`RLDSBatchTransformWithVQA` 与原有 VLA training strategy 训练，不需要额外的 VQA 数据集。
 
@@ -193,7 +197,9 @@ $$
 
 **【Paper】** 推理时对当前观测执行同样的空间问答，再把答案拼接到动作 prompt 中。由于空间推理在每个观测上重新执行，模型可以根据执行状态修正后续动作。
 
-**【Code】** `OpenVLAWithVQA.predict_action()` 先调用 `find_target_objects(instruction)`，逐个执行 `_predict_vqa()`；VQA 生成使用受限 token mask，只允许预定义方向 token，并可将 `catch` 归一化。随后 `_predict_action()` 重新建立 action prompt，生成由基线 action tokenizer 解码的动作并反归一化。这里的 `catch` 是代码接口名称，论文正文使用 `grasped`，复现时需要注意这一命名差异。
+**【Code】** `OpenVLAWithVQA.predict_action()` 先调用 `find_target_objects(instruction)`，逐个执行 `_predict_vqa()`；VQA 生成后对 `outputs["scores"]` 乘方向 token mask，再取 argmax，并可将 `catch` 归一化。随后 `_predict_action()` 重新建立 action prompt，生成由基线 action tokenizer 解码的动作并反归一化。这里的 `catch` 是代码接口名称，论文正文使用 `grasped`，复现时需要注意这一命名差异。
+
+**【Code】** 这里的乘零掩码不是严格的受限解码：若允许 token 的分数均小于 0，未允许 token 被置成 0 后反而可能胜出；多 token 模式还先生成完整序列、再逐位改选答案，没有按改选结果重新计算后续条件分布。可靠实现应在生成每一步把不允许的 logits 设为负无穷，并使用与当前 tokenizer 一致的词表 ID。现有实现也会为每个对象重新编码 prompt/image，再为动作单独调用生成，不能把新增耗时仅归结为多了一个 token。
 
 <Algorithm number={2} title='InSpire 推理' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>当前图像 $o_t$ 与语言指令 $l$。</div>
@@ -222,11 +228,11 @@ $$
 
 ### 5.1 Experimental Setup
 
-![InSpire 论文 Figure 4：真实任务、成功率与额外推理时间](https://pic.hana0721.top/blog/paper-deep-dive-inspire/realresults.1zizyu7rqv.webp)
+![InSpire 论文 Figure 5：真实任务、成功率与额外推理时间](https://pic.hana0721.top/blog/paper-deep-dive-inspire/realresults.1zizyu7rqv.webp)
 
-**【Paper】** 仿真部分使用 LIBERO 与 CALVIN。LIBERO 在 LIBERO-90 上训练，并在 Spatial、Object、Goal、Long 等 seen/unseen 任务上评估；CALVIN 采用 ABC→D 协议，在环境 D 上测试五个连续子任务。真实实验使用 AGILEX PiPER 6DOF：10 个 seen task，每个任务 10 条训练轨迹，另设计 5 个 unseen task，每个任务测试 10 次。
+**【Paper】** 仿真部分使用 LIBERO 与 CALVIN。Table I 在 LIBERO-90 的 90 个任务上训练（每任务 50 条示范），以这 90 个任务作为 seen，另外四个 suite 作为 unseen 任务评估；CALVIN 采用 ABC→D 协议，在环境 D 上测试五个连续子任务。真实实验使用 AGILEX PiPER 6DOF：10 个 seen task，每个任务 10 条训练轨迹，另设计 5 个 unseen task；15 个任务各测试 10 次。
 
-**【Code】** 官方仓库提供 `train_baseline_libero90.sh`、`train_inspire_libero90.sh` 以及对应 eval 脚本；README 同时公开 miniVLA-LIBERO90、InspireVLA-LIBERO90 和 union4 checkpoint 下载地址。
+**【Code】** 官方仓库提供 `train_baseline_libero90.sh`、`train_inspire_libero90.sh` 以及对应 eval 脚本；README 同时公开 miniVLA-LIBERO90、InspireVLA-LIBERO90 和 union4 checkpoint 下载地址。本文代码对照针对这个 miniVLA 分支；README 将真实 π₀-FAST 实验的实现链接到独立的 [InSpire-FAST](https://github.com/InSpireVLA/InSpire-FAST) 仓库，不能把 miniVLA 的硬编码词表和解码路径直接当作 π₀-FAST 的实现。
 
 ### 5.2 Main Results
 
@@ -239,7 +245,7 @@ $$
 | π₀-FAST              |     83.1 ± 1.0 |      5.7 ± 0.8 |
 | π₀-FAST + InSpire    | **84.1 ± 1.0** |  **8.5 ± 1.3** |
 
-**【Paper】** InSpire 让 miniVLA-VQ 在 seen 任务提升 6.2 个百分点，在 unseen 平均提升 10.0 个百分点；对 π₀-FAST 的提升分别为 1.0 和 2.8 个百分点。收益在 LIBERO-Spatial 与 LIBERO-Object 上尤其明显，而 LIBERO-Long 的提升有限，说明空间桥接不等于高层任务规划。
+**【Paper】** InSpire 让 miniVLA-VQ 在 seen 任务提升 6.2 个百分点，在 unseen 平均提升 10.0 个百分点；对 π₀-FAST 的提升分别为 1.0 和 2.8 个百分点。收益在 LIBERO-Spatial 与 LIBERO-Object 上尤其明显，而两个基线的 LIBERO-Long 都没有提升（分别仍为 8.0% 和 5.0%），说明空间桥接不等于高层任务规划。
 
 论文还在四个 LIBERO 数据集的联合 fine-tuning 设置下比较了 reasoning-based VLA：
 
@@ -249,23 +255,23 @@ $$
 | CoT-VLA-7B        |     87.5 |     91.6 |     87.6 |     69.0 |     83.9 |
 | **InspireVLA-1B** | **90.7** | **94.3** | **88.3** | **73.3** | **86.7** |
 
-**【Paper】** InspireVLA-1B 以约 1B 参数超过表中两个更大的 reasoning-based 模型；相对 SpatialVLA-4B 和 CoT-VLA-7B，论文报告平均成功率分别提高 8.6 和 2.8 个百分点。这里的结果来自作者在四个 LIBERO 数据集上做 LoRA fine-tuning 的独立设置，不应与前面的 LIBERO-90 单数据集结果混为一谈。
+**【Paper】** InspireVLA-1B 以约 1B 参数超过表中两个更大的 reasoning-based 模型；相对 SpatialVLA-4B 和 CoT-VLA-7B，论文报告平均成功率分别提高 8.6 和 2.8 个百分点。这里的 InspireVLA 从 LIBERO-90 checkpoint 出发，再在四个 suite 的联合数据上做 LoRA fine-tuning，因此评估的是这些任务的分布内表现，与 Table I 的未见任务迁移不同。竞争方法的数值引用既有论文，并非全部在同一初始化、训练数据量和算力下重训；1B 与 4B/7B 的参数比较也不等于已测得相应倍数的训练或部署效率。
 
 #### CALVIN
 
-![InSpire 论文 Figure 5：CALVIN ABC→D 长时域连续任务结果](https://pic.hana0721.top/blog/paper-deep-dive-inspire/calvin.1hsya96dxp.webp)
+![InSpire 论文 Figure 4：CALVIN ABC→D 长时域连续任务结果](https://pic.hana0721.top/blog/paper-deep-dive-inspire/calvin.1hsya96dxp.webp)
 
-**【Paper】** 在 500 条、每条包含 5 个子任务的序列上，加入 InSpire 后，miniVLA 与 miniVLA-VQ 在连续完成 1、2、3、4、5 个任务的统计上都优于对应基线，平均连续完成长度也更高。这个结果支持“每一步重新回答空间关系有助于纠错”的解释。
+**【Paper】** 在 500 条、每条包含 5 个子任务的序列上，加入 InSpire 后，miniVLA 与 miniVLA-VQ 在连续完成 1、2、3、4、5 个任务的统计上都优于对应基线，平均连续完成长度也更高。该结果表明辅助任务有助于这套连续任务评估，但没有单独隔离“每步重问”与额外空间监督各自的贡献，因而不能据此确定纠错来自哪一环。
 
 #### 真实机器人
 
-**【Paper】** 10 个 seen task 的平均成功率绝对提升约 25 个百分点，5 个 unseen task 提升约 26 个百分点；4/5 个 unseen task 的相对成功率翻倍。图中平均每步时间由 0.84 秒增至 1.01 秒，即约增加 0.17 秒；正文将这一开销概括为约 0.18 秒，差异来自四舍五入。额外开销主要来自新增 VQA token，但相对于成功率收益仍是可接受的 trade-off。
+**【Paper】** 10 个 seen task 的平均成功率绝对提升约 25 个百分点，5 个 unseen task 提升约 26 个百分点；4/5 个 unseen task 的相对成功率翻倍。图中平均每步时间由 0.84 秒增至 1.01 秒，即约增加 0.17 秒；正文将这一开销概括为约 0.18 秒，两个呈现口径略有差异。按图示均值计算耗时增加约 20%，这是具体平台与实现上的代价，是否可接受取决于控制周期；这些时间不代表所有模型或目标数量下的固定开销。
 
 ### 5.3 Ablation Study
 
 ![InSpire 论文 Figure 6：空间 VQA token 插入位置的消融](https://pic.hana0721.top/blog/paper-deep-dive-inspire/vqaposi.5mojmd5s2o.webp)
 
-论文还比较了不同空间 VQA 的形式（miniVLA-VQ，seen / unseen）：
+论文还比较了不同空间 VQA 的形式（miniVLA-VQ，seen / unseen）。§III-D 明确说消融使用单个固定 seed、每任务 100 次测试；尽管表内有 ±，不应把这里的误差项解释为三个训练 seed 的波动：
 
 | VQA 形式     |           Seen |         Unseen |
 | ------------ | -------------: | -------------: |
@@ -293,7 +299,7 @@ $$
 **【Analysis】** 可以从三个角度理解：
 
 1. **降低学习难度**：与直接从整幅图像预测连续动作相比，先预测一个 7 类左右的空间答案更容易学到。
-2. **提供 action-relevant bottleneck**：方向问题明确点名目标物体，把语言中的对象与图像中的区域绑定起来。
+2. **提供动作相关辅助任务**：方向问题明确点名目标物体，鼓励把语言中的对象与图像区域绑定；原图输入通路仍然保留。
 3. **引入可纠错的中间状态**：每个观测都重新生成方向答案，空间答案变化会反映抓取、移动和放置是否已经发生。
 
 ### 6.2 核心创新
@@ -302,12 +308,12 @@ $$
 
 ### 6.3 与已有方法的本质区别
 
-| 方法           | 中间信息               | 额外依赖            | 主要代价                      |
-| -------------- | ---------------------- | ------------------- | ----------------------------- |
-| 直接 VLA       | 无                     | 无                  | 容易学到 shortcut             |
-| SpatialVLA     | 3D 信息 / 离散空间动作 | 空间编码与专门设计  | 需要改输入或动作空间          |
-| CoT-VLA / ECoT | 较长推理或目标序列     | 额外推理过程 / 模型 | token 与时延更高              |
-| InSpire        | 粗粒度方向文本         | 同一个 VLA          | 少量 VQA token 与一次额外生成 |
+| 方法           | 中间信息               | 额外依赖            | 主要代价                                |
+| -------------- | ---------------------- | ------------------- | --------------------------------------- |
+| 直接 VLA       | 无                     | 无                  | 容易学到 shortcut                       |
+| SpatialVLA     | 3D 信息 / 离散空间动作 | 空间编码与专门设计  | 需要改输入或动作空间                    |
+| CoT-VLA / ECoT | 较长推理或目标序列     | 额外推理过程 / 模型 | token 与时延更高                        |
+| InSpire        | 粗粒度方向文本         | 同一个 VLA          | 少量 VQA token 与按目标数增加的生成调用 |
 
 **【Analysis】** InSpire 的关键差异是把空间信息放在“视觉与动作之间的语言接口”，而不是把它当作新的传感器模态或新的动作表示。
 
@@ -353,7 +359,7 @@ $$
 4. 对 π₀、Octo 等非自回归 action head，是否可以把空间答案作为 conditioning feature，而不是文本 prompt？
 5. 能否用跨任务的 intervention 评估来直接检验模型是否真正摆脱了背景与目标颜色的 shortcut？
 
-InSpire 的实质是一种很轻量的 causal hint：它没有解决 VLA 的全部泛化问题，却展示了一个值得复用的原则——在 observation 与 action 之间加入一个足够小、足够相关、可自动标注的中间任务，往往比盲目扩大模型更有效。
+InSpire 的实质是一种很轻量的 causal hint：它没有解决 VLA 的全部泛化问题，却展示了一个值得复用的原则——在 observation 与 action 之间加入一个足够小、足够相关、可自动标注的中间任务，可以改善本文测试范围内的成功率。论文没有系统对比扩大模型、增加示范与增加空间监督的投入产出，不能据此给出普遍的优劣排序。
 
 <Aside type='note' title='阅读提示'>
   本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`

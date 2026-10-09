@@ -1,7 +1,7 @@
 ---
 title: 'RoboTwin 2.0 论文精读：用可规模化仿真数据提升双臂操作鲁棒性'
 publishDate: 2026-08-27
-updatedDate: 2026-08-27
+updatedDate: 2026-09-22
 description: '精读 RoboTwin 2.0：MLLM 闭环代码生成、RoboTwin-OD、五轴域随机化与 embodiment-aware grasping 如何共同缩小双臂操作的 sim-to-real gap。'
 heroImage:
   { src: 'https://pic.hana0721.top/143484250_p0_master1200.9ddjzdu0z1.webp', color: '#7D746B' }
@@ -59,6 +59,8 @@ import { Aside } from '@/components/user'
   rank={4}
 />
 
+本文按 [arXiv v2（2025-08-27）](https://arxiv.org/pdf/2506.18088v2) 通读正文及附录 A–L，并核对 2026-09-22 可见官方代码；持续更新的项目榜单不等同于论文快照。
+
 ## 1. 论文概述
 
 **【Paper】** RoboTwin 2.0 面向双臂协作操作，提供数据生成器、超过 100,000 条专家轨迹、50 个任务、5 种双臂 embodiment 和统一 benchmark。核心不是提出一个新的 policy 网络，而是把“任务程序如何生成、场景如何变、不同机器人如何执行”变成可自动扩展的基础设施。
@@ -76,7 +78,7 @@ import { Aside } from '@/components/user'
 1. RoboTwin-OD：731 个物体实例、147 个类别，带 placement、functional、grasp point/axis 与多粒度语言描述。
 2. MLLM + simulation-in-the-loop 的专家代码生成器，在 10 次模拟试验和最多 5 轮修复中筛选可执行程序。
 3. 五个域随机化轴：clutter、lighting、background、tabletop height、language；并针对不同 DoF 的机器人生成候选抓取姿态。
-4. 50+ 双臂任务、5 种 embodiment 和 benchmark；代码生成 ASR 提升 10.9 个百分点，合成数据显著改善 VLA 的仿真与真实环境鲁棒性。
+4. 50+ 双臂任务、5 种 embodiment 和 benchmark；代码生成在同版本内部由 62.1% 提升至 71.3%（9.2 个百分点），合成数据显著改善 VLA 的仿真与真实环境鲁棒性。
 
 ## 2. 背景与相关工作
 
@@ -92,15 +94,15 @@ import { Aside } from '@/components/user'
 
 ## 3. 问题定义
 
-**【Paper】** 给定任务名称与自然语言目标，系统要输出能在指定 embodiment 上完成任务的 Python task program，并由它生成视觉、本体感知和动作轨迹。单条 episode 的 observation 包括多视角 RGB、关节状态和语言 instruction；action 是由 task API 驱动的末端位姿/夹爪控制序列，而非一个统一的离散 action token。
+**【Paper】** 给定任务名称与自然语言目标，系统要输出能在指定 embodiment 上完成任务的 Python task program，并由它生成视觉、本体感知和动作轨迹。专家生成器通过 task API 查询仿真真值物体位姿和 affordance，再调用规划器生成动作；训练出的视觉策略只接收配置允许的视觉、本体状态与语言。两者的信息权限不同。数据中的关节或末端动作也需经具体策略 adapter 解释，不能把专家的语义 API 调用直接当成 VLA 的在线动作输出。
 
-| 维度 | RoboTwin 2.0 设定 |
-| --- | --- |
-| 任务 | 50+ 个双臂协作任务，如 Handover Block、Stack Bowls、Open Laptop |
-| 资产 | RoboTwin-OD 731 instances / 147 categories |
-| Embodiment | Aloha-AgileX、Piper、Franka、UR5、ARX-X5 |
-| 数据 | 每个任务支持 clean 与 domain-randomized 轨迹；论文报告超过 100,000 条 |
-| 目标 | 生成高成功率专家程序，并评估 Easy/Hard 环境中的泛化 |
+| 维度       | RoboTwin 2.0 设定                                                     |
+| ---------- | --------------------------------------------------------------------- |
+| 任务       | 50+ 个双臂协作任务，如 Handover Block、Stack Bowls、Open Laptop       |
+| 资产       | RoboTwin-OD 731 instances / 147 categories                            |
+| Embodiment | Aloha-AgileX、Piper、Franka、UR5、ARX-X5                              |
+| 数据       | 每个任务支持 clean 与 domain-randomized 轨迹；论文报告超过 100,000 条 |
+| 目标       | 生成高成功率专家程序，并评估 Easy/Hard 环境中的泛化                   |
 
 ## 4. 方法
 
@@ -116,17 +118,19 @@ import { Aside } from '@/components/user'
 
 **【Paper】** 534 个自建 RGB-to-3D 物体、153 个 Objaverse 物体和 44 个 PartNet-Mobility articulated 物体组成资产库。每个对象有 15 条经人工核验的描述，以及 placement point、functional point、grasp point 和 grasp axis。
 
-![RoboTwin-OD 对象库（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-robotwin-2/robotwin-od.5q85lv1z1v.webp)
+![RoboTwin-OD 对象库（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-robotwin-2/robotwin-od.5q85lv1z1v.webp)
 
-**【Code】** 官方仓库把对象与任务 API 放在 assets/、envs/ 和 envs/utils.py，具体任务类（例如 envs/stack_bowls_two.py）通过 grasp_actor、place_actor、move 等原语读写这些标注。这样新物体主要是资产和关键点配置问题，而不是重新手写整套控制器。
+**【Code】** 官方仓库把对象与任务 API 放在 assets/、envs/ 和 envs/utils/，具体任务类（例如 envs/stack_bowls_two.py）通过 grasp_actor、place_actor、move 等原语读写这些标注。这样新物体主要是资产和关键点配置问题，而不是重新手写整套控制器。
 
 #### MLLM expert code generation
 
 ![MLLM 专家代码生成闭环（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-robotwin-2/gpt.362b98200i.webp)
 
-**【Paper】** code-generation agent 读取 API 列表、函数调用示例、层级约束和任务描述，先生成 Python 程序。每轮执行 10 次，日志记录不可运行代码、左右臂抓取失败、错误放置和规划失败；VLM observer 逐帧查看关键步骤，报告失败时间点与可能原因。代码代理融合定量日志和定性视觉诊断，最多连续修复 5 轮，达到设置的成功率阈值即停止。
+**【Paper】** 代码代理为 DeepSeek-V3，视觉观察代理为 moonshot-v1-32k-vision-preview（附录 G）。code-generation agent 读取 API 列表、函数调用示例、层级约束和任务描述，先生成 Python 程序。每轮执行 10 次，日志记录不可运行代码、左右臂抓取失败、错误放置和规划失败；VLM observer 逐帧查看关键步骤，报告失败时间点与可能原因。代码代理融合定量日志和定性视觉诊断，最多连续修复 5 轮，达到设置的成功率阈值即停止。
 
-**【Code】** code_gen/task_generation_mm.py 会写出 envs_gen/gpt_task.py（其中 task 是任务名），调用 insert_observation_points 注入观测点，再由 run() 汇总 success_rate、error_message 和 run_records。仓库默认每个候选程序最多尝试 5 次，test_gen_code.py 中的模拟评估以 10 次 rollout 形成成功率。
+**【Code】** code_gen/task_generation_mm.py 会写出 envs_gen/gpt_task.py（其中 task 是任务名），调用 insert_observation_points 注入观测点，再由 run() 汇总 success_rate、error_message 和 run_records。当前代码的 `generate_num=5` 是**共 5 次生成/修订尝试**，不是初稿后再修 5 次；`success_rate >= 0.5` 即停，与论文图 3 / 附录 G 的“超过 50%”有边界差异。`test_gen_code.py` 每轮使用种子 0–9 跑 10 次，且关闭背景、杂乱、光照、桌高随机化；这不能当成在全部 Hard 分布验证通过。
+
+当前生成类继承既有 `envs.<task>`，主要补写 `play_once()`；场景、对象初始化与成功条件仍由已有任务类提供。因此自动化重点是**专家执行程序合成**，不是从一句话无先验创造整个仿真任务。视觉反馈也按错误优先级选择一个失败 episode 的观测点图像诊断，并未把每轮全部十次视频逐帧送入 VLM。
 
 #### 五轴 domain randomization
 
@@ -138,23 +142,23 @@ import { Aside } from '@/components/user'
 2. **Background**：由 1,000 个表面描述生成 20,000 张候选纹理，经人工筛选得到 11,000 张。
 3. **Lighting**：随机化颜色温度、光源类型、数量、强度和位置。
 4. **Tabletop height**：在合理范围内改变桌面高度，改变视角和空间关系。
-5. **Language**：MLLM 生成任务模板与对象描述，再组合成多种 instruction。
+5. **Language**：MLLM 生成任务模板与对象描述，再组合成 instruction。附录 I 明确每任务 60 个模板拆为训练 50 / 测试 10，每物体 15 条描述拆为训练 12 / 测试 3；这是表述组合的留出测试，并不自动意味着新物体类别或新技能。
 
-**【Code】** envs/_base_task.py 读取 domain_randomization 配置；官方 env_cfg/task_config/demo_randomized.yml 打开 random_background、cluttered_table、random_light，并把 random_table_height 设为 0.03。get_cluttered_table() 负责杂乱物体插入，table_z_bias 通过均匀采样改变桌高。
+**【Code】** envs/\_base_task.py 读取 domain_randomization 配置；官方 env_cfg/task_config/demo_randomized.yml 打开 random_background、cluttered_table、random_light，并把 random_table_height 设为 0.03。get_cluttered_table() 负责杂乱物体插入，当前 `table_z_bias` 具体采样 $U(-0.03,0)$ 米再加固定 bias，是向下最多 3 cm，不能写成对称 ±3 cm。配置中 `random_head_camera_dis=0`，而真机实验另有不超过 1 cm 的相机位置扰动，二者属于不同实验配置。
 
 #### Embodiment-aware grasp adaptation
 
-**【Paper】** 对每个对象预先标注多个抓取轴和接近方向，再叠加带 reachability bias 的角度扰动，并行尝试 motion planning。该模块为同一语义任务生成“适合当前手臂”的候选姿态，而不是强迫所有机器人复用一种 grasp。
+**【Paper】** 对每个对象预先标注多个抓取轴和接近方向，再叠加带 reachability bias 的角度扰动，并行尝试 motion planning。该模块为同一语义任务生成适合当前手臂的候选姿态。`choose_best_pose()` 调用 `create_target_pose_list()` 和左右臂 `plan_multi_path()`，基于已知几何筛选可规划候选；这是数据生成时的运动学适配，不是训练一个能零样本跨五种机器人执行的统一神经策略。
 
 ### 4.3 关键公式
 
-**【Paper】** 令任务程序为 $P$，场景随机变量为 $\xi$，模拟器执行结果为 $r(P,\xi)\in\{0,1\}$。代码生成阶段的目标可写成：
+**【Analysis】** 下面是帮助理解程序搜索的数学抽象，论文并未提出这个优化式或求解全局最优程序。令任务程序为 $P$，场景随机变量为 $\xi$，模拟器执行结果为 $r(P,\xi)\in\{0,1\}$。代码生成阶段的目标可写成：
 
 $$
 P^* = \arg\max_P \; \mathbb{E}_{\xi\sim\mathcal{D}_{sim}}[r(P,\xi)]
 $$
 
-其中 $\mathcal{D}_{sim}$ 包含动力学、感知和场景随机性。论文用 10 次 rollout 的平均值估计该期望；达到阈值便接受程序。
+其中 $\mathcal{D}_{sim}$ 表示所采用的初始化/执行分布。每轮 10 次 rollout 只是一个粗粒度估计，反复用相同种子修订还会偏向该验证集；达到阈值不保证分布外可靠。附录 G 的 ASR 先平均每个程序的执行成功率，再在候选程序和 10 个任务间平均；Top5-ASR 是每任务挑表现最好的 5 个程序再平均，不是 pass@5，也不是至少生成一个可运行程序的概率。
 
 **【Analysis】** 对策略训练而言，随机化数据近似扩大了训练分布：
 
@@ -166,9 +170,9 @@ $$
 
 ### 4.4 Training
 
-**【Paper】** 论文将生成的专家轨迹用于 ACT、DP、RDT、Pi0、DP3 等 policy。域随机化预训练实验使用 32 个任务、9,600 条轨迹（每任务 300 条），再在 5 个未见任务上用 50 条 clean demonstrations 做单任务适配。真实实验中 RDT 使用 1,000 条合成轨迹与 10 条真实示教，另设 synthetic-only 对照。
+**【Paper】** 论文将生成的专家轨迹用于 ACT、DP、RDT、Pi0、DP3 等 policy。域随机化预训练实验使用 32 个任务、9,600 条轨迹（每任务 300 条），然后用每任务 50 条 clean demonstrations 做单任务适配。正文写“5 个未见任务”，但表 3 实际列出 **8 个下游任务**，且未标出哪 5 个未见；本文按表中 8 任务均值报告，不宣称它们全与 32 任务预训练集不重叠。真实实验中 RDT 使用 1,000 条合成轨迹与 10 条真实示教，另设 synthetic-only 对照。
 
-**【Code】** 数据采集入口是 scripts/collect_data.py 与 collect_data.sh；demo_clean.yml 和 demo_randomized.yml 控制场景开关，默认保存 RGB、qpos 和双腕相机数据。策略训练本身不在 RoboTwin 主仓库中，而是通过 XPolicyLab/外部 policy 代码读取 HDF5 或转换后的 LeRobot 数据。
+**【Code】** 数据采集入口是 scripts/collect_data.py 与 collect_data.sh；demo_clean.yml 和 demo_randomized.yml 控制场景开关，默认保存 RGB、qpos、末端位姿及双腕相机数据。`collect_data.py` 先反复试种子，只有 `plan_success`、`check_success()` 和当前版本关节范围检查通过才保存轨迹；所以“100k 成功轨迹”不是 100k 次尝试，数据分布也经过专家可解性的筛选。策略训练本身不在 RoboTwin 主仓库中，而是通过 XPolicyLab/外部 policy 代码读取 HDF5 或转换后的 LeRobot 数据。
 
 <Algorithm number={1} title='RoboTwin 专家数据生成与训练' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>任务描述、API/示例、RoboTwin-OD 资产、目标 embodiment 与随机化配置。</div>
@@ -176,16 +180,19 @@ $$
   <AlgorithmStep>MLLM 根据任务约束生成 Python task program。</AlgorithmStep>
   <AlgorithmStep>在模拟器中执行 10 次，记录每次成功/失败及错误类型。</AlgorithmStep>
   <AlgorithmStep>VLM 检查关键帧并定位逻辑、抓取或放置失败。</AlgorithmStep>
-  <AlgorithmStep>代码代理修复程序；最多 5 轮，达到阈值后接受。</AlgorithmStep>
+  <AlgorithmStep>
+    代码代理修复程序；当前代码最多共 5 次尝试，十次验证成功率达到 0.5
+    即提前停止，并保留历史最佳程序。
+  </AlgorithmStep>
   <AlgorithmStep>对对象、场景、光照、桌高和语言采样，运行 task API 采集轨迹。</AlgorithmStep>
   <AlgorithmStep>将 clean/randomized 轨迹提供给下游 imitation/VLA 训练。</AlgorithmStep>
 </Algorithm>
 
 ### 4.5 Inference
 
-**【Paper】** benchmark 推理时固定 50 条 clean demonstrations 进行单任务训练，再在 Easy（干净）和 Hard（clutter、光照、纹理、桌高随机化）各执行 100 次 rollout。真实部署在 COBOT-Magic 双臂平台上，测试 seen/unseen background 与 clean/cluttered 四种组合。
+**【Paper】** benchmark 对每个任务单独使用 50 条 clean demonstrations 训练，再在 Easy（干净）和 Hard（clutter、光照、纹理、桌高随机化）各执行 100 次 rollout。真实部署在 COBOT-Magic 双臂平台上，测试 seen/unseen background 与 clean/cluttered 四种组合。
 
-**【Code】** scripts/eval_policy.sh 统一启动 policy server 与 simulator；eval_policy_multitask.py 从任务配置读取 domain randomization，eval_policy_xpolicylab.py 将观测中的 language instruction 传给策略。RoboTwin 本身负责环境与成功判定，具体 action decoding 由 ACT、RDT、Pi0 等适配器实现。
+**【Code】** scripts/eval_policy.sh 统一启动 policy server 与 simulator；eval_policy_multitask.py 从任务配置读取 domain randomization，eval_policy_xpolicylab.py 将观测中的 language instruction 传给策略。RoboTwin 本身负责环境与成功判定，具体 action decoding 由适配器实现。当前 `eval_policy_xpolicylab.py` 默认 `expert_check=True`，先运行专家，规划失败或任务未通过的种子会跳过，再让策略在同种子重置场景上执行；因此默认成功率是专家可解初态上的条件成功率，应同时报告有效 seeds 与过滤设置。
 
 <Algorithm number={2} title='RoboTwin Benchmark 推理' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>策略 checkpoint、任务配置、语言 instruction 与 Easy/Hard 环境设置。</div>
@@ -198,43 +205,51 @@ $$
 
 ### 4.6 代码实现对照
 
-| 论文概念 | 官方代码位置 | 对照结论 |
-| --- | --- | --- |
-| MLLM 代码生成 | code_gen/task_generation_mm.py | 生成、插入观测点、执行和迭代修复均有实现 |
-| VLM observer | code_gen/observation_agent.py | 读取 episode 图像，输出步骤级诊断 |
-| Task API | envs/_base_task.py、envs/utils.py | grasp/place/move 等原语支撑任务脚本 |
-| 域随机化 | envs/_base_task.py、env_cfg/task_config/demo_randomized.yml | 五轴中的视觉/空间轴在配置中可开关 |
-| 数据采集 | scripts/collect_data.py | 支持多 embodiment、RGB/qpos/wrist camera 保存 |
-| Policy 训练 | XPolicyLab 与外部仓库 | RoboTwin 仓库提供环境和数据，不内置完整 VLA 训练器 |
+| 论文概念      | 官方代码位置                                                 | 对照结论                                                        |
+| ------------- | ------------------------------------------------------------ | --------------------------------------------------------------- |
+| MLLM 代码生成 | code_gen/task_generation_mm.py                               | 生成、插入观测点、执行和迭代修复均有实现                        |
+| VLM observer  | code_gen/observation_agent.py                                | 读取 episode 图像，输出步骤级诊断                               |
+| Task API      | envs/\_base_task.py、envs/utils/                             | grasp/place/move 等原语支撑任务脚本                             |
+| 域随机化      | envs/\_base_task.py、env_cfg/task_config/demo_randomized.yml | 五轴中的视觉/空间轴在配置中可开关                               |
+| 数据采集      | scripts/collect_data.py                                      | 支持多 embodiment、RGB/qpos/wrist camera 保存                   |
+| Policy 训练   | XPolicyLab 与外部仓库                                        | 当前 main 通过子模块接入策略训练/部署；不是原论文新增的训练算法 |
+
+**【Code】** 当前 README 将 XPolicyLab 评测接入记为 2026-08-03，晚于论文。它还说明 HDF5 相机 JPEG 同时存在旧的通道反转格式和带 `XPL-RGB1` 标记的新格式，应通过官方 `decode_image_bit` / `encode_image_bit` 处理；同一数据集若使用错误颜色解码，会引入额外域偏移。因此复现论文应锁定代码、资产与数据转换版本，不能仅复制当前 main 的启动命令。[官方说明](https://github.com/RoboTwin-Platform/RoboTwin#decode-only-through-decode_image_bit)
 
 ## 5. 实验
 
 ### 5.1 Experimental Setup
 
-![RoboTwin 2.0 真实世界四种测试条件（论文 Figure 8）](https://pic.hana0721.top/blog/paper-deep-dive-robotwin-2/real-world-experiment.5c1puzto9f.webp)
+![RoboTwin 2.0 真实世界四种测试条件（论文 Figure 10）](https://pic.hana0721.top/blog/paper-deep-dive-robotwin-2/real-world-experiment.5c1puzto9f.webp)
 
-**【Paper】** 评估分为四部分：自动专家代码生成、embodiment-aware grasping、策略鲁棒性预训练、真实世界 sim-to-real，以及 50 任务 benchmark。主要 backbone 包括 ACT、DP、RDT、Pi0、DP3。
+**【Paper】** 评估分为五部分：自动专家代码生成、embodiment-aware grasping、策略鲁棒性预训练、真实世界 sim-to-real，以及 50 任务 benchmark。主要 backbone 包括 ACT、DP、RDT、Pi0、DP3。
 
 ### 5.2 Main Results
 
 **【Paper】**
 
-| 实验 | 关键结果 |
-| --- | --- |
-| 代码生成 | RoboTwin 2.0 + MM feedback 的 ASR 为 71.3%，Vanilla 为 62.1%；Top5-ASR 为 78.6% |
-| 迭代效率 | MM feedback 的平均修复轮数 CR-Iter 为 1.76，RoboTwin 1.0 为 2.42 |
-| 抓取适配 | 五种 embodiment 平均成功率从 52.2% 提升到 60.5%，增幅 8.3 个百分点 |
-| 仿真鲁棒性 | RDT + randomized 平均 24.8%，相对其 pretrained baseline 提升 31.9%；Pi0 + randomized 为 29.1% |
-| 真实 few-shot | 10 条真实示教 + 1,000 条合成轨迹，在四种条件下平均提升 24.4 个百分点 |
-| 真实 zero-shot | 仅合成数据在 unseen background 条件下仍提升 21.0/20.5 个百分点 |
+| 实验           | 关键结果                                                                                                                              |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| 代码生成       | 10 个共有任务上 ASR：R2.0 Vanilla 62.1% → MM feedback 71.3%；Top5-ASR 78.6%。扩至全部 50 任务的 MM feedback ASR 仅 43.34%（附录表 9） |
+| 迭代效率       | MM feedback 的平均修复轮数 CR-Iter 为 1.76，RoboTwin 1.0 为 2.42                                                                      |
+| 抓取适配       | 五种 embodiment 平均成功率从 52.2% 提升到 60.5%，增幅 8.3 个百分点                                                                    |
+| 仿真鲁棒性     | RDT + randomized 平均 24.8%，相对其 pretrained baseline 提升 31.9%；Pi0 + randomized 为 29.1%                                         |
+| 真实 few-shot  | 10 条真实示教 + 1,000 条合成轨迹，在四种条件下平均提升 24.4 个百分点                                                                  |
+| 真实 zero-shot | 仅合成数据在 unseen background 条件下仍提升 21.0/20.5 个百分点                                                                        |
 
-**【Analysis】** 改进主要出现在低 DoF 平台和复杂环境：Franka/UR5 已有较大可达空间，抓取候选扩展的边际收益小；Piper 的成功率提升 22.7 个百分点，说明“数据多”之外，动作是否对 embodiment 可行同样关键。
+**【Analysis】** 表 2 测的是**专家程序数据采集成功率**，不是学习策略跨本体泛化。Franka / UR5 的均值略降而 Piper 明显提高，说明收益依赖工作区、安装、夹爪和候选姿态，不能仅归因 DoF。原文把 UR5 写成 7-DoF，但[官方 UR5 规格](https://www.universal-robots.com/media/1828033/ur5_tech_spec_web_en.pdf)是 6 个旋转关节。
+
+论文表 2 与附录表 11 的旧版基线均值有小幅冲突：例如 Aloha 65.1% / 65.3%、Piper 2.4% / 2.3%，故增益分别为 13.7 / 13.5、22.7 / 22.8 个百分点。上表保留正文口径，不把细微差值当精确因果效应。
 
 ### 5.3 Ablation Study
 
-**【Paper】** 代码生成消融把 Vanilla、仅执行日志反馈（FB）和日志 + VLM（MM FB）分开。RoboTwin 2.0 上 ASR 依次为 62.1%、66.7%、71.3%，说明符号日志和视觉诊断具有互补性；单独视觉反馈并不是替代执行器，而是帮助定位语义层错误。
+**【Paper】** 代码生成消融把 Vanilla、仅执行日志反馈（FB）和日志 + VLM（MM FB）分开。RoboTwin 2.0 上 ASR 依次为 62.1%、66.7%、71.3%，对应平均收益 +4.6、再 +4.6 个百分点。摘要“+10.9%”可对应 R2.0 MM FB 71.3% 减 R1.0 FB 60.4%，不是同版本 Vanilla→MM FB 的 9.2 个百分点，也不是相对增幅。附录表 8 的 Handover Block 加视觉反馈后反而由 50% 降至 27%，所以平均提升不代表每任务改进。
 
-域随机化消融比较 clean 与 randomized 预训练。RDT 的平均成功率从 14.6% 提升到 24.8%，Pi0 从 24.9% 提升到 29.1%；增益在未见任务和随机化测试中更明显。
+**【Paper】** 观察代理的可靠性有直接测量：附录 G.4 的 130 条序列含 29 成功、101 失败；混淆矩阵 TP=16、FP=61、TN=40、FN=13，准确率为 56/130≈43.1%。这里正类显然是“成功”，所以 0.552 recall 是 16/29 的成功检出率；原文将它解释成发现失败、过度报错并不符合矩阵。实际正确识别失败为 40/101≈39.6%，并且只在这 40 条中正确定位 12 条（30%，占全部 101 次失败的 11.9%）。VLM 诊断应作为可检验的修复建议，不能替代执行成功检查。
+
+域随机化消融比较 clean 与 randomized 预训练。RDT 的平均成功率从 14.6% 提升到 24.8%，Pi0 从 24.9% 提升到 29.1%；这是所有下游都用 clean 示范微调后的 Hard 测试；相对直接使用发布预训练初始化的 RDT 18.8%、Pi0 22.5%，随机化预训练分别增加 6.0、6.6 个百分点。其收益也非逐任务单调，例如 RDT 的 Place Object Basket 为 17%→6%，Pi0 的 Pick Dual Bottles 为 12%→7%。额外 clean 预训练效果弱，尚不能证明 Real-to-Sim gap 不存在。
+
+**【Paper】** 真机表 4 的四条件平均由 17.0% 到 41.375%，即约 +24.4 个百分点。摘要的 **367%** 对应最难的 unseen background + clutter 一项从 9% 到 42%，而 **228%** 对应该条件 synthetic-only 的 9%→29.5%；不是全表平均相对提升。部分条件也退化，例如 Click Bell / seen / clean 为 36%→24%，Handover Block / seen / clutter 为 16%→12%。这支持在指定四任务上合成数据增强有效，不能据此保证所有任务受益。
 
 ### 5.4 Generalization
 
@@ -261,7 +276,7 @@ $$
 
 ### 6.4 关键假设
 
-- 模拟器中的碰撞、摩擦、相机和控制误差足以覆盖真实变化的主要部分。
+- 合成场景及相机扰动覆盖真实测试所需的关键变化；五轴随机化本身未系统随机化质量、摩擦或控制延迟，不能假设所有动力学误差已被覆盖。
 - 物体 affordance 标注和 skill API 能表达 50+ 任务的关键交互。
 - MLLM/VLM 的诊断能从十次 rollout 中定位可修复原因。
 - 语言、视觉和桌面随机化的组合不会引入与任务目标冲突的歧义。
@@ -270,13 +285,13 @@ $$
 
 ### 7.1 作者明确提出的局限
 
-**【Paper】** 作者指出合成数据仍可能遗漏真实传感器噪声和罕见 edge case；embodiment adaptation 尚未建模 force/tactile feedback，因此对精细接触控制有限。未来工作包括提高 sim-to-real fidelity、支持更复杂的多物体任务与真实部署。
+**【Paper】** 论文结论将真实部署和更复杂多物体任务列为未来方向，附录 G.4 明确承认 VLM 会忽略细小姿态错误、误判成功，且难以诊断不可见的抓取轴问题。传感器噪声、罕见场景与缺少力/触觉反馈的外推风险是本文分析，不应误标为作者逐项给出的局限。
 
 ### 7.2 自己分析得到的局限
 
 **【Analysis】**
 
-1. VLM observer 依赖视觉帧和外部模型，诊断成本与延迟可能随任务长度增长；论文没有报告完整的 API 调用成本或失败诊断准确率。
+1. VLM observer 依赖视觉帧和外部模型，诊断成本与延迟可能随任务长度增长；附录 F 已估算每次观察平均 6,894 tokens（输入 6,295、输出 599，按每图 1,024 tokens，来自三个代表任务），也报告了诊断准确率；仍缺完整程序修复链的总费用、时延和独立失败验证集。
 2. 50 个任务虽覆盖广，但大多仍是桌面短时操作；长时序、动态物体和接触力主导任务的外推尚未验证。
 3. 真实实验只在 COBOT-Magic 上展示四类任务，跨平台真实部署证据仍少于仿真 benchmark。
 4. benchmark 的 Hard 条件主要是视觉/空间随机化，尚未系统加入遮挡、深度缺失、执行器延迟等更强感知与控制扰动。
@@ -289,7 +304,7 @@ $$
 - 把代码生成器产生的失败日志整理成可学习的 recovery policy，而不只用于离线修复脚本。
 - 在 benchmark 中拆分语言、视觉、运动学和传感器噪声的独立贡献，报告每个域轴的 scaling law。
 
-如果你的目标是训练一个新的 bimanual VLA，较稳妥的起点是先用 demo_randomized 数据做跨任务预训练，再用少量真实 demonstrations 做 embodiment 与相机标定适配；不要只在 clean simulation 上追求高成功率。
+实验给出的可检验研究路线是：在固定下游示范量与优化预算后，对比 clean / randomized 的跨任务预训练，再分别测原场景与域偏移场景。当前证据来自有限 backbone 和四个真机任务；下一步应区分数据数量、视觉随机化、相机扰动与任务覆盖各自带来的收益。
 
 <Aside type='note' title='阅读提示'>
   本精读中 【Paper】 表示论文明确内容， 【Code】 表示官方代码实现， 【Analysis】

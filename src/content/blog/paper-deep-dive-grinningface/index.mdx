@@ -1,7 +1,7 @@
 ---
-title: 'What Do VLAs Actually Inherit from VLMs? 论文精读'
+title: 'How Do VLAs Effectively Inherit from VLMs? 论文精读'
 publishDate: 2026-08-26
-updatedDate: 2026-08-26
+updatedDate: 2026-09-22
 description: '精读 GrinningFace：用 emoji 桌面操作任务拆分 VLA 的执行能力与 VLM 视觉语义先验，比较 LoRA、冻结 VLM、协同训练、离散动作和 latent action。'
 heroImage:
   { src: 'https://pic.hana0721.top/99749488_p0_master1200.83an1pr7zr.webp', color: '#8C8275' }
@@ -14,7 +14,7 @@ tags:
   - 'robotic benchmark'
 paper:
   arxivId: '2511.06619'
-  title: 'What Do VLAs Actually Inherit from VLMs?'
+  title: 'How Do VLAs Effectively Inherit from VLMs?'
   authors:
     - 'Chuheng Zhang'
     - 'Rushuai Yang'
@@ -42,7 +42,7 @@ import { Aside } from '@/components/user'
 
 ## 1. 论文概述
 
-**论文名称**：《What Do VLAs Actually Inherit from VLMs?》
+**论文名称**：《How Do VLAs Effectively Inherit from VLMs?》
 
 **作者**：Chuheng Zhang、Rushuai Yang、Xiaoyu Chen、Kaixin Wang、Li Zhao、Yi Chen、Jiang Bian
 
@@ -64,9 +64,9 @@ import { Aside } from '@/components/user'
 
 **【Paper】**
 
-1. 提出一个最小、可复现的 VLA 知识迁移探针，把执行（能否完成 pick-and-place）与识别（是否选对 emoji）分离。
+1. 提出一个最小、可复现的 VLA 知识迁移探针，分别报告执行是否完成，以及执行成功样本中是否选对 emoji；这是诊断指标的拆分，不是严格的因果能力分离。
 2. 在 ManiSkill3 仿真和 Realman RM75 真实机器人上，统一比较多种 VLA 预训练和微调策略。
-3. 发现“从 VLM 初始化”并不自动等于知识迁移；全参数微调会遗忘先验，单调 action head 又会欠拟合。
+3. 发现“从 VLM 初始化”并不自动等于知识迁移；全参数微调会遗忘先验，只调 action head 又会欠拟合。
 4. 协同训练（co-training）、联合预测 latent action，以及更丰富的机器人预训练数据，能更好地保留或激活 VLM 先验。
 
 ## 2. 背景与相关工作
@@ -90,11 +90,11 @@ import { Aside } from '@/components/user'
 
 每次评估从三种协议中选一种，每种 100 条试验：
 
-| 协议 | emoji 来源 | 测量重点 |
-| --- | --- | --- |
-| `ID` | 训练轨迹中出现过的组合 | 组合记忆与执行 |
+| 协议    | emoji 来源                 | 测量重点           |
+| ------- | -------------------------- | ------------------ |
+| `ID`    | 训练轨迹中出现过的组合     | 组合记忆与执行     |
 | `Train` | 训练 emoji，但组合可未出现 | 训练词汇内组合泛化 |
-| `Val` | 完全未参与微调的验证 emoji | VLM 先验迁移 |
+| `Val`   | 完全未参与微调的验证 emoji | VLM 先验迁移       |
 
 ### 3.2 两个成功率
 
@@ -104,7 +104,7 @@ $$
 \mathrm{overall\ SR}=\mathrm{execution\ SR}\times\mathrm{recognition\ SR}.
 $$
 
-执行成功表示方块被抓起并放到任意卡片上；识别成功表示选择了正确卡片。因为动作本身只是简单搬运，`Val` 上的识别率主要反映 VLM 视觉语义知识是否存活。
+执行成功表示方块被抓起并放到任意卡片上；识别成功表示选择了正确卡片。更精确地说，recognition SR 是**执行成功条件下**的选对率。它可以诊断语义能否转化为动作，但并不直接测量 VLM 内部还储存多少知识；失败也可能来自视觉定位、语言对齐或读出方式。
 
 ### 3.3 真实机器人
 
@@ -114,7 +114,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-**【Paper】** 所有变体都建立在 `π₀`-style VLA 上：PaliGemma 负责视觉语言表征，SigLIP 负责图像编码，action expert 输出连续的机器人动作。训练时输入场景图像、本体感知和文本指令，输出末端位姿/夹爪动作；推理时只保留动作预测路径。
+**【Paper】** 所有变体都建立在 `π₀`-style VLA 上：PaliGemma 负责视觉语言表征，SigLIP 负责图像编码，action expert 输出连续的机器人动作。训练时输入场景图像、本体感知和文本指令，输出末端位姿/夹爪动作；推理的任务输出是机器人动作；各训练变体的完整实现未公开，不能据此断言所有辅助模块在部署时都被以同一种方式移除。
 
 ### 4.2 核心模块
 
@@ -138,11 +138,11 @@ $$
 
 1. **Full fine-tuning**：更新全部 VLA 参数，适应最快，但最容易遗忘 VLM 先验。
 2. **LoRA fine-tuning**：只在 backbone 插入低秩适配器，限制参数漂移。
-3. **Action expert only**：冻结视觉语言部分，只训练动作头，作为先验保留的强探针。
-4. **Freezing VLM**：直接从 VLM 或 LoRA 预训练 VLA 微调，最大限度保留语义能力。
+3. **Action expert only**：在给定预训练初始化上冻结视觉语言部分，仅调动作专家，用来探测该表示对下游控制的可用性。
+4. **Freezing VLM / 不同初始化**：另比较直接从 VLM 出发、以及在机器人预训练中冻结基础权重而训练 LoRA+动作专家的 VLA。论文还在这些初始化上分别试 Full/LoRA/Action 微调；“直接从 VLM 出发”本身不等于下游全程冻结所有 VLM 参数。
 5. **Co-training**：在机器人任务外加入 emoji 问答；论文比较原始 emoji 问答和桌面场景内识别两种版本。
-6. **Discretized action**：把每个连续动作维度量化为 256 个 bin，并复用 VLM 的最后 256 个 token。
-7. **Latent action**：在机器人动作之外增加 latent action 预测目标，给模型一个高层运动监督。
+6. **Discretized action**：每个连续动作维度量化为 256 个等宽 bin，覆盖词表末尾 256 个 token 的含义。作者尝试逐维自回归和 learnable query 并行预测，主结果取略优的并行版本，不能把它直接当作 OpenVLA 自回归实现的评测。
+7. **Latent action**：按 villa-X 式方案，机器人预训练阶段同时预测 latent action 与真实动作，随后微调预测真实机器人动作；与 LAPA“先只学 latent、再转真实动作”不同。论文未充分公布 latent 构造、权重等复现细节。
 
 ### 4.3 关键公式
 
@@ -152,82 +152,103 @@ $$
 S_{\mathrm{overall}}=S_{\mathrm{exe}}\cdot S_{\mathrm{rec}}.
 $$
 
-其中 $S_{\mathrm{exe}}$ 是方块是否被成功搬运到某张卡片，$S_{\mathrm{rec}}$ 是三选一是否命中目标。该分解假设二者近似独立；论文用实验记录的总体率和执行率反推识别率。
+令 $E$ 表示完成搬运到任意卡片，$C$ 表示所选卡片正确，则可观测的定义实际是：
+
+$$
+S_{\mathrm{overall}}=P(E\cap C),\qquad
+S_{\mathrm{exe}}=P(E),\qquad
+S_{\mathrm{rec}}=\frac{P(E\cap C)}{P(E)}=P(C\mid E).
+$$
+
+**【Analysis】** 这个乘法关系是条件概率恒等式，**不需要执行与识别独立**。但若要把它解释为全部试验的无条件识别能力 $P(C)$，才需要额外假设。若某模型只在易认、易到达的卡片上成功执行，条件识别率就可能偏高；执行率为零时该比值也没有定义。因此应该联读三个指标，而不能只按 Rec. SR 排名。真实表格中 Freezing VLM 的 `20/28`，正是 28 次成功执行中有 20 次选对，整体成功仍是 `20/30`。
 
 #### 连续与离散动作目标
 
-连续策略直接回归 $a_t\in\mathbb{R}^d$；离散变体把每个维度映射到 $b_t\in\{1,\ldots,256\}$。量化误差会影响末端位姿精度，因此离散化并不必然带来更好的知识保留。
+连续变体学习 $a_t\in\mathbb{R}^d$ 的条件动作生成；“连续”描述输出空间，不应把 $\pi_0$-style 生成策略简化成单步确定性 MSE 回归。离散变体把每个维度映射到 $b_t\in\{1,\ldots,256\}$。量化误差会影响末端位姿精度，因此离散化并不必然带来更好的知识保留。
 
 #### Latent action 多任务目标
 
-可将训练目标写作：
+**【Analysis】** 为理解联合监督，可概念性地写作下式；这不是论文给出的可逐项复现的损失配置：
 
 $$
 \mathcal{L}=\mathcal{L}_{\mathrm{robot}}+\lambda\mathcal{L}_{\mathrm{latent}},
 $$
 
-其中 $\mathcal{L}_{\mathrm{robot}}$ 监督低层机器人动作，$\mathcal{L}_{\mathrm{latent}}$ 监督由轨迹抽取的高层 latent action，$\lambda$ 控制两者权重。论文未公开所有实现超参数，但实验证明附加高层目标有助于识别泛化。
+其中 $\mathcal{L}_{\mathrm{robot}}$ 监督低层机器人动作，$\mathcal{L}_{\mathrm{latent}}$ 监督由轨迹抽取的高层 latent action，$\lambda$ 控制两者权重。该辅助目标对应机器人预训练阶段；完整目标、latent 编码器和权重未被充分公开。本文实验支持这套配方在该探针上有益，尚不能单独归因于“高层”这一属性或保证一般任务收益。
 
 ### 4.4 Training
 
-**【Paper】** 默认在 OXE magic-soup 的 913k 条轨迹上预训练，再用 500 条 GrinningFace 轨迹微调。检查点在 5k、10k、20k、30k steps 比较，并选择 `Val` 总体成功率最高者。基线采用连续动作；离散、co-training、latent action 是替代训练目标或数据配方。
+**【Paper】** 默认在 OXE magic-soup 的 913k 条轨迹上预训练，再用 500 条 GrinningFace 轨迹微调。检查点在 5k、10k、20k、30k steps 比较，并选择 `Val` 总体成功率最高者。因此这里的 `Val` 既参与模型选择又用于报告，不是完全未参与选择的最终测试集；比较结论应限定在这一协议下。基线采用连续动作；离散、co-training、latent action 是替代训练目标或数据配方。
 
 <Algorithm number={1} title='GrinningFace VLA 训练' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>机器人预训练轨迹、emoji 微调轨迹、VLM 初始化参数</div>
   <div slot='output'>可执行 pick-and-place 的 VLA checkpoint</div>
   <AlgorithmStep>从 OXE 或指定数据混合物采样图像、指令、proprioception 与动作。</AlgorithmStep>
-  <AlgorithmStep>根据变体选择连续动作、256-bin 离散动作、co-training 或 latent action 目标。</AlgorithmStep>
+  <AlgorithmStep>
+    根据变体选择连续动作、256-bin 离散动作、co-training 或 latent action 目标。
+  </AlgorithmStep>
   <AlgorithmStep>计算机器人动作损失及可选的视觉语言/latent action 辅助损失。</AlgorithmStep>
   <AlgorithmStep>按 full、LoRA、action expert-only 或 frozen VLM 策略更新参数。</AlgorithmStep>
-  <AlgorithmStep>在 5k/10k/20k/30k 微调步保存 checkpoint，并以 `Val` overall SR 选最优模型。</AlgorithmStep>
+  <AlgorithmStep>
+    在 5k/10k/20k/30k 微调步保存 checkpoint，并以 `Val` overall SR 选最优模型。
+  </AlgorithmStep>
 </Algorithm>
 
 ### 4.5 Inference
 
-**【Code】** 仿真推理器每一步读取渲染图、proprio 和任务描述，通过 `agent.inference` 得到动作，再调用 `env.step`。episode 结束后记录 `success`、`is_obj_placed`、`is_grasped`、三张卡片描述和目标 id。
+**【Code】** 公开脚本描述了逐步读取渲染图、proprio 和任务描述，通过 `agent.inference` 得到动作，再调用 `env.step` 的接口；但 `InferenceAgent` 要由使用者补充，不能开箱运行出论文策略。episode 结束后记录 `success`、`is_obj_placed`、`is_grasped`、三张卡片描述和目标 id。
 
 <Algorithm number={2} title='GrinningFace 推理与评估' inputLabel='输入' outputLabel='输出'>
-  <div slot='input'>当前 RGB 图像、7 维 proprioception、`Pick the cube and place it on [desc.]`</div>
+  <div slot='input'>
+    当前 RGB 图像、7 维 proprioception、`Pick the cube and place it on [desc.]`
+  </div>
   <div slot='output'>连续动作序列、执行成功率与识别成功率</div>
-  <AlgorithmStep>环境随机化方块、卡片、机械臂初始位置，并从 `train` 或 `val` emoji 集合采样三张卡。</AlgorithmStep>
+  <AlgorithmStep>
+    环境随机化方块、卡片、机械臂初始位置，并从 `train` 或 `val` emoji 集合采样三张卡。
+  </AlgorithmStep>
   <AlgorithmStep>把图像 resize 到 224×224，与 proprio 和文本一起送入 VLA。</AlgorithmStep>
   <AlgorithmStep>执行预测动作，直到方块放置成功或达到 200 步上限。</AlgorithmStep>
-  <AlgorithmStep>判断是否完成搬运，再检查目标卡片是否正确，分别累计 execution SR 与 recognition SR。</AlgorithmStep>
+  <AlgorithmStep>
+    按论文定义另判断是否完成到任一卡片的搬运，累计 overall/execution 后求条件
+    recognition；公开环境指标不足以直接完成全部统计。
+  </AlgorithmStep>
 </Algorithm>
 
 ### 4.6 代码实现对照
 
-**【Code】** 官方仓库当前 README 明确说明代码发布仍是 placeholder，但已包含可运行骨架：
+**【Code】** 本次核对官方提交 [`14d1d37`](https://github.com/zhangchuheng123/GrinningFace/tree/14d1d377f1f844b17645fb94b10cd28f6e10d01c)。README 标记为 placeholder，仓库包含环境与接口脚本，但仍有未提供的 agent、配置和本地数据路径，不能称作开箱可运行的复现：
 
-| 论文概念 | 代码位置 | 实现观察 |
-| --- | --- | --- |
-| ManiSkill3 环境 | `GrinningFace/env_widowx_v8.py` | 注册 `PickCubeWidowX-v8`，三张卡、蓝色方块、WidowX250S |
-| WidowX 控制器 | `GrinningFace/widowx_v1.py` | 6 个 arm joints + 2 个 gripper joints，PD EE pose controller |
-| 规则数据采集 | `generate_touchsim_dataset_widowx_v8.py` | 50/5/20/50 步分阶段抓取、抬升、移动、释放，目标为 500 条轨迹 |
-| 推理评估 | `inference_widowx_v8.py` | 224×224 图像、proprio 与 instruction 输入，保存每 episode 指标 |
-| 训练主干 | 未提供 | 论文中的 `π₀`-style 训练代码尚未在此仓库完整公开 |
+| 论文概念        | 代码位置                                 | 实现观察                                                                           |
+| --------------- | ---------------------------------------- | ---------------------------------------------------------------------------------- |
+| ManiSkill3 环境 | `GrinningFace/env_widowx_v8.py`          | 注册 `PickCubeWidowX-v8`，三张卡、蓝色方块、WidowX250S                             |
+| WidowX 控制器   | `GrinningFace/widowx_v1.py`              | WidowX 的 PD EE pose controller；机器人关节结构与输入的 7 维末端状态不是同一概念   |
+| 规则数据采集    | `generate_touchsim_dataset_widowx_v8.py` | 50/5/20/50 为接近、闭爪、抬升、移向目标的阶段预算，随后释放；采集目标为 500 条轨迹 |
+| 推理评估        | `inference_widowx_v8.py`                 | 224×224 图像、proprio 与 instruction 输入，保存每 episode 指标                     |
+| 训练主干        | 未提供                                   | 论文中的 `π₀`-style 训练代码尚未在此仓库完整公开                                   |
 
-**【Analysis】** 因此，论文中的 80k/30k steps、各策略损失和实验数字应视为论文事实，不能误写成已在该 GitHub 仓库中逐行复现的行为。
+**【Code】** 还有一个指标差异：`env_widowx_v8.py::evaluate` 的 `is_obj_placed` 只检查方块距 **target_card** 的距离，`success` 还要求机器人静止、没有抓住方块；它并不是“放到任意卡片”的执行成功。推理脚本保存这些字段，却没有完整实现论文的 Exe./Rec. 汇总。因此不能拿 `is_obj_placed` 直接当 execution SR。
+
+**【Analysis】** 论文的 80k/30k steps、各策略损失与表格数字属于作者报告，公开脚本可以核验部分接口和场景定义，但尚不足以逐行复现全部实验。
 
 ## 5. 实验
 
 ### 5.1 Experimental Setup
 
-**【Paper】** 仿真使用 ManiSkill3，视角尽量对齐 Bridge-v2；默认机器人是 WidowX250S。每种协议 100 次试验，重复种子实验显示 `Val` execution SR 的标准差约 1.0 个百分点、recognition SR 约 1.5 个百分点。
+**【Paper】** 仿真使用 ManiSkill3，视角尽量对齐 Bridge-v2；默认机器人是 WidowX250S。附录 B 对同一 baseline 做 5 次不同 seed 的评估，每次每协议 100 trials，`Val` execution SR 均值 93.6%、标准差 1.0 个百分点，recognition SR 均值 45.2%、标准差 1.5 个百分点。这个检查描述评估随机性的波动，不是五次独立训练的稳定性，也不能证明所有变体间的小差异都显著。
 
-![不同 VLA 训练数据集（OXE、Bridge、OXE-Bridge）的比较（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-grinningface/datasets.wjaphgwuz.webp)
+![不同 VLA 训练数据集（OXE、Bridge、OXE-Bridge）的比较（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-grinningface/datasets.wjaphgwuz.webp)
 
 真实机器人使用 RM75 + Inspire gripper，验证集上每个变体 30 次试验；除直接微调 VLM 使用 20k steps 外，其余使用 5k steps。
 
 ### 5.2 Main Results
 
-![不同预训练与微调策略在 GrinningFace 上的结果（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-grinningface/variants.362b8z1nfv.webp)
+![不同预训练与微调策略在 GrinningFace 上的结果（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-grinningface/variants.362b8z1nfv.webp)
 
 **【Paper】** 主要趋势如下：
 
 - 基线 VLA 在 `Val` 上执行率高、识别率低，说明它会搬运但不一定读懂新 emoji。
 - LoRA 比 full fine-tuning 略能保留识别率，但提升有限；只训练 action expert 在 ID 场景也会欠拟合。
-- 冻结 VLM 或从 LoRA 预训练 VLA 出发，识别率可超过 90%，但需要约 20k steps 才学会简单搬运，适应速度慢。
+- VLM+LoRA 或 LoRA 预训练 VLA+LoRA 可超过 90% 识别率，但达到该任务的良好执行需约 20k 微调 steps，baseline 约 2k–5k。这表明此设置下适配较慢，不能仅凭简单任务的步数断言它无法扩展到复杂技能。
 - co-training 只有在“桌面场景中识别 emoji”的任务设计下明显有效；只问原始 emoji `what's in the image` 并没有带来同等收益。
 - 离散动作同时损害执行率和识别率，量化误差并未换来更好的先验保留。
 - latent action 联合目标带来更好的识别率，是最有希望的结构化监督之一。
@@ -238,21 +259,23 @@ $$
 
 **【Paper】** 真实机器人结果（30 次）为：
 
-| 方法 | Exe. SR | Rec. SR |
-| --- | ---: | ---: |
-| Baseline | 30/30 | 11/30 |
-| Freezing VLM | 28/30 | 20/28 |
-| Co-training | 30/30 | 26/30 |
-| Discretized action | 30/30 | 10/30 |
-| Latent action | 30/30 | 24/30 |
+| 方法               | Exe. SR | Rec. SR |
+| ------------------ | ------: | ------: |
+| Baseline           |   30/30 |   11/30 |
+| Freezing VLM       |   28/30 |   20/28 |
+| Co-training        |   30/30 |   26/30 |
+| Discretized action |   30/30 |   10/30 |
+| Latent action      |   30/30 |   24/30 |
 
 ### 5.4 Generalization
 
-**【Paper】** 论文先验证 VLM 确实能识别 emoji：对 `Train`、`Val`、`Hard` 的描述匹配准确率分别为 90%、89%、85%；OXE 任务描述中出现的 emoji 概念少于 5%。因此 `Val` 识别率可以合理地视为 VLM 先验迁移的代理，而不是机器人数据记忆。
+**【Paper】** 论文用 VLM 给三张 emoji 生成描述，再以 CLIP 比较这些描述与目标官方标签的相似度：`Train`、`Val`、`Hard` 匹配准确率为 90%、89%、85%。这是一项描述匹配探针，不是机器人桌面视角中的直接动作准确率。作者还检查 OXE 的**任务文本**，发现其中出现的 emoji 概念少于 5%；这支持“机器人数据中稀少”的动机，但并非对全部训练图像做了泄漏审计。
 
-注意力可视化显示：VLM 能关注目标 emoji 但较分散；VLA 预训练后更关注夹爪、方块和卡片等操作相关物体；微调后对正确 emoji 的注意力更集中、对干扰卡片更少。
+**【Analysis】** 原始 emoji 集合又经 backbone 重新描述并过滤，意味着结论针对“该 VLM 已较熟悉的符号”。尤其 co-training 本身提供额外 emoji 监督，而论文没有充分交代它与验证符号的重叠约束，不能把全部增益严格归为只保留互联网预训练知识。
 
-![VLM、预训练 VLA 与微调 VLA 的 emoji 注意力图（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-grinningface/attention.1zj00dcqot.webp)
+注意力可视化显示：VLM 能关注目标 emoji 但较分散；VLA 预训练后更关注夹爪、方块和卡片等操作相关物体；微调后的展示针对 in-distribution emoji，对正确 emoji 更集中、对干扰卡片更少；这不是未见 emoji 全体样本的因果验证。
+
+![VLM、预训练 VLA 与微调 VLA 的 emoji 注意力图（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-grinningface/attention.1zj00dcqot.webp)
 
 ## 6. 方法分析
 
@@ -264,7 +287,7 @@ $$
 
 1. **诊断性而非竞赛性 benchmark**：用简单执行隔离复杂识别，避免总成功率掩盖先验遗忘。
 2. **统一控制变量**：同一 `π₀`-style backbone、同一微调数据和评估协议比较策略。
-3. **把“继承多少”变成可测量量**：`Val` recognition SR 直接刻画未见 emoji 的语义迁移。
+3. **把“继承多少”变成可测量量**：`Val` recognition SR 提供执行成功条件下的未见 emoji 选择指标，需要结合 overall 与 execution 一起解释。
 4. **横向比较训练目标**：LoRA、冻结、co-training、离散 action、latent action 和数据多样性被放进同一实验框架。
 
 ### 6.3 与已有方法的本质区别
@@ -274,26 +297,26 @@ $$
 ### 6.4 关键假设
 
 - emoji 图像在 VLM 互联网预训练中常见、在机器人轨迹中稀少。
-- 执行与识别可以用乘法近似分解。
+- 执行成功的样本对整体语义能力有足够代表性，否则条件识别率会有选择偏差。
 - 训练和验证 emoji 的描述与 VLM 的语义理解一致。
-- 100 次仿真试验足以稳定估计每种协议的成功率。
+- baseline 的评估波动能为协议稳定性提供线索，但其他变体与训练随机性仍需另行检查。
 
 **【Analysis】** 这些假设让 benchmark 很干净，但也意味着它更像“先验保留探针”，不能覆盖三维几何、长时序规划或真实接触失败的全部问题。
 
 ## 7. 局限性
 
-### 7.1 作者明确提出的局限
+### 7.1 论文研究范围与公开程度
 
-**【Paper】** 当前任务只要求简单 pick-and-place，不能证明某种策略能扩展到复杂 motor skills；co-training 只覆盖与 emoji 识别相关的简化视觉语言任务；latent action 的具体构造与尺度仍有进一步研究空间。官方代码仓库也仍处于 placeholder 发布阶段。
+**【Paper】** 作者主动将 motor skill 限定为简单 pick-and-place，并将 co-training 简化到 emoji 相关视觉语言任务。**【Analysis】** 因而这些结果不能直接外推到复杂操作或一般世界知识；latent action 的构造和损失权重也缺少足够复现细节。**【Code】** 本次核验的仓库仍标记 placeholder，且确有未提供的训练与评分环节。
 
 ### 7.2 自己分析得到的局限
 
 **【Analysis】**
 
-1. 识别率是由总体率和执行率反推的，乘法分解的独立性并未被严格检验。
+1. Rec. SR 是执行成功子集的条件概率，不能在执行率差异大时当作无条件能力排名。
 2. 只使用 100 个验证 emoji，且描述经过 VLM 重标注与过滤，可能高估了模型熟悉度。
-3. 真实机器人只有 30 次试验，足以看趋势但不适合精细比较小幅差异。
-4. 论文没有公开完整训练实现，读者难以复现实验中所有策略和超参数。
+3. 真实机器人每变体只有 30 次试验：co-training 26/30 与 latent action 24/30 只差两次，论文未给出足以确定二者稳健排序的区间或重复训练统计。
+4. 以同一个 Val 集选最佳 checkpoint 后报告，以及不完整的训练/评分发布，使结果更适合诊断性比较，而非无偏的最终泛化估计。
 5. 注意力图是相关性证据，不等价于因果解释；更集中不一定意味着真正的语义推理。
 
 ## 8. 启发与研究思考
@@ -310,3 +333,5 @@ $$
   本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
   表示基于论文和代码的分析推断。
 </Aside>
+
+核验来源：[论文 v1 全文与附录](https://arxiv.org/html/2511.06619v1)、[官方代码固定提交](https://github.com/zhangchuheng123/GrinningFace/tree/14d1d377f1f844b17645fb94b10cd28f6e10d01c)。

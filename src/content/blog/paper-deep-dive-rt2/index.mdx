@@ -1,9 +1,10 @@
 ---
 title: 'RT-2 论文精读：Vision-Language-Action Models'
 publishDate: 2026-08-23
-updatedDate: 2026-08-23
+updatedDate: 2026-09-22
 description: '精读 RT-2：把低层机器人动作编码成 VLM 文本 token，与互联网图文数据 co-fine-tune，让 VLA 直接输出控制动作，并系统分析其泛化、符号理解、推理与代码边界。'
-heroImage: { src: 'https://pic.hana0721.top/57793944_p0_master1200.4xv4u7fok2.webp', color: '#8C8275' }
+heroImage:
+  { src: 'https://pic.hana0721.top/57793944_p0_master1200.4xv4u7fok2.webp', color: '#8C8275' }
 category: 'research'
 pixivLink: '57793944'
 tags:
@@ -72,7 +73,6 @@ paper:
     - 'Brianna Zitkovich'
   venue: 'CoRL 2023'
   year: 2023
-  code: 'https://github.com/google-research/robotics_transformer'
   project: 'https://robotics-transformer2.github.io/'
 ---
 
@@ -101,7 +101,7 @@ import { Aside } from '@/components/user'
 
 **项目主页**：[RT-2: Vision-Language-Action Models](https://robotics-transformer2.github.io/)
 
-**代码链接**：[google-research/robotics_transformer](https://github.com/google-research/robotics_transformer)
+**实现公开情况**：项目页未提供 RT-2 官方训练代码或权重；[google-research/robotics_transformer](https://github.com/google-research/robotics_transformer) 是 RT-1 仓库，仅供动作表示和基线参考。
 
 <img
   src='https://pic.hana0721.top/blog/paper-deep-dive-rt2/rt2-teaser.9rk4vpo60i.webp'
@@ -123,10 +123,10 @@ import { Aside } from '@/components/user'
 **【Paper】**
 
 1. 定义 VLA，把预训练 VLM 的 `{vision, text} -> text` 输出空间扩展到机器人动作 token，且不新增任何 action-only 参数。
-2. 将 RT-1 的 8 维动作离散化方案搬到 VLM tokenizer：连续维度均匀分成 256 个 bin，PaLI-X 使用数字 token，PaLM-E 覆盖最不常用的 256 个 token。
+2. 沿用 RT-1 的逐维离散化思路，在 RT-2 中使用不含移动底座命令的 8 维动作，并适配 VLM tokenizer：连续维度均匀分成 256 个 bin，PaLI-X 使用数字 token，PaLM-E 覆盖最不常用的 256 个 token。
 3. 使用 co-fine-tuning，而不是只用 robot data 微调，防止 VLM 在学会低层动作时遗忘互联网视觉和语言知识。
 4. 通过 multi-TPU cloud service 部署 55B VLA，达到 1-3 Hz 闭环控制，并验证约 6000 条真实机器人 evaluation trajectory。
-5. 量化并验证 symbol understanding、reasoning、person recognition 和 chain-of-thought 等 emergent capability。
+5. 定量测量 symbol understanding、reasoning、person recognition，并对额外微调的 chain-of-thought 变体提供定性示例。
 
 ## 2. 背景与相关工作
 
@@ -161,7 +161,7 @@ $$
 \log p_\theta(y_t \mid x_{\text{img}}, x_{\text{text}}, y_{<t})
 $$
 
-其中 $\mathcal A$ 是 action token 的位置集合。非动作 token 的位置可参与模型推理，但不计入 action loss。
+**【Analysis】** 这是机器人样本的行为克隆目标示意，$\mathcal A$ 是动作目标的位置，不能当作完整 co-fine-tuning 的损失定义。互联网样本需要对其回答、caption 等目标文本计算语言损失；否则把 web 样本放进 batch 并不会训练保留这些能力。论文没有公开底层 loss mask 实现，因此不能进一步声称所有非动作 token 在所有样本中都不受监督。
 
 ## 4. 方法
 
@@ -169,7 +169,7 @@ $$
 
 RT-2 没有设计新的视觉-语言-动作专用网络，而是直接改造两个已有 VLM：
 
-- **RT-2-PaLI-X**：基于 PaLI-X 5B / 55B。视觉编码器为 ViT，encoder-decoder backbone 为 32B、50 层 UL2 类似结构。
+- **RT-2-PaLI-X**：基于 PaLI-X 5B / 55B；附录 D 的 ViT-22B 与 32B、50 层 encoder-decoder 描述对应大版本，不能同时套到总参数只有 5B 的小版本。
 - **RT-2-PaLM-E**：基于 PaLM-E 12B。视觉编码器为 ViT-4B，语言骨干为 decoder-only PaLM。
 
 <img
@@ -209,13 +209,15 @@ $$
 - **功能**：防止只在 robot data 上 fine-tune 导致灾难性遗忘，同时让模型在训练中持续看到抽象视觉概念与低层动作。
 - **为什么需要**：消融实验显示 co-fine-tuning 优于 robot-data-only fine-tuning，更远优于 from scratch。
 
-论文没有把 co-fine-tuning 写成一个加权 loss，而是通过调整每个 batch 中 robot data 的采样比例实现。RT-2-PaLI-X 的 robot data 约占 50%，RT-2-PaLM-E 约占 66%。
+论文通过调整数据采样比例实现混合：RT-2-PaLI-X 的 robot data 约占 50%，RT-2-PaLM-E 约占 66%。附录 B 说明 PaLI-X co-fine-tuning 不使用 Episodic WebLI，所以也不是原封不动保留所有预训练数据。
+
+**【Analysis】** 可将其概念化为 $\mathcal L=\rho\,\mathbb E_{D_{robot}}[\ell_{action}]+(1-\rho)\,\mathbb E_{D_{web}}[\ell_{text}]$；这是对采样训练的解释式，不是论文给出的实现公式。若两类目标序列长度与 loss 归一化方式不同，样本占比也不等于实际 token 数或梯度贡献占比。
 
 #### Output Constraint
 
 - **输入**：模型生成的 logits。
 - **输出**：robot-action task 下只允许采样 256 个合法 action token，web task 下仍允许完整自然语言词汇表。
-- **功能**：保证真实机器人执行的动作 token 一定可被 de-tokenize。
+- **功能**：限制输出词表，降低生成自然语言或无法解析符号的风险；词表合法不等于动作安全、语义正确或任务成功，也不能代替对长度、字段顺序和 terminate 类别的协议检查。
 - **为什么需要**：VLM 可能生成非法数字、标点或自然语言，若不约束，这些输出无法映射为机器人动作。
 
 ### 4.3 关键公式
@@ -233,7 +235,7 @@ b_i
 \right\rfloor
 $$
 
-de-tokenize 时用相同映射把 bin center 或 token value 还原回连续区间。RT-2 论文没有给出这一公式的显式编号，但动作空间、256 bin 和均匀离散化均在论文中明确描述。
+**【Analysis】** 上式是沿用 RT-1 公开 tokenizer 写出的解释性量化式，实际还需先 clip 到动作范围；RT-1 的反变换是 $a_i=a_i^{\min}+b_i(a_i^{\max}-a_i^{\min})/255$，并非任意选择 bin center。RT-2 原文确认均匀 256-bin 设计，但没有公布逐字段边界与 tokenizer 实现，因此不能声称这条公式就是其已核实源代码。
 
 #### Next-Token Prediction
 
@@ -257,7 +259,7 @@ CoT 变体把 prompt 扩展为：
 Instruction: I'm hungry. Plan: pick rxbar chocolate. Action: 1 128 124 136 121 158 111 255.
 ```
 
-其中 `Plan` 是自然语言中间推理，`Action` 是最终动作 token。训练时先让模型生成 Plan，再生成 Action。
+其中 `Plan` 是目的/技能描述，`Action` 是同一输出序列中的低层动作。CoT 变体需要加入这种格式的数据并额外微调数百步，不是给主模型加一句“逐步思考”便得到的零样本结果。示例中的 plan 通常是一条技能指令，不能仅凭它就断言模型构造了完整多步任务树。
 
 ### 4.4 Training
 
@@ -276,15 +278,21 @@ Instruction: I'm hungry. Plan: pick rxbar chocolate. Action: 1 128 124 136 121 1
 - **Optimization Details**：沿用 PaLI-X/PaLM-E 原始学习率 schedule 和正则化。
 
 <Algorithm number={1} title='RT-2 Co-Fine-Tuning' inputLabel='输入' outputLabel='输出'>
-  <div slot='input'>预训练 VLM $\theta_0$、robot demonstration data、web VLM data、动作 tokenizer</div>
+  <div slot='input'>
+    预训练 VLM $\theta_0$、robot demonstration data、web VLM data、动作 tokenizer
+  </div>
   <div slot='output'>可同时输出自然语言和 robot action token 的 VLA policy $\theta$</div>
-  <AlgorithmStep keyword='Given'>预训练 VLM、robot data 采样权重 $w_r$、web data 采样权重 $w_v$</AlgorithmStep>
+  <AlgorithmStep keyword='Given'>
+    预训练 VLM、robot data 采样权重 $w_r$、web data 采样权重 $w_v$
+  </AlgorithmStep>
   <AlgorithmStep>把连续 robot action 离散化为 8 个 token，并映射到 VLM 词汇表</AlgorithmStep>
-  <AlgorithmStep>把 robot sample 构造成 VQA 风格 prompt：instruction 后接 action token</AlgorithmStep>
+  <AlgorithmStep>
+    把 robot sample 构造成 VQA 风格 prompt：instruction 后接 action token
+  </AlgorithmStep>
   <AlgorithmStep keyword='for'>每个训练 step</AlgorithmStep>
   <AlgorithmStep indent={1}>按比例从 robot data 和 web VLM data 构造混合 batch</AlgorithmStep>
-  <AlgorithmStep indent={1}>模型自回归生成 token</AlgorithmStep>
-  <AlgorithmStep indent={1}>只在 action token 位置计算 next-token cross-entropy loss</AlgorithmStep>
+  <AlgorithmStep indent={1}>以标准自回归监督训练方式预测目标序列的下一 token</AlgorithmStep>
+  <AlgorithmStep indent={1}>robot 样本监督动作目标，web 样本监督回答或描述目标</AlgorithmStep>
   <AlgorithmStep indent={1}>对 web data 和 robot action data 做联合梯度更新</AlgorithmStep>
   <AlgorithmStep keyword='end for' />
   <AlgorithmStep keyword='return'>co-fine-tuned VLA 参数 $\theta$</AlgorithmStep>
@@ -297,11 +305,17 @@ Instruction: I'm hungry. Plan: pick rxbar chocolate. Action: 1 128 124 136 121 1
 <Algorithm number={2} title='RT-2 Closed-Loop Control' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>训练好的 VLA、当前 RGB observation、自然语言 instruction、action tokenizer</div>
   <div slot='output'>每个控制周期执行的 robot action</div>
-  <AlgorithmStep>构造 VQA prompt：`Q: what action should the robot take to [instruction]? A:`</AlgorithmStep>
+  <AlgorithmStep>
+    构造 VQA prompt：`Q: what action should the robot take to [instruction]? A:`
+  </AlgorithmStep>
   <AlgorithmStep keyword='for'>每个控制周期</AlgorithmStep>
   <AlgorithmStep indent={1}>读取当前图像并送入 VLM</AlgorithmStep>
-  <AlgorithmStep indent={1}>自回归生成 action token，限制只从合法 action token 中采样</AlgorithmStep>
-  <AlgorithmStep indent={1}>把 8 个 token de-tokenize 为 terminate、6-DoF displacement 和 gripper command</AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    自回归生成 action token，限制只从合法 action token 中采样
+  </AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    把 8 个 token de-tokenize 为 terminate、6-DoF displacement 和 gripper command
+  </AlgorithmStep>
   <AlgorithmStep indent={1}>将动作发送给机器人执行</AlgorithmStep>
   <AlgorithmStep indent={1}>若预测到 terminate 或环境给出结束信号，则结束 episode</AlgorithmStep>
   <AlgorithmStep keyword='end for' />
@@ -313,22 +327,22 @@ Instruction: I'm hungry. Plan: pick rxbar chocolate. Action: 1 128 124 136 121 1
 
 **【Code】**
 
-| 论文概念 | 官方仓库文件 | 代码实际行为 |
-| --- | --- | --- |
-| 动作 256 bin 离散化 | `tokenizers/action_tokenizer.py` | `RT1ActionTokenizer` 接收 `vocab_size` 与 `action_order`，连续维度用 `(a - min) / (max - min) * (vocab_size - 1)` 做 bucket，int32 terminate 用 one-hot argmax 提取 token |
-| 8 维动作序列 | `tokenizers/action_tokenizer.py` | 按 action order 拼接 terminate、world_vector、rotation_delta、gripper_closedness，得到 8 个 token |
-| RT-1 Transformer 网络 | `transformer_network.py` | `TransformerNetwork` 创建 image tokenizer、action tokenizer 和 decoder-only Transformer；默认 `vocab_size=256`、`token_embedding_size=512` |
-| 训练 loss | `transformer_network.py` | 用 `SparseCategoricalCrossentropy` 对 action token 位置计算 loss |
-| 闭环推理 | `transformer_network.py` | `outer_rank == 1` 时逐个预测 `tokens_per_action` 个 token，再把 token detokenize 为动作 |
-| RT-1 baseline 配置 | `configs/transformer_mixin.gin` | `num_layers=8`、`layer_size=128`、`num_heads=8`、`feed_forward_size=512`、`time_sequence_length=6`、`use_token_learner=True` |
+| 论文概念              | 官方仓库文件                     | 代码实际行为                                                                                                                                                              |
+| --------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 动作 256 bin 离散化   | `tokenizers/action_tokenizer.py` | `RT1ActionTokenizer` 接收 `vocab_size` 与 `action_order`，连续维度用 `(a - min) / (max - min) * (vocab_size - 1)` 做 bucket，int32 terminate 用 one-hot argmax 提取 token |
+| 动作序列长度          | `tokenizers/action_tokenizer.py` | 按 action spec 和 action order 决定；文件中的 8-token 示例不含 base，RT-1 论文完整移动控制接口另含 3 维 base                                                              |
+| RT-1 Transformer 网络 | `transformer_network.py`         | `TransformerNetwork` 创建 image tokenizer、action tokenizer 和 decoder-only Transformer；默认 `vocab_size=256`、`token_embedding_size=512`                                |
+| 训练 loss             | `transformer_network.py`         | 用 `SparseCategoricalCrossentropy` 对 action token 位置计算 loss                                                                                                          |
+| RT-1 闭环推理         | `transformer_network.py`         | 虽有逐维循环，但动作 embedding 被清零，并屏蔽动作间注意力；不能用它证明 RT-2 的自回归 token 条件机制                                                                      |
+| RT-1 baseline 配置    | `configs/transformer_mixin.gin`  | `num_layers=8`、`layer_size=128`、`num_heads=8`、`feed_forward_size=512`、`time_sequence_length=6`、`use_token_learner=True`                                              |
 
-**【Analysis】** 从代码可以确认两点：其一，RT-2 的 action discretization 确实继承了 RT-1 的 256-bin 表示；其二，`google-research/robotics_transformer` 的视觉模块仍是 FiLM EfficientNet + TokenLearner，与 RT-2 使用 PaLI-X/PaLM-E ViT 的路径不同。因此不能把该仓库当作 RT-2 的实现，但它足以说明 RT-1 baseline 和 action tokenization 的底层行为。
+**【Analysis】** “RT-2 沿用 256-bin 设计”的证据来自 RT-2 §3.2；RT-1 源码只能说明其前身的一种具体实现。PaLM-E 的覆盖词表、PaLI-X 的数字 token、混合训练 loss 和云端服务均未在该仓库实现，不能由 RT-1 代码反向证明。
 
 ## 5. 实验
 
 ### 5.1 Experimental Setup
 
-**【Paper】** 论文使用约 6000 条 evaluation trajectory。主实验沿用 RT-1 的 seen tasks，包括 pick、knock、place upright、move、open/close drawer、pick from/place into drawer 等 200 多个任务。泛化实验分为 unseen objects、unseen backgrounds、unseen environments，每类再分 easy 和 hard。
+**【Paper】** 论文中模型与基线的各种评测合计约 6000 条 evaluation trajectory，不能理解为每个模型各跑 6000 次。主实验沿用 RT-1 的 seen tasks，包括 pick、knock、place upright、move、open/close drawer、pick from/place into drawer 等 200 多个任务。泛化实验分为 unseen objects、unseen backgrounds、unseen environments，每类再分 easy 和 hard。附录 F.2 说明一般泛化指令重复 1–5 次，emergent 指令各重复 5 次；后者还用同场景连续测试不同模型的 A/B 设计减小环境差异。这里的对象/背景/环境并非完全正交：hard background 同时含新物体，hard environment 是带显示器和杂物的办公桌。
 
 <img
   src='https://pic.hana0721.top/blog/paper-deep-dive-rt2/generalization-evals.8s41ijle7e.webp'
@@ -345,12 +359,12 @@ Baselines 都使用与 RT-2 相同的 robot data：
 
 - **RT-1**：35M 参数的 transformer policy。
 - **VC-1**：ViT-L 视觉表示，加 Universal Sentence Encoder 语言 embedding，再接 RT-1 backbone。
-- **R3M**：ResNet50 视觉表示，按与 VC-1 相同方式构造 policy。
+- **R3M**：ResNet50 视觉表示，按与 VC-1 相同方式构造 policy。附录 C 明确 VC-1 与 R3M 都解冻视觉编码器训练，不能把结果归因于基线使用了冻结特征。
 - **MOO**：VLM 先输出 object-centric semantic map，再交给 RT-1 backbone。
 
 ### 5.2 Main Results
 
-**【Paper】** RT-2 在 seen tasks 上与 RT-1 接近，在 unseen categories 上明显领先。两个 RT-2 实例的 unseen average 都约为 62%，相对 RT-1 和 MOO 的下一个最好结果约提升 2 倍，相对更弱 baseline 约提升 6 倍。
+**【Paper】** RT-2 在 seen tasks 上与 RT-1 接近，在 unseen categories 上明显领先。两个 RT-2 实例的 unseen average 都约为 62%，约为 RT-1 的 1.94 倍、MOO 的 1.77 倍；这里是成功率比值，不是增加 200%，对 RT-1 的绝对差是 30 个百分点。
 
 <img
   src='https://pic.hana0721.top/blog/paper-deep-dive-rt2/rt2-main-results.232ltsoa29.webp'
@@ -363,20 +377,22 @@ Baselines 都使用与 RT-2 相同的 robot data：
   style='max-width:100%; height:auto;'
 />
 
-| Model | Seen Tasks | Unseen Objects Easy | Unseen Objects Hard | Unseen Backgrounds Easy | Unseen Backgrounds Hard | Unseen Environments Easy | Unseen Environments Hard | Unseen Average |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| R3M | 45 | 32 | 14 | 13 | 9 | 0 | 2 | 12 |
-| VC-1 | 63 | 34 | 10 | 13 | 3 | 0 | 0 | 10 |
-| RT-1 | **92** | 31 | 43 | 71 | 9 | 26 | 14 | 32 |
-| MOO | 75 | 58 | 48 | 38 | 41 | 19 | 3 | 35 |
-| RT-2-PaLI-X-55B | **91** | **70** | **62** | **96** | **48** | **63** | **35** | **62** |
-| RT-2-PaLM-E-12B | **93** | **84** | **76** | **75** | **71** | **36** | **33** | **62** |
+| Model           | Seen Tasks | Unseen Objects Easy | Unseen Objects Hard | Unseen Backgrounds Easy | Unseen Backgrounds Hard | Unseen Environments Easy | Unseen Environments Hard | Unseen Average |
+| --------------- | ---------: | ------------------: | ------------------: | ----------------------: | ----------------------: | -----------------------: | -----------------------: | -------------: |
+| R3M             |         45 |                  32 |                  14 |                      13 |                       9 |                        0 |                        2 |             12 |
+| VC-1            |         63 |                  34 |                  10 |                      13 |                       3 |                        0 |                        0 |             10 |
+| RT-1            |     **92** |                  31 |                  43 |                      71 |                       9 |                       26 |                       14 |             32 |
+| MOO             |         75 |                  58 |                  48 |                      38 |                      41 |                       19 |                        3 |             35 |
+| RT-2-PaLI-X-55B |     **91** |              **70** |              **62** |                  **96** |                  **48** |                   **63** |                   **35** |         **62** |
+| RT-2-PaLM-E-12B |     **93** |              **84** |              **76** |                  **75** |                  **71** |                   **36** |                   **33** |         **62** |
 
-Emergent capability 定量实验中，RT-2-PaLI-X-55B 的 average success rate 为 60%，RT-1 为 17%，VC-1 为 11%。RT-2-PaLI-X 相对最好 baseline 在平均成功率上超过 3 倍。
+**【Paper】** Emergent 实验中，RT-2-PaLI-X-55B 的 average success rate 为 60%，RT-1 为 17%，VC-1 为 11%；约为 RT-1 的 3.53 倍，绝对增加 43 个百分点。“Emergent”在本文指机器人动作数据中未示范的语义能力迁移，并不是用规模曲线证明突然出现的能力阈值。
+
+**【Paper】** 附录 H 的脚注还说明 PaLM-E 预训练含用于高层 VQA 规划的机器人图像，可能接近泛化测试场景，但没有这些测试对应的低层动作。这支持动作监督之外的迁移，不能再表述为模型从未在任何预训练阶段见过类似机器人场景。
 
 <img
   src='https://pic.hana0721.top/blog/paper-deep-dive-rt2/rt2-emergent.9o0ixzv334.webp'
-  alt='RT-2 与 baseline 在 symbol understanding、reasoning、person recognition 上的对比（论文 Figure 5a）'
+  alt='RT-2 与 baseline 在 symbol understanding、reasoning、person recognition 上的对比（论文 Figure 6a）'
   class='zoomable'
   width='2112'
   height='1199'
@@ -385,19 +401,19 @@ Emergent capability 定量实验中，RT-2-PaLI-X-55B 的 average success rate �
   style='max-width:100%; height:auto;'
 />
 
-Language-Table 仿真 benchmark 上，RT-2-PaLI-3B 得到 `90 ± 10`，高于 BC-Zero `72 ± 3`、RT-1 `74 ± 13` 和 LAVA `77 ± 4`。
+**【Paper】** Language-Table 仿真 benchmark 上，RT-2-PaLI-3B 为 `90 ± 10`，对照为 BC-Zero `72 ± 3`、RT-1 `74 ± 13`、LAVA `77 ± 4`。它另外在 Language-Table 数据上训练，并非主实验厨房 checkpoint 直接迁移：输入两帧，动作是各取 -10 至 +10 的二维位移 token，还联合指令、手臂位置、帧间时间和成功判断四类辅助预测任务。真实新物体表现仅作定性展示，不属于这个仿真 90% 的分母；论文也没有在该表清楚定义 ± 的统计口径，不能擅自解释为置信区间。
 
 ### 5.3 Ablation Study
 
 **【Paper】** 消融比较 RT-2-PaLI-X 5B/55B，以及 from scratch、fine-tuning、co-fine-tuning 三种训练方式。主要结论：
 
 - from scratch 即使 5B 也表现很差，说明 VLM 预训练权重是泛化的关键。
-- co-fine-tuning 优于 robot-data-only fine-tuning，说明保留 web data 可减轻遗忘。
-- 55B 优于 5B，说明模型规模仍能带来额外泛化收益。
+- 55B co-fine-tuning 的报告平均分 52→63；5B 仅 42→44，且背景 easy/hard 分别 79→67、50→29。因此是本评测平均分的收益，不能写成所有场景稳定改善。减轻遗忘是作者解释，本文未提供微调前后 web benchmark 的直接遗忘量测。
+- 55B 的平均泛化优于 5B，但二者微调步数分别为 80K 和 270K，且预训练模型不同，不能视为固定数据和计算预算下只改变参数量的干净 scaling law。
 
 <img
   src='https://pic.hana0721.top/blog/paper-deep-dive-rt2/rt2-ablations.8s41ijleaw.webp'
-  alt='RT-2-PaLI-X 在模型规模和 from scratch/fine-tuning/co-fine-tuning 上的消融（论文 Figure 5b）'
+  alt='RT-2-PaLI-X 在模型规模和 from scratch/fine-tuning/co-fine-tuning 上的消融（论文 Figure 6b）'
   class='zoomable'
   width='2112'
   height='1192'
@@ -406,13 +422,15 @@ Language-Table 仿真 benchmark 上，RT-2-PaLI-3B 得到 `90 ± 10`，高于 BC
   style='max-width:100%; height:auto;'
 />
 
-| Model | Training | Unseen Objects Easy | Unseen Objects Hard | Unseen Backgrounds Easy | Unseen Backgrounds Hard | Unseen Environments Easy | Unseen Environments Hard | Average |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| RT-2-PaLI-X 5B | from scratch | 0 | 10 | 46 | 0 | 0 | 0 | 9 |
-| RT-2-PaLI-X 5B | fine-tuning | 24 | 38 | 79 | 50 | 36 | 23 | 42 |
-| RT-2-PaLI-X 5B | co-fine-tuning | 60 | 38 | 67 | 29 | 44 | 24 | 44 |
-| RT-2-PaLI-X 55B | fine-tuning | 60 | 62 | 75 | 38 | 57 | 19 | 52 |
-| RT-2-PaLI-X 55B | co-fine-tuning | 70 | 62 | 96 | 48 | 63 | 35 | 63 |
+| Model           | Training       | Unseen Objects Easy | Unseen Objects Hard | Unseen Backgrounds Easy | Unseen Backgrounds Hard | Unseen Environments Easy | Unseen Environments Hard | Average |
+| --------------- | -------------- | ------------------: | ------------------: | ----------------------: | ----------------------: | -----------------------: | -----------------------: | ------: |
+| RT-2-PaLI-X 5B  | from scratch   |                   0 |                  10 |                      46 |                       0 |                        0 |                        0 |       9 |
+| RT-2-PaLI-X 5B  | fine-tuning    |                  24 |                  38 |                      79 |                      50 |                       36 |                       23 |      42 |
+| RT-2-PaLI-X 5B  | co-fine-tuning |                  60 |                  38 |                      67 |                      29 |                       44 |                       24 |      44 |
+| RT-2-PaLI-X 55B | fine-tuning    |                  60 |                  62 |                      75 |                      38 |                       57 |                       19 |      52 |
+| RT-2-PaLI-X 55B | co-fine-tuning |                  70 |                  62 |                      96 |                      48 |                       63 |                       35 |      63 |
+
+**【Analysis】** 这里保留附录 Table 6 的原始数值；其 55B 行六个分项与主结果 Table 4 完全相同，但 average 写为 63，主表则是 62。六个已取整分项的算术均值为 62.33，论文未解释汇总差别，所以不把这 1 个百分点当成另一项模型改进。
 
 ### 5.4 Generalization
 
@@ -422,11 +440,11 @@ Language-Table 仿真 benchmark 上，RT-2-PaLI-3B 得到 `90 ± 10`，高于 BC
 - **Reasoning**：包括 math、logos、nutrition、color/multilingual。RT-2-PaLI-X-55B average 为 46%，RT-2-PaLM-E-12B 为 43%。PaLM-E 在 math 上更好，论文归因于 PaLM-E 的预训练 mixture 有更强数学能力。
 - **Person Recognition**：如 `move coke can to taylor swift`、`move coke can to person with glasses`。RT-2-PaLI-X-55B average 为 53%，RT-1 为 20%。
 
-Chain-of-thought 变体仅在 PaLM-E 上额外 fine-tune few hundred gradient steps，使用 `Instruction / Plan / Action` 数据格式。论文展示的 CoT rollout 说明模型能先做自然语言规划，再执行动作。
+Chain-of-thought 变体仅在 PaLM-E 上额外 fine-tune few hundred gradient steps，使用 `Instruction / Plan / Action` 数据格式。论文展示的 CoT rollout 说明模型能够输出语言计划并执行相关动作，但未提供 CoT 与非 CoT 的受控成功率比较。“拿起可当锤子的石头”检验的是语义选物，不等于机器人已学会用石头锤钉子。
 
 <img
   src='https://pic.hana0721.top/blog/paper-deep-dive-rt2/rt2-cot.9o0ixzv2xm.webp'
-  alt='RT-2 chain-of-thought rollout：模型先输出 Plan，再输出 Action（论文 Figure 6）'
+  alt='RT-2 chain-of-thought rollout：模型先输出 Plan，再输出 Action（论文 Figure 7）'
   class='zoomable'
   width='2325'
   height='1250'
@@ -441,14 +459,14 @@ Chain-of-thought 变体仅在 PaLM-E 上额外 fine-tune few hundred gradient st
 
 **【Paper】** 有效性的直接来源是 VLM 预训练权重已经编码了开放词汇视觉概念、物体关系和语言推理。RT-2 把动作预测放进与 VQA 相同的 token 空间后，模型可以在不新增 action-only 参数的情况下，把这些语义能力复用到低层动作选择。
 
-**【Analysis】** 另一个更隐蔽但重要的原因是 action token 位于模型原有的输出层。相比另加 MLP action head，共享整个输出空间会让梯度、tokenizer、inference 采样逻辑和语言能力都保持在同一表示中，减少新模块对预训练分布的破坏。
+**【Analysis】** 共享输出层提供了最小改造的训练接口，但 token ID 本身不具有真实世界动力学知识：数字 128 被赋予某个动作量，是机器人数据监督建立的映射。论文没有与同骨干、同数据、同预算的新增 action head 作受控比较，因此不能将增益唯一归因于“不增加参数”或声称已证明共享词表更少破坏预训练分布。
 
 ### 6.2 核心创新
 
 **【Analysis】**
 
 1. 将 “action as text tokens” 作为通用 recipe，使任意可 fine-tune 的生成式 VLM 都有机会变成 VLA。
-2. 明确 co-fine-tuning 对保留 web knowledge 的必要性，并通过 from scratch / fine-tuning / co-fine-tuning 消融给出证据。
+2. 用 from scratch / fine-tuning / co-fine-tuning 对照展示预训练与持续混合 web 数据的作用，同时保留不同模型和场景收益不一致的边界。
 3. 用 output constraint 和 cloud TPU serving 解决了大 VLM 在真实机器人上的 legal action 与实时控制问题。
 4. 把 emergent capability 从 demo 变成可量化的 symbol、reasoning、person recognition 三组 benchmark。
 
@@ -473,7 +491,8 @@ Chain-of-thought 变体仅在 PaLM-E 上额外 fine-tune few hundred gradient st
 
 1. VLM 预训练不能增加新的 physical motions。模型仍只会 robot data 中出现过的动作，只能把这些动作部署到新的语义场景中。
 2. 55B VLA 计算成本高，实时 inference 可能成为高频控制任务的瓶颈。论文建议未来研究 quantization 和 distillation。
-3. 可用来构造 VLA 的开源 VLM 仍然较少，微调 API 也未普遍开放。
+3. 作者在 2023 年写作时指出可用 VLM 和微调 API 的开放性不足；这是论文时代的条件，不能当作当前生态现状。
+4. 附录 G 展示“选对对象却控制失败”：笔滚落桌面，香蕉的接触点偏离质心。还明确报告按把手抓取、擦拭或工具使用、精细折叠及多层间接推理表现不佳。语义迁移与动力学泛化必须分别验证。
 
 ### 7.2 自己分析得到的局限
 
@@ -499,6 +518,7 @@ Chain-of-thought 变体仅在 PaLM-E 上额外 fine-tune few hundred gradient st
 
 <Aside type='note' title='阅读提示'>
   本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
-  表示基于论文和代码的分析推断。RT-2 本身没有公开官方训练代码，`google-research/robotics_transformer`
-  仅包含 RT-1，因此代码对照只用于验证共享动作表示和 baseline 行为。
+  表示基于论文和代码的分析推断。RT-2
+  本身没有公开官方训练代码，`google-research/robotics_transformer` 仅包含
+  RT-1，因此代码对照只用于验证共享动作表示和 baseline 行为。
 </Aside>

@@ -1,7 +1,7 @@
 ---
 title: 'InternData-A1 论文精读：合成数据能否预训练通用机器人策略？'
 publishDate: 2026-08-27
-updatedDate: 2026-08-27
+updatedDate: 2026-09-22
 description: '精读 InternData-A1：用可组合、高保真、跨 embodiment 的合成操控数据预训练 π₀，验证其能在仿真和真实机器人任务中匹敌闭源 π-dataset。'
 heroImage:
   { src: 'https://pic.hana0721.top/3602563_p0_master1200.8hh43k1p88.webp', color: '#8C8275' }
@@ -45,7 +45,7 @@ import { Aside } from '@/components/user'
 
 <ArxivRating
   id='2511.16651'
-  tldr='InternData-A1 用可组合技能、物理与视觉随机化生成 63.7 万条高保真合成轨迹；仅以它预训练的 π₀ 在 49 个仿真任务和 9 个真实任务上可匹敌甚至超过以闭源 π-dataset 预训练的基线。'
+  tldr='InternData-A1 用可组合技能、物理与视觉随机化生成 63.7 万条高保真合成轨迹；以它进行机器人预训练、再经下游任务后训练的 π₀，在 49 个仿真任务和 9 个真实任务上匹敌或超过官方 π₀ 基线。'
   rank={4}
 />
 
@@ -57,7 +57,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** InternData-A1 的论点不是“仿真替代真实数据”，而是：当合成数据同时覆盖足够多的
 embodiment、场景、物体物理和可组合技能时，它可以提供强到足以预训练通用 VLA（Vision-Language-Action）
-Policy 的动作先验；论文以与 $\pi_0$ 相同的架构，检验这种先验能否追平闭源 $\pi$-dataset。
+Policy 的动作先验；论文以与 $\pi_0$ 相同的架构，检验这种先验在相同下游后训练流程下能否追平闭源 $\pi$-dataset。这里“仅合成”限定机器人预训练数据，视觉—语言部分仍继承 PaliGemma 的预训练知识。
 
 ### 核心贡献
 
@@ -106,7 +106,7 @@ $\mathcal D_{sim}=\{(o_{1:T}, q_{1:T}, a_{1:T}, l)\}$：$o$ 是多视角 RGB 与
 
 #### 原子技能与任务组合
 
-**【Paper】** 每个 scripted skill 接收物体状态（pose、joint state）、机器人状态（base 与 end-effector pose）和用户约束，输出目标末端的 6D waypoint。以 Pick 为例，系统筛选 grasp candidates，生成 pre-grasp、grasp 和 post-grasp pose；与关节物体交互的 Push 则根据 contact annotation 生成 pre-contact、contact 与 post-contact waypoint。用户只需指定左右臂、技能的串/并行关系和少量空间范围。
+**【Paper】** 每个 scripted skill 接收物体状态（pose、joint state）、机器人状态（base 与 end-effector pose）和用户约束，输出目标末端的 6D waypoint。以 Pick 为例，系统筛选 grasp candidates，生成 pre-grasp、grasp 和 post-grasp pose；与关节物体交互的 Push 则根据 contact annotation 生成 pre-contact、contact 与 post-contact waypoint。配置指定左右臂、技能的串/并行关系与空间范围；附录 B.2 和 Listing 1 还列出抓取方向过滤、物体轴对齐、放置偏移和等待步数等需人工调节的参数。因而自动化建立在经过工程调试的技能与资产上，并非自然语言输入后无需设计即可合成任意任务。
 
 **【Analysis】** waypoint 是此处的关键中间表示：高层 skill 只关心语义约束，低层 planner 只关心连续可行运动。论文因此能把“拿盘子—交给另一只手—放上架子”写成配置组合，而不是为每个新任务重新示教。
 
@@ -120,7 +120,7 @@ $\mathcal D_{sim}=\{(o_{1:T}, q_{1:T}, a_{1:T}, l)\}$：$o$ 是多视角 RGB 与
 
 ### 4.3 关键公式
 
-**【Paper】** 原子技能可抽象为从状态与约束到 waypoint 序列的映射：
+**【Analysis】** 下面两式是对论文流水线的形式化归纳，并非原文提出的训练公式。原子技能可抽象为从状态与约束到 waypoint 序列的映射：
 
 $$
 W = f_s(x^{obj}, x^{robot}, c), \qquad
@@ -135,7 +135,7 @@ $$
 \xi\sim p(\xi),\qquad \tau = \operatorname{Sim}\bigl(\operatorname{Plan}(W;\xi)\bigr)
 $$
 
-$\xi$ 汇集相机、光照、布局、物体 pose、抓取候选和接触区域的随机变量；$\operatorname{Plan}$ 是 CuRobo 插值/规划，$\operatorname{Sim}$ 是物理验证。只有成功的 $\tau$ 会被渲染，这将“随机得多”与“仍物理可执行”同时作为数据质量门槛。
+$\xi$ 汇集相机、光照、布局、物体 pose、抓取候选和接触区域的随机变量；$\operatorname{Plan}$ 是 CuRobo 插值/规划，$\operatorname{Sim}$ 是物理验证。只有成功的 $\tau$ 会被渲染，这将“随机得多”与“仍物理可执行”同时作为数据质量门槛。但它也产生选择偏差：最终数据服从的是通过成功判定后的分布，难规划、易失败的接触配置可能被系统性筛掉。Table 5 虽列有专门的 Recovery Pick Objects 任务，也不能据此认为常规轨迹自动覆盖了所有失败恢复状态。
 
 ### 4.4 Training
 
@@ -165,7 +165,7 @@ $\xi$ 汇集相机、光照、布局、物体 pose、抓取候选和接触区域
 
 ### 4.5 Inference
 
-**【Paper】** 本文并未改变 $\pi_0$ 的部署机制：在下游任务上 post-training 后，Policy 从当前视觉、语言与 robot proprioception 输出动作，控制器按环境执行。实验里每个真实任务使用 JAX 版本的 $\pi_0$(InternData-A1) post-train 30k steps 的 checkpoint；每个任务设 15 个 evaluation setting、每个 setting 两次 rollout，共 30 次并报告平均成功率。
+**【Paper】** 本文并未改变 $\pi_0$ 的部署机制：在下游任务上 post-training 后，Policy 从当前视觉、语言与 robot proprioception 输出动作，控制器按环境执行。实验使用 JAX 版 $\pi_0$；附录 C/Table 6 区分 regular/sim-to-real 的 30k 与 dexterous 的 100k 后训练步数。附录 D 开头却统称使用 30k checkpoint，与前者不一致，不能把全部九项真实任务统一写成 30k；每个任务设 15 个 evaluation setting、每个 setting 两次 rollout，共 30 次并报告平均成功率。
 
 <Algorithm number={2} title='合成预训练策略的下游执行' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>当前相机观测、本体状态、语言指令与 post-trained π₀ checkpoint</div>
@@ -178,9 +178,9 @@ $\xi$ 汇集相机、光照、布局、物体 pose、抓取候选和接触区域
 
 ### 4.6 代码实现对照
 
-**【Code】** 官方项目页只链接到受访问许可约束的 [Hugging Face 数据集](https://huggingface.co/datasets/InternRobotics/InternData-A1)，没有单独的 InternData-A1 pipeline GitHub 仓库或可复现实验脚本。公开文件树可见已发布的 `sim`/`real` 数据目录、`InternDataAssets`、机器人 URDF/资产，以及一个 `InternDataAssets/curobo` 目录。
+**【Code】** 官方项目页只链接到受访问许可约束的 [Hugging Face 数据集](https://huggingface.co/datasets/InternRobotics/InternData-A1)，没有单独的 InternData-A1 pipeline GitHub 仓库或可复现实验脚本。公开文件树可见 `sim`/`real`、`sim_updated`、`sim_updated_lerobotv30`、`real_lerobotv30`、`InternDataAssets` 和机器人 URDF；数据卡说明更新版补齐相机内外参、末端与 TCP 位姿。
 
-**【Code】** `curobo` 目录是 CuRobo 的代码与资产副本，能佐证论文使用 CuRobo 规划，但不等于论文的环境构建、skill composition、randomization、Balancer 或 Supervisor 实现。因此无法将 4.2 中的专属生成逻辑逐文件映射；文章不把这些未公开的细节标为可复现实装。数据集页面目前为 gated，使用者还需接受 InternData-A1 COMMUNITY LICENSE AGREEMENT。
+**【Code】** `curobo` 目录是 CuRobo 的代码与资产副本，能佐证论文使用 CuRobo 规划，但不等于论文的环境构建、skill composition、randomization、Balancer 或 Supervisor 实现。因此无法将 4.2 中的专属生成逻辑逐文件映射；文章不把这些未公开的细节标为可复现实装。数据集页面目前为 gated，使用者还需接受 InternData-A1 COMMUNITY LICENSE AGREEMENT。数据卡现称仓库为 synthetic-real 混合集合，但论文的合成预训练对比使用合成部分；复现时不能直接把 `real` 和后续更新版本一并混入而仍宣称复现“纯合成预训练”。
 
 ## 5. 实验
 
@@ -188,15 +188,15 @@ $\xi$ 汇集相机、光照、布局、物体 pose、抓取候选和接触区域
 
 ![真实机器人评测覆盖三种 embodiment 与九项任务（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-interndata-a1/interndata-a1-real_setup.webp)
 
-**【Paper】** 主要对比固定模型架构而改变 pre-training source：$\pi_0$ (Scratch) 没有预训练，$\pi_0$ 是以闭源 $\pi$-dataset 训练的官方 checkpoint，$\pi_0$(InternData-A1) 则只以论文合成数据预训练。仿真评测使用 RoboTwin 2.0 的 49 个双臂任务，Easy 为整洁场景、Hard 为杂乱场景；每种设置报告两个 checkpoint、每个 100 次 trial 的平均成功率。真实评测使用 Genie-1、ARX Lift-2 与二者均未见过的 ARX AC One，含 5 个 regular 与 4 个 dexterous 任务。
+**【Paper】** 主要对比固定模型架构而改变 pre-training source：$\pi_0$ (Scratch) 没有机器人策略预训练、但仍以 PaliGemma 权重初始化，$\pi_0$ 是以闭源 $\pi$-dataset 训练的官方 checkpoint，$\pi_0$(InternData-A1) 则只以论文合成数据预训练。仿真评测使用 RoboTwin 2.0 的 49 个双臂任务，Easy 为整洁场景、Hard 为杂乱场景；每种设置报告两个 checkpoint、每个 100 次 trial 的平均成功率。真实评测使用 Genie-1、ARX Lift-2 与二者均未见过的 ARX AC One，含 5 个 regular 与 4 个 dexterous 任务。
 
 ### 5.2 Main Results
 
 ![InternData-A1 与官方 π₀ 在九项真实任务上的比较（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-interndata-a1/interndata-a1-real_results.webp)
 
-**【Paper】** 在 49 个 RoboTwin 任务上，$\pi_0$(InternData-A1) 的平均成功率为 Easy 60.0%、Hard 26.5%，高于官方 $\pi_0$ 的 55.0%、20.0%，也远高于 Scratch 的 23.5%、2.5%。论文文字将提升概括为对官方 checkpoint 的 Easy +5%、Hard +6.5%。
+**【Paper】** 在 49 个 RoboTwin 任务上，$\pi_0$(InternData-A1) 的平均成功率为 Easy 60.0%、Hard 26.5%，高于官方 $\pi_0$ 的 55.0%、20.0%，也远高于 Scratch 的 23.5%、2.5%。按 Table 2 计算是 Easy +5.0、Hard +6.5 个百分点。§5.1 正文另写成 Easy +6、Hard +5，与表不符；本文以表中的完整数值为准。这是跨任务平均优势，不意味着每个任务都更强。
 
-**【Paper】** 真实 regular task 跨 in-distribution 与 out-of-distribution 设置的平均表现比 $\pi$-dataset 预训练高 6.2%。在 4 项高难度 dexterous task（折衣、分拣工业零件、拧瓶盖、拉拉链）中，InternData-A1 与官方 $\pi_0$ 表现相当，尽管 ARX AC One、对象和技能均为新条件。
+**【Paper】** 真实 regular task 跨 in-distribution 与 out-of-distribution 设置的平均表现比 $\pi$-dataset 预训练高 6.2 个百分点。在 4 项高难度 dexterous task（折衣、分拣工业零件、拧瓶盖、拉拉链）中，InternData-A1 与官方 $\pi_0$ 表现相当，其中拧盖、折衣和拉链使用两种预训练均未见的 ARX AC One，分拣零件仍在 ARX Lift-2 上做；新 embodiment 的结果经过目标任务后训练，并非直接零样本跨机器人控制。
 
 | 预训练数据                | 49 Sim Easy | 49 Sim Hard | Sort Rubbish | Pass Bottle |
 | ------------------------- | ----------: | ----------: | -----------: | ----------: |
@@ -205,7 +205,7 @@ $\xi$ 汇集相机、光照、布局、物体 pose、抓取候选和接触区域
 | RoboCasa（仿真）          |       50.0% |       11.0% |        23.3% |       13.3% |
 | **InternData-A1（仿真）** |   **60.0%** |   **26.5%** |    **90.0%** |   **60.0%** |
 
-**【Paper】** 上表的开放数据对比中，各数据源均只预训练 500k iterations；InternData-A1 在两个真实任务上相对 RoboCasa 的平均改进为 57.7%。这不是“合成天生优于真实”的一般结论，而是在该模型、预算和任务集下，本文合成数据的规模与真实性带来的实证结果。
+**【Paper】** 上表的开放数据对比中，各数据源均只预训练 500k iterations；按表值重算，InternData-A1 两任务均值为 75.0%，RoboCasa 为 18.3%，差为 **56.7 个百分点**；论文正文的 57.7% 与表值不一致。这不是“合成天生优于真实”的一般结论，而是在该模型、预算和任务集下，数据源整体配方的实证比较。规模、任务覆盖、embodiment 分布与渲染质量同时变化，不能把优势单独归因于高保真渲染，也不是等轨迹数的数据质量比较。
 
 ### 5.3 Ablation Study
 
@@ -219,7 +219,7 @@ $\xi$ 汇集相机、光照、布局、物体 pose、抓取候选和接触区域
 | w.o. Base |      52.5% / 20.5% |
 | w.o. Long |      54.0% / 19.0% |
 
-**【Analysis】** PnP 和 Base 占比最大，却不是移除后跌幅最大的唯一因素；去掉 Art 或 Long 在 Hard 下尤其明显。这支持“覆盖不同轨迹几何与多阶段控制”的价值，但该消融只训练 0.5 epoch，不能直接量化完整 680k-step 训练时每类数据的边际收益。
+**【Analysis】** PnP 和 Base 占比最大，却不是移除后跌幅最大的唯一因素；去掉 Art 或 Long 在 Hard 下尤其明显。这支持“覆盖不同轨迹几何与多阶段控制”的价值，但该消融只训练 0.5 epoch，不能直接量化完整 680k-step 训练时每类数据的边际收益。更关键的是，固定 0.5 epoch 时删去一类既改变组成也减少样本与更新量；没有等步数、等采样预算的控制，性能下降不能全部归因于该技能不可替代。Long 的口径也需注意：§3 给出 124,789 条，附录 A/Table 5 与消融分类给出 138,782 条（21.77%）；两者差异未解释，本文消融采用 Table 5 口径。
 
 ### 5.4 Generalization
 
@@ -227,7 +227,7 @@ $\xi$ 汇集相机、光照、布局、物体 pose、抓取候选和接触区域
 
 **【Paper】** 四项直接 sim-to-real 实验从同一个 $\pi_0$(InternData-A1) checkpoint 出发，分别以 200–1,600 条仿真 episode 或 200 条真实 episode post-train，每个策略评估 30 次。Sort Rubbish、Wipe Stain 等基础技能任务中，200 条仿真数据已可与 200 条真实数据相当；动态物体和语言 grounding 更强的 Flip Package、Instructional Pick 约需 1,600 条仿真数据，约为 $8:1$ 的数据比。
 
-**【Paper】** 另有 6 个任务仅用 500 条仿真数据 post-train：Make Sandwich、Pack 达到超过 50%，Close Box/Close Microwave 为 63%/87%，双臂 Sweep/Handover 为 60%/57%。论文强调背景、灯光、纹理和桌面布局不必逐像素复刻，但 camera view 与 joint action space 需粗对齐。
+**【Paper】** 另有 6 个任务仅用 500 条仿真数据 post-train：Make Sandwich、Pack 均达到 50%，Close Box/Close Microwave 为 63%/87%，双臂 Sweep/Handover 为 60%/57%。论文强调背景、灯光、纹理和桌面布局不必逐像素复刻，但 camera view 与 joint action space 需对齐。此处 zero-shot 指不使用目标任务的真实机器人示范，仍用目标任务的仿真示范后训练；10 个任务也是从 70 个任务中选取的迁移实验，不是全任务可靠率。30 次 rollout 下，相近成功率尚不足以证明两种数据来源统计等价，8:1 也只是本实验测试规模内的经验比值。
 
 ## 6. 方法分析
 
@@ -245,7 +245,7 @@ $\xi$ 汇集相机、光照、布局、物体 pose、抓取候选和接触区域
 
 ### 6.4 关键假设
 
-**【Analysis】** 结论依赖几个条件：目标任务与数据集中原子技能有足够重叠；相机视角和机器人关节 action space 能够对齐；关键接触的 simulator physics 足够可信；以及下游仍允许 post-training。它并未证明一个纯合成 checkpoint 可以在任意真实任务上无需适配地可靠运行。
+**【Analysis】** 结论依赖几个条件：可迁移性依赖已有轨迹能够提供有用控制先验（论文也测试了新技能，不能要求完全重叠）；相机视角和机器人关节 action space 能够对齐；关键接触的 simulator physics 足够可信；以及下游仍允许 post-training。它并未证明一个纯合成 checkpoint 可以在任意真实任务上无需适配地可靠运行。
 
 ## 7. 局限性
 

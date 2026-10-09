@@ -1,7 +1,7 @@
 ---
 title: 'OneTwoVLA 论文精读：让 VLA 在必要时思考、其余时间行动'
 publishDate: 2026-08-25
-updatedDate: 2026-08-25
+updatedDate: 2026-09-22
 description: '精读 OneTwoVLA：用统一 VLA、自适应 Reason/Act 决策和 reasoning-centric 数据，提升机器人长程规划、纠错、交互与视觉指代。'
 heroImage:
   { src: 'https://pic.hana0721.top/116834498_p0_master1200.1e974fnzok.webp', color: '#8C8275' }
@@ -51,9 +51,11 @@ import { Aside } from '@/components/user'
 
 ![OneTwoVLA 同一模型在关键节点 Reason、其余节点 Act 的总览（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-onetwovla/overview.5q85k4e9qu.webp)
 
+本文核对 [ICLR 2026 版本全文与附录 A–I](https://arxiv.org/pdf/2505.11917v2)，并对照官方模型、数据采样与训练配置。
+
 ### 一句话总结
 
-**【Paper】** OneTwoVLA 是一个统一的 Vision-Language-Action（VLA）模型：它不把大模型规划器和低层控制器拆成两个系统，而是在同一模型内自适应选择输出文字推理或 action chunk；同时以 reasoning 标注的机器人数据和 16,000 条合成视觉语言数据共同训练。
+**【Paper】** OneTwoVLA 是一个统一的 Vision-Language-Action（VLA）模型：它不把大模型规划器和低层控制器拆成两个系统，而是在同一模型内自适应选择输出文字推理或 action chunk；同时以 reasoning 标注的机器人数据和 16,000 张合成图像及其指令—推理标注共同训练。
 
 ### 核心贡献
 
@@ -61,7 +63,7 @@ import { Aside } from '@/components/user'
 
 1. 提出统一的 Reasoning–Acting VLA，在每个决策点预测 `[BOR]` 或 `[BOA]`。
 2. 将轨迹划为 reasoning / acting interval，并以场景、计划、历史、下一步构造 embodied reasoning 标注。
-3. 构建“文本布局 → FLUX 图像 → Gemini 指令与推理”的数据流水线，合成 16,000 条样本。
+3. 构建“文本布局 → FLUX 图像 → Gemini 指令与推理”的数据流水线，合成 16,000 张图像：6,000 张各配 17 组 grounding 问答，另 10,000 张配长程计划。
 4. 在真实长程操作、失败恢复、人机交互与视觉 grounding 上验证；长程任务平均成功率为 87%，VL co-training 后开放世界 grounding 为 73%。
 
 ## 2. 背景与相关工作
@@ -117,19 +119,19 @@ $$
 d_t = \arg\max_{d \in \{[BOR],[BOA]\}} p_\theta(d \mid I_t^{1:n}, I_{ref}^{1:n}, \ell, R).
 $$
 
-**【Paper】** 动作端继承 $\pi_0$ 的 flow matching。其常见目标为：
+**【Code】** 动作端使用官方 `pi0_fuse.py::compute_loss` 的时间方向：令 $\epsilon$ 为噪声、$A$ 为示教动作，$x_\tau=\tau\epsilon+(1-\tau)A$，目标速度为 $\epsilon-A$：
 
 $$
-\mathcal L_{\mathrm{FM}} = \mathbb E_{t,x_0,x_1}\left[\|v_\theta(x_t, c, t) - (x_1-x_0)\|_2^2\right],
+\mathcal L_{\mathrm{FM}}=\mathbb E_{\tau,\epsilon,A}\left[\|v_\theta(x_\tau,c,\tau)-(\epsilon-A)\|_2^2\right].
 $$
 
-其中 $x_0$ 为噪声、$x_1$ 为真实 action chunk、$x_t$ 为插值状态，$c$ 汇集观测、语言、reasoning 与状态。论文主体没有给出具体噪声调度及 chunk 长度，应以基座 $\pi_0$ 实现为准。
+代码采样 $\tau=0.001+0.999\,\mathrm{Beta}(1.5,1)$，推理从噪声端 $\tau=1$ 向动作端 0 做默认 10 步 Euler 积分。若采用相反时间定义，速度符号也必须反向。文字 CE 与动作 MSE 分别带监督 mask；没有动作标签的 VL 样本不会凭空提供运动监督。官方 Cocktail 和 grounding 配置覆盖默认值，使用 `action_horizon=16`，不能直接把基类默认 50 步当成论文任务配方。
 
 ### 4.4 Training
 
-**【Paper】** 对每条专家示教，作者先定义 $K$ 个有序子任务，再均匀抽取 $N=32$ 帧，调用 Gemini 2.5 找出各子任务完成后的 $K+1$ 个 reasoning interval。每个 interval 的中点图像生成 scene description，结合计划 $P$、已完成子序列 $H_j=(p_1,\ldots,p_j)$ 与下一步 $X_j=p_{j+1}$，构成监督目标。
+**【Paper】** 对每条专家示教，作者先定义 $K$ 个有序子任务，再均匀抽取 $N=32$ 帧，调用 Gemini 2.5 找出各子任务完成后的 $K+1$ 个 reasoning interval。每个 interval 的中点图像生成 scene description，结合计划 $P$、已完成子序列 $H_j=(p_1,\ldots,p_j)$ 与下一步 $X_j=p_{j+1}$，构成监督目标。该流程依赖预定义子任务与标注规则：附录 Figure 13 偏好“夹爪空且张开、远离桌面、场景可见”的边界；Tomato-Egg 抽查仅 81.5% 区间被判正确、83.3% 场景描述合理，不能把自动标注当作无误真值。
 
-**【Paper】** 当已有 reasoning 已过期时监督 `[BOR]`；更新后监督 `[BOA]`；acting interval 始终监督 `[BOA]`。由此，“应该思考”来自数据而非固定频率。
+**【Paper】** 通常在 reasoning interval 对旧 reasoning 监督 `[BOR]`，更新后监督 `[BOA]`。附录 F.1 还有两个关键补充：旧 reasoning 也可监督动作，但不监督 `[BOA]`，使漏触发时仍能行动；acting interval 可额外配过期 reasoning，只监督 `[BOR]` 而不监督整段新文字，缓解长 acting interval 带来的类别不平衡。由此，“应该思考”是由启发式标注训练出的分类器，并没有直接优化推理时间与任务收益的最优权衡。
 
 <Algorithm number={1} title='OneTwoVLA 训练' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>机器人示教轨迹、子任务计划、reasoning 标注，以及合成视觉语言样本。</div>
@@ -152,7 +154,9 @@ $$
 
 **【Code】** 训练入口为 `scripts/train.py`；`train_scripts/train_onetwovla_cocktail.sh` 通过 `--reasoning_json_path` 传入标注。脚本按 GPU 数设定总 batch（单卡训练 batch 为 20），并提示先单卡运行 `scripts/compute_norm_stats.py` 计算归一化统计。
 
-**【Code】** `src/openpi/policies/umi_dataset.py` 默认 `pred_reasoning_prob = 0.7`，会从 reasoning、过期 reasoning、人类回答/干预等分支构造不同 `thought` 输入输出；配置也默认启用 `use_reference_image`、`use_outdated_reasoning`。代码的训练状态覆盖比论文两模式摘要更细。
+**【Code】** `src/openpi/policies/umi_dataset.py` 默认 `pred_reasoning_prob = 0.7`，会从 reasoning、过期 reasoning、人类回答/干预等分支构造不同 `thought` 输入输出；配置也默认启用 `use_reference_image`、`use_outdated_reasoning`。这些分支对应附录 F.1 的过期状态训练，而不只是工程额外功能。需要注意 `pred_reasoning_prob=0.7` 是分支内条件概率，不是全数据 70% 都学习推理。grounding 配置还显式关闭 `use_reference_image`，其 `possible_contents` 分支令机器人样本只学习给定 reasoning 的动作，由 VL 数据提供相应推理学习；因此不能把所有实验都解释为相同 reference/history 配置。
+
+**【Paper】** 附录 F.2 报告每任务训练 30k steps，8 张 H100 约 10 小时；除了当前本体状态，还输入 0.05 秒与 0.25 秒前的状态以提供运动历史。合成图像只补语义与计划，泛化规划另有约 2,000 条原子技能机器人示教；语言 co-training 不会自动教会未采集的物理技能。
 
 ### 4.5 Inference
 
@@ -168,7 +172,7 @@ $$
   <AlgorithmStep>循环至 reasoning 报告 Task Finished。</AlgorithmStep>
 </Algorithm>
 
-**【Paper】** Figure 2 的 Tomato-Egg 计时显示 OneTwoVLA 总耗时接近 flat VLA，而固定间隔“持续 reasoning”的 dual-system 显著更慢。不过，单次 Reason 仍会造成约 2–3 秒暂停。
+**【Paper】** Figure 2 的 Tomato-Egg 计时显示 OneTwoVLA 总耗时接近 flat VLA，而固定间隔“持续 reasoning”的 dual-system 显著更慢。Figure 2 的三个总时长为 176/260/184 秒，这是特定任务结果，不是所有任务的统一延迟保证。附录 F.3 部署每 0.2 秒生成重叠动作序列，以指数加权 temporal ensemble 平滑执行。RTX 4090、两张输入图像时，Act 约 0.102–0.104 秒；输出 20/100/200 个 reasoning token 分别为 0.853/2.346/4.361 秒。文本称少于 20 token 不影响执行，但其表中 20 token 已超过 0.2 秒周期，应以表中计时判断暂停代价。
 
 ### 4.6 代码实现对照
 
@@ -196,11 +200,11 @@ $$
 
 ![长程规划与泛化规划的主结果（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-onetwovla/results.pg2sk7ha4.webp)
 
-**【Paper】** 长程任务中，$\pi_0$ / Dual-System / OneTwoVLA 的平均成功率为 **50% / 63% / 87%**。OneTwoVLA 在 Tomato-Egg、Hotpot、Cocktail 分别为 85%、80%、95%，比 $\pi_0$ 高 30 个百分点、比 dual-system 高 24 个百分点。
+**【Paper】** 长程任务中，$\pi_0$ / Dual-System / OneTwoVLA 的平均成功率为 **57% / 63% / 87%**。OneTwoVLA 在 Tomato-Egg、Hotpot、Cocktail 分别为 85%、80%、95%，对应 $\pi_0$ 的 70%、50%、50%，以及 dual-system 的 55%、70%、65%。三任务各 20 次，所以总成功数为 52/60 对 34/60、38/60；精确差值为 30 与约 23.3 个百分点，文中 87−63=24 是对显示值再相减的结果。
 
 **【Paper】** 泛化规划中，加入合成 VL co-training 的 OneTwoVLA-VL 平均为 **70%**；纯 OneTwoVLA 为 10%，$\pi_0$ 为 6%。任务包括“给我冰可乐”（开冰箱寻找不可见物体）、“空盘子”（先移开水果）和根据“让我清醒”准备咖啡。这表明统一 Reason/Act 不会自动带来开放任务知识，数据覆盖仍是关键变量。
 
-**【Paper】** 失败恢复中 OneTwoVLA 成功 8/10（80.0%），$\pi_0$ 为 8/14（57.1%），Dual-System 为 7/12（58.3%）。人机交互的子任务级评测中，OneTwoVLA 为 20/20（100%），Dual-System 为 13/20（65%）；20 个未见交互情境中 OneTwoVLA-VL 为 72.5%。
+**【Paper】** 失败恢复中 OneTwoVLA 成功 8/10（80.0%），$\pi_0$ 为 8/14（57.1%），Dual-System 为 7/12（58.3%）。人机交互的子任务级评测中，OneTwoVLA 为 20/20（100%），Dual-System 为 13/20（65%）；20 个未见交互情境中 OneTwoVLA-VL 为 72.5%。这里恢复率分母是各方法实际发生的错误次数，既不相同，也不是统一注入的同一组错误；8/10 不能直接代表全任务可靠性。恢复能力还用了专门示教：Hotpot 600 条中 200 条含恢复，Tomato-Egg 200 条中 100 条含恢复。20 个新交互情境与 72.5% 的统计分母关系未详细披露，不应自行还原成功次数。
 
 ### 5.3 Ablation Study
 
@@ -208,9 +212,11 @@ $$
 
 | 对照                      | 隔离出的因素                                                | 观察                                                |
 | ------------------------- | ----------------------------------------------------------- | --------------------------------------------------- |
-| $\pi_0$ vs OneTwoVLA      | 显式 reasoning、reference/history、adaptive decision 的组合 | 长程 50% → 87%；Single-Env grounding 5% → 78%。     |
+| $\pi_0$ vs OneTwoVLA      | 显式 reasoning、reference/history、adaptive decision 的组合 | 长程 57% → 87%；Single-Env grounding 5% → 78%。     |
 | OneTwoVLA vs OneTwoVLA-VL | 16,000 synthetic VL co-training                             | 泛化规划 10% → 70%；Open-World grounding 8% → 73%。 |
 | OneTwoVLA vs Dual-System  | 统一自适应模型 vs 固定间隔外部规划                          | 长程 87% vs 63%，后者更受能力错配与时延影响。       |
+
+**【Paper】** 附录 C.1 中，OneTwoVLA 和 Dual-System 的部分长程 trial 还包含澄清与中途更改要求；$\pi_0$ 因无语言输出省略交互。对比具有应用意义，但三者并非完全相同的交互流程。Dual-System 是作者的 Gemini 定期调用实现，不是所有异步分层策略的共同上限。
 
 **【Analysis】** 这些实验支持设计组合有效，但未量化 reference image、四段 reasoning、`[BOR]/[BOA]` 及各合成增强的独立边际贡献；这是最值得补齐的后续实验。
 
@@ -218,9 +224,9 @@ $$
 
 ![Single-Env 与 Open-World 视觉 grounding 示例（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-onetwovla/grounding.1lck80h5ub.webp)
 
-**【Paper】** Single-Env grounding 中，$\pi_0$ / OneTwoVLA / OneTwoVLA-VL 分别为 **5% / 78% / 88%**；Open-World 中为 **3% / 8% / 73%**。指令可通过空间关系、属性或语义特征引用物体，而非只报物名。候选物体涵盖 robot data 见过、只在 VL data 见过、两个训练集均未见三类。
+**【Paper】** Single-Env grounding 中，$\pi_0$ / OneTwoVLA / OneTwoVLA-VL 分别为 **2/40、31/40、35/40**；Open-World 中为 **1/40、3/40、29/40**，表内四舍五入为 3%、8%、73%。指令可通过空间关系、属性或语义特征引用物体，而非只报物名。候选物体为 robot data 见过 5 个、仅 VL data 见过 10 个、两者均未见 5 个；每个新环境测试 5 次，总计 40 次，不是 20 个对象逐个充分测试。表中没有给出三组对象分别的成功率，因此 73% 不能叫“全未见物体成功率”；附录也记录了未见篮球玩具被错认成棋盘的失败。Single-Env 的 4 个对象均已训练，主要测同场景指代表达。
 
-**【Paper】** 合成数据流水线为：Gemini 2.5 Pro 生成桌面布局文字，FLUX.1-dev 生成图像，随机加入鱼眼畸变或机械爪与亮度合成，最后由 Gemini 生成指令和 reasoning。它试图将预训练 VLM 中的语义知识经数据 co-training 接入动作 policy。
+**【Paper】** 合成数据流水线为：Gemini 2.5 Pro 生成桌面布局文字，FLUX.1-dev 生成图像，随机加入鱼眼畸变或机械爪与亮度合成，最后由 Gemini 生成指令和 reasoning。它试图将预训练 VLM 中的语义知识经数据 co-training 接入动作 policy。附录 E 抽查 50 例，2 例图像错误、8 例文字错误、40 例全对；这说明合成数据有用但并非无噪声。16,000 统计的是图像数，不是指令对数。
 
 ## 6. 方法分析
 
@@ -253,7 +259,7 @@ $$
 
 **【Paper】**
 
-1. 推理时刻依赖人工选择的 heuristic；作者认为 RL 可能学习到更优策略。
+1. 推理触发的训练标签依赖人工选择的 heuristic，部署时由模型预测；作者认为 RL 可能学习到更优策略。
 2. Reason 时机器人暂停约 2–3 秒，未来可用 asynchronous architecture 并行推理和行动。
 3. 没有专门优化 action inference；模型变大后动作时延可能成为瓶颈。
 4. 只研究高质量合成 VL 数据，未系统比较数据来源。
@@ -262,7 +268,7 @@ $$
 
 **【Analysis】** 成功率来自有限试验和作者构建的数据分布，不能直接等同于开放家庭环境的长期可靠性。公开实现也未覆盖论文全部 benchmark 的完整复现资源，外部研究者难以评估每组数字的方差和采集成本。
 
-**【Analysis】** 可读 reasoning 不必然是 action 的忠实因果解释。需要文本替换、reference image 遮蔽、强制决策 token 等干预测试，才能验证它是可控的内部状态还是相关性文本。
+**【Paper】** 附录 G.1 在对称双物体任务中，OneTwoVLA 对方块左右选择为 9/11、瓶子为 8/12；$\pi_0$ 偏向右侧。G.2 观察到错误的物体位置推理也会导向错误动作，说明文本与行为有关联，但这不是主动替换文字的因果干预实验。**【Analysis】** reasoning 相当于帮助分解多峰动作的语义变量，却没有证明所有文字都是忠实解释；需要固定观测后替换 reasoning、遮蔽 reference、强制 mode token 等干预，进一步确认各接口的作用。
 
 ## 8. 启发与研究思考
 
@@ -272,6 +278,5 @@ $$
 
 <Aside type='note' title='阅读提示'>
   本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
-  表示基于论文和代码的分析推断。文章图片来自论文 PDF 的裁切；CDN 尚未刷新时使用 GitHub Raw
-  链接保证可访问。
+  表示基于论文和代码的分析推断。成功率需结合试验次数、任务定义与数据覆盖范围阅读。
 </Aside>

@@ -1,7 +1,7 @@
 ---
 title: 'ActionCodec 论文精读：什么样的 Action Tokenizer 才适合 VLA？'
 publishDate: 2026-08-25
-updatedDate: 2026-08-25
+updatedDate: 2026-09-22
 description: '精读 ActionCodec：从 VLA 优化视角重新定义动作 token，分析 overlap、词表容量、多模态互信息与 token 独立性。'
 heroImage:
   { src: 'https://pic.hana0721.top/69461006_p0_master1200.1e974ctzq9.webp', color: '#8C8275' }
@@ -65,7 +65,7 @@ import { Aside } from '@/components/user'
 1. 用 $H(C|V,L)$ 分析动作离散化给 VLA 带来的 supervisory ambiguity，并把 tokenizer 评价从重建质量推进到下游优化质量。
 2. 通过 controlled ablation 证明 overlap rate、token budget、vocabulary size、perceptual alignment 与 residual grammar 会直接影响收敛速度和抗过拟合能力。
 3. 提出 ActionCodec：Perceiver-like encoder/decoder、2048-entry codebook、16 个主 token、TCL/CLIP 对齐、embodiment-specific soft prompt，以及冻结主 codebook 后的 RVQ post-training。
-4. 在无 robotics pre-training 的 SmolVLM2 上，LIBERO 平均成功率达到 95.5%；结合 Block-wise Autoregression（BAR）达到 97.4%。
+4. 在未做机器人预训练的 **VLM backbone** 上（tokenizer 已用机器人动作预训练），LIBERO 平均成功率达到 95.5%；结合 Block-wise Autoregression（BAR）达到 97.4%。
 
 **【Analysis】** 这篇工作的真正对象不是某个更大的 VLA backbone，而是“监督标签本身”。同一个 VLM，换一种 action tokenization，就可能从 5K steps 仍未收敛变成快速学会控制。
 
@@ -107,14 +107,14 @@ $$
 #### Perceiver encoder / decoder
 
 - **输入**：定长或 padding 后的动作序列、时间戳和 embodiment id。
-- **输出**：16 个 $z\in\mathbb{R}^{512}$ latent，以及 decoder 重建的连续动作。
+- **输出**：16 个连续 latent，再量化为离散 code，并由 decoder 重建动作；latent 维度应以 checkpoint 配置为准，不能从 VLM hidden size 推定。
 - **作用**：learnable query 通过 cross-attention 读取可变长度动作；只使用 cross-attention 时，各输出 token 没有显式 inter-token 依赖。
 - **【Code】** `actioncodec/modular_actioncodec.py` 提供 cross-attention、可选 self-attention 和 causal mask；`configuration_actioncodec.py` 的默认 encoder/decoder hidden size 为 256、6 层、8 heads。
 
 #### VQ 与 RVQ
 
 - **VQ**：每个 latent 选择 codebook 中欧氏距离最近的向量，默认 codebook size 为 2048。
-- **RVQ post-training**：先训练稳定的单层 VQ，再冻结 encoder 和主 codebook，仅增加 residual codebook 降低重建误差；因此第一层 token 完全不变。
+- **RVQ post-training**：先训练稳定的单层 VQ，再冻结 encoder 和主 codebook，仅增加 residual codebook 降低重建误差；因此第一层 token 完全不变。附录 C 的关键补充是：普通 AR/PD/KI 实验把 post-trained **decoder 权重复制回单层 VQ 模型**，维持 16 个主 token；只有 BAR 使用完整 3 层 RVQ（共 48 个 code）。这区分了训练时用 residual 改善 decoder 与部署时真的预测 residual token。
 - **【Code】** `ActionCodec` 通过 `vq_type='vq'/'rvq'` 切换；RVQ 要求至少两个 quantizer，且 `n_tokens` 必须能被 quantizer 数整除。
 
 #### TCL、CLIP 与 soft prompt
@@ -143,7 +143,9 @@ $$
 H(C|V,L)=H(C|A)+I(C;A)-I(C;V,L).
 $$
 
-**【Analysis】** 三项分别对应 tokenizer artifact entropy、动作信息容量和视觉语言 perceptual alignment。减少第一项、控制第二项、增大第三项，才是在减少 VLA 的有效监督噪声，而不只是让动作重建更精确。
+**【Analysis】** 熵恒等式本身成立，但对固定动作输入与确定性的 VQ 编码器，严格的 $H(C\mid A)=0$。附录 D 将 artifact entropy 改为考察 $F(A+\epsilon)$ 在局部物理扰动下的变化；这是另一种稳健性解释，不能把“确定性编码器的条件熵非零”当作已证明结论。相邻 chunk overlap 是它的经验 proxy，还同时受真实动作变化影响。
+
+**【Analysis】** 同样，最小化 $H(C\mid V,L)$ 不是无条件目标：把所有动作映射成一个 token 就能轻易降熵，却失去控制能力。必须在足够的动作重建/任务信息约束下，比较标签稳定性、容量与可由观测解释的程度。这里的理论分析指导消融，并未推出对所有机器人任务普适的最优 tokenizer。
 
 #### token 信息路径
 
@@ -151,7 +153,7 @@ $$
 I(c_k;V,L,c_{<k})=I(c_k;V,L)+I(c_k;c_{<k}|V,L).
 $$
 
-作者把第二项称为 residual grammar。实验显示它过强时，模型会依赖历史 token，反而忽略当前视觉反馈。
+作者把第二项称为 residual grammar。扰动实验显示，在其配置下，带 token self-attention 的 tokenizer 更容易传播早期 token 错误。**【Analysis】** cross-attention-only 只是取消显式 query 间交互；所有 token 仍读取同一动作序列，不保证统计独立，也不保证 VLA 必须读取视觉。不能由结构直接推导 $I(c_k;c_{<k}\mid V,L)=0$。
 
 ### 4.4 Training
 
@@ -180,15 +182,21 @@ $$
 
 ### 4.5 Inference
 
-**【Paper】** 推理时 VLA 根据视觉和语言上下文产生 action token，再由 codebook 解码回连续动作。AR 逐 token 生成；PD 一次生成整段；BAR 按 RVQ level 分块生成，块内双向、块间因果。KI 则把同一个 codec 作为连续 action expert 的表示接口。
+**【Paper】** 推理时 VLA 根据视觉和语言上下文产生 action token，再由 codebook 解码回连续动作。AR 逐 token 生成；PD 一次生成整段；BAR 按 RVQ level 分块生成，块内双向、块间因果。KI 同时训练 VLM 的离散 action-token AR 目标与读取其 KV 的连续 flow-matching expert，并截断 expert 到 VLM 的梯度；推理动作由连续 expert 生成，不需要先生成离散 code 再过 codec decoder。
 
 <Algorithm number={2} title='ActionCodec VLA Inference' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>当前 RGB 观测、语言指令、embodiment id 和 VLA checkpoint</div>
   <div slot='output'>可执行的连续 action chunk</div>
   <AlgorithmStep>编码图像、语言和 embodiment soft prompt</AlgorithmStep>
-  <AlgorithmStep>按所选范式生成离散 token（AR / PD / KI / BAR）</AlgorithmStep>
-  <AlgorithmStep>将 token index 送入 ActionCodec codebook，必要时累加 RVQ residual</AlgorithmStep>
-  <AlgorithmStep>Perceiver decoder 重建动作序列并按 embodiment 的频率执行</AlgorithmStep>
+  <AlgorithmStep>
+    AR / PD / BAR 生成离散 token；KI 则用读取 VLM KV 的连续 flow expert 生成动作
+  </AlgorithmStep>
+  <AlgorithmStep>
+    离散路径将 token index 送入 codebook，BAR 累加 RVQ residual；KI 跳过该解码步骤
+  </AlgorithmStep>
+  <AlgorithmStep>
+    离散路径经 Perceiver decoder 重建动作；按对应动作接口和执行 horizon 发送给控制器
+  </AlgorithmStep>
   <AlgorithmStep>在下一观测到达后重复闭环 rollout</AlgorithmStep>
 </Algorithm>
 
@@ -217,12 +225,14 @@ $$
 
 **【Paper】**
 
-| 模型                        | robotics pre-training | LIBERO Avg. |
-| --------------------------- | --------------------: | ----------: |
-| FAST                        |                    否 |        90.6 |
-| SmolVLM2-2.2B + ActionCodec |                    否 |    **95.5** |
-| ActionCodec-BAR             |                    否 |    **97.4** |
-| π0.5                        |                    是 |        96.8 |
+| 模型                        | VLM 机器人预训练 | LIBERO Avg. |
+| --------------------------- | ---------------: | ----------: |
+| FAST                        |               否 |        90.6 |
+| SmolVLM2-2.2B + ActionCodec |               否 |    **95.5** |
+| ActionCodec-BAR             |               否 |    **97.4** |
+| π0.5                        |               是 |        96.8 |
+
+**【Paper】** 表中“否”仅表示 VLM backbone 未经机器人预训练；ActionCodec tokenizer 已在 LIBERO、BridgeData、DROID 动作上训练（附录 A.3）。它不等于整个系统没有机器人先验。
 
 在训练效率上，ActionCodec 在 5K steps 达到 89.5% success，而 FAST 同期为 38.6%。在 SimplerWidowX 上，ActionCodec-BAR 平均 65.2%；xArm-PickVeg 使用异构数据预训练时达到 82.5%。
 
@@ -236,13 +246,13 @@ $$
 
 ### 5.4 Generalization
 
-**【Paper】** ActionCodec 可接入 PD、KI、BAR 三种架构；LIBERO 上 PD 为 95.6%、KI 为 94.3%、BAR 为 97.4%。SO100 的 co-training 使模型能在插入失败后执行重新对齐等 long-tail recovery；跨 Bridge-WidowX、LIBERO-Franka、DROID-Franka 与 xArm 的动作迁移展示了统一 latent space 的趋势。
+**【Paper】** ActionCodec 可接入 PD、KI、BAR 三种架构；LIBERO 上 PD 为 95.6%、KI 为 94.3%、BAR 为 97.4%。SO100 的 co-training 对照在附录 A.1 中具体指额外加入 22.9K episodes 的 SO100 community data；“w/o CT”仍含其他机器人来源，不能叫纯 task-only。该实验观察到模型能在插入失败后执行重新对齐等 long-tail recovery；跨 Bridge-WidowX、LIBERO-Franka、DROID-Franka 与 xArm 的动作迁移展示了统一 latent space 的趋势。
 
 ## 6. 方法分析
 
 ### 6.1 为什么有效？
 
-**【Analysis】** ActionCodec 同时改善了三件事：相邻 chunk 产生更一致的标签，减少梯度冲突；有限 token capacity 把学习重点放在任务相关结构上；独立 token 迫使 VLA 重新读取视觉语言上下文，而不是从前几个 token 猜后续动作。RVQ 被放到 post-training，因而不会破坏已经稳定的 supervision manifold。
+**【Analysis】** ActionCodec 同时改善了三件事：相邻 chunk 产生更一致的标签，减少梯度冲突；有限 token capacity 把学习重点放在任务相关结构上；独立 token 迫使 VLA 重新读取视觉语言上下文，而不是从前几个 token 猜后续动作。冻结主 encoder/codebook 保证第一层标签不变，但 residual token 的统计和 decoder 的映射仍会改变；这不是所有层的监督结构和成功率都必然保持不变的保证。
 
 ### 6.2 核心创新
 
@@ -266,7 +276,7 @@ FAST 依靠 DCT/BPE 的固定结构先验，ActionCodec 学习 embodiment-aware 
 
 ### 7.2 自己分析得到的局限
 
-**【Analysis】** overlap rate、词表大小和 TCL/CLIP 权重仍需要按数据分布调节；高 overlap 可能在强非平稳接触任务中抹掉必要的快速变化。其次，论文主要用 success rate 验证 token 设计，尚未系统报告 token 级 calibration、功耗或不同 decoding latency 下的闭环稳定性。最后，官方代码虽然支持动态 embodiment 配置，但公开训练配置和 checkpoint 仍集中在少数机器人，迁移到新 action space 时仍需重新验证。
+**【Analysis】** overlap rate、词表大小和 TCL/CLIP 权重仍需要按数据分布调节；高 overlap 可能在强非平稳接触任务中抹掉必要的快速变化。其次，论文主要用 success rate 验证 token 设计，Table 3 已报告 AR 延迟与 throughput：ActionCodec 约 0.9 秒/20-action chunk、22 actions/s，而不是 22 次闭环重规划/秒。仍缺少 token 级 calibration、功耗与不同延迟下的完整闭环稳定性分析。最后，官方代码虽然支持动态 embodiment 配置，但公开训练配置和 checkpoint 仍集中在少数机器人，迁移到新 action space 时仍需重新验证。
 
 ## 8. 启发与研究思考
 

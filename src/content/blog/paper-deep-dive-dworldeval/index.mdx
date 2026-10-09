@@ -1,7 +1,7 @@
 ---
 title: 'dWorldEval 论文精读：用离散扩散世界模型规模化评估机器人策略'
 publishDate: 2026-08-26
-updatedDate: 2026-08-26
+updatedDate: 2026-09-22
 description: '精读 dWorldEval：把视觉、语言和动作放进同一离散 token 序列，以关键帧记忆和 progress token 实现可扩展的机器人策略评估。'
 heroImage:
   { src: 'https://pic.hana0721.top/98259515_p0_master1200.3ns7nvxpav.webp', color: '#8C8275' }
@@ -42,6 +42,8 @@ import { Aside } from '@/components/user'
 ## 1. 论文概述
 
 **【Paper】** dWorldEval 要解决的不是训练一个执行 policy，而是如何低成本比较大量机器人策略、checkpoint、任务和环境。真实执行慢且昂贵，传统仿真又受资产与 sim-to-real 偏差限制。论文提出一个以 Masked Discrete Diffusion（MDD）为核心的 action-conditioned world model，令候选 policy 在模型生成的世界中闭环执行，再由 imagined rollout 估计成功率。
+
+**阅读版本**：[arXiv:2604.22152v1 全文](https://arxiv.org/html/2604.22152v1)。阅读重点应是模型能否保持策略排名，而不只是生成视频是否逼真；下文分别讨论动力学误差、评分误差和统计口径。
 
 ### 一句话总结
 
@@ -98,7 +100,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![dWorldEval 统一离散扩散架构、稀疏关键帧记忆与 Progress-as-Text（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-dworldeval/model-crop.3k8qzt7bgs.webp)
+![dWorldEval 统一离散扩散架构、稀疏关键帧记忆与 Progress-as-Text（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-dworldeval/model-crop.3k8qzt7bgs.webp)
 
 **【Paper】** 低分辨率历史、当前多视角图像、instruction 和 action chunk 分别 tokenized 并串为 context；未来图像与进度构成被 mask 的 target suffix。Transformer 以 iterative parallel denoising 补全 target，之后 visual/text detokenizer 分别恢复下一步观测和数值 score。
 
@@ -120,7 +122,7 @@ $$
 
 **【Paper】** 作者基于任务里程碑，用 few-shot prompting 令 SEED-1.5VL 生成完成度，将 `0`、`0.2`、`0.4`、`0.6`、`0.8`、`1.0` 等数值转为 text token，并附在未来视觉 target 后。推理时 parser 将生成文本解为 $\hat v_{t+\Delta}$；终点为 `1` 便判 imagined rollout 成功。
 
-**【Analysis】** 进度和图像同源生成，避免了“视频模型生成结果、外置 classifier 独立评分”的不一致接口；但 VLM 伪标签的偏差也被写入了模型，离散分段是否适用于新任务仍需校准。
+**【Analysis】** 进度和图像同源生成，避免了“视频模型生成结果、外置 classifier 独立评分”的不一致接口；但两者也可能共同犯错。Progress 的 0.6 是任务阶段标签，不是“最终成功的概率为 60%”，也不是依据经过时长线性增加的进度条。附录 C 要求 VLM 独立看每一帧，只有物体稳定放置且夹爪释放才给 1.0；其误标会直接进入训练目标，新任务仍需重新定义里程碑。
 
 ### 4.3 关键公式
 
@@ -143,7 +145,7 @@ $m(\lambda)$ 是 mask probability；$w_j$ 是 modality rebalancing weight；论�
 
 $$
 \Delta o_t=o_{t+\Delta}-o_t,\qquad
-\Delta\hat o_t=\hat o_{t+\Delta}-o_t,
+\Delta\hat o_t=\hat o_{t+\Delta}-\hat o_t,
 $$
 
 再使用：
@@ -153,13 +155,17 @@ $$
 d_{\rm lpips}(\operatorname{norm}(\Delta\hat o_t),\operatorname{norm}(\Delta o_t))\right],
 $$
 
+在从真实当前帧出发的单步比较中，$\hat o_t=o_t$；闭环多步预测则应区分生成序列与真实序列各自的前一帧。原文仅写预测差分同理计算，未公开更细实现。
+
 其中 $\operatorname{norm}$ 是每样本 RMS normalization。较低的 $\Delta$LPIPS 表示预测到的视觉**状态变化**更接近真实变化，是 controllability proxy，并非直接的任务成功率。
+
+**【Analysis】** RMS normalization 会减弱画面变化幅度对距离的支配，使指标更关注变化结构；代价是不同幅度的运动可能变得相近。因此低 $\Delta$LPIPS 不等于末端位移、接触力或碰撞结果正确，更不能单独保证策略排序。
 
 ### 4.4 Training
 
 **【Paper】** LIBERO 使用 Object、Spatial、Goal、100 四个 suite 的同步 third-person/wrist 视角；约 5.5k 官方 expert demonstrations 之外还加入 1k suboptimal-policy failure rollouts。RoboTwin 选择 ARX 双臂，在 10 个 contact-rich tasks 使用 5.5k trajectories。真实平台是两条 6-DoF AgileX arms 与三台同步 RealSense 457 相机，数据为 5.2k trajectories，其中含 1k 人类采集 failure。
 
-**【Paper】** 附录写明模型由 MMaDAVLA-8B 初始化，为 32 层、32 heads、hidden dimension 4096 的 bidirectional Transformer；使用 AdamW、8 张 H800、15 epochs、学习率 $5\times10^{-5}$、global batch size 128。论文主文写 history 为 $K=4$ 个 $128^2$ keyframe，附录写作 $256\times256$，两处不一致，不能合并为单一确定配置。
+**【Paper】** 附录写明模型由 MMaDAVLA-8B 初始化，为 32 层、32 heads、hidden dimension 4096 的 bidirectional Transformer；使用 AdamW、8 张 H800、15 epochs、学习率 $5\times10^{-5}$、global batch size 128。论文主文写 history 为 $K=4$ 个 $128^2$ keyframe，附录写作 $256\times256$，两处不一致，不能合并为单一确定配置。另一处更关键的冲突是引言称从机器人数据“from scratch”训练，附录 A.2 却明确称从 MMaDAVLA-8B 初始化。本文保留附录的具体描述，同时将初始化来源标为原文未消除的歧义，不能据此声称模型完全不依赖预训练先验。
 
 <Algorithm number={1} title='dWorldEval 联合视觉与进度训练' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>轨迹 $(h_t,o_t,l,\mathbf a_t,o_{t+\Delta},v_{t+\Delta})$、三个 tokenizer、MDD Transformer</div>
@@ -192,7 +198,7 @@ $$
 
 ### 4.6 代码实现对照
 
-**【Code】** 截至 2026-08-26，论文 arXiv 页面、PDF、项目主页与 GitHub 公开搜索均未提供 dWorldEval 的官方模型仓库。搜索到的 `dworldeval/dworldeval.github.io` 是项目网站仓库，不能用于核对 model definition、DataLoader、mask schedule、checkpoint 或实际 inference loop。
+**【Paper / 项目页】** 截至 2026-09-22，本次核对的论文 arXiv 页面、PDF 与项目主页未给出可核查的 dWorldEval 官方模型实现链接。搜索到的 `dworldeval/dworldeval.github.io` 是项目网站仓库，不能用于核对 model definition、DataLoader、mask schedule、checkpoint 或实际 inference loop。
 
 **【Paper】** 可确认的实现级信息仅来自论文：MMaDAVLA-8B 初始化、32-layer / 32-head / 4096-dim Transformer、$K=4$ memory、$[2,8]$ chunk-aligned horizon、visual/progress 权重 $1/2$、16-step decoding、AdamW 与 8×H800 训练。它们不等同于可复现实装。
 
@@ -200,7 +206,7 @@ $$
 
 ### 5.1 Experimental Setup
 
-![真实 AgileX 双臂平台与生成 rollout 可视化（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-dworldeval/setup-crop.77eanc342j.webp)
+![真实 AgileX 双臂平台与生成 rollout 可视化（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-dworldeval/setup-crop.77eanc342j.webp)
 
 **【Paper】** 评测横跨三种 domain：
 
@@ -214,21 +220,23 @@ $$
 
 ### 5.2 Main Results
 
-![dWorldEval 对 suboptimal action 的可控生成，以及无 memory 时的长时域漂移（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-dworldeval/consistency-crop.5q85lkyzf3.webp)
+![dWorldEval 对 suboptimal action 的可控生成，以及无 memory 时的长时域漂移（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-dworldeval/consistency-crop.5q85lkyzf3.webp)
 
 **【Paper】** LIBERO 上，dWorldEval 的 LPIPS 为 **0.215**；$\Delta$LPIPS 在 expert/failure 子集为 **0.315 / 0.352**。WorldEval 为 **0.262 / 0.423 / 0.701**，WorldGym 为 **0.218 / 0.347 / 0.650**，Ctrl-World 为 **0.220 / 0.334 / 0.416**。failure 集的优势是论文的关键证据：一个 evaluator 必须正确生成失败，而不是把它视觉上补成成功。
 
-**【Paper】** 在 policy evaluation，论文报告 real-vs-imagined Pearson correlation：LIBERO multi-view **0.910**、RoboTwin **0.927**、真实任务 **0.918**。单视角 LIBERO 的 dWorldEval rank violation 为 **MMRV=0.013**，基线最高到 **0.039**。这些数字只描述论文使用的 policy 集、数据与平台，不能外推为任意策略分布都具有 $r\approx0.9$。
+**【Paper】** 在 policy evaluation，论文报告 real-vs-imagined Pearson correlation：LIBERO multi-view **0.910**、RoboTwin **0.927**、真实任务 **0.918**。单视角 LIBERO 的 dWorldEval rank violation 为 **MMRV=0.013**，基线最高到 **0.039**。这些数字只描述论文使用的 policy 集、数据与平台，不能外推为任意策略分布都具有 $r\approx0.9$。**【Paper】** §4.3 特别说明，无 history 版本的 progress 不可靠，因此排名消融忽略进度、依据生成图像判断成功。不能把这组相关性直接标成完全自动的 progress-token evaluator 指标。
 
-![真实成功率与 world-model 估计成功率的相关性，以及无记忆消融（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-dworldeval/corr-crop.7w7k7cqnav.webp)
+![真实成功率与 world-model 估计成功率的相关性，以及无记忆消融（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-dworldeval/corr-crop.7w7k7cqnav.webp)
 
-**【Paper】** 作者还比较多个 $\pi_0$ checkpoint，发现终点 progress token 的 Auto estimate 与人工基于生成图像的判断都接近真实执行曲线，并能追随个别 checkpoint 的非单调波动。这支持“共同生成的 score 可作 intrinsic metric”，但不是对任意任务 VLM progress 标签皆正确的证明。
+**【Paper】** 作者另在自动评分实验（§4.2.3）比较多个 $\pi_0$ checkpoint，发现终点 progress token 的 Auto estimate 与人工基于生成图像的判断都接近真实执行曲线，并能追随个别 checkpoint 的非单调波动。这支持“共同生成的 score 可作 intrinsic metric”，但不是对任意任务 VLM progress 标签皆正确的证明。
 
-![联合生成未来观测与 progress token，并自动评估多组 policy checkpoint（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-dworldeval/score_curve-crop.1lck9h1tjs.webp)
+![联合生成未来观测与 progress token，并自动评估多组 policy checkpoint（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-dworldeval/score_curve-crop.1lck9h1tjs.webp)
+
+**【Analysis】** Pearson 衡量线性相关，不等于成功率校准：一个始终高估成功率的模型也可有很高相关。MMRV 则检查排序错误，回答的是另一件事。每任务 20/30 条 rollout 的成功率有明显抽样误差；缺少置信区间时，排名接近的 checkpoint 仍需真实执行复核，而不能仅凭 $r>0.9$ 下结论。
 
 ### 5.3 Ablation Study
 
-**【Paper】** memory round-trip ablation 先执行 $H$ 段 forward action，再执行 inverse action，比较最终与初始图像。$H=5,10,15,20$ 时，无 memory 的 LPIPS 为 **0.177, 0.186, 0.302, 0.411**，完整模型为 **0.130, 0.145, 0.193, 0.243**。正文出现的 `0.21` 与表格 $H=20$ 的 `0.243` 不完全一致，本文采用表格数字。
+**【Paper】** memory round-trip ablation 先执行 $H$ 段 forward action，再执行 inverse action，比较最终与初始图像。$H=5,10,15,20$ 时，无 memory 的 LPIPS 为 **0.177, 0.186, 0.302, 0.411**，完整模型为 **0.130, 0.145, 0.193, 0.243**。正文出现的 `0.21` 与表格 $H=20$ 的 `0.243` 不完全一致，本文采用 Table 2 数字。这里的 $H$ 是 chunk 数，完整回程长度为 $2H\Delta$；$H=20$ 并不是只预测 20 个低层动作。**【Analysis】** 往返协议依赖所选动作可逆，适合检查漂移；对打击、滑动摩擦或放手后物体运动，简单反向控制本来就未必回到初态，不能把该协议当成一般物理保真度证明。
 
 **【Paper】** action-shuffle sanity check 随机替换 batch 内 future action chunk、保持历史和语言不变：对齐 action 的 LPIPS / $\Delta$LPIPS 为 **0.215 / 0.324**，shuffle 后为 **0.461 / 0.697**。逐步增加 inference-time swap probability 时，论文还观察到 $\Delta$LPIPS 上升而真实成功率相关性下降。该实验支持模型依赖 action，但“敏感”本身不等于在所有反事实条件下都因果正确。
 

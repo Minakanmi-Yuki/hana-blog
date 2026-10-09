@@ -1,7 +1,7 @@
 ---
 title: 'CAIP 论文精读：让视觉表征对动作有感觉'
 publishDate: 2026-08-25
-updatedDate: 2026-08-25
+updatedDate: 2026-09-22
 description: '精读 CAIP：用第一视角人类视频中的手部姿态作为动作代理，通过动作-图像对比预训练获得更适合灵巧操作的视觉表征。'
 heroImage:
   { src: 'https://pic.hana0721.top/134041716_p0_master1200.5q80bz7b6v.webp', color: '#8C8275' }
@@ -38,8 +38,8 @@ paper:
     - 'Roei Herzig'
   venue: 'arXiv'
   year: 2026
-  code: ''
-  project: ''
+  code: 'https://github.com/yuvansharma/caip_encoder'
+  project: 'https://caip-encoder.github.io/'
 ---
 
 import { ArxivRating } from '@/components/advanced'
@@ -59,7 +59,7 @@ import { Aside } from '@/components/user'
 
 **论文链接**：[arXiv:2606.17256](https://arxiv.org/abs/2606.17256)
 
-**代码与项目状态**：**【Paper】** 论文 arXiv 页面、论文源码和参考文献均未给出官方代码或项目主页；截至本文发布日，未找到对应公开官方仓库。因此下文只标记【Paper】与【Analysis】，不将推测性的工程实现写成【Code】。
+**代码与项目状态（2026-09-22 核对）**：作者已公开 [项目页](https://caip-encoder.github.io/)、[训练仓库](https://github.com/yuvansharma/caip_encoder) 和 [ViT-L 编码器权重](https://huggingface.co/yuvansharma/caip-vitl256)。仓库提供 EgoDex 数据处理与预训练入口，不能再沿用“无官方代码”的旧状态；完整 32K 小时数据混合仍未据此得到公开复现。
 
 ![CAIP 的问题、预训练方式与真机结果概览（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-caip/caip-overview.26m7ufddk6.webp)
 
@@ -74,7 +74,7 @@ import { Aside } from '@/components/user'
 1. 将人手的 42 个关键点姿态表示为与末端执行器控制相近的未来相对位姿序列，使人类视频提供显式 action supervision。
 2. 提出图像、文本、动作三塔架构：文本 token 查询视觉 patch，再与动作 Transformer 的 embedding 对齐。
 3. 汇集 32,129 小时、约 34.6 亿帧的第一视角操作数据；其中机器人数据仅 88 小时。
-4. 在 Dexmate Vega + Sharpa Wave 灵巧双臂真机上，CAIP 的平均成功率为 76.04%，高于最强基线 SigLIP 2 的 43.40%；在 ManiSkill2 Franka 仿真中也取得 77.78% 平均成功率。
+4. 在 Dexmate Vega + Sharpa Wave 灵巧双臂真机上，CAIP 的平均归一化任务得分为 76.04%（论文称 success rate，但含部分完成分），高于最强基线 SigLIP 2 的 43.40%；在 ManiSkill2 Franka 仿真中也取得 77.78% 平均成功率。
 
 ## 2. 背景与相关工作
 
@@ -92,7 +92,9 @@ $$
 A_t = [a_{t+1}, \ldots, a_{t+T}] \in \mathbb{R}^{T \times 378}, \qquad T = 64.
 $$
 
-其中，每个时间步的 $378 = 42 \times 9$ 维动作来自左右手各 21 个关键点。每个关键点以 3D translation 加连续 6D rotation 表示，且相对当前帧手部姿态计算 delta；因此完整 chunk 为 $64 \times 378$，覆盖约 2 秒的未来手部运动。
+其中，每个时间步的 $378 = 42 \times 9$ 维动作来自左右手各 21 个关键点。每个关键点以 3D translation 加连续 6D rotation 表示，且相对当前帧同一关键点的姿态计算 delta；因此完整 chunk 为 $64 \times 378$，在 30Hz 数据上覆盖约 2.13 秒。Table 7 的 in-lab 数据是 20Hz，论文没有说明是否统一重采样；若直接取 64 帧则为 3.2 秒，不能假定所有来源的物理 horizon 相同。
+
+**【Code】** 官方 `ACTION_FORMAT.md` 明确默认 delta 是每关键点当前局部系下的相对变换，即 $\Delta T_{j,i}=T_{j,t}^{-1}T_{j,t+i}$，不是相邻未来帧的差分，也不是直接减去两个 6D rotation 向量。6D rotation 取矩阵前两行；不同实现取行/列的约定必须一致。每个时间索引和动作维度分别归一化，共 24,192 组统计量，而非整条 horizon 共用 378 组均值。
 
 预训练目标是让条件视觉表征 $z_{\mathrm{img}}(I_t, s)$ 与配对的动作表征 $z_{\mathrm{act}}(A_t)$ 相近，并远离 batch 中其他样本的动作。
 
@@ -106,7 +108,7 @@ $$
 
 **【Paper】** 当前图像经 ViT 生成 patch token，语言经文本 Transformer 生成 token；文本 token 对视觉 patch 做 cross-attention，再用 learnable query 汇聚为单一 image embedding。未来手部动作 chunk 经 action Transformer 的 CLS token 汇聚为 action embedding。两者以 SigLIP-style sigmoid contrastive loss 对齐。
 
-训练结束后，action encoder 只完成把动作监督注入视觉表征空间的任务，会被移除；下游控制保留的是图像和文本编码侧，而不是从视觉直接复用预训练 action encoder。
+训练结束后，下游机器人策略只保留图像和文本塔的 patch/token 表征；用于对比损失的 pooled embedding 不是控制策略唯一的输入瓶颈。action encoder 不参与机器人动作生成，但在论文零样本动作检索实验中仍需保留，以编码候选动作并构造 prototype。
 
 ### 4.2 核心模块
 
@@ -136,14 +138,14 @@ $$
 
 ### 4.3 关键公式
 
-**【Paper】** 对 batch 中 image-action 对 $(i,j)$，先计算带温度与 bias 的相似度：
+**【Paper】** 对 batch 中 image-action 对 $(i,j)$，先对两侧 embedding 做 L2 normalization，再计算带 logit scale 与 bias 的相似度：
 
 $$
 \ell_{ij} = \tau \cdot \langle \mathbf{z}^{\mathrm{img}}_i,
 \mathbf{z}^{\mathrm{act}}_j \rangle + b.
 $$
 
-$\tau$ 是可学习温度，$b$ 是可学习 logit bias。匹配 pair $i=j$ 的标签为 $y_{ij}=+1$，其余 batch 内组合为负 pair，标签为 $-1$。训练损失为：
+$\tau$ 在此是乘法 logit scale（通常称逆温度），$b$ 是可学习 logit bias。匹配 pair $i=j$ 的标签为 $y_{ij}=+1$，其余 batch 内组合为负 pair，标签为 $-1$。训练损失为：
 
 $$
 \mathcal{L}_{\mathrm{CAIP}} =
@@ -151,13 +153,13 @@ $$
 \log \sigma(y_{ij}\ell_{ij}).
 $$
 
-这里 $\sigma$ 是 sigmoid。正样本是同一轨迹中时刻 $t_0$ 的图像与 $t_0+1$ 到 $t_0+T$ 的未来动作；batch 中其他 image-action 组合均为负样本。
+这里 $\sigma$ 是 sigmoid。每对样本独立做二元分类，避免 InfoNCE 的 batch softmax 分母，但仍需产生跨 batch 负样本；不是不需要分布式通信，也不会自动消除假负例。正样本是同一轨迹中时刻 $t_0$ 的图像与 $t_0+1$ 到 $t_0+T$ 的未来动作；batch 中其他 image-action 组合均为负样本。
 
 ### 4.4 Training
 
 **【Paper】** 预训练数据由四类来源统一到同一手部动作空间：EgoDex 826 小时、in-lab human 287 小时、in-lab robot 88 小时、in-the-wild egocentric video 30,928 小时，总计 32,129 小时。尽管野外数据占原始帧数 96.6%，训练采样经上采样后为 EgoDex 10%、in-lab human 3%、in-lab robot 2%、野外视频 85%，以避免大源完全主导训练。
 
-**【Paper】** ViT-L/16 预训练使用 AdamW，peak learning rate 为 $10^{-4}$，weight decay $10^{-4}$，$\beta_1=0.9$、$\beta_2=0.98$、$\epsilon=10^{-6}$；先 warmup 2,000 step，再 cosine decay 到 0。训练一个完整数据 pass，不做 gradient clipping。128 张 H100 上以 bf16 运行，每卡 micro-batch 128、累积 2 次，global batch 为 32,768。温度初始化为 $1/0.07$，最大值为 100；bias 初始化为 -10。
+**【Paper】** ViT-L/16 预训练使用 AdamW，peak learning rate 为 $10^{-4}$，weight decay $10^{-4}$，$\beta_1=0.9$、$\beta_2=0.98$、$\epsilon=10^{-6}$；先 warmup 2,000 step，再 cosine decay 到 0。训练一个完整数据 pass，不做 gradient clipping。注意论文把累积后的 32,768 个样本全体用于互为负例；普通“分别算小 batch loss 再累积梯度”并不等价，复现必须核对跨 micro-batch 特征缓存/重算逻辑。128 张 H100 上以 bf16 运行，每卡 micro-batch 128、累积 2 次，global batch 为 32,768。温度初始化为 $1/0.07$，最大值为 100；bias 初始化为 -10。
 
 <Algorithm number={1} title='CAIP 对比预训练' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>带图像、语言和未来手部动作 chunk 的样本 batch</div>
@@ -185,8 +187,16 @@ $$
     从噪声动作 chunk 开始，按 flow-matching sampler 逐步更新；采样步数论文未明确说明
   </AlgorithmStep>
   <AlgorithmStep>执行当前动作目标：手臂使用相对末端位姿，手指使用绝对关节位置</AlgorithmStep>
-  <AlgorithmStep>在下一控制周期读取新相机观测，重复闭环决策</AlgorithmStep>
+  <AlgorithmStep>
+    执行指定前缀后读取新观测并重规划；下游 chunk 长度、执行前缀和 sampler 步数文中未明确披露
+  </AlgorithmStep>
 </Algorithm>
+
+### 4.6 公开实现对照
+
+**【Code】** [训练仓库](https://github.com/yuvansharma/caip_encoder) 基于 OpenCLIP，数据采用 `webdataset_actions`，README 给出 EgoDex shard 构建、统计量计算和从 SigLIP 2 初始化的入口；示例命令是单节点配置，不等于论文的 128-H100 完整 recipe。`src/open_clip/loss.py` 的 SigLIP pairwise loss 对 logits 做 `logsigmoid` 并按样本数归一化。
+
+**【Code】** [发布模型配置](https://huggingface.co/yuvansharma/caip-vitl256/blob/main/config.json) 确认 256 图像、16 patch、1024 hidden、24 层 text tower、64 horizon、378 action dim。README 泛称可使用 learned register tokens，但发布配置 `num_reg_tokens=0`；不能把可选架构当成该 checkpoint 的必要组成。模型接口分别返回 `patch_features`、`text_tokens` 和 `image_pooled`，读者应按下游任务选择，不能把 pooled 向量误当成全部视觉 token。
 
 ## 5. 实验
 
@@ -196,11 +206,11 @@ $$
 
 **【Paper】** 真机平台是固定底座的 Dexmate Vega：两条 7-DoF 手臂搭配两只 22-DoF Sharpa Wave 手。视觉来自 1 个头部 ZED X Mini 立体相机和 2 个 wrist ZED X One S 单目相机，三路皆为 $640 \times 360$ RGB；论文不使用深度、触觉和本体状态作为 policy 输入。
 
-真实任务为 Fold Shorts、Pour Almonds、Pick Fruits、Dispense Soap、Turn On Lamp、Pull Tissue。每个策略在各任务上独立训练，通常使用 200 条示教，Pour 为 150 条，并在 12 次 rollout 上评估。多阶段任务允许部分得分，完整完成才记满分。基线包括 R3M、Qwen3.5 ViT、VideoMAE、VC-1、MVP、DINOv2、SigLIP 与 SigLIP 2；全部采用冻结 encoder + 相同下游 policy 的公平比较。
+真实任务为 Fold Shorts、Pour Almonds、Pick Fruits、Dispense Soap、Turn On Lamp、Pull Tissue。每个策略在各任务上独立训练，通常使用 200 条示教，Pour 为 150 条，并在 12 次 rollout 上评估。多阶段任务允许部分得分，完整完成才记满分。基线包括 R3M、Qwen3.5 ViT、VideoMAE、VC-1、MVP、DINOv2、SigLIP 与 SigLIP 2；均采用冻结 encoder + 相同主体 policy/优化预算，但输入分辨率、patch/CLS token 策略和文本塔不同（Appendix E），是受控的系统比较，不能声称只有视觉权重一个变量。缺文本塔的模型用 CLIP 文本编码器，Qwen 组使用自身文本 embedding。
 
 ### 5.2 Main Results
 
-**【Paper】** CAIP 在 6 个真机任务上平均 76.04%，在 5 个任务取得最高分；最强基线 SigLIP 2 为 43.40%。逐任务结果如下：
+**【Paper】** Table 1 的“success rate”实际汇总了每 rollout 的任务 rubric 得分，包含抓取/对齐等部分分；76.04% 不代表 76.04% 的试验完整成功。CAIP 在 6 个真机任务上平均 76.04%，在 5 个任务取得最高分；最强基线 SigLIP 2 为 43.40%，差 32.64 个百分点。逐任务结果如下：
 
 | 编码器      | Fold Shorts |      Pour | Pick Fruits | Dispense Soap | Turn On Lamp | Pull Tissue |      平均 |
 | ----------- | ----------: | --------: | ----------: | ------------: | -----------: | ----------: | --------: |
@@ -211,13 +221,13 @@ $$
 | SigLIP 2    |        4.17 |     35.42 |       52.08 |         93.75 |        50.00 |       25.00 |     43.40 |
 | CAIP        |   **68.75** | **83.33** |       56.25 |    **100.00** |    **75.00** |   **72.92** | **76.04** |
 
-论文还在更换 embodiment 和视觉 domain 的 ManiSkill2 单臂 Franka 中评估：CAIP 在 Lift Peg、Stack Cubes、Push Cube 分别为 75.00%、58.33%、100.00%，平均 77.78%；SigLIP 2 和 DINOv2 的平均为 72.22% 与 69.44%。
+论文还在更换 embodiment 和视觉 domain 的 ManiSkill2 单臂 Franka 中评估：CAIP 在 Lift Peg、Stack Cubes、Push Cube 分别为 75.00%、58.33%、100.00%，平均 77.78%；SigLIP 2 和 DINOv2 的平均为 72.22% 与 69.44%。相对 SigLIP 2 的提升全部来自 Lift Peg 的 7/12→9/12，另外两项持平；这是有限跨具身证据，尚不足以判断多次训练下的稳定收益。
 
 ### 5.3 Ablation Study
 
 **【Paper】** 模型容量消融显示，ViT-B/16、ViT-L/16、ViT-SO400M/16 在 Turn On Lamp、Fold Shorts、Dispense Soap 三任务上的平均成功率依次为 47.92%、81.25%、87.50%。作者选择 ViT-L 作为主模型，因为从 B 到 L 的 33.33 个百分点提升远大于继续增大到 SO400M 的 6.25 个百分点提升。
 
-**【Paper】** 数据规模消融固定 ViT-L/16，在 ManiSkill2 中用 20%、50%、100% 预训练数据时平均成功率为 50.00%、61.11%、77.78%。Stack Cubes 从 25.00% 升至 58.33%，且论文称未观察到饱和迹象。
+**【Paper】** 数据规模消融固定 ViT-L/16，在 ManiSkill2 中用 20%、50%、100% 预训练数据时平均成功率为 50.00%、61.11%、77.78%。Stack Cubes 从 25.00% 升至 58.33%，且论文称未观察到饱和迹象。但各组固定 epoch 而不是优化步数，更多数据同时意味着更多计算；三个数据点与每任务 12 次 rollout 也不足以识别一般规模律。
 
 **【Paper】** 作者也尝试从 pooled embedding 用 MLP 直接回归 action chunk，或从 patch sequence 用 Transformer decoder 回归；使用相同数据与训练设置时均未得到有效表征。这说明有动作监督本身不足够，如何让视觉空间保留与动作有关的可分结构同样关键。
 
@@ -225,7 +235,7 @@ $$
 
 ![在未见第一视角数据上的 action-classification：线性 probe 与 CAIP 的零样本动作检索（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-caip/caip-linear-probe.wjao3vdu7.webp)
 
-**【Paper】** 对完全未参与预训练的第一视角数据，作者将原始 action chunk 以 K-means 聚为 50 类。冻结 encoder 后，CAIP 的 linear probe 在每类 1 到 256 个样本的范围内均优于 SigLIP、DINOv2、MVP、R3M；而 CAIP 的 zero-shot retrieval 直接将图像 embedding 与各动作簇的 action embedding prototype 比余弦相似度，在每类最多 16 个训练样本时超过所有基线的 linear probe。
+**【Paper】** 对完全未参与预训练的第一视角数据，作者将原始 action chunk 以 K-means 聚为 50 类。冻结 encoder 后，CAIP 的 linear probe 在每类 1 到 256 个样本的范围内均优于 SigLIP、DINOv2、MVP、R3M；而 CAIP 的 zero-shot retrieval 直接将图像 embedding 与各动作簇的 action embedding prototype 比余弦相似度，在每类最多 16 个训练样本时超过所有基线的 linear probe。这里的 zero-shot 指不训练图像分类器；50 个类别及其 prototype 仍由 held-out 数据中的动作和聚类得到，不是完全不接触目标域动作，也不是零样本机器人控制。
 
 **【Paper】** 在灯光与干扰物扰动中，模型均只在干净训练环境示教。对 Lamp、Soap、Fold Shorts 三项平均，CAIP 在原始 / 强光 / 弱光下为 81.25 / 51.39 / 43.06，在两个干扰物加入后为 52.78；对应 Qwen3.5 ViT 为 36.11 / 22.22 / 24.31 / 28.47，MVP 为 52.08 / 5.56 / 17.36 / 9.72。
 
@@ -237,7 +247,7 @@ $$
 
 1. **动作代理与下游接口相邻。** 42 个手部关键点不等于机器人关节，但它们的相对 $SE(3)$ 变化比视频帧距离、masked pixel 更接近末端控制和抓取过程。
 2. **监督目标是未来 chunk。** 单帧特征必须携带未来约 2 秒运动的可预测信息，迫使模型关注手、接触物与操作阶段，而不只是对象类别。
-3. **语言把 pooling 从全局显著性变为任务条件。** 文本 token 查询 image patch 的结构允许同一画面依照倒、拿、打开等指令构建不同特征；不过论文的注意力可视化也发现各内容 token 的空间图非常相似，不能把它解读为逐词精确 grounding。
+3. **语言把 pooling 从全局显著性变为任务条件。** 文本 token 查询 image patch 的结构允许同一画面依照倒、拿、打开等指令构建不同 pooled 特征；不过论文的注意力可视化也发现各内容 token 的空间图非常相似，不能把它解读为逐词精确 grounding。另外 CAIP/SigLIP 展示 attention，DINOv2 展示逐图 PCA，后处理也不同；图中“看向哪里”不是同一种 attribution 测量，不能据此断言基线不含动作信息。
 
 ### 6.2 核心创新
 
@@ -255,7 +265,7 @@ $$
 | MVP / VC-1    | 操作相关图像或视频            | masked reconstruction         | 重建像素，未选择控制相关部分 |
 | CAIP          | 第一视角视频 + 少量机器人数据 | image-text 与未来手部动作对比 | 将视觉直接组织到动作表征空间 |
 
-**【Analysis】** 这也解释了 direct regression 不理想的现象：回归会鼓励输出一个平均动作，而 contrastive matching 只要求表示空间把正确未来动作与错误动作区分开。对存在多种合理操作轨迹的视觉状态，后者可能是更温和、更适合作为 encoder pretraining 的约束。
+**【Analysis】** 这也解释了 direct regression 不理想的现象：论文主要用 L1 回归，其确定性最优解偏向条件中位数（MSE 才偏向均值），而 contrastive matching 只要求表示空间把正确未来动作与错误动作区分开。对存在多种合理操作轨迹的视觉状态，后者可能更适合作为 encoder pretraining 的约束。但 regression loss 早早停滞只证明这些特定训练配置未成功，不能推出所有动作回归都无效，也没有隔离初始化后新增数据与对比目标各自的贡献。
 
 ### 6.4 关键假设
 
@@ -270,7 +280,7 @@ $$
 
 ### 7.1 作者明确提出的局限
 
-**【Paper】** 论文没有独立的 limitations 小节，但报告了两个具体失败模式：Pour 中，策略有时已抓住杯子却在两杯未对齐时过早倾倒，作者推测两只同为红色的杯子在视觉上让接近对齐和已对齐难以区分；Fold Shorts 中，完成第一次折叠后有时不继续第二折，原因可能是中间状态与完成状态相似。论文也指出这些失败在其他 encoder 上同样出现。
+**【Paper】** §6 明确列出两项局限：连续动作相似却被当作负例，会削弱学习信号；42-keypoint MANO 代理引入人手形态偏置，仍需更广泛末端形态评估。Appendix A.3 虽补充 Franka 平行夹爪实验，范围仅三个任务，不能解释为已解决该偏置。Appendix A.5 还报告了两个具体失败模式：Pour 中，策略有时已抓住杯子却在两杯未对齐时过早倾倒，作者推测两只同为红色的杯子在视觉上让接近对齐和已对齐难以区分；Fold Shorts 中，完成第一次折叠后有时不继续第二折，原因可能是中间状态与完成状态相似。论文也指出这些失败在其他 encoder 上同样出现。
 
 **【Paper】** 更大 ViT-SO400M 有额外收益但更慢，故主结果采用 ViT-L；这表明性能与部署成本仍存在取舍。
 
@@ -279,7 +289,7 @@ $$
 **【Analysis】**
 
 1. **动作代理的上限。** 手部 pose 不包含力、触觉、物体动力学与接触状态；对插拔、柔性物体、摩擦临界等任务，视觉-姿态对齐未必足够。
-2. **数据来源可复现性。** 32,129 小时中约 30,928 小时来自论文未命名的 in-the-wild source，且没有官方代码或数据处理管线，第三方难以重建完整预训练配方。
+2. **数据来源可复现性。** 32,129 小时中约 30,928 小时来自论文未命名的 in-the-wild source，现在已有官方代码和 EgoDex 处理管线，但完整野外视频及其姿态估计来源仍未公开，第三方难以重建全部数据分布。
 3. **真机评测统计有限。** 每个任务仅 12 次 rollout，且多阶段任务给部分分；76.04% 是有价值的信号，但不应等价为大量随机初始化下的稳定成功率估计。
 4. **下游成本不低。** 表征预训练需 128 H100，下游每任务也使用 32 H100、12–15 小时；减少 robot data 不等于低算力可复现。
 5. **泛化结论的边界。** Franka 仿真展示跨 embodiment 迁移，但它仍需为每个任务用 200 条示教从头训练 policy，不是零样本跨机器人执行。
@@ -294,5 +304,6 @@ $$
 4. **人类视频加小量机器人数据值得做规模律。** 论文数据量消融未饱和，下一步不仅是加更多视频，也要量化何时增加机器人数据、提高动作标签质量或扩大 encoder 最划算。
 
 <Aside type='note' title='阅读提示'>
-  本精读中【Paper】表示论文明确内容，【Code】表示官方代码实现，【Analysis】表示基于论文的分析推断。本文未标注【Code】，因为截至发布日未发现该论文公开的官方代码。
+  本精读中【Paper】表示论文明确内容，【Code】表示官方代码实现，【Analysis】表示基于论文的分析推断。公开实现与论文结论分开标注；代码及模型状态核对至
+  2026-09-22。
 </Aside>

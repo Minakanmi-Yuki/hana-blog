@@ -1,7 +1,7 @@
 ---
 title: 'Hume 论文精读：让 VLA 先思考，再流畅行动'
 publishDate: 2026-08-26
-updatedDate: 2026-08-26
+updatedDate: 2026-09-22
 description: '精读 Hume 的 value-guided System-2 thinking 与 cascaded action denoising，并对照官方代码分析双系统异步控制。'
 heroImage:
   { src: 'https://pic.hana0721.top/105886628_p0_master1200.5fl6its319.webp', color: '#8C8275' }
@@ -49,7 +49,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】**《Hume: Introducing System-2 Thinking in Visual-Language-Action Model》把 VLA 控制拆成两个异步系统：System 2 是较慢但能反复采样、用 state-action value 选择动作的规划器；System 1 是轻量、快速的 visuomotor policy，负责把尚未完全去噪的动作片段变成流畅控制信号。论文在 3 个仿真环境、3 种真实机器人平台和 21 个真实任务上评估这一设计。
 
-![Hume 双系统总览（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-hume/pipeline-crop.8vnnkq28ao.webp)
+![Hume 双系统总览（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-hume/pipeline-crop.8vnnkq28ao.webp)
 
 ### 一句话总结
 
@@ -86,7 +86,7 @@ Hume 借用了 LLM 中 System 1/System 2 的分工：System 2 进行低频、计
 
 ### 4.1 Overall Architecture
 
-**【Paper】** System 2 读取 observation，经 VLM、flow-matching action head 和 value-query head 得到 $N$ 个不同噪声水平的候选；最高 Q 值的长 chunk 被切成短片段，送入 System 1 的 DINOv2-small + lightweight transformer 做连续去噪。数据流见 Figure 1。
+**【Paper】** System 2 读取 observation，经 VLM、flow-matching action head 和 value-query head 得到 $N$ 个不同噪声水平的候选；最高 Q 值的长 chunk 被切成短片段，送入 System 1 的 DINOv2-small + lightweight transformer 做连续去噪。数据流见 Figure 2。
 
 ### 4.2 核心模块
 
@@ -96,15 +96,17 @@ Hume 借用了 LLM 中 System 1/System 2 的分工：System 2 进行低频、计
 
 #### Value-query head
 
-**【Paper】** VLM 输入序列末尾附加可学习 query token $\mathbf q_t$。它与候选 action chunk 一起输入两个 critic 网络和一个 actor 网络组成的 Cal-QL 结构，输出 $Q_\theta(\mathbf q_t,\mathbf A_t)$：
+**【Paper】** VLM 输入序列末尾附加可学习 query token $\mathbf q_t$。图像/语言条件得到的 query 表征与候选 action chunk 共同用于 critic 评分；Cal-QL 的 actor 辅助离线训练和 Bellman backup，实际候选仍由 S2 flow head 生成，不由这个 actor 执行。选择规则为 $Q_\theta(\mathbf q_t,\mathbf A_t)$：
 
 $$
 \mathbf A_t^{\tau^*}=\arg\max_{n\in\{1,\ldots,N\}}Q_\theta(\mathbf q_t,\mathbf A_t^{\tau_n}).
 $$
 
-![候选 action 与 Q 值的 PCA value map（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-hume/pca_map-crop.6m4n18hhsf.webp)
+![候选 action 与 Q 值的 PCA value map（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-hume/pca_map-crop.6m4n18hhsf.webp)
 
-**【Analysis】** 这个 head 把当前 observation、语言条件和整段 action chunk 联合编码，因此能偏好更可能完成长时域任务的候选，而不是只判断单步动作。
+**【Code】** `ValueQueryHead` 实际定义在 `modeling_hume.py`，共享视觉/词嵌入后由单独的 `VQHBackbone` 处理 query。`select_q_actions` 输入图像和语言，候选只取前 `vqh_chunk_size` 步评分；当前接口没有把本体状态显式传入 Q head。`CalQL.get_q_values` 取两个 target critics 的较小值，再做 argmax。因此“评估整段含完整机器人状态的计划”并不是所有配置下都成立。
+
+**【Analysis】** 最后三步的 +1 奖励让 Q 学习折扣终点回报，不是经校准的任务成功概率；它依赖示教结束确实对应完成。PCA 图说明示教附近存在高值区域，既不能证明分布外 Q 校准，也不能因示教不在最高值点就断言没有过拟合。候选经 S1 修改后还未重新评分，所以 Q 选中高值的原始 chunk 不保证 refinement 后价值仍然最高。
 
 #### System 1：级联动作去噪
 
@@ -116,13 +118,18 @@ $$
 
 #### Flow matching
 
-**【Paper】** 构造 $\mathbf A_t^\tau=\tau\mathbf A_t+(1-\tau)\epsilon$，其中 $\epsilon\sim\mathcal N(0,I)$，最小化：
+**【Paper】** §3.1 同时写了“噪声到数据”的插值 $A^\tau=\tau A+(1-\tau)\epsilon$、正向 Euler 积分，以及相反方向的目标 $\epsilon-A$，三者符号不自洽。若沿该插值从 0 积分到 1，正确导数应是 $A-\epsilon$。
+
+**【Code】** 为避免照抄这个符号冲突，下面采用官方 `modeling_hume.py` 实际使用的“数据到噪声”时间 $s$：
 
 $$
-\mathcal L_{FM}=\mathbb E\left[\|\mathbf v_\theta(\mathbf A_t^\tau,\mathbf o_t)-(\epsilon-\mathbf A_t)\|_2^2\right].
+x_s=(1-s)A+s\epsilon,\qquad
+\mathcal L_{FM}=\mathbb E\|v_\theta(x_s,s,o)-(\epsilon-A)\|_2^2,
+\qquad
+x_{s+\Delta s}=x_s+\Delta s\,v_\theta(x_s,s,o),\quad \Delta s<0.
 $$
 
-$\tau$ 表示噪声插值位置；推理使用 forward Euler，论文设置 10 个去噪步。
+完整去噪从 $s=1$ 向 0 积分，默认 10 步；与论文正向时间通过 $s=1-\tau$ 对应。`time_temp`、`theta2` 会改变实际积分起止，当前候选代码改变起始时间并独立重采高斯初值，不宜将其说成严格复现论文式（1）的固定起点、不同终点积分。
 
 #### Cal-QL value objective
 
@@ -130,7 +137,7 @@ $$
 \min_\theta\;\alpha\mathcal R(\theta)+\frac12\mathbb E\left[(Q_\theta(\mathbf q_t,\mathbf A_t)-\mathcal B^\pi\bar Q(\mathbf q_t,\mathbf A_t))^2\right].
 $$
 
-**【Paper】** $\mathcal R$ 是 calibrated conservative regularizer，用于抑制分布外动作的 Q 值过估计；$\bar Q$ 是延迟 target network。
+**【Paper】** $\mathcal R$ 抑制分布外动作过估计，同时用行为策略回报作校准下界，避免纯保守惩罚把所有候选压得过低；$\bar Q$ 是延迟 target network。**【Code】** 实现对策略采样动作的 Q 与数据中的 Monte Carlo return 取最大值，再构造保守项。这是带下界的价值学习约束，不是对候选真实性或安全性的认证。
 
 #### Cascaded denoising
 
@@ -138,7 +145,7 @@ $$
 \widetilde{\mathbf A}_{t+kh}^{\omega}=\widetilde{\mathbf A}_{t+kh}^{\tau^*}+\int_0^\omega\mathbf v_\theta(\widetilde{\mathbf A}_{t+kh}^{\omega},\widetilde{\mathbf o}_{t+kh})d\omega.
 $$
 
-**【Analysis】** System 1 的初值是被选中的“半成品”动作，因此级联阶段更像 refinement，而不是重新规划。
+**【Analysis】** System 1 的初值是被选中的“半成品”动作，视觉/状态则更新到执行子段的时刻。**【Code】** S1 训练时在 S2 预测子段 $B$ 与示教子段 $A$ 之间构造 $(1-s)A+sB$，回归 $B-A$，并可对 $B$ 做滑窗/扰动；推理从传入的 $B$ 逆向积分。它是另一个条件生成器学习从粗动作到示教动作的映射，不是继续同一个 S2 ODE，也不受保留原轨迹拓扑或 Q 排序的约束。
 
 ### 4.4 Training
 
@@ -153,32 +160,34 @@ $$
   <AlgorithmStep>切分示教 chunk，训练 System 1 从带噪子 chunk 恢复真实子动作。</AlgorithmStep>
 </Algorithm>
 
-**【Code】** train_s2.py 对应阶段一；train_vqh_s1.py 管理 trunk、actor、critic、temperature 四个 optimizer，并按 soft_target_critic_update_rate=5e-3 更新 target critics。代码默认 s1_chunk_size=8、s2_chunk_size=8、vqh_chunk_size=10，与论文正文的 $H=30,h=15$ 不完全相同。
+**【Code】** train_s2.py 对应阶段一；train_vqh_s1.py 管理 trunk、actor、critic、temperature 四个 optimizer，并按 soft_target_critic_update_rate=5e-3 更新 target critics。代码默认 s1_chunk_size=8、s2_chunk_size=8、vqh_chunk_size=10，这些是训练入口的默认值，不能当成所有实验配置。附录 B.2 明确区分：LIBERO/Franka 为 $H=16,h=8$，Simpler WidowX/真实 WidowX 为 $8/4$，Google Robot 为 $4/2$，AgiBot G-1 才是 $30/15$。
 
 ### 4.5 Inference
 
-**【Paper】** 示例中 System 2 以 4 Hz 生成 $N=5$ 个长度 $H=30$ 的候选，System 1 以 6 Hz 处理长度 $h=15$ 的子 chunk，执行频率可达到 90 Hz。两个系统通过共享队列异步协作。
+**【Paper】** 示例中 System 2 以 4 Hz 生成 $N=5$ 个长度 $H=30$ 的候选，System 1 以 6 Hz 处理长度 $h=15$ 的子 chunk，作者把每次生成 15 个动作乘以 6 次调用/秒，称为 90Hz 动作控制；这不是每秒 90 次视觉重规划。论文的异步共享队列描述与具体时间预算也应分开看：两段 S1 按 6Hz 需约 333ms，而 S2 的 4Hz 是 250ms，不能据此声称每次必定在下一份 S2 到来前消耗完整 30 步。实际丢弃旧计划/对齐延迟的策略需要部署实现确定。
 
-<Algorithm number={2} title='异步双系统推理' inputLabel='输入' outputLabel='输出'>
+<Algorithm number={2} title='论文描述的双系统推理逻辑' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>当前图像、语言指令、机器人状态</div>
   <div slot='output'>下一步已去噪机器人动作</div>
   <AlgorithmStep>System 2 采样 $N$ 个不同噪声水平的 action chunks。</AlgorithmStep>
   <AlgorithmStep>Value-query head 计算 Q 值，选择最大者并放入共享队列。</AlgorithmStep>
   <AlgorithmStep>System 1 取下一个子 chunk，结合新观测进行 10 步级联去噪。</AlgorithmStep>
-  <AlgorithmStep>执行子 chunk；队列耗尽或达到重规划步数时，再请求 System 2。</AlgorithmStep>
+  <AlgorithmStep>
+    按平台执行前缀并继续读取最新观测；S2 独立低频更新共享候选，S1 在下一子段使用适当的新计划。
+  </AlgorithmStep>
 </Algorithm>
 
-**【Code】** README 示例使用 s2_candidates_num=5、replan_steps=8、s2_replan_steps=16。select_action 缓存 noise_action，用 stamp 计算滑动窗口，说明代码不必每个控制周期重新运行 System 2。
+**【Code】** README 示例使用 s2_candidates_num=5、replan_steps=8、s2_replan_steps=16。select_action 缓存 noise_action，用 stamp 计算滑动窗口，说明代码不必每个动作周期重新运行 System 2。不过这个公开 `infer` 实现是在队列为空时同步调用 `select_action`，其中 S2→Q→S1 顺序计算；它本身不是论文所述的两个并发后台循环，无法仅凭该队列复现 4Hz/6Hz 的异步时序。
 
 ### 4.6 代码实现对照
 
-| 论文概念         | 官方代码位置                          | 实际行为                                          |
-| ---------------- | ------------------------------------- | ------------------------------------------------- |
-| System 2 VLA     | src/hume/models/modeling_hume.py      | PaliGemma-with-expert 的 action flow matching     |
-| Value-query head | src/hume/models/value_query.py        | VQH backbone + CalQL actor/双 critic              |
-| System 1         | src/hume/models/fast_visuo_expert.py  | DINOv2-small + lightweight transformer            |
-| 异步/缓存        | HumePolicy.infer、select_action       | action_plan 队列、stamp 滑窗、候选 action/Q cache |
-| 训练             | training/train_s2.py、train_vqh_s1.py | 分阶段训练与 target critic 更新                   |
+| 论文概念         | 官方代码位置                                               | 实际行为                                          |
+| ---------------- | ---------------------------------------------------------- | ------------------------------------------------- |
+| System 2 VLA     | src/hume/models/modeling_hume.py                           | PaliGemma-with-expert 的 action flow matching     |
+| Value-query head | `modeling_hume.py` 的 `ValueQueryHead` 与 `value_query.py` | 前者连接query与动作，后者实现CalQL actor/双critic |
+| System 1         | src/hume/models/fast_visuo_expert.py                       | DINOv2-small + lightweight transformer            |
+| 异步/缓存        | HumePolicy.infer、select_action                            | action_plan 队列、stamp 滑窗、候选 action/Q cache |
+| 训练             | training/train_s2.py、train_vqh_s1.py                      | 分阶段训练与 target critic 更新                   |
 
 **【Code】** README 的 TODO 仍把真实世界与 SimplerEnv 评估标为未发布，因此本文不把未公开脚本行为当作代码事实。
 
@@ -186,31 +195,33 @@ $$
 
 ### 5.1 Experimental Setup
 
-![Hume 实验平台：WidowX、AgiBot G-1 与 Franka（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-hume/exp_setup-crop.4clmhqwr82.webp)
+![Hume 实验平台：WidowX、AgiBot G-1 与 Franka（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-hume/exp_setup-crop.4clmhqwr82.webp)
 
 **【Paper】** 实验覆盖 SimplerEnv 和 LIBERO 仿真，以及 WidowX、Franka、AgiBot G-1 三个平台；真实测试共 21 个 manipulation tasks，包含视角/纹理/光照变化、未见物体、可变形物体、工具使用和 humanoid 控制。
 
 ### 5.2 Main Results
 
-**【Paper】** LIBERO 平均成功率为 **98.6%**，四个 suite 均排名第一；LIBERO-Long 为 **96.7%**，高于 $\pi_0$ 的 85.2%。SimplerEnv WidowX 平均 **72.6%**，Google robot 的 variant aggregation 平均 **74.1%**、visual matching 平均 **78.7%**。
+**【Paper】** LIBERO 平均成功率为 **98.6%**，四个 suite 均排名第一；LIBERO-Long 为 **96.7%**，高于 $\pi_0$ 的 85.2%。**注意指标口径：** SimplerEnv WidowX 报告的 **72.6%** 是四任务各自“Grasp”和“Success”共八列的均值，混合了抓取阶段完成与全任务完成；只取四个最终 Success（58.0、66.7、45.5、72.8）重新平均是 **60.75%**，不能将72.6%写成四任务完整成功率。Google robot 的 variant aggregation 平均 **74.1%**、visual matching 平均 **78.7%**。
 
-![WidowX 真实任务结果（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-hume/exp_widowx-crop.2ksnmudedl.webp)
+![WidowX 真实任务结果（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-hume/exp_widowx-crop.2ksnmudedl.webp)
 
-**【Paper】** WidowX 真实任务平均成功率为 91%，相对 $\pi_0$ 提升 12 个百分点；Franka 平均 87%，相对 $\pi_0$ 提升 14.75 个百分点。AgiBot 的 Fold Shorts 成功率 88%，Pour Water 为 82%。
+**【Paper】** 论文主结果报告 WidowX 真实任务平均91%，相对 $\pi_0$ 提升 12 个百分点；Franka 平均 87%，相对 $\pi_0$ 提升 14.75 个百分点。AgiBot 的 Fold Shorts 为88%，Pour Water 为82%。但附录 C.2 明确说复杂任务同时统计抓取、中间子任务和总体完成；Figure 6 的 Franka 平均87%对应四组图示评分，而非清晰列出七任务等权最终成功率。真实每项试验分母没有完整报告，Figure 7 消融中 WidowX/Franka 完整模型又分别标为86%/91%，与主图91%/87%不一致。因此这些是真实实验原报汇总值，不能跨图当作同一组精确可复算的终局成功率。
 
-![Franka 与 AgiBot G-1 真实任务结果（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-hume/exp_franka_agibot-crop.7zr659sjo1.webp)
+![Franka 与 AgiBot G-1 真实任务结果（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-hume/exp_franka_agibot-crop.7zr659sjo1.webp)
 
 ### 5.3 Ablation Study
 
-![Hume 真实平台消融结果（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-hume/ablation_bar-crop.mta7dfn1.webp)
+![Hume 真实平台消融结果（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-hume/ablation_bar-crop.mta7dfn1.webp)
 
 **【Paper】** LIBERO 平均成功率从完整模型的 98.6% 降至：去掉 cascaded denoising 为 95.9%，去掉 repeat sampling 为 93.8%，去掉 System 1 为 89.8%，去掉 value-query head 为 84.9%。SimplerEnv WidowX 对应平均值为 72.6%、68.7%、65.6%、61.6%、56.3%。
+
+**【Paper】** 这些删除实验也改变候选分布：去 cascaded denoising 让 S2 完全去噪全部候选；去 S1 会直接执行可能仍带噪的候选；去 Q head 从五个不同噪声候选中随机选一个。因此大幅下降既反映模块作用，也包含直接下发残余噪声或随机选噪声水平的损害，不能当成与等计算预算的强单系统基线完全隔离的比较。
 
 **【Analysis】** value head 决定“选谁”，repeat sampling 决定“有没有可选项”，System 1 决定“选中的半成品能否被精确执行”。
 
 ### 5.4 Generalization
 
-**【Paper】** 泛化测试覆盖环境外观、相机位姿、语言描述、物体与布局变化，以及跨 embodiment 的真实部署。**【Analysis】** 目前证据主要是任务内训练、跨外观/平台测试；论文没有证明完全未见任务语义上的 zero-shot planning。
+**【Paper】** 泛化测试覆盖环境外观、相机位姿、语言描述、物体与布局变化，以及在不同 embodiment 分别训练/适配后的真实部署。**【Analysis】** WidowX 标作零样本设置，Franka/AgiBot 有各自示教训练，不能合并为一个权重对未见机器人直接零样本迁移；论文没有证明完全未见任务语义上的 zero-shot planning。
 
 ## 6. 方法分析
 
@@ -238,14 +249,14 @@ $$
 
 ### 7.1 作者明确提出的局限
 
-**【Paper】** 论文正文没有单独的 limitations 小节，也没有报告完整的推理显存、功耗或端到端延迟分解；论文未明确说明这些部署成本。
+**【Paper】** 论文 §5 明确有 “Conclusion and Limitations”：候选本身质量限制了 best-of-N 上限；Q 值尚未很好地与语义对齐；当前所谓 System-2 thinking 仍是简单候选搜索，树搜索、自我修正和更复杂 RL 留待未来。这也说明论文没有实现语言 CoT、反事实世界模型规划或开放式自我反思。
 
 ### 7.2 自己分析得到的局限
 
 1. Q head 依赖稀疏终点奖励，可能难以细致估计中间状态的可恢复性。
-2. $N$ 次 System 2 采样带来近似 $N$ 倍的 backbone/action-head 计算。
+2. 当前公开 `select_action` 顺序调用 N 次 S2，每次内部重新编码前缀并建 KV cache，确有明显额外成本；这是该实现行为，批量候选和跨候选复用前缀可改变成本比例，不能把严格 N 倍写成方法固有定律。
 3. critic 偏差可能反过来影响候选选择，Cal-QL 只能缓解而不能消除耦合风险。
-4. 论文的 $H=30,h=15$ 与公开代码默认 chunk 配置不同，复现必须锁定 config、checkpoint 和数据处理流程。
+4. 论文分平台参数、训练脚本默认值和实际 checkpoint 配置不同；加上异步调度与部分结果口径未完整复现，必须锁定配置、评测分母和数据处理流程。
 
 ## 8. 启发与研究思考
 

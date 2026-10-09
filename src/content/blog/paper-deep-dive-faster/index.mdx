@@ -1,7 +1,7 @@
 ---
 title: 'FASTer 论文精读：用神经动作 Tokenization 加速自回归 VLA'
 publishDate: 2026-08-25
-updatedDate: 2026-08-25
+updatedDate: 2026-09-22
 description: '精读 FASTer：从 FASTerVQ 的二维动作压缩、RVQ 与 DCT 重建，到 FASTerVLA 的 Block-wise Autoregression 和 Action Expert。'
 heroImage:
   { src: 'https://pic.hana0721.top/70977889_p0_master1200.9gx5x526gc.webp', color: '#8C8275' }
@@ -53,6 +53,8 @@ import { Aside } from '@/components/user'
 **论文名称**：《FASTer: Toward Efficient Autoregressive Vision Language Action Modeling via Neural Action Tokenization》  
 **作者**：Yicheng Liu 等 15 位作者  
 **论文链接**：[arXiv 2512.04952](https://arxiv.org/abs/2512.04952)
+
+**核对版本**：以下方法与表格以 [arXiv v1 全文](https://arxiv.org/html/2512.04952v1) 为准；文中对原文自身不一致之处单独说明。
 
 ### 一句话总结
 
@@ -114,13 +116,13 @@ $$
 
 #### TAAE 与 RVQ
 
-TAAE 是带卷积下采样的 Transformer encoder–decoder。encoder 得到 latent $z\in\mathbb R^{C_h\times C_a}$，RVQ 逐层量化残差：
+TAAE 是带卷积下采样的 Transformer encoder–decoder。encoder 得到具有 $C_h\times C_a$ 个位置的 latent 网格，每个位置还对应一个特征向量；这与只存整数索引的 code tensor 不同。RVQ 在每个位置逐层量化残差：
 
 $$
-r_1=z,\quad k_i=\arg\min_j\|r_i-e_j\|^2,\quad r_{i+1}=r_i-e_{k_i}
+r_1=z,\quad k_i=\arg\min_j\|r_i-e_{i,j}\|^2,\quad r_{i+1}=r_i-e_{i,k_i},\quad z_q=\sum_{i=1}^{N_c}e_{i,k_i}
 $$
 
-早期 codebook 捕获低频、粗粒度运动，后续 codebook 补充高频残差。论文默认 $K=4096$、$N_c=3$；codebook 用 EMA 更新并重置 dead codes。
+这里 $e_{i,j}$ 是第 $i$ 层 codebook 的第 $j$ 个向量，$k_i$ 才是交给 VLA 预测的离散索引。解码时先将各层向量相加得到 $z_q$，再交给连续 decoder。作者将这种逐层补残差解释为由粗到细的运动表示；它并不强制每层对应一个严格的傅里叶频带。论文默认 $K=4096$、$N_c=3$；codebook 用 EMA 更新并重置 dead codes。
 
 #### DCT-aware reconstruction
 
@@ -130,7 +132,7 @@ $$
 \mathcal L_{VQ}=\|A-\hat A\|_1+\|\operatorname{DCT}(A)-\operatorname{DCT}(\hat A)\|_1+\lambda\|z-\operatorname{sg}(z_q)\|_2^2
 $$
 
-第一项保护每个控制步，第二项约束整段轨迹的趋势，第三项是 commitment loss。**【Analysis】** 这解释了为什么 FASTer 不把“像素级最小误差”当作唯一目标：机器人真正关心的是轨迹是否仍处于可执行的误差范围。
+第一项约束每个控制步，第二项约束频域系数，第三项是 commitment loss；$\operatorname{sg}$ 阻断梯度，$\lambda$ 控制 encoder 靠近量化向量的强度。**【Analysis】** DCT 项改变了重建误差的衡量方式，使多个时间步共同形成的偏差受到约束；它本身既不是动力学损失，也不保证接触稳定或任务成功。
 
 #### FASTerVLA 与 Action Expert
 
@@ -138,7 +140,9 @@ VLM 的 vision tower、projection 和 language backbone 保持标准接口；pro
 
 #### Block-wise Autoregression（BAR）
 
-标准 AR 每次预测一个 code。BAR 把序列切成大小为 $B$ 的 block，block 内 token 可以互相 attend，只对前面的 block 保持 causal mask。于是前向次数从 $N$ 降到约 $N/B$。解码顺序先遍历一个 codebook 的 horizon，再进入下一层 residual codebook，符合 RVQ 的 coarse-to-fine 结构。
+标准 AR 每次预测一个 code。BAR 把序列切成大小为 $B$ 的 block，一次预测下一整块。需要区分 **block 内的输入表示可以互相 attend** 和 **预测时已知同一目标块的其他真实 code**：后者并不成立，式 (3) 中所有输出都只以先前块和观测为条件。论文用 `BoBlk` / `EoBlk` 切换动作块与普通文本生成，首块由复制 $B$ 次的 `BoBlk` 启动；训练使用 teacher forcing，推理使用已经生成的历史块。
+
+前向次数因此从 $N$ 降到约 $N/B$。按正文 §3.2，解码顺序先遍历一个 codebook 的 horizon，再进入下一层 residual codebook。**【Analysis】** 这是减少串行依赖的建模选择，不是免费保留逐 token AR 的全部条件依赖。例如 LIBERO 的 $N_c=3,C_h=1,C_a=7$ 产生 21 个 code，取 $B=7$ 只需 3 次动作块解码；20 个连续控制步与这 3 次模型前向是不同概念。
 
 ### 4.3 关键公式
 
@@ -162,13 +166,13 @@ $$
 \operatorname{VRR}=\frac1{N_{total}}\sum_i\mathbf 1\big(\|a_i^{recon}-a_i^{gt}\|_1<\sigma\big)
 $$
 
-**【Paper】** VRR 用物理误差阈值衡量“是否足够可执行”，比单纯平均 L1 更接近机器人任务质量。
+**【Paper】** $N_{total}$ 是评估动作数，$\sigma$ 是容许误差，指示函数只统计重建误差低于阈值的动作。**【Analysis】** VRR 衡量的是给定真实动作后的压缩重建质量；VLA 是否能从图像和语言预测正确 code，是另一项任务。高 VRR 不等于高闭环成功率，阈值也必须连同动作单位、维度与归一化方式解读。
 
 ### 4.4 Training
 
 **【Paper】** FASTerVQ 在大规模混合机器人数据上独立训练，AdamW 学习率为 $10^{-4}$、weight decay 为 $0.1$，使用 cosine decay、1000 步 warmup、bfloat16 和梯度裁剪。单臂 tokenizer 约 8M 参数，全身控制版本约 13M；训练最多 300k steps。
 
-FASTerVLA 使用学习率 $2.5\times10^{-5}$ 的 AdamW，BAR block size 在单臂任务为 7、whole-body / 双臂任务为 8；推理使用 top-k=50、temperature=0.8。
+FASTerVLA 使用学习率 $2.5\times10^{-5}$ 的 AdamW；推理使用 top-k=50、temperature=0.8。**【Paper】** 附录 A.2 的文字称单臂 block size 为 7、whole-body / 双臂为 8，但 Table 4 对相应任务均列为 7，Table 2 的 WBC block 数也无法由该表配置直接复算。本文保留这一配置不一致，不能把任一数字当作已核实的统一复现设置。
 
 <Algorithm number={1} title='FASTer 训练流程' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>动作块数据集、图像、本体状态、语言指令</div>
@@ -177,7 +181,8 @@ FASTerVLA 使用学习率 $2.5\times10^{-5}$ 的 AdamW，BAR block size 在单�
   <AlgorithmStep>用 TAAE 编码，经过 RVQ 得到多层离散 codes。</AlgorithmStep>
   <AlgorithmStep>以时域 L1、DCT L1 和 commitment loss 更新 FASTerVQ。</AlgorithmStep>
   <AlgorithmStep>
-    冻结或部分保留预训练 VLM，使用 teacher forcing 训练 Action Expert 与 BAR。
+    以离散 codes 为监督，用 teacher forcing 训练 VLA / Action Expert 的 BAR 目标；区分 tokenizer
+    预训练与动作专家的机器人数据预训练。
   </AlgorithmStep>
 </Algorithm>
 
@@ -196,7 +201,7 @@ FASTerVLA 使用学习率 $2.5\times10^{-5}$ 的 AdamW，BAR block size 在单�
 
 ### 4.6 代码实现对照
 
-论文 arXiv 源文件只包含 LaTeX、图表与算法，没有给出 GitHub、Hugging Face 或可安装代码链接。**【Code】** 因此本节没有可核对的 model definition、DataLoader、checkpoint 或 inference script；上文的“代码行为”不应被理解为已经公开的官方实现。**【Analysis】** 若要复现，至少需要实现 patchifier 的 embodiment 分组、TAAE/RVQ 的 EMA codebook、block-wise causal mask 和 Action Expert 的两阶段训练。
+**【Paper】** v1 的 §7 表示计划在发表时公开源码，本次核对的论文没有提供可直接对照的官方实现。因此本文不将 model definition、DataLoader、checkpoint 或 inference script 记作已核实的 `【Code】` 事实。**【Analysis】** 复现仍需确认 patchifier 的 embodiment 分组、EMA dead-code reset、block 输入移位与 mask，以及 Action Expert 的预训练和部分冻结配置。
 
 ## 5. 实验
 
@@ -217,6 +222,8 @@ FASTerVLA 使用学习率 $2.5\times10^{-5}$ 的 AdamW，BAR block size 在单�
 
 **【Paper】** Libero 的 Spatial/Object/Goal/Long 成功率分别为 98.0/99.4/98.6/95.4%；Simpler 的 Spoon/Carrot/Block/Eggplant 为 91.7/93.3/67.5/99.2%。
 
+**【Paper】** 延迟来自 RTX 5090 上的 PyTorch 测量（Tables 2、5）。单臂 112 ms 中图像编码和观测前向约占 88 ms，3 次 BAR 约占 22 ms；WBC 的 237 ms 仍高于同表 `π₀` 的 225 ms。**【Analysis】** 因而“更快”最有力地成立于相对 FAST 的长序列解码，不能扩展成所有 embodiment 上都快于连续动作模型。附录的 140 ms BAR 消融是另一组测量，也不应与主表 112 ms 混作同一运行配置。
+
 ![FASTerVQ 在不同误差阈值下的 VRR（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-faster/fastervq_vrr-crop.86udz6c93j.webp)
 
 FASTerVQ 在 VRR 和 compression–reconstruction 曲线上都优于 FAST 等 tokenizer，且随着训练数据从 S 扩展到 L/XL，跨任务与跨 embodiment 的重建继续改善。论文报告 FASTerVQ-XL 在 $\sigma=10^{-3}$ 时接近无损重建。
@@ -231,9 +238,11 @@ BAR 在不使用 Action Expert 时把 latency 从 323 ms 降至 140 ms，success
 
 ### 5.4 Generalization
 
-![FASTer 在 Bridge 与 Droid 上的 zero-shot 对比（论文 Figure 8）](https://pic.hana0721.top/blog/paper-deep-dive-faster/zeroshot-crop.83as1gj71w.webp)
+![FASTer 在 Bridge 与 Droid 上的 zero-shot 对比（论文 Figure 10）](https://pic.hana0721.top/blog/paper-deep-dive-faster/zeroshot-crop.83as1gj71w.webp)
 
-**【Paper】** FASTerVQ 只用单臂 delta-EEF 数据训练，也能迁移到 Widow、XArm、joint velocity、absolute joint position 等未见 embodiment 或 action representation。VLABench 上 FASTerVLA 的 OOD 相对下降约 29%；Simpler-Bridge 达到 87.9%，比第二名高 12.9 个百分点。Bridge 数据上，FASTerVQ 使用 4096 code 且接近 100% 激活，token 分布熵更高，作者将其与 zero-shot 性能联系起来。
+**【Paper】** FASTerVQ 的跨 embodiment 实验测试的是对新机器人动作的重建，包括未见的 joint velocity / absolute joint position 表示；这不等于 FASTerVLA 无需动作数据就能控制这些机器人。策略层面，VLABench 的 OOD 相对下降约 29%；Bridge / Droid 的 zero-shot 指相应数据预训练后不针对测试任务再微调，仍使用该机器人体系的训练数据。
+
+**【Paper】** 按 Table 1，Simpler-Bridge 的 87.9% 相对 `π₀-FAST-D` 的 76.5% 提升 **11.4 个百分点**；正文声称的 12.9 与表中数字不一致。附录 A.1 还规定每任务 120 次评测，区别于其所述默认 24 次设置。Bridge 上更高的词表利用率与 zero-shot 表现同时出现，但没有控制其他变量的实验能单独证明“更高熵导致更好泛化”。
 
 ## 6. 方法分析
 
@@ -269,10 +278,10 @@ BAR 在不使用 Action Expert 时把 latency 从 323 ms 降至 140 ms，success
 
 **【Analysis】**
 
-1. BAR 的 block 内并行是假设，不适用于强耦合的接触动作；block size 过大可能把错误成批传播。
+1. BAR 弱化了目标块内部的自回归依赖；强耦合接触动作是否更易受影响需要专门实验，本文不能据此断言其不适用。block size 过大带来的精度变化应结合消融评估。
 2. 语义分组和 padding 依赖 embodiment 先验，换机器人时并非完全 out-of-the-box。
 3. VRR 的阈值 $\sigma$ 与具体控制器、坐标归一化有关，跨数据集比较需谨慎。
-4. 当前公开材料没有官方代码，复现 EMA dead-code reset、mask 细节和 Action Expert 训练 schedule 仍有较高门槛。
+4. 本次核对的 v1 没有官方实现链接，且 WBC 配置存在表文差异；复现 EMA dead-code reset、mask 和 Action Expert schedule 需要额外材料。
 
 ## 8. 启发与研究思考
 

@@ -1,7 +1,7 @@
 ---
 title: 'CLAP 论文精读：从人类视频学习可执行的 Vision-Language-Action 模型'
 publishDate: 2026-08-25
-updatedDate: 2026-08-25
+updatedDate: 2026-09-22
 description: '精读 CLAP：用 Act-VAE 建立物理动作词表，再以 VD-VAE 对齐人类视频，训练 CLAP-NTP，并用 CLAP-RF 与 Knowledge Matching 实现快速控制。'
 heroImage:
   { src: 'https://pic.hana0721.top/133376054_p0_master1200.1ziuqmv790.webp', color: '#8C8275' }
@@ -111,7 +111,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![CLAP 的四阶段 pipeline：Act-VAE、VD-VAE、CLAP-NTP 和 CLAP-RF（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-clap/pipeline-crop.9ddp7u3b25.webp)
+![CLAP 的 pipeline：Act-VAE、VD-VAE、CLAP-NTP 和 CLAP-RF（论文 v2 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-clap/pipeline-crop.9ddp7u3b25.webp)
 
 **【Paper】** 整体数据流是：机器人 action chunk → Act-VAE codebook；机器人与人类的视觉 transition → VD-VAE；两种 action token 与图像、语言 → CLAP-NTP；目标域机器人数据 → CLAP-RF + KM。训练时先固定前一阶段的 tokenizer，避免对齐过程重新漂移物理坐标系。
 
@@ -136,7 +136,7 @@ $$
 
 #### CLAP-NTP：在 token space 中保留 VLM 推理
 
-**输入**为当前图像、任务指令和数据源对应的 action token；**输出**为 `[subtask, action tokens]` 的 autoregressive 序列。机器人样本使用 Act-VAE 真值 token，人类样本使用 VD-VAE pseudo-token。
+**输入**为当前图像、任务指令，以及训练时 teacher forcing 的已知序列前缀；**输出**为 `[subtask, action tokens]` 的 autoregressive 序列。完整真实 action token 是训练标签，推理时不能作为额外已知输入。机器人样本使用 Act-VAE 真值 token，人类样本使用 VD-VAE pseudo-token。
 
 **【Paper】** 这种 next-token formulation 让 subtask decomposition、instruction following 和 action generation 共用一个语言序列，不需要为 human video 伪造连续机器人动作。**【Code】** `starvla_astribot_qwenar.yaml` 的 backbone 是 Qwen3-VL-4B，`max_new_tokens: 512`，并加载冻结的 Stage-2 CLAP checkpoint。
 
@@ -146,7 +146,9 @@ $$
 
 ![Knowledge Matching：用 token-level KL 约束 RF action head 的适配（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-clap/km-crop.39lx5e0mpb.webp)
 
-**【Code】** `starVLA/model/framework/VLM4A/QwenPIKM.py` 会加载冻结 CLAP action VQ-VAE，把 GT continuous action 重新编码成 `<ACT_*>` 字符串，只在这些 token positions 计算 KL；Astribot 配置的 `kl_loss_weight` 为 `0.005`，`kl_type` 为 `reverse_kl`。因此 KM 不是对 RF 输出直接做 feature matching，而是约束“产生动作条件的 token policy”不要偏离可信的 NTP reference。
+**【Code】** [QwenPIKM.py](https://github.com/LinShan-Bin/OpenCLAP/blob/main/starVLA/model/framework/VLM4A/QwenPIKM.py) 将真实连续动作经冻结 CLAP 编码为 `<ACT_*>`，并让可训练 VLM 与冻结 reference 在同一 teacher-forcing 上下文中计算词表分布。源码把第一个 action token 之前及 padding 的位置屏蔽，之后的非 padding 位置参与 KL，因此严格说并非逐个筛选全部 `<ACT_*>` token。
+
+**【Code】** 更关键的是 **KL 方向存在论文与 release 差异**：论文式 (7) 写 $D_{KL}(p_{policy}\|p_{ref})$；本次核验的 `reverse_kl` 分支调用 `F.kl_div(student_logp, teacher_logp, log_target=True)`，实际计算 $D_{KL}(p_{ref}\|p_{policy})$，而代码的 `kl` 分支才对应论文方向。不能仅凭配置名判断数学含义，复现时需明确采用哪个分支。两者都约束 token policy，并非直接约束 RF 输出轨迹。
 
 ### 4.3 关键公式
 
@@ -177,7 +179,9 @@ $$
 +\lambda_{\text{con}}\mathcal{L}_{\text{con}}+\lambda_{\text{reg}}\|\mathbf{z}_{v,i}\|_1.
 $$
 
-其中 $\mathcal{L}_{\text{rec}}$ 重建未来视觉 feature，$\mathcal{L}_{\text{VQ}}$ 约束两套 codebook，L1 项让 action-irrelevant stream 尽量稀疏，避免它“偷走”动作信息。
+其中 $\mathcal{L}_{\text{rec}}$ 重建未来视觉 feature；Stage 2 的 action codebook 已冻结，VQ 项只牵引视觉 action encoder 靠近该词表，environment codebook 则仍可训练。L1 项压缩环境分支的信息容量，但不保证两种因素可被唯一识别。$s_p,s_{n,j}$ 是余弦相似度，$b$ 是可学习偏置，$\tau_c$ 是温度。
+
+**【Analysis】** 人类视频的 EMA pseudo-positive 来自同一视频的另一条分支，并不是配对的机器人真实动作。真正的物理锚点来自机器人样本的 Act-VAE positive 与冻结 codebook；共享 encoder 把这个约束传递给人类视频。因而“可解码成机器人动作”不等于“每个 human pseudo-token 都已验证为正确、可执行的机器人轨迹”。
 
 #### NTP、Rectified Flow 与 KM
 
@@ -218,10 +222,10 @@ $$
   </AlgorithmStep>
   <AlgorithmStep keyword='Stage 3'>
     将机器人真值 token 与人类 pseudo-token 写入 `[subtask, action]` 序列，对 VLM 做 next-token
-    prediction，得到 $phi_{pre}$
+    prediction，得到 $\phi_{pre}$
   </AlgorithmStep>
   <AlgorithmStep keyword='Adapt'>
-    在目标域的机器人与人类 token 数据上可选地适配 NTP，并将适配后的模型冻结为 $phi_{ref}$
+    在目标域的机器人与人类 token 数据上可选地适配 NTP，并将适配后的模型冻结为 $\phi_{ref}$
   </AlgorithmStep>
   <AlgorithmStep keyword='RF'>
     初始化 DiT flow head 和 trainable policy branch，只用目标域机器人连续 chunk 优化 $\mathcal{L}_
@@ -232,6 +236,8 @@ $$
     +\alpha\mathcal{L}_{KL}$
   </AlgorithmStep>
 </Algorithm>
+
+**【Paper】** v2 的 Table IX 报告 Act-VAE 与 VD-VAE 各 100k steps，NTP 150k steps；后训练为 NTP 3 epochs、RF+KM 5 epochs。人类预训练数据是约 90 小时的 Ego4D 子集；§V-A5 的 OOD 适配另行采集了模仿夹爪动作、视角接近机器人的人类视频，不能把该增益都归因于未筛选互联网视频。
 
 **【Code】** 官方配置给出的 Stage 1 / Stage 2 都是 50k steps；Stage 3 Astribot 配置为 800k steps，LIBERO 的 KM 训练为 30k steps、batch size 128。这里的 step 数属于 release recipe，不应泛化成论文对所有数据集的统一超参数。
 
@@ -275,7 +281,7 @@ $$
 
 ![Astribot S1 双臂机器人、相机与 VR teleoperation 数据采集设置（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-clap/data_setup-crop.3k8qyjfuuv.webp)
 
-![CLAP 在真实世界任务中的部署流程（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-clap/real_task-crop.lwgv17lfw.webp)
+![CLAP 在真实世界任务中的部署流程（论文 v2 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-clap/real_task-crop.lwgv17lfw.webp)
 
 **【Paper】** 真实实验使用 Astribot S1 双 7-DoF 手臂，评估 Pick and Place、PnP (OOD)、Pack the Doll、Fold T-shirt 和 Make Bouquets；另在 LIBERO Spatial / Object / Goal / Long 四个 suite 上以单一 generalist policy 评估。LIBERO 每个 suite 含 10 个任务、每任务 50 条示教，CLAP-RF 训练 30k steps 并用 KM 适配。
 
@@ -290,7 +296,7 @@ $$
 | CLAP-NTP    |      58.7 |          **85 / 85** |                 30 / 40 |
 | CLAP-RF     |  **62.7** |          **85 / 70** |             **40 / 50** |
 
-**【Paper】** CLAP-RF 在原始设置的五个任务上平均成功率为 62.7%，高于 $\pi_{0.5}$ 的 60.0%；在环境扰动（背景、光照、新物体）下平均 70.0%，而 $\pi_{0.5}$ 为 56.7%、UniVLA 为 16.7%。PnP OOD 从不加入人类视频的 70% 提升到 85%，Make Bouquets OOD 从 10% 提升到 45%。
+**【Paper】** Table I 的 Task Mean 为 62.7%（$\pi_{0.5}$ 为 60.0%）。它不是所有表格单元格或全部 trial 的汇总成功率：由 PnP 的 Place、OOD PnP 的 Place、Pack 的 Close、Fold 及两种 Bouquet 配置的最终成功率求均值，可复现该数字。Table II 的 70.0% 则只平均 Pack the Doll 在三种环境扰动下的 **Close** 成功率（70/70/70），不含原始环境；$\pi_{0.5}$ 的 56.7% 同样来自 60/50/60。它不是全部五个任务的扰动平均。PnP OOD 从不加入人类视频的 70% 提升到 85%，Make Bouquets OOD 从 10% 提升到 45%。
 
 #### LIBERO 与推理延迟
 
@@ -308,13 +314,13 @@ $$
 | CLAP-NTP |   4.5B |    382.0 ms |       9.2G |
 | CLAP-RF  |   6.0B | **70.1 ms** |      12.1G |
 
-**【Analysis】** CLAP-RF 没有成为最快的模型（$\pi_0$ 仍为 45.8 ms），但相对于 CLAP-NTP 的 382 ms，它把“能利用人类视频语义”和“可实时执行”放进了同一套模型中。LIBERO 的 97.2% 也说明 KM 没有简单牺牲通用能力来换取目标域拟合。
+**【Analysis】** CLAP-RF 比 CLAP-NTP 的单次更新快约 5.45 倍，但比 $\pi_0$ 慢；这是单张图像、单 H100 的模型延迟，不能直接当作三视角真机闭环频率。LIBERO 97.2% 来自有监督目标域适配，不能独立证明通用语义完全未遗忘；应结合 Table VI 的有无 KM 对照评估。
 
 ### 5.3 Ablation Study
 
-![VD-VAE action features 的 t-SNE：加入 contrastive loss 后同语义动作聚类更紧（论文 Figure 9）](https://pic.hana0721.top/blog/paper-deep-dive-clap/tsne_vis-crop.4n8g9fbork.webp)
+![VD-VAE action features 的 t-SNE：加入 contrastive loss 后同语义动作聚类更紧（论文 v2 Figure 10）](https://pic.hana0721.top/blog/paper-deep-dive-clap/tsne_vis-crop.4n8g9fbork.webp)
 
-上图使用裁剪后的 GitHub Raw 图像，避免 PDF 页面白边。
+**【Paper】** 该图只选了三类语义动作、每类 20 组配对样本；t-SNE 是局部定性证据，不能证明整个词表在所有 embodiment 上具有一一对应关系。
 
 **【Paper】** 消融结果把收益拆成三层：
 

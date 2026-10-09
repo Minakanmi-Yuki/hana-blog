@@ -1,7 +1,7 @@
 ---
 title: 'LIBERO 论文精读：终身机器人学习知识迁移基准'
 publishDate: 2026-08-27
-updatedDate: 2026-08-27
+updatedDate: 2026-09-22
 description: '精读 LIBERO：用可程序化生成的 130 个语言条件机器人任务，系统评估终身学习中的知识迁移、策略架构、任务顺序与预训练。'
 heroImage:
   { src: 'https://pic.hana0721.top/78075718_p0_master1200.51eqrx8rbi.webp', color: '#8C8275' }
@@ -56,7 +56,7 @@ import { Aside } from '@/components/user'
 
 1. 提出基于 Robosuite、PDDL 和 Ego4D 行为模板的程序化任务生成流程，原则上可以持续生成新任务。
 2. 发布四个任务套件：LIBERO-Spatial、LIBERO-Object、LIBERO-Goal 各 10 个任务，LIBERO-100 含 100 个任务；后者再划分为 LIBERO-90 预训练和 LIBERO-10（论文中称 LIBERO-LONG）终身学习评测。
-3. 为每个任务提供 50 条高质量人类遥操作示教（Thread Velcro 为 100 条），降低研究者收集数据的门槛。
+3. 为每个任务提供 50 条高质量人类遥操作示教，降低研究者收集数据的门槛。
 4. 统一比较 ResNet-RNN、ResNet-T、ViT-T 三类 visuomotor policy，以及 ER、EWC、PackNet、Sequential Fine-tuning 和 Multitask Learning。
 5. 报告多个反直觉发现：顺序微调的 forward transfer 反而最好；没有一种视觉编码器在所有知识迁移类型上都占优；朴素监督预训练可能损害下游终身学习。
 
@@ -74,6 +74,8 @@ import { Aside } from '@/components/user'
 
 在实际 benchmark 中，论文采用 lifelong imitation learning：每个任务提供示教集合 $D^k=\{\tau_i^k\}$，轨迹包含图像、机器人关节/夹爪状态和连续末端执行器动作。由于图像观测通常不是 Markov 的，策略使用历史观测 $o_{\le t}$ 近似状态。
 
+这里要区分**原论文的顺序终身学习协议**与后来常用的“四套件联合/分别微调后报平均成功率”：后者可以使用相同环境，却不测任务顺序、旧任务遗忘或数据访问约束。130 个已发布任务是 10+10+10+100；原论文 downstream lifelong study 使用前三套加 LONG，共 40 个任务，90 个短任务单独用于预训练。
+
 目标是累计优化已经见过的任务：
 
 $$
@@ -85,9 +87,11 @@ $$
 
 $$
 J_{\mathrm{BC}}(\pi)=\frac{1}{k}\sum_{p=1}^{k}
-\mathbb E_{(o_t^p,a_t^p)\sim D^p}
-\left[\sum_t\mathcal L\big(\pi(o_{\le t};T^p),a_t^p\big)\right].
+\mathbb E_{\tau^p\sim D^p}
+\left[\sum_{t=0}^{L^p}\mathcal L\big(\pi(o_{\le t}^p;T^p),a_t^p\big)\right].
 $$
+
+**【Analysis】** BC 式写的是所有已见任务的理想代理目标，不表示训练任务 $k$ 时仍能逐一访问所有 $D^p$。SeqL 只用当前数据，ER 用受限回放近似旧任务分布，EWC/PackNet 则分别约束参数更新和容量；这正是算法比较的区别所在。
 
 ## 4. 方法
 
@@ -115,11 +119,11 @@ LIBERO 的系统由三层组成：任务生成器负责把自然语言行为模�
 
 **【Paper】**
 
-| Policy | Vision encoder | Temporal backbone | Language fusion | 适合观察 |
-| --- | --- | --- | --- | --- |
-| ResNet-RNN | ResNet | LSTM | FiLM + LSTM input | 低成本、较短时序 |
-| ResNet-T | ResNet | Transformer decoder | language token + visual tokens | 时序与空间关系 |
-| ViT-T | ViT | Transformer decoder | language token 参与视觉和时序融合 | 物体种类丰富的场景 |
+| Policy     | Vision encoder | Temporal backbone   | Language fusion                   | 适合观察           |
+| ---------- | -------------- | ------------------- | --------------------------------- | ------------------ |
+| ResNet-RNN | ResNet         | LSTM                | FiLM + LSTM input                 | 低成本、较短时序   |
+| ResNet-T   | ResNet         | Transformer decoder | language token + visual tokens    | 时序与空间关系     |
+| ViT-T      | ViT            | Transformer decoder | language token 参与视觉和时序融合 | 物体种类丰富的场景 |
 
 三者都把多模态特征送入 Gaussian Mixture Model（GMM）输出头，再采样连续末端执行器动作。**【Code】** 官方仓库当前配置将 `bc_transformer_policy` 的时序 Transformer 设为 4 层、6 个 heads、最大序列长度 10，并默认使用 ResNet image encoder、MLP language encoder 与 GMM head；可通过 Hydra 配置切换 `bc_rnn_policy`、`bc_vilt_policy` 和不同 lifelong algorithm。
 
@@ -129,25 +133,29 @@ LIBERO 的系统由三层组成：任务生成器负责把自然语言行为模�
 - **Experience Replay（ER）**：保存旧任务少量样本，与新任务混合训练，属于 memory-based 方法。
 - **Elastic Weight Consolidation（EWC）**：用 Fisher 信息估计参数重要性，对旧任务重要参数施加正则，属于 regularization-based 方法。
 - **PackNet**：为已学任务冻结/分配参数子网络，属于 dynamic-architecture 方法。
-- **Multitask Learning（MTL）**：同时访问所有任务数据，作为理想化上界。
+- **Multitask Learning（MTL）**：同时访问所有任务数据，作为资源更充分的参照。它只是经验性“上界”，不是数学保证；例如 Table 2 的 Object AUC 中 PackNet 0.60 高于 MTL 0.54。
+
+**【Code】** ER 的资源单位尤其容易误读：Appendix B.1 写“1000 trajectories”，但官方 `TruncatedSequenceDataset.__len__` 实际截断的是 sequence dataset 的样本索引；`er.py` 对每个旧任务分别保留最多 1000 个序列样本，每步将 32 个 replay 样本与当前 batch 合并。它不是总计 1000 条完整示教，也不是任务数增加后保持总量不变的全局 buffer。PackNet 配置剪去 75%、保留当前可用参数中约 25%，之后另做 50 epochs 微调；这部分训练不计入新任务的 FWT 曲线，所以相同横轴 epoch 不代表完全相同计算开销。
 
 ### 4.3 关键公式
 
 #### Forward transfer、negative backward transfer 与 AUC
 
-设 $c_{i,j,e}$ 是已经学习前 $i-1$ 个任务、在任务 $i$ 上训练 $e$ 个 epoch 后评估任务 $j$ 的 success rate。当前任务 $i$ 的最佳成功率为 $c_{i,i}=\max_e c_{i,i,e}$，达到该值的最早 epoch 为 $e_i^*$。
+设 $c_{i,j,e}$ 是已经学习前 $i-1$ 个任务、在任务 $i$ 上训练 $e$ 个 epoch 后评估任务 $j$ 的 success rate。当前任务 $i$ 的最佳成功率为 $c_{i,i}=\max_e c_{i,i,e}$，达到该值的最早 epoch 为 $e_i^*$。原论文随后将 $e\ge e_i^*$ 的当前任务曲线置为最佳值，模拟在最佳点停止学习，并用该 checkpoint 评估旧任务：$c_{i,j}=c_{i,j,e_i^*}$。因此下面的 FWT 用的是这种处理后的曲线，不是直接平均最后 50 epochs 的原始曲线。
 
 $$
 \mathrm{FWT}_k=\frac{1}{11}\sum_{e\in\{0,5,\ldots,50\}}c_{k,k,e},
 \quad
-\mathrm{NBT}_k=\frac{1}{K-k}\sum_{\tau=k+1}^{K}(c_{k,k}-c_{\tau,k}),
+\mathrm{NBT}_k=\frac{1}{K-k}\sum_{\tau=k+1}^{K}(c_{k,k}-c_{\tau,k})\quad(k<K),
 $$
 
 $$
 \mathrm{AUC}_k=\frac{1}{K-k+1}\left(\mathrm{FWT}_k+\sum_{\tau=k+1}^{K}c_{\tau,k}\right).
 $$
 
-**【Paper】** FWT 越高表示新任务学得快，NBT 越低表示旧任务保留得好，AUC 同时考虑两者。**【Analysis】** 这三个指标避免只看最后一个 success rate：一个算法即使不遗忘，但每个新任务都要从头学，也不算好的 lifelong learner。
+**【Paper】** FWT 越高表示新任务训练期间平均表现越好，NBT 越低表示之后学习时相对自身最佳值下降越小，AUC 同时考虑两者。最后一个任务没有后续遗忘可测，不能把 $k=K$ 直接代入 NBT 的分母；复现总体 NBT 时还应声明末项约定。
+
+**【Analysis】** 此处 FWT **没有减去从头学习同一任务的曲线**，所以它同时反映适应速度、最终可达到的水平和可能的迁移，不能仅凭高 FWT 证明跨任务的正迁移。NBT 也可能为负（旧任务后来更好）；低 NBT 若同时伴随极低 FWT，可能只是“本来就没学会”。AUC 是论文定义的按任务阶段归一化均值，不等于最后 checkpoint 的任务成功率。**【Analysis】** 这三个指标避免只看最后一个 success rate：一个算法即使不遗忘，但每个新任务都要从头学，也不算好的 lifelong learner。
 
 ### 4.4 Training
 
@@ -158,10 +166,20 @@ $$
 <Algorithm number={1} title='LIBERO lifelong training' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>按顺序到达的任务套件、当前任务示教数据 $D^k$、策略架构和终身学习算法。</div>
   <div slot='output'>在当前任务达到最佳 checkpoint 后，更新的共享 policy 与历史任务评测结果。</div>
-  <AlgorithmStep>初始化或加载 policy $\pi$，读取第 $k$ 个任务的语言、图像、机器人状态和示教动作。</AlgorithmStep>
-  <AlgorithmStep>按 behavioral cloning loss 训练当前任务；ER 采样回放缓存，EWC 加入参数重要性正则，PackNet 分配可训练参数掩码。</AlgorithmStep>
-  <AlgorithmStep>在 epoch $\in\{0,5,\ldots,50\}$ 保存 checkpoint，并在当前任务及已见任务上测量 success rate。</AlgorithmStep>
-  <AlgorithmStep>选择当前任务最佳 checkpoint，冻结/更新算法状态，转入下一个任务并累计 FWT、NBT、AUC。</AlgorithmStep>
+  <AlgorithmStep>
+    初始化或加载 policy $\pi$，读取第 $k$ 个任务的语言、图像、机器人状态和示教动作。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    按 behavioral cloning loss 训练当前任务；ER 采样回放缓存，EWC 加入参数重要性正则，PackNet
+    分配可训练参数掩码。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    每 5 epochs 用 20 条 rollout 评测当前任务；任务训练结束后，用当前任务最佳 checkpoint
+    对每个已见任务再评测 20 条 rollout。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    选择当前任务最佳 checkpoint，冻结/更新算法状态，转入下一个任务并累计 FWT、NBT、AUC。
+  </AlgorithmStep>
 </Algorithm>
 
 ### 4.5 Inference
@@ -171,10 +189,16 @@ $$
 <Algorithm number={2} title='LIBERO policy inference' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>当前图像观测、机器人关节/夹爪状态、语言任务指令和已训练 policy。</div>
   <div slot='output'>一条执行到终止或 horizon 的连续动作轨迹及 success flag。</div>
-  <AlgorithmStep>将多视角 RGB、proprioception 与语言 instruction 编码为视觉、时序和任务 token。</AlgorithmStep>
-  <AlgorithmStep>通过 LSTM 或 Transformer 融合历史 token，GMM head 产生末端执行器动作分布。</AlgorithmStep>
+  <AlgorithmStep>
+    将多视角 RGB、proprioception 与语言 instruction 编码为视觉、时序和任务 token。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    通过 LSTM 或 Transformer 融合历史 token，GMM head 产生末端执行器动作分布。
+  </AlgorithmStep>
   <AlgorithmStep>从分布采样动作并执行一步，更新 observation history。</AlgorithmStep>
-  <AlgorithmStep>检查 PDDL goal predicates；全部满足则返回成功，否则循环直到 episode 结束。</AlgorithmStep>
+  <AlgorithmStep>
+    检查 PDDL goal predicates；全部满足则返回成功，否则循环直到 episode 结束。
+  </AlgorithmStep>
 </Algorithm>
 
 ### 4.6 代码实现对照
@@ -189,16 +213,18 @@ $$
 
 四个套件的分布变化如下：
 
-| Suite | 任务数 | 主要变化 | 需要迁移的知识 |
-| --- | ---: | --- | --- |
-| LIBERO-Spatial | 10 | 物体相同，空间关系变化 | declarative spatial knowledge |
-| LIBERO-Object | 10 | 布局相近，物体类型变化 | declarative object knowledge |
-| LIBERO-Goal | 10 | 物体和布局固定，目标变化 | procedural goal/behavior knowledge |
-| LIBERO-100 | 100 | 物体、布局、目标混合变化 | entangled knowledge |
+| Suite          | 任务数 | 主要变化                 | 需要迁移的知识                     |
+| -------------- | -----: | ------------------------ | ---------------------------------- |
+| LIBERO-Spatial |     10 | 物体相同，空间关系变化   | declarative spatial knowledge      |
+| LIBERO-Object  |     10 | 布局相近，物体类型变化   | declarative object knowledge       |
+| LIBERO-Goal    |     10 | 物体和布局固定，目标变化 | procedural goal/behavior knowledge |
+| LIBERO-100     |    100 | 物体、布局、目标混合变化 | entangled knowledge                |
 
 ![LIBERO evaluation metrics from paper Figure 3](https://pic.hana0721.top/blog/paper-deep-dive-libero/metrics.362b982vxb.webp)
 
-**【Paper】** 所有结果平均三个 random seeds，并报告标准误；success rate 被选作底层指标，因为操作任务中的训练 loss 与真实完成率并不总是同步。
+**【Paper】** Appendix D 的主协议为每任务 50 条示教、50 epochs、batch 32；每次成功率估计使用 20 条最多 600 步的 rollout，三种架构匹配约 13.5G FLOPs，种子为 100/200/300。主表报告三种子的均值与标准误；Figure 4 的任务顺序图则标为标准差。success rate 被选作底层指标，因为 BC 训练 loss 与闭环成功率不总是同步。
+
+**【Analysis】** 匹配 FLOPs 不等于匹配参数量或表示能力；每任务从多个评测点选最佳 checkpoint 也构成协议的一部分。现代 VLA 工作若改用 50 rollout、不同 horizon、不同示教过滤或多任务训练，不宜把它的成功率直接与此处 AUC 对比。
 
 ### 5.2 Main Results
 
@@ -212,7 +238,7 @@ $$
 
 ### 5.3 Ablation Study
 
-**语言 embedding。** BERT、CLIP、GPT-2 与 Task-ID embedding 在 LIBERO-LONG 上没有统计显著差异。论文推测，当前 sentence embedding 更像 bag-of-words，只负责区分任务，而没有真正利用 instruction 的语义结构。
+**语言 embedding。** Table 3 固定 ResNet-T + ER，在 LIBERO-LONG 上比较 BERT、CLIP、GPT-2 与 Task-ID，三种子下未观察到统计显著差异。Task-ID 不是 one-hot，而是把 “Task 5” 之类字符串送入 BERT。这个结论仅针对该模型/算法/任务组合，不能推广为所有机器人策略都不需要语言。论文推测，当前 sentence embedding 更像 bag-of-words，只负责区分任务，而没有真正利用 instruction 的语义结构。
 
 **终身算法。** SeqL 在所有套件上 FWT 最好，说明 ER/EWC/PackNet 的抗遗忘机制同时牺牲了新任务适应速度；PackNet 在短任务上保护旧知识有效，但参数分割会减少单个长任务可用容量；EWC 的正则化甚至可能阻碍当前任务优化。
 
@@ -226,13 +252,13 @@ $$
 
 ![Pretraining effects from paper Figure 5](https://pic.hana0721.top/blog/paper-deep-dive-libero/pretraining.2yz3dsgr1p.webp)
 
-**【Analysis】** 这不是“预训练无效”的普遍结论，而是说明行为克隆预训练可能把模型塑造成过于具体的动作/视觉表示，降低后续任务中的可塑性；预训练目标、数据顺序和冻结策略需要与 lifelong objective 一起设计。
+**【Analysis】** 这不是“预训练无效”的普遍结论，而是说明行为克隆预训练可能把模型塑造成过于具体的动作/视觉表示，降低后续任务中的可塑性；预训练目标、数据顺序和冻结策略需要与 lifelong objective 一起设计。原文只测试 LIBERO-90 上 50 epochs 的多任务 BC，并按成功率选预训练 checkpoint；结果不能外推到大规模视觉语言预训练。Appendix E.4 的“attention”还是局部高斯模糊前后视觉 latent 的差异热图，并非 Transformer attention weights；作者也观察到更语义合理的热图不一定带来更高成功率，不能用它单独证明表示为何失去可塑性。
 
 ## 6. 方法分析
 
 ### 6.1 为什么有效？
 
-**【Analysis】** LIBERO 有效的根本原因是把变量拆开了。Spatial/Object/Goal 三套任务共享大量因素，只改变一个知识轴，因而可以把性能差异归因到空间、对象或程序行为，而不是笼统地归因于“泛化能力”。同时，FWT 与 NBT 把适应速度和记忆保持分离，避免算法通过完全冻结模型获得虚假的抗遗忘成绩。
+**【Analysis】** LIBERO 有效的根本原因是把变量拆开了。Spatial/Object/Goal 三套任务共享大量因素，只改变一个知识轴，因而能更有针对性地检验空间、对象或程序行为。但它是任务层面的受控设计，不是对神经网络知识的严格因果分解：空间或物体改变也会影响运动轨迹、遮挡和视觉难度，成功率本身无法唯一定位“忘了哪个知识模块”。同时，FWT 与 NBT 把适应速度和记忆保持分离，避免算法通过完全冻结模型获得虚假的抗遗忘成绩。
 
 ### 6.2 核心创新
 
@@ -243,7 +269,7 @@ $$
 
 ### 6.3 与已有方法的本质区别
 
-LIBERO 不把 lifelong robot learning 简化为“多任务 BC 的最后一个 checkpoint”。它保留任务到达顺序、旧数据不可完全访问和持续评估旧任务三个约束；MTL 只是上界，SeqL 则是 forward-transfer 参照。**【Analysis】** 因此 LIBERO 更接近真实部署中的数据生命周期，而非离线数据集上的静态 benchmark。
+LIBERO 不把 lifelong robot learning 简化为“多任务 BC 的最后一个 checkpoint”。它保留任务到达顺序、旧数据不可完全访问和持续评估旧任务三个约束；MTL 是数据访问更充分的参照，SeqL 则是无抗遗忘机制的对照。**【Analysis】** 因此 LIBERO 更接近真实部署中的数据生命周期，而非离线数据集上的静态 benchmark。
 
 ### 6.4 关键假设
 

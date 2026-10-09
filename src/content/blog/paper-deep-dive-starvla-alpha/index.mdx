@@ -1,7 +1,7 @@
 ---
-title: 'StarVLA-α 论文精读'
+title: 'StarVLA-α 论文精读：强 VLM 与简单动作头的能力和边界'
 publishDate: 2026-08-26
-updatedDate: 2026-08-26
+updatedDate: 2026-09-22
 description: 'StarVLA-α 用 Qwen3-VL、轻量 MLP action head 和统一数据管线重新审视 VLA 复杂度，系统分析 action head、机器人预训练与数据工程。'
 heroImage:
   { src: 'https://pic.hana0721.top/116834498_p0_master1200.1e974fnzok.webp', color: '#8C8275' }
@@ -25,9 +25,9 @@ paper:
     - 'Yilun Chen'
     - 'Shu Liu'
     - 'Jiaya Jia'
-  venue: 'arXiv'
+  venue: 'ECCV 2026'
   year: 2026
-  code: 'https://github.com/starVLA/starVLA'
+  code: 'https://github.com/starVLA/starVLA-alpha'
   project: 'https://starvla.github.io'
 ---
 
@@ -44,6 +44,8 @@ import { Aside } from '@/components/user'
 
 ## 1. 论文概述
 
+本文按 [2026-09-16 更新的 arXiv v2](https://arxiv.org/abs/2604.11757v2)（ECCV 2026）通读正文与附录 A–I；实现优先对照[独立官方仓库 `360f591`](https://github.com/starVLA/starVLA-alpha/tree/360f591b746dd500ceeb5bf34fe8779b5f30c889)，与持续扩展的 StarVLA 平台分开。
+
 ### 一句话总结
 
 【Paper】StarVLA-α 不追求新的 action architecture，而是固定强大的 Qwen3-VL backbone，使用最小化的数据处理、连续 action regression 和跨 benchmark 的统一训练，回答“VLA 中哪些复杂设计真的必要”。
@@ -56,7 +58,7 @@ import { Aside } from '@/components/user'
 - 【Paper】在控制 backbone、数据和训练协议后，比较 FAST 离散 token、MLP regression、flow-matching 以及 GR00T 式双系统 action head，发现连续 action 很重要，但连续 head 之间差距有限。
 - 【Paper】重新评估 OXE、InternData-A1、RoboTwin-Rand 等 action-specific pretraining，说明预训练收益依赖目标 embodiment 和数据域，OOD 数据甚至会伤害性能。
 - 【Paper】提出 all-in-one generalist 评估：单个模型联合训练四类 benchmark，使用 32 维 zero padding 统一 action interface；RoboCasa-GR1 平均成功率达到 57.3%。
-- 【Paper】在 ARX5 的 RoboChallenge 真实世界评测中达到 33.6% success rate、54.5 progress score，分别高于 π0.5 的 12.7% 和 27.6%。
+- 【Paper】在 ARX5 的 RoboChallenge 真实世界评测中达到 33.6% success rate、作者报告的 54.5 progress score；成功率比 π0.5 的 12.7% 高 20.9 个百分点。progress 平均存在表内复算差异，见实验部分。
 
 ## 2. 背景与相关工作
 
@@ -90,19 +92,21 @@ $$
 
 #### Action token 与 MLP head
 
-【Paper】在指令末尾追加 $H$ 个 action token，每个 token 对应一个未来时间步。第 $t$ 个 token 的 hidden state $h_t$ 输入共享的 MLPResNet，直接回归 $D$ 维连续动作。
+【Paper】论文描述以指定 action token 的 hidden state 回归连续动作块。**【Code】** 当前独立实现具体追加 $H$ 个 query，每个对应一个未来时间步，将 $h_t$ 输入共享的 MLPResNet 回归 $D$ 维动作。MLP 的逐 token 映射并不意味着各步在统计上完全独立：它们已通过 VLM 上下文获得耦合表示。
 
-【Code】官方 `starVLA/model/framework/VLM4A/QwenOFT.py` 使用特殊字符 `🔍` 作为 action token，在 prompt 中构造 “Please predict the next H robot actions” 后，从 Qwen 输出的最后 hidden state 中收集这些 token 的 embedding。`MLP_ActionHeader.py` 的 head 是 `LayerNorm → Linear → ReLU → 2 个 residual MLP block → LayerNorm → Linear`，对每个 chunk step 独立映射到 action vector。
+【Code】独立仓库的 `starVLA/model/framework/VLM4A/starVLA-alpha.py` 使用特殊字符 `🔍` 作为 action token，在 prompt 中构造 “Please predict the next H robot actions” 后，从 Qwen 输出的最后 hidden state 中收集这些 token 的 embedding。`MLP_ActionHeader.py` 的 head 是 `LayerNorm → Linear → ReLU → 2 个 residual MLP block → LayerNorm → Linear`，对每个 chunk step 独立映射到 action vector。
 
 #### Minimal data pipeline
 
 【Paper】训练 split 上计算 action 的均值和标准差，并做 zero-mean、unit-variance normalization；评测遵循各 benchmark 官方 protocol。默认不加入 proprioception、历史帧或复杂 action transform。
 
-【Code】代码仓库的通用 LeRobot dataloader 会保存 `dataset_statistics.json`，推理接口返回 `normalized_actions`；具体 robot 的反归一化和 gripper 语义由 benchmark/robot adapter 负责。
+【Code】**公开实现与上述论文文字并不完全一致**：独立仓库的 LIBERO / RoboTwin / RoboCasa 连续动作使用 `min_max`，SimplerEnv 使用 `q99`，部分夹爪单独二值化。均值方差归一化不能直接替换这些 checkpoint 的既有变换。模型返回 `normalized_actions`，服务端 `PolicyServerWrapper` 按所选 `unnorm_key` 反归一化后返回 `actions`，客户端保留环境控制、夹爪与 chunk 调度；反归一化不能重复做。
 
 #### Cross-embodiment padding
 
-【Paper】all-in-one 模型把低维 action 右侧补零到 32 维，再用同一个 action head 预测。论文比较了 RDT action 和 multi-action head，说明简单 padding 在多个 benchmark 上不逊色，且在 Google Robot VM 和 RoboCasa-GR1 上分别提升 2.9 和 4.8 个百分点。
+【Paper】all-in-one 模型把低维 action 右侧补零到 32 维，再用同一个 action head 预测。Table 6 对比 RDT action 与 multi-action head：相对 RDT，Google VM 为 74.3−71.4=2.9 点，RoboCasa 为 57.3−52.3=**5.0 点**；相对 multi-head，分别高 6.5、3.8 点。正文的 RoboCasa “4.8 点”与该表不符。统一宽度不等于统一了关节、末端位姿的物理语义。
+
+【Code】当前独立版本还按原生 horizon 分组做 forward，只补动作维度、不补时间，并以有效维度 mask 排除 padding 的 L1。LIBERO / SimplerEnv / RoboTwin / RoboCasa 配置形状分别是 $8\times7$、$16\times7$、$50\times14$、$16\times29$。generalist 的 50 是 horizon 上界，并非每种机器人都生成或执行 50 步。论文未给出这一完整 mask / 分组细节，不能倒推为原实验的冻结实现。
 
 ### 4.3 关键公式
 
@@ -126,7 +130,9 @@ $$
 \mathcal{L}_{\mathrm{L1}}=\frac{1}{H_aD}\sum_{t=1}^{H_a}\sum_{j=1}^{D}\left|\hat{a}_{t,j}-a_{t,j}\right|.
 $$
 
-【Analysis】L1 目标与 diffusion/flow-matching 相比没有采样过程或噪声时间变量，优化和推理路径都更短；代价是它不能显式表示同一观测下的多峰动作分布。
+【Analysis】L1 对应确定性的逐坐标条件中位数估计，不是条件均值，也不是从多峰分布采样。模型没有去噪时间或迭代采样环节；但是否满足真实控制延迟还取决于 4B backbone、视角数量与执行 chunk。成功率接近并不能单独量化节省了多少推理算力。
+
+【Code】上式适用于固定 $H_a,D$。当前混合 embodiment 实现按整个 batch 的有效动作元素求和再除以有效元素总数；长 horizon / 高维样本会贡献更多元素。这不等同于先对每条样本各自平均再等权求和，数据 mixture 与损失归约需要一起核对。
 
 对于多 embodiment 的统一接口：
 
@@ -138,9 +144,11 @@ $$
 
 ### 4.4 Training
 
-【Paper】specialist 训练分别使用每个 benchmark 的训练集；generalist 训练将 LIBERO、SimplerEnv、RoboTwin 2.0 和 RoboCasa-GR1 合并。all-in-one 实验使用 learning rate $1\times10^{-4}$、batch size 256，并将 action 维度补到 32。
+【Paper】specialist 使用目标 benchmark 数据；generalist 合并四类 benchmark（SimplerEnv 对应两个机器人数据源）。附录 C 指定 backbone 学习率 $10^{-5}$、动作头 $10^{-4}$、cosine 调度、最多 100k 步、每卡 batch 16；算力从 LIBERO 的 8 A100，到 RoboTwin clean+random 的 48 A100、all-in-one 的 64 A100。主文 §4.2 另写 all-in-one batch 256 和学习率 $10^{-4}$，未完整解释它与附录全局 batch / 分组学习率的关系，复现时需锁定相应配置。
 
-【Code】训练入口是 `starVLA/training/train_starvla.py`，采用 PyTorch + Accelerate + DeepSpeed，优化器为 AdamW，模型 forward 返回 `action_loss`。QwenOFT 的 forward 取 action chunk 的最后 $H_a$ 个标签并计算 L1 loss；配置文件决定 action dimension、horizon、batch size 和冻结模块。
+按相同步数和每卡 batch，GPU 数变化会改变处理的样本总数。论文自己也在 §2.2 提醒 generalist 是更大训练规模，因此 specialist 与 generalist 不是匹配计算预算的对照。
+
+【Code】训练入口是 `starVLA/training/train_starvla.py`，采用 PyTorch + Accelerate + DeepSpeed，优化器为 AdamW，模型 forward 返回 `action_loss`。当前 `StarVLA_Alpha.forward` 按原生 horizon 分组、仅补维度并计算 masked L1；配置文件决定 action dimension、horizon、batch size 和冻结模块。
 
 <Algorithm number={1} title='StarVLA-α 训练' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>多视角 RGB、语言指令、归一化动作块与训练配置</div>
@@ -154,7 +162,7 @@ $$
 
 ### 4.5 Inference
 
-【Code】`Qwenvl_OFT.predict_action` 在 `torch.inference_mode()` 下处理输入，按训练分辨率 resize 图像，追加相同的 action prompt，读取 action-token hidden states 后一次性输出 `[B,H_a,D]` 的 `normalized_actions`。部署 adapter 再按 robot 的统计量反归一化，并按 action chunk 的步长执行。
+【Code】`StarVLA_Alpha.predict_action` 在 `torch.inference_mode()` 下处理输入，按训练分辨率 resize 图像，追加相同的 action prompt，读取 action-token hidden states 后一次性输出 `[B,H_a,D]` 的 `normalized_actions`。服务端从 `unnorm_key` 决定目标机器人的原生 horizon 与维度、裁掉维度 padding，并按 checkpoint 变换反归一化；环境客户端再执行。
 
 【Paper】论文没有把推理写成额外的 sampling algorithm；MLP variant 是单次 forward，π/GR00T/FAST 变体则由各自 action head 的实现决定。
 
@@ -173,14 +181,14 @@ $$
 
 | 论文描述                   | 官方代码位置                                     | 对照结论                                                       |
 | -------------------------- | ------------------------------------------------ | -------------------------------------------------------------- |
-| Qwen3-VL + MLP             | `model/framework/VLM4A/QwenOFT.py`               | `Qwenvl_OFT` 组合 VLM interface 与 action model。              |
-| action token               | `QwenOFT.py::_gather_action_token_embeddings`    | 通过 token id 从最后一层 hidden states 中收集 action queries。 |
+| Qwen3-VL + MLP             | `model/framework/VLM4A/starVLA-alpha.py`         | `StarVLA_Alpha` 组合 VLM 与 MLP，`QwenOFT` 是兼容别名。        |
+| action token               | `StarVLA_Alpha._gather_action_token_embeddings`  | 通过 token id 从最后一层 hidden states 中收集 action queries。 |
 | 连续 action regression     | `model/modules/action_model/MLP_ActionHeader.py` | 两个 residual MLP block，输出每步 action。                     |
-| L1 objective               | `QwenOFT.py::forward`                            | `nn.L1Loss()` 对预测 chunk 与末端标签 chunk 求损失。           |
-| normalization / deployment | `dataloader/*`、`examples/*/eval_files`          | 统计量落盘，adapter 负责反归一化与 action 语义。               |
-| 多种 action head           | `QwenFast.py`、`QwenPI.py`、`QwenGR00T.py`       | 代码提供 FAST、flow-matching 和 dual-system 可替换实现。       |
+| L1 objective               | `StarVLA_Alpha.forward` / `share_tools.py`       | 按原生 horizon 分组，仅有效维度进入 masked L1。                |
+| normalization / deployment | `dataloader/*`、`examples/*/eval_files`          | 保存统计量与变换；server wrapper 反归一化，client 转环境控制。 |
+| 多种 action head           | `QwenFast.py`、`QwenPI.py`、`QwenGR00T.py`       | 这些对照位于 StarVLA 主仓库，独立 α 仓库仅保留 MLP。           |
 
-【Analysis】论文中的 StarVLA-α 是一个受控 baseline，而 GitHub 仓库是持续演进的 Lego-like 平台，包含更多 backbone、benchmark 和部署支持；不能把仓库当前全部功能都当成论文实验的一部分。
+【Analysis】论文中的 StarVLA-α 是一个受控 baseline，而 GitHub 仓库是持续演进的 Lego-like 平台，包含更多 backbone、benchmark 和部署支持；不能把仓库当前全部功能都当成论文实验的一部分。 当前独立仓库 README 还说明，集群迁移后尚未恢复论文精确 checkpoint，已发布的 LIBERO 50k 模型卡平均为 98.0%，不是论文表中的 98.8%。因此代码已开放与原论文数值可原样复现是两件事；本次只做静态核验，未重新训练。
 
 ## 5. 实验
 
@@ -199,11 +207,15 @@ $$
 | StarVLA-α specialist |   **98.8** |       **64.6** |  **76.0** |             88.2 |         53.8 |
 | StarVLA-α generalist |       97.8 |       **65.2** |      74.3 |         **88.7** |     **57.3** |
 
-【Paper】specialist StarVLA-α 在 LIBERO 达到 98.8%，在 Google VM 达到 76.0%；generalist 在 RoboCasa-GR1 达到 57.3%，比 specialist 高 3.5 个百分点。表中 `*` 表示 clean 与 random 数据共同训练，`—` 表示论文未报告。
+上表保留论文 Table 1 的报告值，但 **LIBERO specialist 的 98.8% 与分项不一致**：$(99.0+99.8+98.5+94.1)/4=97.85\%$，并非 98.8%。generalist 四分项与 97.8% 一致。不能据此称 specialist 比 generalist 高 1 点。Google VM 的 76.0% 比同表 π0.5 的 72.7% 高 3.3 点，正文称超最佳既有方法 6.8 点也无法由该表得到。
+
+RoboCasa 的 57.3−53.8=3.5 点与附录 Table 16 的 24 项数据一致，该表每任务评估 200 次（共 4800 次）。表中 `*` 表示 clean 和 random 数据共同训练，`—` 表示未报告。RoboTwin **clean-only** 的 StarVLA-α 是 50.3%，低于 π0.5 的 60.2%；不能用加入大量 randomized 示范后的 88.2% 替代少数据结果。Table 5 又将其 clean-only 填为 53.4%，与 Tables 1–4 不一致。
 
 ![Scaling and batch-size results from paper Figure 5](https://pic.hana0721.top/blog/paper-deep-dive-starvla-alpha/combined_side_by_side.7ehiitr6uh.webp)
 
-真实机器人上，StarVLA-α 在 ARX5 的 11 个 RoboChallenge 任务平均 success rate 为 33.6%、progress score 为 54.5；π0.5 分别为 12.7% 和 27.6%。
+真实 ARX5 的 Table 7 报告 11 任务平均 SR 33.6%、progress 54.5；π0.5 为 12.7% / 27.6%。SR 的宏平均可复算，差为 **20.9 个百分点**，不是相对提升 20%。progress 表内 11 项等权复算约 54.04，与 54.5 不一致，因而保留“作者报告”标识。折叠抹布两者 SR 都为 0；开抽屉 α 20% 低于 π0.5 的 50%，擦桌 α 0% 低于 π0.5 的 10%。部分进度不等于整项完成，也并非每任务领先。
+
+附录 C 为 RoboChallenge 单列 32 A100 训练资源，因此不能把这组实机结果写成四个仿真 benchmark 训练后直接零样本上 ARX5。正文未充分交代各实机模型的示范量和训练预算；附录 E 提及四平台，但跨四平台的完整表格引用仍是 `??`，实际可核验的定量表是这里的 ARX5。
 
 ### 5.3 Ablation Study
 
@@ -218,27 +230,40 @@ $$
 | StarVLA-α-GR00T |       98.7 |     65.3 |         52.8 |
 | StarVLA-α-π     |       98.1 | **65.9** |         48.9 |
 
-【Paper】离散 FAST 在几乎所有 benchmark 上落后；连续 MLP、flow-matching 和 dual-system 的差距则很小。论文据此认为“连续 action”比“连续 action 的具体 head”更关键。
+【Analysis】FAST 在本组 recipe 下落后，但这只比较一种离散 tokenizer / 自回归实现，不能推出所有离散动作表示都较差。连续 head 的差距具有任务依赖性：RoboCasa MLP 比 PI 高 4.9 点，WidowX PI 比 MLP 高 1.3 点。论文未给出充分的多训练种子误差条，接近的点估计不能证明等效。
+
+Table 2 的 LIBERO `avg` 同样有问题：按分项复算，MLP / FAST / GR00T / PI 分别为 97.85 / 96.40 / 98.05 / 97.25%，而不是表填的 98.8 / 97.8 / 98.7 / 98.1%。因此“所有连续头都超过 98%”并不成立；按分项，GR00T 的均值略高于 MLP。上表作为报告值索引，不作为未经核查的排名。
 
 #### Action-specific pretraining
 
 【Paper】在 RoboTwin clean 50×50 上，直接 fine-tune 为 50.3%，+OXE 降到 30.2%，+InternData-A1 为 63.6%，+RoboTwin-Rand 为 79.7%。但在 RoboCasa-GR1 上，这些预训练变体分别只有 27.8%、35.4% 和 33.3%，低于无额外预训练的 53.8%。
 
+关键口径是：无额外预训练仍从大规模预训练的 Qwen3-VL 初始化，并非从零训练。三个额外动作源分别有 232.6k、630k、25k 条轨迹，规模和域匹配程度一起改变；特别是 RoboTwin-Rand 预训练包含同任务的随机化示范，后接 clean 2500 条，不是只用 2500 条就达到 79.7%。这些结果说明这里的中间预训练 recipe 可能产生负迁移，不能排除更合适的混合比例、持续 VLM co-training 或优化预算可以改善它。
+
 #### Data engineering
 
-【Paper】proprioception、历史帧、delta action、relative action 在低数据区间有时带来小幅收益；数据足够时通常接近 baseline。例如 RoboCasa 24×1000 时，baseline 53.8%，四种变体为 54.2%、52.6%、54.8%、55.5%。
+【Paper】Table 4 分别加入关节状态、前两帧历史、相对当前关节位置的 delta action，以及参考坐标系中的 relative action。效果并非“总是小幅”：RoboTwin clean 2500 条示范中，本体状态使 50.3→60.8%，增 **10.5 点**；RoboCasa 每任务 10 条中 delta action 使 9.8→15.8%，增 6 点。历史帧又可能伤害少数据性能，如 RoboTwin 50.3→44.8%。
+
+RoboCasa 每任务 1000 条时 baseline 53.8%，四种变体为 54.2%、52.6%、54.8%、55.5%，差距才较小。因此应读作“收益依赖数据量和任务”，不能据此删去部分可观测、高精度控制中的状态或历史。修改输入还会改变 token / 计算量，固定其余超参数并不保证各变体都被充分调优。
 
 ### 5.4 Generalization
 
-【Paper】模型规模从 2B 增加到 4B 会显著改善 SimplerEnv，8B 相对 4B 的额外收益通常不超过 1%；在当前训练规模下，4B 是性能与成本的折中点。总 batch size 从 64 增加到 1024 时，SimplerEnv WidowX 与 RoboCasa 平均成功率总体上升，说明跨数据集训练中 batch diversity 本身就是重要变量。
+【Paper】附录 D 的 Table 9 对照初始化：random 在 RoboCasa 为 28.8%，Qwen3-VL 为 57.3%，说明“简洁”高度依赖强预训练表示；Qwen3.5 在若干列更高，但 RoboCasa 为 56.1%，并非每项随 backbone 更新而增加。Table 10 的 2B→4B 使 WidowX 52.1→70.2%、RoboCasa 50.7→57.3%；4B→8B 收益小得多，WidowX仍增 1.3 点，所以正文“均不超过 1%”不是严格成立。
 
-【Analysis】这组结果提醒我们，所谓“模型泛化”同时受 backbone capacity、数据混合比例和优化噪声影响。若不控制 batch size，容易把训练动力学误判为 architecture gain。
+这里还存在跨表设置不透明：主表 generalist 的 WidowX / Google VA / VM 是 **65.2 / 69.8 / 74.3**，附录初始化与规模表的 Qwen3-VL 4B 却是 **70.2 / 73.8 / 79.3**，不能将后者当作同一主表 checkpoint 的分解。
+
+Table 11 将 batch 从 64 增至 1024，WidowX 从 35.4 升到 70.2%、RoboCasa 从 40.0 升到 59.2%。作者将其解释为 batch 多样性帮助优化；但没有充分说明是否匹配总样本数与计算量。若保持步数，batch 增大 16 倍就处理 16 倍样本，尚不能单独归因于“逃离局部极小值”。该表 batch 256 的 RoboCasa 是 48.3%，也不能直接与主文写 batch 256、结果 57.3% 的 generalist 混为同一运行。
+
+更直接的分布外证据原稿遗漏了两组：
+
+- **Franka Research 3 实机（附录 F / Table 12）**：双 RGB、三任务 ID / OOD 宏平均 85.3 / 76.3%。垃圾分类新物体 87.5→85.0%，彩蛋 77.1→75.0%，按行列放蛋 91.3→68.8%，最后一项下降 **22.5 点**。彩蛋 OOD 又分未见颜色 68.0% 与未见位置 81.9%，不能仅用均值掩盖属性泛化差异。未报告完整示范量、试次数和对照方法，证据支持存在 OOD 能力，尚不能证明稳健性来自 MLP 简化本身。
+- **LIBERO-Plus（附录 I / Table 17）**：用标准 LIBERO 示范训练，直接测试扰动设置，specialist / generalist 总分为 77.8 / 79.7%，OpenVLA-OFT 为 69.6%。然而相机视角列为 48.7 / 52.5%，低于 π0-FAST 的 65.1%；部分扰动明显更难。generalist 还包含其他 benchmark 训练数据，“没有 LIBERO-Plus 适配”不等于“只看过 LIBERO 数据”。
 
 ## 6. 方法分析
 
 ### 6.1 为什么有效？
 
-【Analysis】第一，Qwen3-VL 已经提供强视觉-语言先验，动作学习主要变成把语义 grounding 映射到连续控制空间；第二，MLP head 避免了 tokenizer、迭代采样和双系统之间的额外误差源；第三，统一数据管线减少了 benchmark-specific overfitting，使 backbone 的迁移能力真正暴露出来。
+【Analysis】第一，Qwen3-VL 已经提供强视觉-语言先验，动作学习主要变成把语义 grounding 映射到连续控制空间；第二，MLP head 避免了 tokenizer、迭代采样和双系统之间的额外误差源；第三，共用训练管线减少了一部分实现差异。是否降低 benchmark 过拟合仍需专门留出评测，不能由接口统一自动推出。
 
 ### 6.2 核心创新
 
@@ -258,7 +283,7 @@ $$
 
 - 【Paper】强 VLM 的语义和视觉表征足以支撑动作学习，不必依赖大规模 action pretraining。
 - 【Paper】不同 embodiment 的 action 可以通过 padding 放入同一输出空间。
-- 【Analysis】训练数据需要覆盖足够的 embodiment 和任务，否则 padding 只是在输出端制造未监督维度。
+- 【Analysis】padding 只统一张量维度，模型仍需覆盖足够任务与动作语义；当前实现用 mask 排除无效维度，不会把填充零当作真实关节监督。
 - 【Analysis】单步 MLP regression 对当前任务的动作多峰性影响有限；在接触丰富、长时域或强不确定性任务上，这个假设可能不成立。
 
 ## 7. 局限性
@@ -270,15 +295,15 @@ $$
 ### 7.2 自己分析得到的局限
 
 - 【Analysis】论文的“简单”依赖强大的 Qwen3-VL-4B 初始化，算力和显存门槛并不简单；小模型结论不能直接外推。
-- 【Analysis】zero padding 没有显式 embodiment ID，模型只能从图像、语言和数据分布隐式推断机器人身份，数据混合不平衡时可能产生负迁移。
+- 【Analysis】共享头本身不提供关节语义对齐；当前服务仍明确使用 `unnorm_key` 和原生动作形状选择变换，不能说部署完全不知道机器人身份。数据混合不平衡时仍可能产生负迁移。
 - 【Analysis】action chunk 仍是 benchmark-specific 配置（代码示例中可见 8、16、50 等 horizon），因此 pipeline 并未完全消除时序工程。
-- 【Analysis】真实世界结果只展示有限 robot/task 组合，且部署 adapter 仍负责反归一化、gripper 索引和控制频率对齐；这些工程细节会影响可复现性。
+- 【Analysis】真实世界结果只展示有限 robot/task 组合，且服务端归一化处理与客户端 gripper、控制频率对齐仍不可省略；这些工程细节会影响可复现性。
 
 ## 8. 启发与研究思考
 
 1. 【Analysis】VLA 研究应先建立强 baseline，再引入复杂 action head；如果 MLP 已经达到同等水平，复杂度的收益必须用吞吐、延迟、稳定性或 OOD 指标证明。
-2. 【Analysis】action pretraining 更像“域适配器”而非通用能力来源。未来可按 embodiment/task 相似度选择性混合数据，而不是默认扩大数据规模。
-3. 【Analysis】all-in-one 评测值得成为标准：同一 checkpoint 不经 benchmark-specific fine-tuning，才能测出真正的跨 embodiment 能力。
+2. 【Analysis】额外动作预训练应验证数据域、混合比例和优化策略，而非仅比较轨迹总量。本文的负迁移结果不等于动作预训练无法学到通用能力。
+3. 【Analysis】all-in-one 评测检验一个 checkpoint 能否同时保留多种已训练任务；还需留出未训练的机器人、任务或环境，才能进一步评估跨 embodiment 泛化。
 4. 【Analysis】batch size、数据混合和模型初始化应当进入 VLA 论文的标准 ablation，否则 architecture comparison 仍然会被训练动力学混淆。
 5. 【Analysis】一个自然的后续方向是保留 StarVLA-α 的统一接口，同时让模型按任务不确定性动态选择 MLP、flow-matching 或更长 horizon 的 action decoder。
 

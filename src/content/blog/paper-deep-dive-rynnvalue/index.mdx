@@ -1,7 +1,7 @@
 ---
 title: 'RynnValue 论文精读：用时间距离训练可扩展的机器人价值基础模型'
 publishDate: 2026-08-26
-updatedDate: 2026-08-26
+updatedDate: 2026-09-22
 description: 'RynnValue 用从观测到语言目标的剩余时间替代偏好与归一化进度，在 7,000+ 小时异构机器人数据上训练价值模型，并作为 VLA 的密集奖励接口。'
 heroImage:
   { src: 'https://pic.hana0721.top/99749488_p0_master1200.83an1pr7zr.webp', color: '#8C8275' }
@@ -51,7 +51,7 @@ import { Aside } from '@/components/user'
 
 ## 1. 论文概述
 
-**【Paper】** RynnValue 研究的不是“机器人下一步该怎么动”，而是“当前观测距离语言指定的目标还有多远”。论文把这个距离定义为 temporal distance：从观测时间戳到重新标注的任务完成 cutoff 的剩余秒数。它因此是一个带语言条件的 cost-to-go，而不是轨迹内部归一化到 `[0, 1]` 的进度分数。
+**【Paper】** RynnValue 研究的不是“机器人下一步该怎么动”，而是“当前观测距离语言指定的目标还有多远”。论文把这个距离定义为 temporal distance：从观测时间戳到重新标注的任务完成 cutoff 的剩余秒数。它因此是一个带语言条件、以秒为单位的剩余成本代理。**【Analysis】** 标签严格说是这条已记录演示的剩余时间，包含演示者速度、停顿和绕路；论文没有通过 Bellman 最优备份求解最短完成时间，因此不能直接把预测称为最优策略的 $V^*$。
 
 ![RynnValue architecture overview from paper Figure 1](https://pic.hana0721.top/blog/paper-deep-dive-rynnvalue/rynnvalue-architecture.3d5j4en7wy.webp)
 
@@ -73,7 +73,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** 通用机器人策略越来越依赖 RL，但 reward supervision 比 policy capacity 更容易成为瓶颈。手工 reward 难以迁移到开放任务，成功/失败的 sparse signal 又无法为长时程行为提供方向。已有 reward model 通常依赖偏好比较、参考 demonstration 或局部状态比较；这些监督绑定了特定轨迹和比较集合，难以在不同 robot、视角和时长之间复用。
 
-归一化 progress 看似便宜，却只是“当前轨迹走了百分之多少”的坐标：不同任务的 0.5 可能对应完全不同的剩余工作量，也不能表达一次 regression。RynnValue 选择的 temporal distance 则具有明确的 goal-conditioned cost-to-go 解释：时间越少越接近目标，任务失败或回退时距离可以增加。
+按轨迹时间直接线性归一化的 progress 不适合表达同一任务内的真实倒退；但“输出在 `[0,1]`”本身并不禁止模型预测下降。RynnValue 的时间戳标签同样沿原始轨迹单调减少，因此“失败时距离会增加”是希望模型根据视觉状态泛化出的行为，不能仅由标签公式保证。两种监督的关键差异是保留绝对时间尺度，以及配套的数据和训练设计。
 
 **【Analysis】** 这不是把 progress 的回归器换成更大的 backbone，而是改变 supervision interface。只要数据有 instruction、时间戳和合理的 completion cutoff，就能生成标签；因此数据规模与任务多样性可以独立扩展，而不需要为每个数据集重新设计进度标尺或偏好标注协议。
 
@@ -82,7 +82,7 @@ import { Aside } from '@/components/user'
 **【Paper】** 给定语言指令 $\ell$、embodiment / camera metadata $m$ 和按时间采样的观测序列 $I=\{I_{t_i}\}_{i=1}^{K}$，模型同时预测：
 
 - **Absolute temporal distance**：$v_i^\star=\max(0,t_G-t_i)$，即观测到完成 cutoff $t_G$ 的剩余秒数。
-- **Relative temporal displacement**：$\Delta_i^\star=t_{i+1}-t_i$，描述呈现序列中相邻观测的前进或回退；负值代表 temporal regression。
+- **Relative temporal displacement**：$\Delta_i^\star=t_{i+1}-t_i$，描述相邻呈现观测在原视频时间轴上的顺序和间隔；负值表示展示时回到了更早的帧。真实执行中的掉落或退步即使发生在较晚时刻，其时间差仍为正，不能把这个标签等同于已标注的任务进度倒退。
 - **Language analysis**：视频描述、instruction-video Match、task Success。
 
 训练主设置为 $K=8$ 个观测。绝对值支持范围为 `[0, 512]` 秒，相对值范围为 `[-256, 256]` 秒。推理时把绝对距离变成更高更好的 potential：
@@ -137,15 +137,17 @@ $$
 
 #### Value-isolation attention
 
-**【Paper】** 不同观测的 value query group 不能互相 attend；同组重复 query 可以互相可见。context token 也不能 attend temporal query，避免早先的 value 预测通过后续语言或视觉 token 间接泄漏。这样每个 value 必须依据自己的观测、instruction 和 metadata 推断。
+**【Paper】** 不同观测的 value query group 不能互相 attend；同组重复 query 可以互相可见。context token 也不能 attend temporal query，避免早先的 value 预测通过后续语言或视觉 token 间接泄漏。这样禁止的是跨 query 表征传播，不是删除所有视觉历史。
 
-**【Code】** `attention_impl.py` 注册 `pred_slot_isolated_eager`，根据 `pred_slot_id` 构造可见性 mask。推理脚本还显式把 `hf_config._attn_implementation` 设为该实现，以兼容旧 checkpoint。
+**【Code】** `attention_impl.py` 保留基础 causal mask，并仅对同一 query slot 放开双向注意力、屏蔽其他 slot 的 query key；早于当前 query 的普通视觉/语言 token 仍可见。`_build_pred_slot_extras()` 按连续相同 special token 划分 slot，因此即使关联同一观察的 relative 与 absolute query 也是两个隔离组。推理需要实际启用 `pred_slot_isolated_eager`，不能只在配置中写一个 isolation 名称。
 
 #### Language analysis and mismatch augmentation
 
 **【Paper】** 最后一个 verification prompt 要求模型依次生成 `Video Description`、`Match` 和 `Success`。训练中 10% 样本把 instruction 替换为另一条轨迹的 instruction，并监督 `Match: No` / `Success: No`；此时绝对距离 loss 被 mask，因为原 completion cutoff 不再适用，但 relative loss 仍保留。
 
-**【Analysis】** 这一步避免模型只根据“画面看起来越来越像完成”输出平滑曲线，也迫使它把 value 与语言目标绑定，而不是学习与任务无关的视觉活跃度。
+**【Analysis】** 按论文方案，错配样本通过语言分支训练共享 backbone，却没有直接教 absolute head 应输出多大的剩余秒数；因此不能声称模型学到了所有不匹配目标的精确数值成本。
+
+**【Code】** 当前公开 `_compute_value_loss()` 与论文存在差别：`value_fusion_mask` 为真时把目标替换成 256-bin 均匀分布，并继续计算 CE，不是把 absolute loss 置零。这会训练高熵输出。其非负 symlog 支持下，均匀分布的标量解码仍约为 $\sqrt{513}-1\approx21.65$ 秒，不能解释为“目标不可能完成”。论文式和发布代码必须分别理解。
 
 ### 4.3 关键公式
 
@@ -163,7 +165,7 @@ $$
 \operatorname{TwoHot}_{B_R}(\Delta_i^\star)_b\log\operatorname{softmax}(z_i^R)_b
 $$
 
-其中 $z_i^V,z_i^R$ 是两个 head 的 bin logits，$\omega$ 在 instruction mismatch 样本上为 0。two-hot 让连续值由相邻 bin 插值表达；symlog 压缩长尾时间，同时保持零附近的分辨率。
+其中 $z_i^V,z_i^R$ 是两个 head 的 bin logits，$\omega$ 在论文的 instruction mismatch 样本上为 0。two-hot 在 symlog 空间的相邻中心之间插值；标签超出支持范围时公开 tokenizer 会 clip。symlog 压缩长尾时间，但解码得到的是变换空间期望的反变换，一般不等于原始秒数分布的算术期望。
 
 推理时取 symlog 空间中的期望并做 inverse symlog：
 
@@ -184,14 +186,16 @@ $$
 
 $$
 r_t=\kappa(\gamma\Phi_{t+1}-\Phi_t)+
-\begin{cases}0,&t=T\-1,&\text{otherwise}\end{cases}
+\begin{cases}0,&\text{该转移完成任务}\\-1,&\text{otherwise}\end{cases}
 $$
 
-论文使用 $\kappa=0.1$（RynnValue）和 $\kappa=1.0$（Robometer）。这样 temporal distance 的物理秒数不会被压成任务特定的 `[0,1]`，却仍满足 reward shaping 的 policy-invariance 形式。
+论文使用 $\kappa=0.1$（RynnValue）和 $\kappa=1.0$（Robometer）；失败轨迹的末步也保留 -1。上式是主文概括，在线附录 B.6 更明确地在 terminal transition 将下一状态 potential 置零，shaping 为 $-\Phi_t$。每个决策执行 $q=10$ 个低层动作，在线 shaping 使用 $\gamma_c=0.999^{10}$；不能把低层折扣和 chunk 折扣混用。
+
+**【Analysis】** 保持最优策略不变需要相同折扣、相容的状态/历史定义和正确终端处理等条件，并不是“预测叫 value”就自动成立。尤其论文离线 Eq.14 未像在线 Eq.20 一样明写终端 potential 修正，复现时需检查该边界。成功和终止仍由人工标注/操作员确认，LM 的 `Success` 输出没有取代环境终止逻辑。
 
 ### 4.4 Training
 
-**【Paper】** 数据先经过 source-aware curation：移除 malformed / placeholder instruction 和只描述移动、接近、转向的非操作片段；长轨迹按原生 temporal annotation 切分，没有 annotation 时保留 coarse segment；再设置 completion cutoff 并从时间戳生成标签。Qwen3-VL-27B 生成的片段描述用于语言监督。
+**【Paper】** 数据先经过 source-aware curation：移除 malformed / placeholder instruction 和只描述移动、接近、转向的非操作片段；长轨迹按原生 temporal annotation 切分，没有 annotation 时保留 coarse segment；再设置 completion cutoff 并从时间戳生成标签。Qwen3-VL-27B 生成的片段描述用于语言监督。cutoff 默认用 segment endpoint，必要时采用数据源特定的比例或时长裁剪，属于近似语义边界，并非逐帧人工确认。Table 1 总量与附录 A 清洗表也有统计阶段差别：例如 Galaxea 分段数分别为 95,671 与清洗后的 78,692；附录合计混用了 episode 与 segment 单位，不能把两张表直接相加或当成同一份最终训练计数。
 
 每条样本随机采 8 帧。50% 序列不排序，剩余序列采用带 rewind probability 0.3 的 forward-biased temporal walk；因此相对标签既可能为正也可能为负。优化器为 AdamW，学习率 $10^{-6}$，$\beta=(0.9,0.95)$，weight decay 0.1，gradient norm clip 100，bf16 + FSDP hybrid sharding，per-device batch size 2。
 
@@ -225,7 +229,7 @@ $$
 
 **【Paper】** 推理时关闭训练期的随机采样和顺序扰动，按 chronological order 输入帧，但保留 value-isolation mask。模型解码每个观测的 $v_t$ 与相对值，并可额外生成描述、Match、Success。用于 RBM-EVAL-OOD 时只读取最后观测的 $-v_{end}$ 作为 trajectory score。
 
-**【Code】** `rynn_infer/inference.py` 对每个 prefix 均匀重采样视频帧，读取 prefix 最后一个 value slot，渲染 Remaining Time 曲线。真实 RL 的 reward service 则使用右侧 third-person RGB，历史前缀均匀抽 4 帧以匹配 Robometer 协议，且只调用 absolute head。
+**【Code】** `rynn_infer/inference.py` 对每个 prefix 均匀重采样视频帧，读取 prefix 最后一个 value slot，渲染 Remaining Time 曲线。论文真实 RL 的 reward service 则使用右侧 third-person RGB，历史前缀均匀抽 4 帧以匹配 Robometer 协议，只使用 absolute 输出且不生成分析文本。附录 B.3 说明每条轨迹收集完成后统一打分，再按 action-chunk 边界构造奖励；“在线 RL”指边交互边更新策略，不是每个控制 tick 都同步调用 8B reward model。
 
 <Algorithm
   number={2}
@@ -252,7 +256,7 @@ $$
 
 ### 4.6 代码实现对照
 
-**【Code】** 官方仓库 `alibaba-damo-academy/RynnValue` 不只是模型定义，还包含完整评测和 RL 工具链：
+**【Code】** 官方仓库包含模型、评测和 RL 工具链，但当前公开路径与论文 protocol 存在差别，不能称为已逐项复现论文的完整实现：
 
 | 代码位置                                      | 与论文对应的行为                                                                     |
 | --------------------------------------------- | ------------------------------------------------------------------------------------ |
@@ -265,7 +269,12 @@ $$
 | `robometer/`                                  | RBM-EVAL-OOD 的 policy ranking、alignment、confusion matrix 与 reward server         |
 | `pi-rl/`                                      | π₀.₅ 的 offline IQL 与 online DSRL-style latent SAC                                  |
 
-论文把 RynnValue 称为“开源 value foundation model”；代码还提供 HuggingFace `trust_remote_code=True` 的 checkpoint 转换脚本。**【Analysis】** 因此复现实验的关键不只在 backbone 权重，也在 processor 发出的 query token 排列和自定义 attention 注册；仅替换成普通 causal attention 会重新引入 value-token shortcut。
+论文把 RynnValue 称为开源 value foundation model，仓库提供 HuggingFace checkpoint 转换脚本。以下差别对复现尤其重要：
+
+- **【Code】** `robometer/.../baselines/rynnvalue.py` 的一般评测路径还生成 `Analysis`，若 `Match: No` 就把分数覆盖为 -100；confusion matrix 默认直接用 `Match: Yes/No` 的 1/0 分数，另一模式也用 Match 门控归一化 value。这与主文“仅 absolute head 排序”及把混淆图当纯 value grounding 证据的读法不同。
+- **【Code】** 当前官方 README 自报释放 checkpoint 的 ranking 复现均值为 isolation 0.647、普通 eager 0.673、SDPA 0.672，均不等于论文 0.675。示例 confusion 脚本甚至明确选择 eager。切换 mask 会改变模型，不能把论文训练消融结果当作当前每个 checkpoint 切换后的必然结果。
+- **【Code】** `pi-rl/scripts/train_iql.py::_chunk_reward()` 在存在 progress 时返回折扣 potential 差加可选失败终端罚项，没有再加论文的每 chunk -1/成功0基项；其 `0.99` 按低层步累积并在 critic 采用 $0.99^H$，也不同于直接按论文简式把 0.99 当 chunk 折扣。
+- **【Code】** 在线 `apply_reward_shaping()` 与 SAC replay 都采用 $\gamma^q$，这一点一致；但轨迹收集器仅对成功末步设 terminal mask=0，失败/超时末步保留1。因此“所有终止都置零 potential”是论文规定，不能无条件归给当前公开 collector。
 
 ## 5. 实验
 
@@ -273,7 +282,7 @@ $$
 
 **【Paper】** 内在 value 质量在 RBM-EVAL-OOD 上评测：976 条来自 6 个 OOD 数据集的轨迹，覆盖不同机构、robot embodiment、相机视角和任务族；指标是预测排序与真实质量排序之间的 Kendall’s $\tau_a$。此外，论文把模型部署到双臂 Franka，使用双腕相机与左右 third-person 相机，在四个任务上测试 offline IQL 和 online DSRL。
 
-任务包括 Bread Basket Placement、Steak Serving with a Spatula、Box-in-Drawer Placement、Bimanual Box Transfer。offline 使用固定初始状态；online 对前三个任务和双臂搬箱随机化物体初始位置。每个任务评估 20 次。
+任务包括 Bread Basket Placement、Steak Serving with a Spatula、Box-in-Drawer Placement、Bimanual Box Transfer。offline 使用固定初始状态；online 仅 Bread、Steak、Bimanual 三项随机化，Box-in-Drawer 仍固定 reset。每个任务、每种策略评估 20 次，所以单任务一个成功就改变 5 个百分点；未报告多训练种子区间。
 
 ![RynnValue training strategy and value isolation from paper Figure 2](https://pic.hana0721.top/blog/paper-deep-dive-rynnvalue/rynnvalue-training.1ow677wy7s.webp)
 
@@ -288,11 +297,11 @@ $$
 | RynnValue-4B              |       否 |         0.670 |
 | RynnValue-8B              |       否 |     **0.675** |
 
-RynnValue-8B 在 USC Franka、USC Koch、USC Trossen 上取得分项最好，4B 在 UTD SO101 上最好。4B 与 8B 差距很小，说明收益主要来自 temporal-distance target、数据多样性和 shortcut suppression，而不是单纯增大 backbone。
+RynnValue-8B 在 USC Franka、USC Koch、USC Trossen 上取得分项最好，4B 在 UTD SO101 上最好。4B 与 8B 平均仅差 0.005，但分项并非单调增长：USC xArm 由 0.667 降至 0.500，UTD SO101 由 0.933 降至 0.833。这说明扩大模型不是唯一因素；与 Robometer 之间同时存在数据、骨干和训练方案差异，不能只把 0.020 的平均领先归因于时间标签。排名指标只看顺序，也不证明预测秒数跨任务准确校准。
 
 ![Instruction-trajectory confusion matrices from paper Figure 3](https://pic.hana0721.top/blog/paper-deep-dive-rynnvalue/rynnvalue-matrix.5trrjbu3x0.webp)
 
-RynnValue 的 instruction-trajectory confusion matrix 对角线最清晰，normalized diagonal margin 为 0.79，高于最强 baseline 的 0.67。这验证了它在给定语言目标下区分匹配和不匹配轨迹的能力，而不只是识别“画面是否总体更接近完成”。
+**【Paper】** Figure 3 报告 normalized diagonal margin 0.79，高于最强 baseline 0.67；这是指令—轨迹匹配信号。**【Code / Analysis】** 公开评测默认采用语言 Match 判决，不能仅用这张图断言纯 absolute temporal head 已学到同等强度的语言条件成本，更不能把0.79当任务成功率。
 
 ### 5.3 Ablation Study
 
@@ -317,11 +326,15 @@ RynnValue 的 instruction-trajectory confusion matrix 对角线最清晰，norma
 
 ![Temporal-value curve comparison from paper Figure 5](https://pic.hana0721.top/blog/paper-deep-dive-rynnvalue/rynnvalue-value-case.2yz3djexnf.webp)
 
-在真实轨迹案例中，RynnValue 能在 trial-and-error 区间明显降低 potential，恢复后再次上升，并在接近完成时对扰动保持敏感；Robometer 的 normalized progress 则更容易出现平台和突跳。真实 RL 平均成功率：online 为 72.5%（Robometer 52.5%），offline 为 82.5%（Robometer 63.8%）。
+Figure 5 的单条真实轨迹中，RynnValue 在 trial-and-error 区间降低 potential，恢复后再次上升；这是有价值的定性证据，但两模型单位不同，下降幅度不能直接作数值比较，也未构成全面的回退检测准确率评测。真实 RL 平均成功率：online 为 72.5%（Robometer 52.5%），offline 为 82.5%（Robometer 63.8%）。
 
 ### 5.5 Real-world policy learning
 
-**【Paper】** RynnValue 没有看到目标任务、物体或工作空间，作为 zero-shot reward annotator 使用。offline IQL 中，Bread Basket Placement 达到 100%，Steak Serving 与 Box-in-Drawer 均为 90%；online DSRL 平均 72.5%，在 Steak Serving 和 Bimanual Box Transfer 上分别比 Robometer 高 30 和 35 个百分点。
+**【Paper】** 作者报告 reward model 未见目标任务、物体和工作空间，且未在目标域微调；zero-shot 指奖励模型，策略并非零示范。附录 B.2 的 offline 数据共 410 条，其中398成功、12失败（97.1%成功），应理解为以专家成功轨迹为主的混合数据，而不是大量失败探索数据。offline IQL 中，Bread Basket Placement 达到 100%，Steak Serving 与 Box-in-Drawer 均为 90%；online DSRL 平均 72.5%，在 Steak Serving 和 Bimanual Box Transfer 上分别比 Robometer 高 30 和 35 个百分点。
+
+**【Paper】** Offline IQL 与 SFT 都直接从相同预训练 π₀.₅ 初始化，IQL 用 advantage 加权 flow-matching 更新策略。Online DSRL 则冻结 VLA，仅训练输出 $16\times32$ latent noise 的 SAC；Bread/Steak 从 SFT 开始，Box/Bimanual 从 **Robometer offline** checkpoint 开始，各 reward 变体共享这些初始化。不能把 online 72.5% 解释为在 RynnValue offline 82.5% 上继续训练的结果。在线每任务60条采集轨迹、6000更新步，VLA预测16步、每次执行10步，低层10Hz，决策约1Hz。
+
+**【Analysis】** Avg. Steps 只对成功轨迹取平均，且单位是 action chunk；在线 Steak 的成功率提高时，平均步骤也从15.2增至18.6。不能把较低条件均值单独视为整体更高效，也不能直接比较初始状态不同的 online/offline 百分比。
 
 Box-in-Drawer 的 online 提升有限：任务对夹爪稳定性和盒-抽屉几何对齐非常敏感，而 reward model 只看 third-person RGB，视觉相似状态可能对应不同的抓取稳定性。论文把这视为视觉观测下的 calibration 难点，而不是 value interface 已经解决的问题。
 
@@ -332,7 +345,7 @@ Box-in-Drawer 的 online 提升有限：任务对夹爪稳定性和盒-抽屉几
 **【Analysis】** 有三层原因：
 
 1. **目标有控制语义**：剩余时间天然是到目标的 cost-to-go，跨任务共享“越快完成越好”的方向；progress 的分母却随轨迹变化。
-2. **标签几乎免费**：时间戳和 cutoff 足以生成每帧 dense label，数据规模不被偏好标注吞吐限制。
+2. **标签生成易扩展**：有质量可靠的 instruction、时间戳和 cutoff 后，dense label 无需逐帧标注；但 source-aware 清洗、切段、完成点近似和 Qwen 描述生成仍有成本，不能理解为任意原始视频都可免费变成正确价值标签。
 3. **训练主动破除捷径**：随机间隔破除 arithmetic pattern，顺序打乱破除位置 proxy，isolation 破除跨帧 value extrapolation，语言辅助任务补足 goal grounding。
 
 ### 6.2 核心创新
@@ -341,13 +354,13 @@ Box-in-Drawer 的 online 提升有限：任务对夹爪稳定性和盒-抽屉几
 
 ### 6.3 与已有方法的本质区别
 
-| 维度                 | Preference / progress reward model     | RynnValue                                       |
-| -------------------- | -------------------------------------- | ----------------------------------------------- |
-| 监督                 | 偏好 pair、参考轨迹或 `[0,1]` progress | 时间戳到 completion cutoff 的 cost-to-go        |
-| 标尺                 | 往往是任务/数据集内部坐标              | 物理时间，带方向与目标条件                      |
-| 跨数据集迁移         | 需要重新校准比较集或进度定义           | 共享同一 temporal-distance interface            |
-| 对 regression 的响应 | 可能被序列先验抹平                     | relative target + shuffled order 显式提供负变化 |
-| 下游接口             | score / progress                       | $\Phi=-v$，可直接 potential shaping             |
+| 维度                 | Preference / progress reward model     | RynnValue                                        |
+| -------------------- | -------------------------------------- | ------------------------------------------------ |
+| 监督                 | 偏好 pair、参考轨迹或 `[0,1]` progress | 时间戳到 completion cutoff 的 cost-to-go         |
+| 标尺                 | 往往是任务/数据集内部坐标              | 物理时间，带方向与目标条件                       |
+| 跨数据集迁移         | 需要重新校准比较集或进度定义           | 共享同一 temporal-distance interface             |
+| 对 regression 的响应 | 可能被序列先验抹平                     | 打乱帧提供时间顺序负变化，真实任务回退需另行验证 |
+| 下游接口             | score / progress                       | $\Phi=-v$，可直接 potential shaping              |
 
 ### 6.4 关键假设
 

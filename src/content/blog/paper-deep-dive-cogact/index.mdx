@@ -1,7 +1,7 @@
 ---
 title: 'CogACT 论文精读：让 VLM 负责认知，让 Diffusion Transformer 负责动作'
 publishDate: 2026-08-23
-updatedDate: 2026-08-23
+updatedDate: 2026-09-22
 description: '精读 CogACT：在 7B VLM 后接最大 308M 参数的 Diffusion Transformer 动作模块，用 cognition token 连接认知与动作，在 SIMPLER 与多台真实机器人上超过 OpenVLA 和 RT-2-X。'
 heroImage:
   { src: 'https://pic.hana0721.top/139369087_p0_master1200.9gx5x7w6ei.webp', color: '#8C8275' }
@@ -100,7 +100,7 @@ import { Aside } from '@/components/user'
 **【Paper】** 大型 VLA 的泛化能力主要来自互联网规模预训练的 VLM。RT-2、OpenVLA 等方法直接把 VLM 当作策略：把连续动作离散成 token，让 VLM 用 next-token prediction 输出动作。论文认为这种“简单复用”忽略了动作信号本身的三个性质：
 
 - **Continuous**：机器人控制动作本质上是连续信号，均匀离散化会损失精度。
-- **Multimodal**：同一个任务状态可以有多种可行轨迹，确定性回归或分类可能只能学到平均行为。
+- **Multimodal**：同一个任务状态可以有多种可行轨迹，确定性 MSE 回归容易输出模式间平均；离散分类本身可以表达多峰分布，其主要限制是动作量化与逐 token 解码，不能与确定性回归混为一谈。
 - **Temporally correlated**：动作不是独立样本，单步预测容易产生不连贯、不平稳的运动。
 
 RoboFlamingo 这类工作加入 LSTM 等 action head 做回归，但论文指出 regression-based 训练没有显式建模动作分布的多模态性。另一个方向是用视频生成预训练增强机器人学习，但通常没有直接继承大 VLM 的互联网视觉-语言知识。
@@ -189,7 +189,7 @@ CogACT 把模型拆成三个部分：
 - **功能**：把“看到什么 + 指令要求什么”融合成当前动作的高层认知条件。
 - **为什么需要**：这是 CogACT 与“VLM 直接输出动作”的本质区别：VLM 不再负责生成动作 token，只负责压缩出动作条件。
 
-**【Code】** `vla/cogactvla.py` 的 `CogACT.forward` 会先调用 VLM forward，取最后 hidden state，去掉视觉 patch 部分，再按 attention mask 取最后一个 token 的 hidden feature 作为 cognition feature。推理时 `predict_action` 用 `max_new_tokens=1` 生成这个 token，并额外拼接 token `29871` 和 `2`，以匹配训练时的 prompt 格式。
+**【Code】** `CogACT.forward` 去掉视觉 patch 部分后，按 attention mask 取最后一个有效 token 的 hidden feature。`predict_action` 先向 prompt 拼接 `29871` 和 `2`，再调用 `generate(max_new_tokens=1)`，实际读取 `output.hidden_states[0][-1][:,-1,:]`，即该轮前向中输入末尾位置的特征，而不是把新生成 token 的离散 ID 解码成动作。它没有显式文本 CoT，也没有单独监督“认知正确性”；cognition feature 通过动作扩散损失学习。
 
 #### Diffusion Action Module（DiT）
 
@@ -230,10 +230,10 @@ $$
 
 #### Diffusion Noise Prediction Loss
 
-论文训练目标为：
+**【Paper】** 正文式 (3) 称其为 MSE，但印成未平方的二范数。下面按作者文字及官方 loss 实现写成平方误差，避免把排版缺漏误当成不同优化目标：
 
 $$
-\mathcal{L}_{\text{MSE}} = \mathbb{E}_{\bm{\epsilon}\sim\mathcal{N}(0,1),i} \|\hat{\bm{\epsilon}}^i - \bm{\epsilon}\|_2
+\mathcal{L}_{\text{MSE}} = \mathbb{E}_{\bm{\epsilon}\sim\mathcal{N}(0,1),i} \|\hat{\bm{\epsilon}}^i - \bm{\epsilon}\|_2^2
 $$
 
 其中：
@@ -256,12 +256,15 @@ $$
 自适应权重由当前预测与历史预测的 cosine similarity 决定：
 
 $$
-w_k^{\text{ada}} = \exp\left(\alpha \cdot \langle \bm{a}_t|\bm{o}_t,\ \bm{a}_t|\bm{o}_{t-k}\rangle\right)
+w_k^{\text{ada}} = \frac{\exp(\alpha s_k)}{\sum_{j=0}^{K}\exp(\alpha s_j)},\qquad
+s_k=\langle \bm{a}_t|\bm{o}_t,\ \bm{a}_t|\bm{o}_{t-k}\rangle
 $$
 
 其中 $\langle\cdot,\cdot\rangle$ 是 cosine similarity，$\alpha=0.1$。
 
-**【Analysis】** 这个公式与 ACT 的 temporal ensemble 很相似，但关键区别是权重不是预设的指数衰减，而是由动作方向的一致性决定。一致的历史预测得到更高权重，不一致的模式则被压低，从而避免不同轨迹模式被平均掉。
+**【Code】** 正文式 (5) 只写指数分子；[官方 AdaptiveEnsembler](https://github.com/microsoft/CogACT/blob/main/sim_cogact/adaptive_ensemble.py) 明确除以权重和，上式按实现补全。论文 $K$ 指历史预测个数，代码 `deque(maxlen=pred_action_horizon)` 的容量则包含当前预测，复现时须区分这两个窗口口径。
+
+**【Analysis】** 这是温和的相似度加权，不是离散模式选择器。因为余弦相似度在 $[-1,1]$、$\alpha=0.1$，任意两个未归一化权重之比最多为 $e^{0.2}\approx1.22$；它仍可能平均不同模式。Table 9 支持平均成功率改善，不能据此宣称消除了多模态混合。
 
 #### Action Normalization
 
@@ -325,7 +328,7 @@ $$
 
 **【Paper】**
 
-- 推理时 VLM 只生成 1 个 cognition token，不生成动作 token。
+- 推理时 VLM 做一次用于抽取 cognition feature 的前向，不进行长文本推理或离散动作 token 解码。
 - 动作模块从标准 Gaussian noise 开始，用 DDIM 10 步去噪。
 - 默认使用 CFG scale 1.5；CFG 通过同时计算 conditioned 和 unconditioned 预测提升动作质量。
 - Adaptive Action Ensemble 把当前预测和最近 $K$ 次历史预测按 cosine similarity 加权；$K$ 与机器人单帧移动距离成反比，用训练集 action std 估计，Google Robot 为 2、WidowX 为 7。
@@ -446,7 +449,7 @@ $$
 | OpenVLA    |      4.2 |
 | CogACT     | **51.3** |
 
-**【Paper】** Realman 真实任务结果：
+**【Paper】** Realman 真实任务结果（Table 3）：**Place Avg 是抓取与放置两个阶段分数的均值**。CogACT 的两个阶段分别为 87.5% 与 33.3%，所以 60.4% 不能读作完成整个 Place 任务的成功率；Task All Avg 又平均三个任务组，71.2% 同样是复合指标，不是所有试验完成率。
 
 | Method    | Pick Avg | Stack Avg | Place Avg | Task All Avg |
 | --------- | -------: | --------: | --------: | -----------: |
@@ -461,6 +464,8 @@ $$
 | Octo-Base |        0.0 |       0.0 |      27.3 |        0.0 |      5.8 |
 | OpenVLA   |       18.2 |       0.0 |       9.1 |        0.0 |      6.8 |
 | CogACT    |   **63.6** |  **72.7** |  **72.7** |   **36.4** | **61.4** |
+
+**【Paper】** 原文 Table 6 的 Octo Avg 写 5.8%，与四列 0/0/27.3/0 的算术均值约 6.8% 不符；上表保留原始报告值并标明此不一致，不能把它当作重新计算确认的均值。
 
 **【Paper】** 论文摘要给出总体对比：CogACT 在仿真平均成功率上比相同量级（7B）的 OpenVLA 高约 35 个百分点以上，在真实机器人实验中高约 55 个百分点以上；在仿真中比 55B 的 RT-2-X 高约 18 个百分点。
 
@@ -538,14 +543,14 @@ $$
 
 1. **VLM 只做认知压缩**：7B VLM 不需要在粗糙的离散 token 空间里表达毫米级动作，只需要输出一个 4096 维 hidden feature，这降低了 VLM 输出层的负担。
 2. **DiT 专门建模动作**：扩散模型天然匹配连续、多模态动作分布，self-attention 又能建模 16 步动作序列的时间相关性。
-3. **动作模块规模足够大**：13M 的小 DiT 已经比 3M diffusion head 好很多，89M/308M 继续提升；这说明 VLA 的瓶颈不只是 VLM，动作解码器也需要足够容量。
+3. **动作模块规模足够大**：13M 的小 DiT 已经比 3M diffusion head 好很多，89M/308M 继续提升；这说明在这组对照中动作解码器容量会影响性能；同为 89M 的 DiT 对 MLP 为 62.5% 对 52.5%，还提供了与参数量相对独立的架构证据。
 4. **Adaptive Ensemble 保留模式信息**：动作是多模态的，按相似度加权比固定 temporal ensemble 更少产生“不存在的平均动作”。
 
 ### 6.2 核心创新
 
 **【Paper】** 核心创新可以压缩成一句：CogACT 把 VLA 从“让 VLM 说动作”改成“让 VLM 想动作、让大型 DiT 做动作”，并系统验证了这种 componentized 架构与 action module scaling。
 
-**【Analysis】** 比起具体的某个网络层，论文更重要的贡献是“动作模块应该被当作第一等研究对象”这个范式。它用实验说明，给 VLA 增加几百 M 参数的专用动作模型，比继续盲目增大 VLM 更划算。
+**【Analysis】** 比起具体的某个网络层，论文更重要的贡献是“动作模块应该被当作第一等研究对象”这个范式。它证明在固定 VLM 下扩大 DiT 有收益，但没有同计算预算扩展 VLM 的对照，因此尚不能证明“增大动作模块一定比增大 VLM 更划算”。Table 7 的均值随规模上升，Google VA 却从 Base 的 61.3% 降到 Large 的 59.3%；这里是三点经验趋势，不是普遍 scaling law。
 
 ### 6.3 与已有方法的本质区别
 

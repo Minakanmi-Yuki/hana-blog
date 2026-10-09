@@ -1,7 +1,7 @@
 ---
 title: 'MWM 论文精读：让世界模型预测真正影响机器人决策的东西'
 publishDate: 2026-08-26
-updatedDate: 2026-08-26
+updatedDate: 2026-09-22
 description: '精读 ICML 2026 的 Mask World Model：以未来语义 mask 而非 RGB 像素训练世界模型，并用预测特征驱动扩散策略，提升机器人对外观变化的鲁棒性。'
 heroImage: { src: 'https://pic.hana0721.top/71849616_p0.1sfmv9l9of.webp', color: '#8C8275' }
 category: 'research'
@@ -64,13 +64,13 @@ import { Aside } from '@/components/user'
 
 ### 一句话总结
 
-**【Paper】** MWM（Mask World Model）把机器人世界模型的预测目标从未来 RGB 视频改为未来**语义 mask**：训练时从 mask 学习物体身份、空间布局和接触变化，测试时却只接收多视角 RGB。扩散式 action head 读取世界模型的预测特征并产生闭环动作。
+**【Paper】** MWM（Mask World Model）把机器人世界模型的预测目标从未来 RGB 视频改为未来**语义 mask**：训练时从 mask 学习任务相关区域、空间布局和运动变化，测试时却只接收多视角 RGB。扩散式 action head 读取世界模型的预测特征并产生闭环动作。
 
 ### 核心贡献
 
 **【Paper】**
 
-1. 提出几何信息瓶颈（geometric information bottleneck）：以语义 mask 保留对象、布局与交互关系，舍弃纹理、反光、背景和照明等控制无关因素。
+1. 提出几何信息瓶颈（geometric information bottleneck）：以语义 mask 强调对象区域、布局与交互线索，减少预测目标中的纹理、反光和照明变化；这些是任务相关的归纳偏置，不是严格保证 hidden state 不含外观的硬约束。
 2. 以条件 flow matching 预训练 mask dynamics backbone，再以扩散策略的动作损失对齐预测特征与控制需求；部署阶段不需要外部分割器。
 3. 在 LIBERO 上得到 98.3% 平均成功率、RLBench 六任务上得到 68.3%，并在 Franka 实机与外观扰动测试中优于 RGB 世界模型基线。
 
@@ -120,6 +120,8 @@ $$
 z_t^o=E(o_t), \qquad z_t^m=E(\tilde m_t)
 $$
 
+**【Code】** 公开 LIBERO 转换器 `build_id2color` 使用机械臂青色、夹爪橙色、所有 `object_of_interest` 统一黄色、其余黑色。因此它不是为每个对象身份分配唯一颜色的实例跟踪表示；不同物体仍需借助 RGB 条件、位置和语言区分。mask 的二维轮廓也没有直接监督接触力或三维接触状态。
+
 这避免另训 mask VAE，并使 RGB 条件和 mask target 落在同一 latent 接口。Normalize / Interpolate / Stack 随后统一时间采样率并融合多视角 token。
 
 #### Mask dynamics DiT
@@ -147,11 +149,15 @@ $$
 \mathcal L_{\text{act}}=\mathbb E\left[\lambda(\sigma)\left\|\phi_\xi(\tilde u,\sigma,H_t)+\epsilon/\sigma\right\|_2^2\right]
 $$
 
-其中 $\phi_\xi$ 是动作去噪器，$H_t$ 为预测特征库，$\lambda(\sigma)$ 调整不同噪声尺度的权重。
+其中按该公式，$\phi_\xi$ 应解释为条件 score 估计，目标是 $-\epsilon/\sigma$，而非直接的干净动作预测。$H_t$ 为预测特征库，$\lambda(\sigma)$ 调整不同噪声尺度的权重。
+
+**【Code】** 官方 `runner/ge_trainer.py` 实际采用 flow matching：$\tilde u=(1-\sigma)u+\sigma\epsilon$，回归 `noise_actions - actions`。它与论文 Eq. 8 的加性噪声 score 参数化不同，不能把 Eq. 8 原样当成仓库 loss；两者的采样方向和目标尺度也应配套解释。
 
 ### 4.4 Training
 
-**【Paper】** Stage 1 以 $\mathcal L_{\text{mask}}$ 训练 mask dynamics：4 帧 RGB 预测 5 个未来 latent，总共覆盖 9 帧；caption dropout 为 0.06，条件帧加幅度 0.1 的轻微噪声。Stage 2 从 Stage-1 checkpoint 开始，只优化 $\mathcal L_{\text{act}}$；VAE 冻结，DiT backbone 与 action expert 由动作梯度共同更新，不再加入 mask/video reconstruction loss。
+**【Paper】** Stage 1 以 $\mathcal L_{\text{mask}}$ 训练 mask dynamics：4 帧 RGB 预测 5 个未来 latent，总共覆盖 9 帧；caption dropout 为 0.06，条件帧加幅度 0.1 的轻微噪声。Stage 2 从 Stage-1 checkpoint 开始，只优化 $\mathcal L_{\text{act}}$；VAE 冻结，DiT backbone 与 action expert 由动作梯度共同更新，不再加入 mask/video reconstruction loss。这样控制梯度会改变 mask 预训练表征，最终策略不一定仍能忠实生成 mask；“mask-centric”主要描述其初始化与学习偏置。
+
+**【Paper / Code】** 原文存在冻结口径冲突：§3.5 与 Table 6 支持 Stage 2 backbone 可训练，附录 A.1 却称其 frozen；Table 6 又将 Stage 1 VAE 写作 Trainable，与 A.1 的 fixed VAE 冲突。公开 `action_full` 优化整个 DiT，优化器只收集 diffusion model 参数、未包含 VAE，支持“DiT 更新、VAE 不随该优化器更新”的实现。论文承诺比较辅助 mask loss 和无 Stage 1 初始化，但当前附录未给出相应数值，不能补写成已验证消融。
 
 **【Paper】** 附录报告两阶段均用 AdamW、全局 batch 128、weight decay $10^{-5}$、warmup 1000 steps、bf16、gradient clip 1.0；学习率分别为 $3\times10^{-4}$ / $5\times10^{-5}$。每 suite 训练约需 8×A100 80GB：约 3.5 天（30k steps）加 1.5 天（18k steps）。
 
@@ -173,7 +179,7 @@ $$
 
 ### 4.5 Inference
 
-**【Paper】** 测试时没有语义 mask 与外部分割器。系统输入最新 RGB、state 和指令，由 world model 得到预测特征；动作扩散器使用 10-step Euler sampling 产生 36-step chunk。控制器执行第一步，读入新观测后重新规划。
+**【Paper】** 测试时没有语义 mask 与外部分割器。系统输入最新 RGB、state 和指令，由 world model 得到预测特征；动作扩散器使用 10-step Euler sampling 产生 36-step chunk。§3.5 描述控制器每次执行第一步再规划。**【Code】** 公开 `experiments/eval_libero.sh` 却以 `--exec_step 8` 调用评测，当前启用的 pruning 脚本还只用每任务 10 次试验；这与论文每 suite 500 次、每轮单步执行不同。复现论文时必须明确使用哪套执行长度与评估次数。附录 Figure 4 的实机 10 Hz 是部署报告，不能据 LIBERO 脚本自动推出相同端到端频率。
 
 <Algorithm number={2} title='RGB-only 闭环推理' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>最新 RGB memory、语言指令与机器人 state。</div>
@@ -188,7 +194,7 @@ $$
 
 **【Code】** 官方实现是基于 Genie Envisioner / LTX-Video 的精简 fork。`configs/ltx_model/libero/video_model_libero.yaml` 对应 Stage 1：`return_video: true`、`train_mode: video_only`、`action_expert: false`；`action_model_libero.yaml` 对应 Stage 2：`return_action: true`、`train_mode: action_full`、`action_expert: true`。
 
-**【Code】** 配置与论文关键数字一致：`n_previous: 4`、`chunk: 9`、`action_chunk: 36`、两路 `valid_cam: ['image', 'wrist_image']`，以及 Stage 1 / 2 的学习率 $3e{-4}$ / $5e{-5}$。`data/libero_dataset.py` 默认将 RGB key 后缀改为 `_mask`；README 指出 `scripts/convert_libero_hdf5_to_lerobot.py` 将实例分割映射为固定颜色的语义 mask。
+**【Code】** 配置的若干字段数值与论文相同：`n_previous: 4`、`chunk: 9`、`action_chunk: 36`、两路 `valid_cam: ['image', 'wrist_image']`，以及 Stage 1 / 2 的学习率 $3e{-4}$ / $5e{-5}$。但字段含义不能照数字直接等同：loader 将 `chunk: 9` 视作待预测视频采样帧，再做 VAE 压缩；评测使用 `(chunk-1)//temporal_compression_ratio+1` 得到 latent 数。它不是“4 个 RGB memory 加 5 个未来 latent 总共 9 个 token”的直接实现。`data/libero_dataset.py` 默认将 RGB key 后缀改为 `_mask`；README 指出 `scripts/convert_libero_hdf5_to_lerobot.py` 将实例分割映射为固定颜色的语义 mask。
 
 **【Code】** 仓库没有随附完整数据和 checkpoint。复现实验还需 GE-Base 风格权重、LTX tokenizer/text encoder/VAE，以及包含 RGB 与 mask 字段的 LeRobot 数据集。
 
@@ -227,17 +233,17 @@ $$
 
 ### 5.3 Ablation Study
 
-**【Paper】** 三种 mask 设计区分了收益来源：MWM-C1（显式未来 mask + IDM）平均 0.810；MWM-C2（直接接 predictive latent features 的 action diffusion）为 0.918；完整双视角 MWM 达 0.983。C1 相对 Cosmos + IDM 从 0.675 提升到 0.810。
+**【Paper】** 三种 mask 设计提供不同结构的比较：MWM-C1（显式未来 mask + IDM）平均 0.810；MWM-C2（直接接 predictive latent features 的 action diffusion）为 0.918；完整双视角 MWM 达 0.983。附录 Algorithm 2 的 C2 冻结 Cosmos mask backbone，只训练 diffusion head；完整 MWM 则采用 GE/LTX backbone 并端到端更新，还增加 wrist 视角。因此 C2→MWM 的增益不能只归因于加了一台相机。C1 相对 Cosmos + IDM 从 0.675 提升到 0.810。
 
-**【Paper】** 正文将 C2 的 RGB 对照写作 0.873→0.918，Table 1 的 Cosmos + Latent IDM 精确条目为 0.919；两者有 0.001 不一致，宜以表格为准。
+**【Paper】** 正文将 C2 的 RGB 对照写作 **0.873→0.918**，Table 1 却给出 RGB Cosmos + Latent IDM 为 **0.919**；同一 RGB 基线两处相差 0.046。按表格，C2 平均值反而低 0.001：Goal 提高 0.030，但 LIBERO-10 从 0.842 降到 0.812，Object 也略降。原文“在 Goal 和 Long 都有明确增益”的叙述与表格不符。本文保留表格数据，不能将这组结果作为 mask 在所有架构上都更优的证据。
 
-**【Analysis】** 消融的要点不是“mask 必然最好”，而是仅改变预测表征已产生收益；直接让策略使用连续 feature bank 比“先生成 mask 图、再反推动作”更自然。C2 与 RGB latent baseline 的极小差异也说明相机设置和训练细节不可忽略。
+**【Analysis】** C1 的对照支持显式 mask 预测在所测 Cosmos+IDM 流程中有帮助；C2 的表格结果却不支持相同方向的普遍结论。完整 MWM 比双视角 GE-ACT 高 1.8 个百分点是有效整体结果，仍不足以将所有增益独立归给语义 target。C1→C2 同时改变动作头及其训练过程，也不是仅删除 mask decoder 的单变量消融。
 
 ### 5.4 Generalization
 
 <img
   src='https://pic.hana0721.top/blog/paper-deep-dive-mask-world-model/mwm-ood.webp'
-  alt='背景、光照和物体颜色变化下的实机视觉泛化测试（论文 Figure 7）'
+  alt='背景、光照和物体颜色变化下的实机视觉泛化测试（论文 Figure 5）'
   class='zoomable'
   width='860'
   height='730'
@@ -246,9 +252,9 @@ $$
   style='max-width:100%; height:auto;'
 />
 
-**【Paper】** 背景纹理、照明和物体颜色 shift 下，MWM OOD-SR 为 42.1%，优于 π0 的 19.2% 和 GE-ACT 的 12.5%；in-distribution SR 为 67.5%，保留率 $\mathrm{Retain}=\mathrm{OOD\text{-}SR}/\mathrm{SR}_{\mathrm{ID}}$ 为 0.62。随机视觉 token pruning 下，MWM nPAUC 为 0.648，略高于 GE-ACT 的 0.629。
+**【Paper】** 背景纹理、照明和物体颜色 shift 下，MWM OOD-SR 为 42.1%，优于 π0 的 19.2% 和 GE-ACT 的 12.5%；in-distribution SR 为 67.5%，保留率 $\mathrm{Retain}=\mathrm{OOD\text{-}SR}/\mathrm{SR}_{\mathrm{ID}}$ 为 0.62。随机视觉 token pruning 下，MWM nPAUC 为 0.648，略高于 GE-ACT 的 0.629。该指标是 9 个剪枝率、4 个 suite 上 $\mathrm{SR}_s(r)/\mathrm{SR}_s(0)$ 的均值，表示相对无剪枝成功率的保留程度，不是 64.8% 的原始成功率；用附录 Tables 7–8 与 Table 1 基线可复算约 0.6477 和 0.6294。
 
-**【Analysis】** OOD-SR 的绝对值仍不高，背景扰动下 MWM 仅为 27.5%；token-pruning 的 0.019 nPAUC 优势也是温和证据。因此结论是“相对更鲁棒”，不是“已解决外观泛化”。
+**【Analysis】** OOD-SR 的绝对值仍不高，背景扰动下 MWM 仅为 27.5%；token-pruning 的 0.019 nPAUC 优势也是温和证据。例如剪去 80% token 时，MWM 在 Spatial/Goal 上还低于 GE-ACT；剪去 90% 时两者全部失败。随机删除 token 会同时丢几何和外观信息，不能等同于单独去除纹理的因果实验。因此证据支持平均意义上的相对鲁棒性，未证明所有扰动或高剪枝率均占优。
 
 ## 6. 方法分析
 
@@ -258,7 +264,7 @@ $$
 
 ### 6.2 核心创新
 
-**【Analysis】** 三个设计缺一不可：未来 mask 是预测 target；mask 不是线上输入；动作头读取预测过程的多层 features。前两点把语义知识蒸馏进 RGB-only policy，第三点避免把未来表征压成可能出错的显式图再二次处理。
+**【Analysis】** 完整方法结合三个设计：未来 mask 是预测 target；mask 不是线上输入；动作头读取预测过程的多层 features。前两点把语义知识蒸馏进 RGB-only policy，第三点让控制器直接利用多层连续特征。不过 backbone 一直能看到原始 RGB，Stage 2 又仅由动作 loss 优化，所以“几何瓶颈”是监督目标引导的软偏置，不能理解为策略只接收 mask 的封闭信息通道；文中也没有互信息约束或三项必要性的完整消融。
 
 ### 6.3 与已有方法的本质区别
 
@@ -293,6 +299,6 @@ $$
 
 <Aside type='note' title='阅读提示'>
   本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
-  表示基于论文和代码的分析推断。论文 Table 1 与正文的一个 C2 baseline 数值存在 0.001
-  差异，文中已标明。
+  表示基于论文和代码的分析推断。本文核对 arXiv v2 全文及截至 2026-09-22 的官方实现；正文与 Table 1
+  的 C2 对照矛盾、冻结设定及采样协议差异均在相关段落说明。
 </Aside>

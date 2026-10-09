@@ -1,7 +1,7 @@
 ---
 title: 'RDT-1B 论文精读：用 Diffusion Transformer 学习双臂操作'
 publishDate: 2026-08-25
-updatedDate: 2026-08-25
+updatedDate: 2026-09-22
 description: '精读 RDT-1B：如何用 Diffusion Transformer、物理可解释的统一动作空间和跨机器人预训练，解决双臂操作中的多模态与数据稀缺。'
 heroImage:
   { src: 'https://pic.hana0721.top/49383596_p0_master1200.6t7pmts45l.webp', color: '#8C8275' }
@@ -72,8 +72,8 @@ import { Aside } from '@/components/user'
 
 1. **Robotics Diffusion Transformer（RDT）**：以 Diffusion Transformer 为主体，使用 QKNorm、RMSNorm、MLP decoder 和 Alternating Condition Injection（ACI），面向机器人数据的数值不稳定、非线性和高频变化做结构修改。
 2. **Physically Interpretable Unified Action Space**：把关节位置、关节速度、末端位姿、夹爪状态和底盘速度映射到 128 维向量，保留每一维的物理意义，避免简单截断跨机器人信息。
-3. **大规模两阶段训练**：在 46 个数据集、1M+ 轨迹、约 21TB 数据上预训练，再在 300+ 任务、6K+ 双臂轨迹的自建数据上微调；RDT-1B 规模为 1.2B 参数。
-4. **真实机器人泛化**：论文报告了未见物体、未见场景、指令跟随、1–5 shot 新技能和灵巧操作上的提升，并在 7 个任务上比较 ACT、OpenVLA、RDT scratch 与预训练 RDT。
+3. **大规模两阶段训练**：在 46 个数据集、1M+ 轨迹、约 21TB 数据上预训练，再在 300+ 任务、6K+ 双臂轨迹的自建数据上微调；RDT-1B 的动作模型规模约 1.2B 参数；冻结的 T5-XXL 与 SigLIP 是额外的条件编码器。
+4. **真实机器人泛化**：论文报告了未见物体、未见场景、指令跟随、1–5 shot 新技能和灵巧操作上的提升，并在 7 个任务上比较 ACT、OpenVLA、Octo、RDT scratch 与预训练 RDT。
 
 ## 2. 背景与相关工作
 
@@ -81,15 +81,15 @@ import { Aside } from '@/components/user'
 
 另一个瓶颈是数据。双臂硬件和遥操作成本较高，特定双臂机器人的公开示教通常远少于单臂数据。若只在目标机器人上从零训练，模型很难同时获得视觉、语言和物理先验。
 
-已有 VLA（如 RT-2、OpenVLA）把动作离散化成 token，便于复用语言模型，但量化误差和离散动作的联合建模会限制精度；Octo 使用条件扩散，却把较少参数留给真正的去噪过程。**【Analysis】** RDT 的定位是把扩散模型的分布表达能力与 DiT 的可扩展性结合起来，并先跨机器人学习，再针对目标双臂 embodiment 适配。
+【Paper】作者认为离散动作量化可能限制连续控制精度，而 Octo 把相对较少参数留给去噪部分。【Analysis】这些是设计动机；本文实验没有隔离 tokenizer、数据、微调方式和模型容量，不能仅凭基线分数证明离散动作或 CVAE 无法解决双臂任务。**【Analysis】** RDT 的定位是把扩散模型的分布表达能力与 DiT 的可扩展性结合起来，并先跨机器人学习，再针对目标双臂 embodiment 适配。
 
 ## 3. 问题定义
 
-**【Paper】** 在时间步 $t$，给定自然语言指令 $\ell$、最近 $T_{\text{img}}$ 帧 RGB 图像、机器人本体感知 $\vz_t$ 和控制频率 $c$，策略输出未来 $T_a$ 步动作 chunk：
+**【Paper】** 在时间步 $t$，给定自然语言指令 $\ell$、最近 $T_{\text{img}}$ 帧 RGB 图像、机器人本体感知 $\mathbf z_t$ 和控制频率 $c$，策略输出未来 $T_a$ 步动作 chunk：
 
 $$
-\pi_\theta(\va_{t:t+T_a}\mid \ell,\vo_t),\qquad
-\vo_t=(\mX_{t-T_{\text{img}}+1:t},\vz_t,c)
+\pi_\theta(\mathbf a_{t:t+T_a-1}\mid \ell,\mathbf o_t),\qquad
+\mathbf o_t=(\mathbf X_{t-T_{\text{img}}+1:t},\mathbf z_t,c)
 $$
 
 动作通常是下一时刻期望本体状态的子集。目标不是做一个跨机器人直接部署的通用控制器，而是利用多机器人数据学习可迁移的物理先验，再在目标双臂机器人上微调。
@@ -107,7 +107,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![RDT framework：多机器人动作映射到统一空间，并由图像、语言和低维状态条件化（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-rdt-1b/framework-crop.99u39zxsqs.webp)
+![RDT framework：多机器人动作映射到统一空间，并由图像、语言和低维状态条件化（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-rdt-1b/framework-crop.99u39zxsqs.webp)
 
 **【Paper】** 数据流可以压缩成一句话：状态与带噪动作先组成主序列，图像和语言分别编码为条件 token，RDT block 交替做 language/image cross-attention，最后只保留动作 token 并解码为去噪后的动作 chunk。训练与推理的逐步过程分别放在 4.4 和 4.5。
 
@@ -120,51 +120,55 @@ $$
 - **映射**：右臂关节位置 `[0,10)`、右夹爪 `[10,15)`、右臂速度 `[15,25)`、右末端位置 `[30,33)`、右末端 6D pose `[33,39)`；左臂从 `[50,95)` 对称放置；底盘速度使用 `[100,103)`，其余位置保留。
 - **为什么需要**：不同数据集可能使用 joint position、joint velocity、EEF pose 或 base velocity。按物理意义填入，而不是按数组下标拼接，才能让相同维度在跨机器人数据中表达相同概念。
 
-**【Code】** `configs/state_vec.py` 明确维护 `STATE_VEC_IDX_MAPPING` 和 `STATE_VEC_LEN = 128`；`data/preprocess.py` 的 `assemble_state_vec` 同时返回 state vector 与 mask。无效维度不会被当作真实动作，训练和采样阶段都通过 `action_mask` 屏蔽。
+**【Code】** `configs/state_vec.py` 明确维护 `STATE_VEC_IDX_MAPPING` 和 `STATE_VEC_LEN = 128`；`data/preprocess.py` 的 `assemble_state_vec` 同时返回 state vector 与 mask。**mask 不是训练 loss mask**：`RDTRunner.compute_loss` 把 128 维数值和 128 维可用性标记拼成 256 维输入，但最终调用的是未按有效维度加权的 `F.mse_loss(pred, target)`，零填充维度也参与训练；采样结束才把输出乘以 `action_mask`。
+
+**【Paper】** 附录 D 优先统一米、弧度及相应速度单位，而非把所有物理量按数据集统计量压到同一范围。**【Code】** 这不等于完全保留传感器原始值：`data/hdf5_vla_dataset.py` 还对目标夹爪读数和控制量分别缩放到开合比例。**【Analysis】** 固定槽位对齐的是物理量类别，不能自动消除不同机械臂的连杆长度、关节轴向和可达空间差异。
 
 #### 多模态编码
 
 - **Language**：冻结的 T5-XXL 产生 4096 维语言 token，再经 `mlp2x_gelu` adaptor 投影到 RDT hidden size。
 - **Image**：冻结的 SigLIP 编码 RGB 图像，再经 `mlp2x_gelu` 投影；论文使用三路相机与两帧历史，并用多维位置编码区分时间、相机和 patch。
-- **Low-dimensional state**：状态、带噪动作及 validity mask 拼接后，经 `mlp3x_gelu` 投影。控制频率和扩散时间步分别用 Fourier / timestep MLP 编码。
-- **随机独立 mask**：论文在不同模态上独立遮蔽输入，降低模型只依赖外部相机或文本的 shortcut。
+- **Low-dimensional state**：每个状态或动作向量先与 validity mask 在特征维拼接，再共享 `mlp3x_gelu` 投影。控制频率和扩散时间步分别用正弦频率特征与 MLP 编码成独立 token；主序列共 $1+1+1+64=67$ 个 token。
+- **随机独立 mask**：论文以 10% 概率独立遮蔽各类条件，降低条件依赖的脆弱性；附录 F 报告 classifier-free guidance 未带来收益且有不稳定现象，最终并未采用，不能把条件 dropout 等同于推理时使用 CFG。
 
 #### RDT DiT backbone
 
 **【Paper】** RDT 不是把 diffusion head 挂在一个很小的 condition encoder 后面，而是让大部分 Transformer 都参与去噪。每个 block 包含 self-attention、cross-attention 与 MLP：
 
 1. **QKNorm + RMSNorm**：机器人物理量的范围可能不稳定；代码中的 `RDTBlock` 使用 `RmsNorm`，attention 的 query/key 也启用 `qk_norm=True`。
-2. **MLP decoder**：最终动作不是线性投影，而是带 GELU 的 MLP，以近似碰撞、摩擦等导致的非线性动作映射。
-3. **Alternating Condition Injection**：第 $i$ 个 block 只注入 language 或 image 条件，代码中以 `conds[i % 2]` 实现，避免图像 token 数量远多于文字 token 时吞没指令信息。
+2. **MLP decoder**：最终动作不是线性投影，而是带 GELU 的 MLP，作者用它表达非线性动作映射；消融证明的是特定任务上的效果，未直接验证模型学出了摩擦或碰撞定律。
+3. **Alternating Condition Injection**：第 $i$ 个 block 只注入 language 或 image 条件，代码中以 `conds[i % 2]` 实现，让两个模态分别获得 cross-attention 更新，缓解同一次注意力归一化中长图像序列压低语言权重的问题。这是条件注入设计，不是因果保证语言永远得到遵循。
 
 ### 4.3 关键公式
 
 #### DDPM 前向过程与去噪目标
 
-给定 clean action chunk $\va^0$，从 $k\in\{1,\ldots,K\}$ 随机采样扩散步数，并构造：
+给定 clean action chunk $\mathbf a^0$，从 $k\in\{1,\ldots,K\}$ 随机采样扩散步数，并构造：
 
 $$
-\tilde{\va}^{k}=\sqrt{\bar\alpha_k}\,\va^0+\sqrt{1-\bar\alpha_k}\,\vepsilon,
-\qquad \vepsilon\sim\mathcal N(0,\mI)
+\tilde{\mathbf a}^{k}=\sqrt{\bar\alpha_k}\,\mathbf a^0+\sqrt{1-\bar\alpha_k}\,\boldsymbol\epsilon,
+\qquad \boldsymbol\epsilon\sim\mathcal N(0,\mathbf I)
 $$
 
 训练网络 $f_\theta$ 预测 clean sample：
 
 $$
 \mathcal L(\theta)=
-\mathbb E\left[\left\|\va^0-f_\theta(\tilde{\va}^{k},\vo_t,\ell,c,k)\right\|_2^2\right]
+\mathbb E\left[\left\|\mathbf a^0-f_\theta(\tilde{\mathbf a}^{k},\mathbf o_t,\ell,c,k)\right\|_2^2\right]
 $$
 
 其中 $\bar\alpha_k$ 是噪声 schedule 的累积乘积，$k$ 告诉模型当前噪声等级，$c$ 告诉模型控制频率。
 
-**【Code】** `models/rdt_runner.py` 使用 `DDPMScheduler`，配置为 1000 个训练 diffusion timesteps、`squaredcos_cap_v2` schedule 和 `prediction_type: sample`，因此实际 target 是 `action_gt` 而不是噪声 $\vepsilon$；loss 是 `F.mse_loss(pred, target)`。
+**【Analysis】** 这里同样使用 MSE，却不同于直接从观测回归动作均值：去噪器额外接收带噪动作和噪声等级，学习不同噪声位置的条件去噪方向；从不同初始噪声反复采样，才有机会保留不同动作模式。扩散目标本身并不保证每次采样都可行或无碰撞。
+
+**【Code】** `models/rdt_runner.py` 使用 `DDPMScheduler`，配置为 1000 个训练 diffusion timesteps、`squaredcos_cap_v2` schedule 和 `prediction_type: sample`，因此实际 target 是 `action_gt` 而不是噪声 $\boldsymbol\epsilon$；loss 是 `F.mse_loss(pred, target)`。
 
 #### 反向采样
 
-推理从 $\va^K\sim\mathcal N(0,\mI)$ 开始，重复执行：
+推理从 $\mathbf a^K\sim\mathcal N(0,\mathbf I)$ 开始，重复执行：
 
 $$
-\va^{k-1}=\operatorname{SchedulerStep}\big(f_\theta(\va^k,\vo_t,\ell,c,k),k,\va^k\big)
+\mathbf a^{k-1}=\operatorname{SchedulerStep}\big(f_\theta(\mathbf a^k,\mathbf o_t,\ell,c,k),k,\mathbf a^k\big)
 $$
 
 **【Code】** 官方 runner 使用 `DPMSolverMultistepScheduler`，推理步数为 5；得到 64 步 action chunk 后乘以 `action_mask`，只执行目标机器人实际存在的维度。
@@ -199,18 +203,20 @@ $$
 
 ### 4.5 Inference
 
-推理时不需要 teacher action，也不需要额外的 encoder。机器人读取当前两帧视觉、状态、语言和控制频率，采样一段动作，然后执行其中适合当前控制周期的部分并继续闭环观测。
+推理不需要示教动作，但仍需要 SigLIP 编码当前图像，以及 T5 编码语言（固定指令可缓存）。机器人读取当前两帧视觉、状态、语言和控制频率，采样一段动作，然后执行其中适合当前控制周期的部分并继续闭环观测。
 
 <Algorithm number={2} title='RDT action chunk sampling' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>语言条件、两帧 RGB 历史、128 维状态与 action mask。</div>
   <div slot='output'>长度为 64 的有效动作 chunk。</div>
   <AlgorithmStep>将 language、image 和 state token 经过 adaptor 对齐到 hidden size。</AlgorithmStep>
-  <AlgorithmStep>初始化 $\va^K$ 为标准高斯噪声，并设置 5 步 DPM-Solver++ schedule。</AlgorithmStep>
+  <AlgorithmStep>
+    初始化 $\mathbf a^K$ 为标准高斯噪声，并设置 5 步 DPM-Solver++ schedule。
+  </AlgorithmStep>
   <AlgorithmStep>
     在每个采样步输入当前 noisy action、扩散时间步和控制频率，经 RDT 预测 clean sample。
   </AlgorithmStep>
   <AlgorithmStep>
-    用 scheduler 更新 $\va^k\rightarrow\va^{k - 1}$，重复直到得到 $\va^0$。
+    用 scheduler 更新 $\mathbf a^k\rightarrow\mathbf a^{k - 1}$，重复直到得到 $\mathbf a^0$。
   </AlgorithmStep>
   <AlgorithmStep>
     应用 action mask，只执行目标 embodiment 支持的维度；下一控制周期重新采样。
@@ -234,45 +240,50 @@ $$
 
 ### 5.1 Experimental Setup
 
-![RDT 微调数据集：多视角图像、双臂状态和多任务示教（论文 Appendix Figure）](https://pic.hana0721.top/blog/paper-deep-dive-rdt-1b/ft_dataset-crop.1zizyy67ux.webp)
+![RDT 微调数据集：多视角图像、双臂状态和多任务示教（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-rdt-1b/ft_dataset-crop.1zizyy67ux.webp)
 
 **【Paper】** 微调数据来自 Mobile ALOHA，覆盖 300+ challenging tasks、100+ objects、15+ rooms 和 6K+ trajectories。论文将测试维度拆为未见物体、未见场景、指令跟随、few-shot learning 与 dexterity，并与 ACT、OpenVLA、Octo 以及 RDT scratch 比较。
 
-**【Code】** 训练配置使用 AdamW、constant learning rate；论文实验记录为 48 张 H100，预训练 1M steps、微调 130K steps。训练使用 DDPM 的 1000 steps，推理使用 DPM-Solver++ 的 5 steps。代码中的数据增强包括图像 corruption / color jitter、本体感知噪声和语言 instruction 扩展。
+**【Paper】** 附录 H 记录使用 48 张 H100，预训练总计 1M steps，微调 130K steps；但由于时间安排，**主实验微调实际从 500K 预训练 checkpoint 开始**，不能写成 1M checkpoint 的下游结果。模型为 28 层、hidden size 2048、32 heads；语言和视觉编码器冻结。附录 F 的增强包括图像 corruption / color jitter、本体感知噪声；原始指令、GPT-4 Turbo 扩展指令和简化指令各以 1/3 概率选用。
+
+**【Paper】** Wash Cup 每个杯子、Pour Water 每个房间、左右手水量指令各测试 8 次；Handover、Fold Shorts、Robot Dog 各测试 25 次。1-shot / 5-shot 指新技能在 6K+ 多任务微调混合中仅占 1 / 5 条示教，不是整个策略只训练了 1 / 5 条数据。OpenVLA 与 Octo 的最终可部署基线使用任务相关数据微调，作者报告全量多任务微调效果差；ACT 无语言条件，因此没有指令跟随测试。这些协议差异限制了对单一架构因素的归因。
 
 ### 5.2 Main Results
 
 **【Paper】** 论文在 7 个真实任务上报告 success rate。代表性结果如下：
 
-| 测试维度                      | RDT（预训练） | RDT scratch | 论文观察                             |
-| ----------------------------- | ------------: | ----------: | ------------------------------------ |
-| Wash Cup：未见物体总成功率    |         62.5% |         25% | 能把洗杯流程迁移到未见杯子           |
-| Pour Water：未见场景总成功率  |         62.5% |         25% | 对未见房间仍能完成多阶段流程         |
-| Pour Water-L-1/3：指令跟随    |         62.5% |       37.5% | 能区分左手与约三分之一水量           |
-| Fold Shorts：1-shot 新技能    |           40% |         16% | 仅 1 条示教也能获得可用策略          |
-| Handover：5-shot 新技能       |           40% |         16% | 能学习双手交接这一预训练中未见的技能 |
-| Robot Dog：dexterity 总成功率 |           76% |         64% | 能更精确地推动黑色遥控器摇杆         |
+| 测试及指标（附录 Table 3）               | RDT（预训练） | RDT scratch | 如何读这个数字                                      |
+| ---------------------------------------- | ------------: | ----------: | --------------------------------------------------- |
+| Wash Cup：两个未见杯子的完整成功率均值   |         62.5% |          0% | 两个杯子分别为 75% / 50%，不是单个杯子的成绩        |
+| Pour Water：三个未见房间的完整成功率均值 |           75% |       41.7% | RDT 各房间为 62.5% / 100% / 62.5%                   |
+| Pour Water-L-1/3：Total                  |          100% |       62.5% | 另报 Correct Hand 与 Correct Amount，不能混成一个值 |
+| Pour Water-R-2/3：Total                  |         87.5% |         25% | RDT 的 Correct Amount 仅 75%                        |
+| Fold Shorts：1-shot 完整成功率           |           68% |         40% | 25 次测试中的 17 次 / 10 次                         |
+| Handover：5-shot 完整成功率              |           40% |         16% | 25 次测试中的 10 次 / 4 次                          |
+| Robot Dog：Total / Walk Straight         |     76% / 48% |   64% / 32% | 抓取并推动摇杆不等于让机器狗正确直行                |
 
-**【Paper】** RDT（ours）在作者定义的综合指标上比基线更稳定；论文摘要将跨任务成功率提升概括为约 56%。这里的综合分数是多个任务维度和附加子条件的平均值，不等同于单个任务的 success rate。
+**【Paper】** Figure 1 的综合分数为 RDT 68.2%、scratch 34.8%、ACT 12.2%。引言的“56% improvement”对应 68.2 − 12.2 = **56 个百分点**，不是相对提升 56%。附录 H 先平均单任务的 Total 与附加指标，再按泛化维度汇总，最后对维度取均值，因此它不等于所有 rollout 的完整任务成功率。
+
+**【Analysis】** 按 Table 3 可复算 RDT 的五项为 58.3%、75%、91.7%、54%、62%，均值约 68.2%；其中标作 Unseen Object 的维度包含一个已见杯子，所以不能把图中的 58.3% 当成两个未见杯子的均值。ACT 还缺少指令跟随维度，跨方法综合条形图需要结合原始表格与可用指标阅读。每个杯子或房间仅 8 次测试，相差一次就是 12.5 个百分点，论文未给出足够统计证据把所有小幅差距解释成稳定收益。
 
 ### 5.3 Ablation Study
 
 ![RDT 消融：去掉 diffusion、模型规模或预训练后的成功率变化（论文消融图）](https://pic.hana0721.top/blog/paper-deep-dive-rdt-1b/ablation-crop.2h91nj7l6v.webp)
 
-**【Paper】** 消融包含四个版本：
+**【Paper】** Table 2 的三列分别是**第二个未见杯子的 Total、第三个未见房间的 Total、左手 1/3 指令的 Correct Amount**，不是三个测试维度的平均成功率；每列各 8 次测试。消融包含四个版本：
 
 - `RDT (regress)`：去掉 diffusion，直接做确定性回归；未见物体、未见场景、指令跟随分别为 12.5%、50%、12.5%。
 - `RDT (small)`：166M 参数；对应结果为 37.5%、62.5%、25%。
 - `RDT (scratch)`：不做多机器人预训练；结果为 0%、25%、62.5%。
 - `RDT (ours)`：完整模型；对应结果为 50%、62.5%、100%。
 
-**【Analysis】** 消融说明三件事缺一不可：diffusion 负责表达多峰连续动作，大模型容量负责吸收复杂跨模态关系，多机器人预训练负责提供未见物体与场景的先验。`RDT (small)` 在某个未见场景指标上并非最差，说明单个任务的方差仍然存在，不能把所有收益简单归因于参数量。
+**【Analysis】** 消融支持扩散建模、规模和预训练在这些测试上的价值，但不足以证明“三者缺一不可”：small 在场景这一列与完整模型同为 62.5%，每列样本也很少。Figure 4 的结构消融另在**无预训练**条件下进行；去掉 MLP decoder 降低机器狗直行表现，去掉 ACI 降低正确水量表现，去掉 QKNorm/RMSNorm 的组合使训练不稳定。它们支持设计选择，却没有分别隔离两种 normalization 的贡献，也没有直接测量物理规律的学习。
 
 ### 5.4 Generalization
 
 **【Paper】** 泛化并不是只换一个物体：
 
-1. **未见物体 / 场景**：Wash Cup 与 Pour Water 的测试对象或房间在训练中未出现。
+1. **未见物体 / 场景**：Wash Cup 分别报告一个已见杯子与两个未见杯子；Pour Water 测试三个未见房间。
 2. **未见语言组合**：Pour Water-L-1/3 与 R-2/3 要求理解手别和水位比例，即使训练指令只出现 little、half、full 等词。
 3. **few-shot 新技能**：Handover 只有 5 条示教，Fold Shorts 只有 1 条示教。
 4. **灵巧控制**：Robot Dog 要求识别黑色摇杆并以小角度持续推动，动作精度和视觉语义都很关键。
@@ -284,7 +295,7 @@ $$
 **【Analysis】** RDT 的收益来自三个层级的匹配：
 
 - **分布层**：diffusion 直接学习 $p(a\mid o,\ell)$，不会把多个示教模式压成一个均值动作。
-- **表示层**：统一动作空间把“左臂关节速度”“右末端位置”等概念固定在一致的坐标槽位，允许跨机器人共享物理规律。
+- **表示层**：统一动作空间把“左臂关节速度”“右末端位置”等概念固定在一致的坐标槽位，为跨机器人共享表示提供接口；是否迁移仍由数据覆盖与目标微调决定。
 - **规模层**：DiT 把图像、语言、状态和动作去噪放在同一个可扩展 Transformer 中，1M+ 轨迹和 1.2B 参数才有机会转化为下游先验。
 
 ### 6.2 核心创新
@@ -311,7 +322,7 @@ $$
 
 ### 7.1 作者明确提出的局限
 
-**【Paper】** 研究主要面向静态双臂抓取与操作，Mobile ALOHA 的移动能力没有用于训练或推理；论文也指出模型的训练、微调和实时部署需要大量 GPU 资源。官方论文没有把方法扩展到动态导航、强接触力控制或普适的跨 embodiment 直接部署。
+**【Paper】** 目标平台实验主要面向固定位置的双臂操作，移动底盘用于采集时搬运机器人，没有验证自主移动操作。应将此限制限定于目标实验：附录 D 的跨机器人预训练清单本身包含 Mobile ALOHA，不能进一步断言所有预训练数据都没有底盘运动。论文没有验证动态导航、力控制或无需适配的跨机器人部署。
 
 ### 7.2 自己分析得到的局限
 
@@ -319,7 +330,7 @@ $$
 
 - 128 维空间虽然覆盖常见物理量，但 reserved 槽位和 mask 设计仍然依赖人工约定；新型执行器或力矩控制需要重新定义映射。
 - DPM-Solver++ 只用 5 个采样步，实时性好但可能牺牲部分动作分布精度；论文没有系统报告采样步数与成功率的曲线。
-- 论文表格主要是少量真实任务的 success rate，缺少大规模统计置信区间、能耗、延迟和安全违规率。
+- 论文表格主要是少量真实任务，缺少统计置信区间、能耗和安全违规率。论文确实报告 RTX 4090 上约 6 个 chunk/s、381 个预测动作/s；后者是批量生成吞吐量，不是机器人以 381 Hz 重新观测并闭环规划，完整传感器到执行器延迟也不能由它直接推得。
 - 预训练数据的采样权重会按质量、规模和中间 loss 手工调整，复现时需要大量数据清洗经验。
 - `models/rdt_runner.py` 默认仍把条件 encoder、动作 mask 和目标 embodiment 的具体适配留给上层脚本，仓库并非下载后即可在任意机器人上零配置运行。
 
@@ -333,6 +344,5 @@ $$
 
 <Aside type='note' title='阅读提示'>
   本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方仓库实现，`【Analysis】`
-  表示基于论文和代码的分析推断。论文图像已裁剪并上传；由于图床 CDN 尚未刷新，正文使用已验证 HTTP 200
-  的 GitHub Raw 地址。
+  表示基于论文和代码的分析推断。结果按 ICLR 2025 论文的 arXiv v2 全文及附录核对。
 </Aside>

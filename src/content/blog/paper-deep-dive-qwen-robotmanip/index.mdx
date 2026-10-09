@@ -1,7 +1,7 @@
 ---
 title: 'Qwen-RobotManip 论文精读：对齐如何释放机器人规模化'
 publishDate: 2026-08-24
-updatedDate: 2026-08-24
+updatedDate: 2026-09-22
 description: '精读 Qwen-RobotManip：通过跨 embodiment 对齐、相机坐标系动作、人到机器人合成与双流训练，把约 38,100 小时开放数据转化为可迁移的 VLA 能力。'
 heroImage:
   { src: 'https://pic.hana0721.top/112236596_p0_master1200.232gogbiox.webp', color: '#8C8275' }
@@ -66,11 +66,11 @@ import { Aside } from '@/components/user'
 
 **代码与资料**：[QwenLM/Qwen-RobotManip](https://github.com/QwenLM/Qwen-RobotManip) · [官方博客](https://qwen.ai/blog?id=qwen-robotmanip)
 
-![Qwen-RobotManip 总览（论文 Figure 1）](https://qianwen-res.oss-accelerate.aliyuncs.com/qwenrobot/robotmanip/images/teaser_v3.png)
+![Qwen-RobotManip 总览（报告首页总览）](https://qianwen-res.oss-accelerate.aliyuncs.com/qwenrobot/robotmanip/images/teaser_v3.png)
 
 ### 一句话总结
 
-**【Paper】** Qwen-RobotManip 的核心不是“把更多轨迹喂给更大的模型”，而是先把不同机器人、相机和动作空间变成可共同学习的坐标系，再用约 38,100 小时的开放数据训练一个由 Qwen3.5-4B VLM 与 flow-matching DiT action expert 组成的 VLA。
+**【Paper】** Qwen-RobotManip 的核心不是“把更多轨迹喂给更大的模型”，而是先把不同机器人、相机和动作空间变成可共同学习的坐标系，再用约 38,100 小时的操作语料，配合视觉语言数据，训练一个由 Qwen3.5-4B VLM 与 flow-matching DiT action expert 组成的 VLA。
 
 ### 核心贡献
 
@@ -79,13 +79,13 @@ import { Aside } from '@/components/user'
 1. **三层对齐框架**：用 80 维 canonical state-action、camera-frame delta pose 与 in-context policy adaptation，分别处理表示、运动几何和行为差异。
 2. **可扩展数据基础设施**：将 9 类开放机器人数据、约 1,933 小时 egocentric human video，以及人到机器人合成数据整理为约 38,100 小时语料，其中合成轨迹约 24,808 小时、覆盖 15 种平台。
 3. **双流联合训练**：VLA 流学习连续动作，VLM 流以 9:1 的机器人数据/VL 数据比例保持视觉与语言能力，降低 VLA-to-VA degradation。
-4. **把 OOD 作为主指标**：在 LIBERO-Plus、RoboTwin-Clean2Rand、EBench、RoboCasa365、RoboTwin-IF 与 RoboTwin-XE 上测试场景、语言和 embodiment 迁移，并在 RoboChallenge Table30 v1 generalist track 排名第一。
+4. **把 OOD 作为主指标**：在 LIBERO-Plus、RoboTwin-Clean2Rand、EBench、RoboCasa365、RoboTwin-IF 与 RoboTwin-XE 上测试场景、语言和 embodiment 迁移，并在论文报告的 RoboChallenge Table30 v1 generalist track 排名第一。这是当时榜单结果，并非实时排名。
 
 ## 2. 背景与相关工作
 
 **【Paper】** 机器人数据和互联网文本有一个根本差异：不同机器人拥有不同的关节数、坐标系、相机视角、控制频率和末端执行器。若直接混合训练，数据规模变大可能首先带来 gradient interference，而不是能力叠加。论文因此把“alignment first, then scale”作为设计原则。
 
-传统 IID benchmark 也会掩盖这个问题。模型只要记住固定桌面、背景和任务模板，就可能得到很高的 success rate；论文报告中，训练 from scratch 的模型在 LIBERO 与 RoboTwin IID 上也能接近预训练模型。**【Analysis】** 对基础模型来说，更有信息量的问题应是：在新相机、新物体、新语言、新机器人上，预训练先验能否减少适配成本并保持闭环控制。
+传统 IID benchmark 也会掩盖这个问题。模型只要记住固定桌面、背景和任务模板，就可能得到很高的 success rate；论文报告中，未经机器人数据预训练、但仍使用预训练 VLM 的 scratch 模型在 LIBERO 与 RoboTwin IID 上也能接近预训练模型。**【Analysis】** 对基础模型来说，更有信息量的问题应是：在新相机、新物体、新语言、新机器人上，预训练先验能否减少适配成本并保持闭环控制。
 
 Qwen-RobotManip 与 OpenVLA、$\pi_{0.5}$、GR00T-N1.7 等 VLA 的关键区别，不是单一 backbone，而是把异构数据的互补性显式写进 action representation、camera geometry、history conditioning 和数据筛选流程。
 
@@ -107,7 +107,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![Qwen-RobotManip 方法总览（论文 Figure 2）](https://qianwen-res.oss-accelerate.aliyuncs.com/qwenrobot/robotmanip/images/method_v2.png)
+![Qwen-RobotManip 方法总览（论文 Figure 3）](https://qianwen-res.oss-accelerate.aliyuncs.com/qwenrobot/robotmanip/images/method_v2.png)
 
 **【Paper】** Qwen3.5-4B VLM 联合编码图像、指令、embodiment prompt 和历史上下文；flow-matching Diffusion Transformer 通过交替的 visual/language cross-attention 接收 VLM hidden states，并生成连续 action chunk。训练同时优化 VLA 与 VLM 两条数据流，推理时用少量 Euler steps 生成动作。
 
@@ -115,31 +115,44 @@ $$
 
 #### VLM backbone 与 action expert
 
-- **输入**：多视角视觉 token、语言 token、结构化 prompt、当前 state，以及带噪 action chunk。
+- **输入**：多视角视觉 token、语言 token、结构化 prompt、历史 state/action；当前 state 和带噪 action chunk 由 DiT 的专用编码器处理，不能把当前 state 默认写成 VLM 文本输入。
 - **VLM 输出**：Qwen3.5-4B 的多模态 hidden states，维度 $D_{\mathrm{vlm}}=2560$，保留语义与细粒度视觉信息。
-- **DiT 输出**：未来 $K$ 步的连续 action；10 个 transformer blocks，action hidden size 768、12 个 attention heads。
+- **DiT 输出**：未来 $K$ 步动作的速度场，积分后才得到 action；10 个 transformer blocks，action hidden size 768、12 个 attention heads。
 - **交互方式**：DiT 偶数 block cross-attend visual tokens，奇数 block cross-attend language tokens；state 经过两层 MLP 后与 noisy action tokens 拼接。
-- **为什么需要解耦**：VLM 擅长语义和视觉泛化，DiT 擅长高频连续控制；分工可以避免用动作损失破坏通用感知。
+- **为什么需要解耦**：VLM 擅长语义和视觉泛化，DiT 擅长高频连续控制；这是表征分工，**不是梯度隔离**：第 4.1.2 节明确将动作损失梯度同时传给 VLM 与 DiT，通用能力通过 VL co-training 维持。第 6.4 节最终采用的 cross-attention 结构还含少量 learnable query tokens，它们与 state/action 共同处理、最终输出丢弃，不能把它们误当额外动作。
 
 #### 80D Unified State-Action Space
 
-**【Paper】** 两个 29 维 per-arm block 加 22 个预留维度构成 80D 模板。每个 arm block 包含 7 个 joint positions、9 个 end-effector pose、1 个 gripper state 与 12 个 dexterous hand joints。不同 embodiment 用 slot mask 只监督实际存在的维度，因此单臂数据不会把另一只手的零填充误当成动作。
+**【Paper】** 两个 29 维 per-arm block 加 22 个预留维度构成 80D 模板。每个 arm block 包含 7 个 joint positions、9 个 end-effector pose（3D 位置 + 6D 连续旋转，指 state 表示）、1 个 gripper state 与 12 个 dexterous hand joints。动作旋转增量则使用 3D rotation vector，不能因模板保留 9 个 pose slots 就说动作也预测 6D 旋转。DiT 将每臂 29 个有效槽打包为 40 维 token（另 11 维预留），一只或两只末端 token 联合注意力。slot mask 只监督有效维度，因此单臂数据不会把另一只手的零填充误当成动作；模板只对齐语义，不会自动把不同关节的动力学变成相同。
 
 #### Camera-frame Delta Pose 与 CaPE
 
-**【Paper】** 仅统一向量布局还不够：同一个“向前推”动作，在不同机器人 base frame 中可能数值差异很大。论文把 end-effector delta 投影到 reference camera frame，使图像中相似的运动在 action space 中也接近。Camera Positional Encoding（CaPE）把相机外参注入 DiT cross-attention，内参则通过 image-patch 坐标的线性投影加入视觉 token。
+**【Paper】** 统一向量布局后，还要统一“增量相对哪个坐标系”。设 $R_{ce}$ 把当前末端局部坐标转到参考相机坐标，$\Delta R_e,\Delta p_e$ 是期望动作相对当前末端的旋转与平移，则论文式 (5) 采用：
+
+$$
+\Delta R_c=R_{ce}\Delta R_eR_{ce}^{\top},\qquad
+\Delta p_c=R_{ce}\Delta p_e.
+$$
+
+旋转通过共轭换基，平移只旋转位移向量；这样不把相机到末端的偏移混入平移动作。论文式 (6) 的完整位姿乘积 $T_{ce^*}T_{ec}$ 虽更紧凑，却会将平移和旋转、相机偏移耦合，作者实际选择式 (5)。这正是几何对齐的实质，不能简写成任意 camera-frame pose 差。
+
+CaPE 将每个 attention head 的 64 维一半用于相机位姿，一半用 RoPE 编码时间；不仅变换 Q/K，也变换 V 与 attention output。视觉 token 使用所属相机外参，state/action token 使用各自参考相机外参，注意力由此得到相对视角。内参通过归一化图像平面 patch 坐标的线性投影加入视觉 token。训练随机选择外部或腕部参考相机；双臂可共享头部视角，也可分别用左右腕部视角。若标定不可用，辅助 flag 切换到 robot-base relative 模式，因此“必须有标定”只针对 camera-frame 路径。
 
 #### Embodiment Prompt 与 In-Context Policy Adaptation
 
-结构化 prompt 包含 `embodiment`、`instruction`、`speed`、`fps` 和 `camera view direction`。训练时随机丢弃 embodiment、speed、fps 字段的概率为 15%，让模型适应不完整的部署信息。
+结构化 prompt 包含 `embodiment`、`instruction`、`speed`、`fps` 和 `camera view direction`。其中 `speed` 实际是按 500 步分桶的 episode 长度，既不是末端物理速度，也不是关节速度上限。训练时随机丢弃 embodiment、speed、fps 字段的概率为 15%，让模型适应不完整的部署信息。
 
-**【Paper】** 历史 context chunk 是 $(\mathbf{o}_h,\mathbf{s}_h,\mathbf{a}_h)$。state 和 action 经过轻量 MLP，附加 temporal/slot embeddings 后序列化；统一模式将其并入 VLM 的 causal self-attention，形成对“这个 episode 中机器人如何行动”的隐式描述。训练随机采样历史位置，避免模型只复制最近动作；部署时再使用最近 $H$ 个 chunks。
+**【Paper】** 历史 context chunk 是 $(\mathbf{o}_h,\mathbf{s}_h,\mathbf{a}_h)$。state 和 action 经过轻量 MLP，附加 temporal/slot embeddings 后序列化；统一模式将其并入 VLM 的 causal self-attention，形成对“这个 episode 中机器人如何行动”的隐式描述；这是同一 episode 的执行历史，不是外部成功示教检索，也不更新模型参数。当前 state 仍走 DiT 专用编码器。训练随机采样历史位置，避免模型只复制最近动作；部署时再使用最近 $H$ 个 chunks。
 
 #### Human-to-Robot Synthesis
 
-![Human-to-Robot 合成流水线（论文 Figure 3）](https://qianwen-res.oss-accelerate.aliyuncs.com/qwenrobot/robotmanip/images/h2r_pipeline.png)
+![Human-to-Robot 合成流水线（论文 Figure 1）](https://qianwen-res.oss-accelerate.aliyuncs.com/qwenrobot/robotmanip/images/h2r_pipeline.png)
 
-**【Paper】** 流程从 egocentric hand keypoints 出发，进行手到末端的 action retargeting、手臂移除与 inpainting，再在 MuJoCo digital twin 中渲染 15 个机器人 embodiment，最后做深度引导合成。约 1,933 小时的人类视频因此扩展为约 24,808 小时的机器人兼容轨迹。**【Analysis】** 这种“同一人类行为、多种机器人外观/运动学”的数据天然适合训练 cross-embodiment prior，但合成轨迹的几何误差仍需依靠 mask、curation 和真实数据校正。
+**【Paper】** 流程从 egocentric hand keypoints 出发，进行手到末端的 action retargeting、手臂移除与 inpainting，再在 MuJoCo digital twin 中渲染 15 个机器人 embodiment，最后做深度引导合成。具体动作映射将拇指尖与 $0.7\times$食指尖$+0.3\times$中指尖的中点作为 EEF 位置，两者距离作为夹爪宽度，并对位置/开度与旋转分别平滑。每种机器人还需搜索基座位置以提高关键帧 IK 可达率，最后依据深度处理遮挡。约 1,933 小时的人类视频因此扩展为约 24,808 小时合成轨迹；这主要扩展 embodiment 和外观覆盖，不能等同于新增 24,808 小时独立行为示教。**【Analysis】** 这种“同一人类行为、多种机器人外观/运动学”的数据天然适合训练 cross-embodiment prior，但合成轨迹的几何误差仍需依靠 mask、curation 和真实数据校正。
+
+**【Paper】** 表 1 的操作语料具体为机器人 11,420h、人类视频 1,933h、合成 24,808h，合计 38,161h，约写作 38,100h。其中机器人部分也含 InternData-A1 仿真数据。另有约 28M 条 VL 样本，来源含专有数据（第 2.5 节）；“没有专有采集数据”仅描述操作语料来源，不能扩张为全部训练数据均开放。
+
+数据对齐还依赖质量处理：先筛突变、检查 state/action 时序趋势、过滤异常范围，再用 FK 修正 TCP/关节约定并统一坐标方向；随后核对指令、视频与机器人投影、视频质量。趋势对齐筛掉了 RoboMIND UR 子集 81% 的 episodes，这说明原始小时数并不等于有效监督量。ECoT 标注用过去摘要和未来 6 帧辅助生成，但学生训练只输入当前图像与指令；它是 VL 辅助监督，不是部署时先生成 CoT 再执行动作的必需串行步骤。
 
 ### 4.3 关键公式
 
@@ -158,15 +171,15 @@ $$
 \mathcal{L}_{\mathrm{FM}}=\mathbb{E}\left[\left\|f_\theta(\mathbf{x}_t,t,\mathbf{s},\mathbf{o})-\mathbf{v}\right\|_2^2\right]
 $$
 
-不同 embodiment 使用 mask $m_{i,t,j}$ 后，按样本平均有效维度：
+不同 embodiment 使用 mask $m_{i,k,j}$ 后，按样本平均有效维度：
 
 $$
 \mathcal{L}_{\mathrm{FM}}=\frac1B\sum_i
-\frac{\sum_{t,j}m_{i,t,j}(\hat v_{i,t,j}-v_{i,t,j})^2}
-{\sum_{t,j}m_{i,t,j}}
+\frac{\sum_{k,j}m_{i,k,j}(\hat v_{i,k,j}-v_{i,k,j})^2}
+{\sum_{k,j}m_{i,k,j}}
 $$
 
-其中 $B$ 为 batch size，$t$ 是 action horizon 内的时间步，$j$ 是 canonical action 维度。分母让“激活维度较少”的样本也能与灵巧手样本贡献相近的梯度。
+其中 $B$ 为 batch size，$k$ 是 action horizon 内的时间索引，与前面的 flow 时间 $t$ 不同，$j$ 是 canonical action 维度。分母消除有效条目数对损失权重的直接影响，不保证不同样本的实际梯度范数相同。mask 是 slot、step 和人类手部可见性三者的交集；首次出现无效时间步后，其后步也被屏蔽，人手出画后相应手臂的后续监督同样失效。
 
 #### 双流目标
 
@@ -178,11 +191,11 @@ $$
 \mathcal{L}=\mathcal{L}_{\mathrm{FM}}+\lambda\mathcal{L}_{\mathrm{VLM}},\;\lambda=0.1
 $$
 
-**【Paper】** 预训练中机器人数据与 VL 数据按 9:1 混合；同一 action chunk 可重复采样 8 个 noise/timestep 组合以摊薄 VLM forward 成本。推理用 4 个 Euler integration steps 生成连续动作。
+**【Paper】** 预训练中机器人数据与 VL 数据按 9:1 混合；同一 action chunk 可重复采样 8 个 noise/timestep 组合以摊薄 VLM forward 成本。基础版本推理用 4 个 Euler integration steps 从 $t=0$ 噪声积分到 $t=1$ 动作；Context 版本不能一概沿用这个预算：表 15 的小规模消融中，4 步出现抖动，增至 10 步才释放历史的收益。
 
 ### 4.4 Training
 
-**【Paper】** 预训练先做多源数据清洗与统一表示，再进行 VLA/VLM dual-stream co-training；post-training 针对目标域做 generalist SFT，只优化 flow-matching loss。可选的 mixed post-training 把目标域示教与分布相近的预训练子集混合，以减轻 VLA-to-VA degradation。
+**【Paper】** 预训练先做多源数据清洗与统一表示，再进行 VLA/VLM dual-stream co-training；主结果的 post-training 针对各目标域单独训练多任务 generalist，只优化 flow-matching loss；关闭上述多阶段过滤，并加入 color jitter。这不是一个未经适配的预训练检查点直接跑完所有基准。可选的 mixed post-training 把目标域示教与分布相近的预训练子集混合，以减轻 VLA-to-VA degradation。
 
 <Algorithm number={1} title='Qwen-RobotManip Pre-training' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>多源 VLA 数据、VL 数据、canonical mask、相机标定与 embodiment prompt</div>
@@ -197,7 +210,7 @@ $$
 
 ### 4.5 Inference
 
-**【Paper】** 运行时输入当前多视角 observation、state、指令和最近的历史 chunks。DiT 从噪声 action chunk 开始，用 4 步 Euler integration 得到连续动作；远程部署时结合 Real-Time Chunking（RTC）异步生成下一段动作，隐藏网络往返延迟。
+**【Paper】** 运行时输入当前多视角 observation、state、指令和最近的历史 chunks。DiT 从噪声 action chunk 开始，用配置的 Euler 步数积分得到连续动作（基础版本为 4 步，Context 需单独确认）；远程部署时结合 Real-Time Chunking（RTC）异步生成下一段动作，隐藏网络往返延迟。
 
 <Algorithm number={2} title='Qwen-RobotManip Inference' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>
@@ -209,9 +222,11 @@ $$
     初始化 noisy action tokens，并注入 state、timestep、CaPE 与 end-effector embeddings
   </AlgorithmStep>
   <AlgorithmStep>
-    交替读取 visual/language features，执行 4 次 Euler velocity integration
+    交替读取 visual/language features，执行配置次数的 Euler velocity integration
   </AlgorithmStep>
-  <AlgorithmStep>把得到的 action chunk 映射回目标 embodiment 的有效维度并执行</AlgorithmStep>
+  <AlgorithmStep>
+    反归一化并恢复有效维度；EEF 模式还需从参考相机坐标转回本体控制器坐标再执行
+  </AlgorithmStep>
   <AlgorithmStep keyword='loop'>
     滚动更新 history，异步生成下一 chunk，直到 episode 结束
   </AlgorithmStep>
@@ -219,21 +234,21 @@ $$
 
 ### 4.6 代码实现对照
 
-**【Code】** 官方仓库 [QwenLM/Qwen-RobotManip](https://github.com/QwenLM/Qwen-RobotManip) 当前是公开资料仓库：README 给出模型组成、80D action space、Human-to-Robot pipeline、评测结果和 demo 链接，但明确说明暂不发布模型权重；仓库中也没有可直接运行的训练脚本、DataLoader 或推理实现。因此本文能对照的“代码事实”主要是 README 中公开的架构/数据说明，不能把论文中的内部训练细节误写成已公开 API。
+**【Code】** 官方仓库 [QwenLM/Qwen-RobotManip](https://github.com/QwenLM/Qwen-RobotManip) 截至 2026-09-22 核验是公开资料仓库：README 给出模型组成、80D action space、Human-to-Robot pipeline、评测结果和 demo 链接，但明确说明暂不发布模型权重；仓库中也没有可直接运行的训练脚本、DataLoader 或推理实现。因此本文能对照的“代码事实”主要是 README 中公开的架构/数据说明，不能把论文中的内部训练细节误写成已公开 API。
 
 ## 5. 实验
 
 ### 5.1 Experimental Setup
 
-![Qwen-RobotManip 的评测设置（论文 Figure 4）](https://raw.githubusercontent.com/QwenLM/Qwen-RobotManip/main/assets/images/eval_setting_overall.png)
+![Qwen-RobotManip 的评测设置（论文 Figure 5）](https://raw.githubusercontent.com/QwenLM/Qwen-RobotManip/main/assets/images/eval_setting_overall.png)
 
-**【Paper】** 评测覆盖三条 OOD 轴：场景/任务扰动、语言 instruction following、zero-shot cross-embodiment。LIBERO-Plus 扰动 camera、robot state、language、lighting、background、sensor noise 与 layout；RoboTwin-Clean2Rand 从 Clean 训练分布迁移到背景、光照、clutter、桌高和 Hard 组合扰动；RoboCasa365 测试厨房原子技能与长时序组合任务；RoboTwin-IF 用 held-out instruction templates 检验语言是否是真正的控制信号；RoboTwin-XE 只在 AgileX 上微调，再迁移到 ARX-X5、UR5-WSG 与 Franka Panda。
+**【Paper】** 评测覆盖三条 OOD 轴：场景/任务扰动、语言 instruction following、zero-shot cross-embodiment。LIBERO-Plus 扰动 camera、robot state、language、lighting、background、sensor noise 与 layout；RoboTwin-Clean2Rand 从 Clean 训练分布迁移到背景、光照、clutter、桌高和 Hard 组合扰动；RoboCasa365 测试厨房原子技能与长时序组合任务；RoboTwin-IF 用 held-out instruction templates 检验语言是否是真正的控制信号；RoboTwin-XE 只在 AgileX 上微调，再迁移到 ARX-X5、UR5-WSG 与 Franka Panda。XE 固定相机外参、共享场景与扰动种子，并通过 IK 对齐初始 EEF 位姿；它隔离本体变化，但不同时检验未标定相机变化。其“零样本”指目标本体没有下游微调示教，预训练语料本身已包含多种相关机器人，不表示所有目标形态在预训练中从未出现。
 
-IID 结果方面，Qwen-RobotManip 在 LIBERO 达到 99.1%，RoboTwin Easy/Hard 达到 93.4%/92.5%；带 history context 的版本分别为 99.2%、93.7% 和 94.0%。
+RoboTwin 表 3 的 Easy/Hard 各遵循同分布训练测试；表 5 的 Clean2Rand 只在 Clean 上微调，二者不是同一训练口径，不能把 94.0% 与 69.4% 当作同一个检查点的降幅。IID 结果方面，Qwen-RobotManip 在 LIBERO 达到 99.1%，RoboTwin Easy/Hard 达到 93.4%/92.5%；带 history context 的版本分别为 99.2%、93.7% 和 94.0%。
 
 ### 5.2 Main Results
 
-![OOD 泛化结果汇总（论文 Figure 5）](https://qianwen-res.oss-accelerate.aliyuncs.com/qwenrobot/robotmanip/images/ood_summary.png)
+![OOD 泛化结果汇总（论文 Figure 7）](https://qianwen-res.oss-accelerate.aliyuncs.com/qwenrobot/robotmanip/images/ood_summary.png)
 
 **【Paper】** 主要 OOD 结果如下：
 
@@ -246,18 +261,26 @@ IID 结果方面，Qwen-RobotManip 在 LIBERO 达到 99.1%，RoboTwin Easy/Hard 
 | RoboTwin-IF Average      |       **72.2%** |                   72.0% | 保持多维 instruction grounding                |
 | RoboTwin-XE zero-shot    |       **23.9%** |                       — | $\pi_{0.5}$ 为 7.5%，约 3.2 倍                |
 
-**【Paper】** 相对 $\pi_{0.5}$，Qwen-RobotManip 在 LIBERO-Plus 高 7.0 个百分点，在 RoboTwin-Clean2Rand Hard 高 21.5 个百分点，在 EBench 高 18.5 个百分点，在 RoboCasa365 高 19.0 个百分点；RoboTwin-IF 为 72.2% 对 49.6%。
+**【Paper】** 相对 $\pi_{0.5}$，LIBERO-Plus 的 +7.0 和 Clean2Rand Hard 的 +21.5 使用 **Context 版本**；EBench 的 +18.5、RoboCasa365 的 +19.0 则使用基础版本。Clean2Rand 表内 62.6%/69.4% 使用 joint 控制，EEF 版本分别为 60.8%/64.0%。这些数值不可拼成单一配置在所有基准的表现。RoboCasa365 的 Composite-Unseen 为 14.9%，其 Total 35.9% 不应被写成未见长任务成功率。
 
-真实机器人上，RoboChallenge Table30 v1 generalist track 覆盖 30 个任务和 4 个平台，Qwen-RobotManip 取得 45% success rate、59.83 process score，排名第一；8 个 ALOHA 双臂任务平均成功率为 40%，12 个 pick-and-place 任务为 63.3%。
+**【Analysis】** RoboTwin-IF 表 8 将 $\pi_{0.5}$ 平均写为 49.6%，但列出的五项 44/20/15/92/66 的简单平均为 47.4%；正文“提升 22.6 点”沿用 49.6% 的口径。原文没有解释这处差异，故本文保留报告值并提示，不能把汇总差值当作已完全复算的结果。
+
+真实实验需分开读。CobotMagic 使用 22.9h 自采示教微调，7 个 ID 任务共 35 次试验成功 31 次（88.6%），4 个 OOD 任务共 40 次成功 35 次（87.5%）；每任务 5/10 次的样本规模有限。ARX 的 5 任务 few-shot 使用 130 条示教（拧盖 50 条，其余各 20 条）；表 12 的 Avg 是子步骤平均，例如 Put Blocks 15/40 是四个阶段的进度计数，完整关抽屉成功为 3/10；插螺丝完整成功为 0/10。
+
+RoboChallenge Table30 v1 generalist track 覆盖 30 个任务和 4 个平台，**每个本体训练一个多任务策略**，并非单模型跨四台机器人零样本执行。论文报告的Qwen-RobotManip 取得 45% success rate、59.83 process score，排名第一；8 个 ALOHA 双臂任务平均成功率为 40%，12 个 pick-and-place 任务为 63.3%。
 
 ### 5.3 Ablation Study
 
 论文的消融指向一个清晰结论：对齐组件不是可互换的装饰，而是规模化训练的前提。
 
-- **UnifiedSpace / UnifiedEEF**：移除统一 action space 或统一 EEF 表示后，RoboChallenge 跨 embodiment 迁移成功率显著下降；完整模型达到 55.0%，两个变体分别只有 7.5% 和 12.5%。
+- **UnifiedSpace / UnifiedEEF**：这是独立的 CobotMagic→ARX 实验，**不是 RoboChallenge**：先联合微调 6K CobotMagic 与 130 ARX 示教，再测 ARX 上未提供示教的 4 个任务，各 10 次。移除统一 action space 或统一 EEF 表示后，成功率下降；完整模型达到 55.0%，两个变体分别只有 7.5% 和 12.5%。
 - **Context**：LIBERO-Plus 从 89.0% 提升到 91.4%，RoboTwin-Clean2Rand Hard 从 62.6% 提升到 69.4%，说明 history 能提供隐式运动学先验，但并非所有 benchmark 都受益。
 - **Stochastic context sampling**：论文报告若总是采样最近 chunks，模型容易复制最近动作，训练 loss 低但 task success 差；随机位置采样迫使模型学习 episode-level behavior profile。
-- **Human/VL co-training**：去除人类合成数据或 VL stream 会削弱跨 embodiment 与 instruction following，支持“data scale 必须建立在 alignment 之后”的主张。
+- **Human/VL co-training**：表 16–17 用相同训练步数比较 robot-only、原始 ego、H2R（有辅助数据的组固定 robot:auxiliary=7:3）：C2R Hard 为 54.7/55.0/58.7，LIBERO-Plus 为 87.1/88.4/89.0。表 18 去除预训练 VL 后 C2R Hard 从 62.6 降到 54.4、IF 从 71.6 降到 64.6。它们分别检验数据源贡献，不能据此声称每项都直接测过跨本体收益。
+- **规模实验的口径**：图 18 从 1/5/10/25/50/100% 嵌套任务子集出发，在 15 类本体、154 个未见任务上报告所有检查点中最佳验证 MSE；图 19 再统一微调 80k 步测闭环 C2R。完整对齐在 Hard 上随规模改善，IID Easy 没有清晰上升趋势。这是有限范围、特定训练配方的经验关系，不是已拟合并可外推的通用 scaling law。
+- **推理计算也是变量**：表 15 中结构化 prompt 基线为 Easy/Hard 73.4/58.3，Context 用 4 步仅 72.1/54.4，10 步为 80.1/61.6；收益同时依赖足够的去噪计算。开头全零历史还会导致迟疑。这些缩小规模消融不能直接替代主表数值。
+
+**【Analysis】** 图 22 的未对齐模型混合后训练降到 0%，支持该实验配置确有严重数据干扰；不能由此证明所有 VLA 必须采用这一种 camera-frame 设计，或其他对齐方法都无法利用混合数据。
 
 ### 5.4 Generalization
 
@@ -271,7 +294,7 @@ IID 结果方面，Qwen-RobotManip 在 LIBERO 达到 99.1%，RoboTwin Easy/Hard 
 
 **【Analysis】** Qwen-RobotManip 同时降低了三种分布差异：canonical vector 降低结构差异，camera-frame delta 降低几何差异，history context 降低行为差异。这样，新增数据更可能提供相同技能的不同观测，而不是给模型增加互相冲突的标签。
 
-双流训练则守住了 VLM 的语言与视觉 prior；Human-to-Robot synthesis 把“人类行为多样性”转换成“机器人 embodiment 多样性”。两者结合，才使 OOD benchmark 中的 instruction、camera、clutter 和 robot perturbation 同时受益。
+VL 联合训练的消融支持它有助于保留语言与视觉能力；Human-to-Robot synthesis 把“人类行为多样性”转换成“机器人 embodiment 多样性”。两者结合，才使 OOD benchmark 中的 instruction、camera、clutter 和 robot perturbation 同时受益。
 
 ### 6.2 核心创新
 
@@ -286,7 +309,7 @@ IID 结果方面，Qwen-RobotManip 在 LIBERO 达到 99.1%，RoboTwin Easy/Hard 
 
 ### 6.4 关键假设
 
-- 经过标定的 camera intrinsics/extrinsics 在训练和推理时可获得；
+- camera-frame 模式下可获得相机标定，缺失时会退回不同动作表示；
 - 不同 embodiment 的动作可以合理投影进 80D canonical schema；
 - 人到机器人 retargeting 的几何误差不会淹没真实 manipulation signal；
 - rollout history 足以作为隐式 embodiment/behavior identifier；
@@ -296,7 +319,7 @@ IID 结果方面，Qwen-RobotManip 在 LIBERO 达到 99.1%，RoboTwin Easy/Hard 
 
 ### 7.1 作者明确提出的局限
 
-**【Paper】** 官方仓库明确说明目前不计划发布 Qwen-RobotManip 或 Qwen-RobotNav 的模型权重。因此读者无法直接复现实验中的预训练 checkpoint、完整数据配方和训练基础设施。论文也显示，RoboCasa365 长时序任务、精密插入与部分 real-robot OOD 任务仍有明显失败案例。
+**【Paper】** 第 7 节明确列出 H2R 重定向与 inpainting 伪影、OOD 证据主要来自仿真，以及固定 chunk 长度和推理延迟限制亚秒级反应任务。论文的 retry 案例是定性行为观察，没有独立恢复成功率统计；对手在图 16 中也进行了重试，差别在于最终抓取是否成功。**【Code】** 官方资料仓库截至核验日仍不计划发布权重，报告也未给出完整主训练步数、batch、学习率与所有模拟评估的试验数，限制独立复现。
 
 ### 7.2 自己分析得到的局限
 
@@ -320,6 +343,6 @@ IID 结果方面，Qwen-RobotManip 在 LIBERO 达到 99.1%，RoboTwin Easy/Hard 
 
 <Aside type='note' title='阅读提示'>
   本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方仓库公开资料，`【Analysis】`
-  表示基于论文和代码的分析推断。论文图像优先使用作者公开的 Qwen-RobotManip 资源；本地提取的 PDF
-  图在上传服务不可用时未伪装成已上传 URL。
+  表示基于论文和代码的分析推断。数值与机制以 arXiv v2
+  全文为准；主结果、缩小规模消融、资料仓库的公开状态分别说明。
 </Aside>

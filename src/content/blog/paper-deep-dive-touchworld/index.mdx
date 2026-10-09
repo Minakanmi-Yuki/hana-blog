@@ -1,8 +1,8 @@
 ---
 title: 'TouchWorld 论文精读：让触觉既能预测未来，也能实时纠错'
 publishDate: 2026-08-26
-updatedDate: 2026-08-26
-description: '精读 TouchWorld：通过分层规划、触觉世界模型与 30 Hz 残差控制，把视觉语义、接触预测和快速触觉反馈组合成灵巧操作策略。'
+updatedDate: 2026-09-22
+description: '精读 TouchWorld：通过分层规划、触觉世界模型与触觉残差控制，把视觉语义、接触预测和快速触觉反馈组合成灵巧操作策略。'
 heroImage:
   { src: 'https://pic.hana0721.top/56422576_p0_master1200.7i0z6ufn65.webp', color: '#8C8275' }
 category: 'research'
@@ -53,7 +53,7 @@ import { Aside } from '@/components/user'
 
 ### 一句话总结
 
-**【Analysis】** TouchWorld 把一个容易互相干扰的单环控制器拆成三种时间尺度：1 Hz 的语义规划与触觉子目标预测、10 Hz 的视觉-触觉动作块生成、30 Hz 的触觉残差修正；这样既保留 VLA 的长程语义能力，又能在滑移、错位和力不匹配发生时迅速回到可执行轨迹。
+**【Analysis】** TouchWorld 将“当前应做哪个子任务”“预计形成什么接触”和“实际接触偏差如何修正”分给不同模块。最关键的接口是：TWM 输出未来视觉-触觉参考，名义策略据此生成动作，TRT 再根据新到达的真实触觉修正动作。本文按 [arXiv v2](https://arxiv.org/html/2607.07287v2) 及其实现附录核对；该版本只规定慢、中、快三种调度关系，没有报告可复核的 1/10/30 Hz 部署频率。
 
 ### 核心贡献
 
@@ -66,7 +66,7 @@ import { Aside } from '@/components/user'
 
 ## 2. 背景与相关工作
 
-**【Paper】** 视觉和语言擅长回答“要做什么、物体在哪里”，却难以直接观测接触力、滑移、抓握稳定性或插入是否卡住。灵巧操作因此天然是一个 multi-timescale control 问题：语义阶段变化慢，动作块生成居中，而接触状态变化可能需要毫秒级响应。
+**【Paper】** 视觉和语言擅长回答“要做什么、物体在哪里”，却难以直接观测接触力、滑移、抓握稳定性或插入是否卡住。灵巧操作因此天然是一个 multi-timescale control 问题：语义阶段变化慢，动作块生成居中，而接触变化要求更及时的反馈；这是一种控制需求，并不代表论文已测得毫秒级端到端反应延迟。
 
 现有 VLA 通常在一个 monolithic loop 中同时做任务推理、动作生成和反馈；已有 tactile policy 也常把触觉当作和图像同频的附加输入。论文认为这会造成两个错配：慢速语义推理占用快速控制容量，低频动作刷新又来不及应对局部接触变化。TouchWorld 的思路与 slow-fast visual-tactile policy、Diffusion Policy 和通用 VLA 互补，但显式增加了“未来触觉目标”与“残差反馈”两条路径。
 
@@ -97,16 +97,16 @@ $$
 
 ![TouchWorld 三层架构（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-touchworld/3-layer.8s41mwaxf3.webp)
 
-**【Paper】** 数据流是“任务指令与观测 → 子任务和触觉子目标 → 名义动作块 → 触觉残差动作”。三层分别以 1 Hz、10 Hz、30 Hz 更新，模块之间通过子任务文本、goal image / goal tactile 与 context token 传递信息。
+**【Paper】** 数据流是“任务指令与观测 → 子任务和触觉子目标 → 名义动作块 → 触觉残差动作”。模块通过子任务文本、goal image / goal tactile 与 context token 传递信息。语义规划周期更新，TWM 则在阶段发生变化时才触发；二者不应写成每个低频 tick 都同步重新生成。
 
 ### 4.2 核心模块
 
 #### High-Level Planning Layer
 
-- **Subtask Planner**：输入任务指令、当前图像和记忆，输出 `{原始任务, executable subtask, 可选 reasoning}`。记忆保存前序子任务、子目标与执行状态，帮助模型识别阶段转换。
+- **Subtask Planner**：输入任务指令、当前图像和记忆，输出 `{原始任务, executable subtask, 可选 reasoning}`。记忆保存前序子任务、子目标与执行状态，帮助模型识别阶段转换。自由文本 reasoning 仅用于记录与分析，下游动作接口使用全局任务与选定子任务；不能将它解释为逐 token 执行的动作思维链。
 - **Tactile World Model（TWM）**：根据当前视觉-触觉状态和子任务预测短期 visual-tactile clip 或 terminal tactile goal。只有在子任务改变或任务状态显著变化时刷新，稳定阶段复用已有目标。
 
-**【Analysis】** 这一层不直接输出关节控制量，而是把长时程问题压缩为下游策略可消费的“当前阶段”和“预期接触结果”。
+**【Analysis】** 这一层不直接输出关节控制量，而是把长时程问题压缩为下游策略可消费的“当前阶段”和“预期接触结果”。TWM 按观测与子任务预测未来，论文并未定义以候选动作序列为条件的状态转移模型，也没有在模型内搜索动作的 MPC 循环；这里的 world model 主要是子目标生成器。
 
 #### Visuo-Tactile Goal-Conditioned Policy
 
@@ -134,7 +134,9 @@ $$
 \mathcal L_{fb}=\left\|f_\phi(\cdot)-\left(A^*_{\tau:\tau+W-1}-\hat A_{\tau:\tau+W-1}\right)\right\|_2^2,
 $$
 
-其中 $A^*$ 是示范动作，损失只施加在触觉敏感的 residual action subspace；其余维度继续采用名义输出。
+其中 $A^*$ 是示范动作。附录 §8 给出名义动作共 120 维：双侧各 48 维臂手表示、9 维头部表示和 15 维预留项；这不是 120 个独立物理关节。TRT 只在双腕位姿与所选手关节构成的 **58 维子空间**训练残差，再散射回 120 维，其余维度保持名义输出。名义策略在此阶段冻结，TRT 与触觉编码器使用 corrected-action 的 masked MSE，并加权重 $10^{-4}$ 的残差正则。冻结名义输出时，修正动作 MSE 与上式残差 MSE 等价。
+
+**【Analysis】** “残差”规定了输出接口与任务分工，却不自动保证修正幅度很小或闭环稳定。论文没有给出误差收敛证明、接触力约束或安全控制屏障；不宜把这种分解写成已保证的稳定控制器。
 
 ### 4.4 Training
 
@@ -143,7 +145,7 @@ $$
 1. 用 128,866 条带子任务标签和记忆变体的 teleoperation 记录微调 Qwen3-VL-4B-Instruct Subtask Planner。
 2. 先在 EgoTouch 人类双手触觉视频上预训练 Wan2.2-TI2V-5B，再用 10 小时机器人示范（约 108 万帧、30 FPS）微调 TWM；每个样本预测 384×224 分辨率的 17 帧未来 visual-tactile clip。
 3. 用全局任务、子任务、视觉、图像触觉、本体状态和未来动作块训练 flow-matching nominal policy。
-4. 固定已训练的 nominal policy，接入 TRT，用高频示范动作减去 nominal action 得到 residual target，训练 VLA-refinement stack。
+4. 固定已训练的 nominal policy，接入 TRT，用高频示范动作减去 nominal action 得到 residual target，仅更新 TRT 与触觉反馈编码器。这里的纠偏监督来自示范与名义预测的差，并非论文另行报告的人为扰动恢复数据集。
 
 <Algorithm number={1} title='TouchWorld 分阶段训练' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>
@@ -158,24 +160,26 @@ $$
 
 ### 4.5 Inference
 
-**【Paper】** 部署时 High-Level Planning Layer 低频刷新子任务和触觉子目标；nominal policy 以 10 Hz 生成动作块；TRT 在 30 Hz 控制循环内用滑动窗口反复修正。每次只提交前 $C=4$ 个动作，随后用新触觉重新预测，因此一个动作块不会锁死后续控制。
+**【Paper】** 名义策略生成 $H=32$ 步动作，TRT 查看 $W=16$ 步，执行前 $C=4$ 步后才重新读取反馈：第一次查看动作 0–15、执行 0–3，下一次查看 4–19、执行 4–7。附录明确说实际反馈率取决于控制频率、传感管线和 $C$，但没有报告各模块延迟、硬件吞吐或确定的 Hz。
+
+**【Analysis】** 若动作按 $f_{ctrl}$ Hz 顺序执行，且每四步才刷新残差，在忽略额外延迟时反馈频率约为 $f_{ctrl}/4$，不能把控制指令频率直接当成新触觉闭环频率。论文中的 30 FPS 是训练示范采样率，不足以证明 30 Hz 残差更新。$H,W,C$ 也不独立决定名义策略重规划周期；动作块尾部如何补齐 look-ahead、异步推理如何排队仍需实现说明。
 
 <Algorithm number={2} title='预测-反应式推理' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>任务指令、当前图像、触觉与本体状态、高层记忆。</div>
   <div slot='output'>执行后的触觉修正动作。</div>
-  <AlgorithmStep>以 1 Hz 更新 executable subtask；仅在阶段变化时刷新 TWM goal。</AlgorithmStep>
+  <AlgorithmStep>低频更新 executable subtask；仅在阶段变化时刷新 TWM goal。</AlgorithmStep>
   <AlgorithmStep>
     将任务与子任务拼成 prompt，nominal policy 从噪声生成长度 $H$ 的动作块。
   </AlgorithmStep>
-  <AlgorithmStep>
-    在每个 30 Hz refinement step 输入长度 $W$ 的动作窗口和最近触觉历史，预测残差。
-  </AlgorithmStep>
+  <AlgorithmStep>在每次残差刷新时输入长度 $W$ 的动作窗口和最近触觉历史，预测残差。</AlgorithmStep>
   <AlgorithmStep>执行修正窗口前 $C$ 步，读入新反馈后滑动窗口并重复。</AlgorithmStep>
 </Algorithm>
 
 ### 4.6 代码实现对照
 
-论文与项目主页截至本文写作时未公开可访问的官方代码仓库，只有论文、项目主页和 LaTeX 源码。因此没有可核对的 model definition、DataLoader、loss implementation 或 checkpoint 路径；本文关于 1/10/30 Hz、$H/W/C$ 和四阶段训练的描述均来自论文正文。**【Analysis】** 后续若作者公开代码，最值得复核的是 image-form tactile 的具体归一化、TWM 的刷新判据以及 TRT 的 residual action mask。
+**【Code】** 截至 2026-09-22，本次核查的[官方项目页](https://phanes-lab.github.io/TouchWorld-website/)只提供论文入口，没有可核对的官方训练或部署仓库链接。因此本文不将论文实现附录当作已验证代码。尤其不能声称 1/10/30 Hz 已由源码确认；v2 正文与附录均未给出这组频率。
+
+**【Analysis】** 复现还需要明确 tactile normalization、58 维 action mask、TWM 刷新判据、子目标预测失败的处理，以及 nominal policy 训练时预测目标与真实目标各占多少。论文允许没有 predicted goal 时仅用当前观测与子任务训练/执行，但未披露这种混合的概率与完整基线训练预算。
 
 ## 5. 实验
 
@@ -185,7 +189,7 @@ $$
 
 ![六个真实机器人任务与扰动设置（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-touchworld/task_setting.6m4n14ja0m.webp)
 
-**【Paper】** 每个任务收集 200 条 teleoperated training trajectories，并进行 100 次真实机器人评估 rollout。基线为 Pi-0.5、FTP-1（无预测-反应层级的单体触觉策略）和 GR00T N1.7。
+**【Paper】** 每个任务收集 200 条 teleoperated training trajectories，并进行 100 次真实机器人评估 rollout；原文没有进一步明确这 100 次是每个条件各自的数量还是两种条件合计，也没有报告多训练种子置信区间。基线为 Pi-0.5、FTP-1（无预测-反应层级的单体触觉策略）和 GR00T N1.7。
 
 ### 5.2 Main Results
 
@@ -196,7 +200,7 @@ $$
 | GR00T N1.7     |      39.3% |                   26.0% |
 | **TouchWorld** |  **65.0%** |               **53.7%** |
 
-**【Paper】** TouchWorld 在六项任务上均优于三个基线。clean setting 的逐任务成功率为 Water 72、Clearing 76、Cup 66、Plug 45、Wiping 70、Tissue 61；扰动 setting 分别为 60、62、52、35、57、56。提升在插拔、擦拭和软物体拉取等接触密集任务最明显，同时长时程任务也保持优势。
+**【Paper】** TouchWorld 在六项任务上均优于三个基线。clean setting 的逐任务成功率为 Water 72、Clearing 76、Cup 66、Plug 45、Wiping 70、Tissue 61；扰动 setting 分别为 60、62、52、35、57、56。但不能概括为“插拔与擦拭收益最大”：相对 FTP-1，clean 六任务增益依次为 16、16、18、13、13、18 个百分点，扰动下为 21、20、18、15、15、22 个百分点。插头任务虽受益，仍只有 45% / 35% 成功率。所有比较是这六任务上的系统结果，不能单独归因于更高反馈频率或泛化能力。
 
 ### 5.3 Ablation Study
 
@@ -210,9 +214,11 @@ $$
 | w/o TCR             |      55.3% |    40.3% | 在线局部纠错缺失     |
 | w/o Tactile         |      43.3% |    30.0% | 触觉贡献最大         |
 
-**【Paper】** 去掉 tactile input 的退化最大；去掉 TCR 对 human perturbation 尤其敏感，说明预测路径负责“应该接触到哪里”，反应路径负责“实际偏了以后怎么回来”。
+**【Paper】** Figure 5 中去掉触觉输入的退化最大；去掉 TCRP 的 clean / 扰动降幅为 9.7 / 13.4 个百分点，而去掉 TWM 为 4.8 / 2.5 个百分点。
 
-### 5.4 Generalization
+**【Analysis】** 这些结果支持快速反馈在受扰场景中的作用，但预测目标的独立增益更小。单组件移除没有覆盖所有组合，不能把各降幅相加，也不能说 TWM 单独解释了整体鲁棒性。图中各颜色只是任务对总平均的贡献，并非各模块可以相加的因果收益。
+
+### 5.4 子目标预测与规划接口评估
 
 TWM 的 held-out 子目标预测结果如下：
 
@@ -222,7 +228,13 @@ TWM 的 held-out 子目标预测结果如下：
 | Nearest-neighbor subgoal |                      77.5 |        39.2 |           31.0 |
 | **Tactile World Model**  |                  **86.3** |    **52.7** |       **43.8** |
 
-**【Paper】** TWM 不只是复制当前触觉或检索相似轨迹，而是更准确地预测接触发生的时间与终点压力几何。Subtask Planner 分析中，memory-augmented Qwen3-VL-4B 的 subtask accuracy / execution success / transition F1 为 88 / 65 / 82，高于 zero-shot 32B 的 69 / 54 / 71，说明阶段监督与执行记忆比单纯增大模型更关键。
+**【Paper】** Table 2 在留出的子目标片段上比较：序列指标覆盖预测的 17 帧，终点指标以标注子目标时刻的真实触觉为目标。TWM 优于复制当前帧与按 task/subtask 检索训练样本。
+
+**【Analysis】** 原文没有完整定义 temporal contact accuracy、阈值 $\tau$、空接触样本处理或留出划分。因此 86.3 不能直接读成“接触时刻误差”或任务成功率，43.8 也不是物理接触体积误差；这些是触觉预测指标。没有未见物体/任务划分说明，不能将此节写成已验证跨任务泛化。
+
+**【Paper】** Table 3 中，同一 4B planner 从 zero-shot 的 43 / 34 / 62，变为无记忆 SFT 的 73 / 60 / 76，再到带记忆 SFT 的 88 / 65 / 82（子任务准确率 / 执行成功率 / transition F1）。
+
+**【Analysis】** 这个逐级比较比仅对照 zero-shot 32B 的 69 / 54 / 71 更有解释力：它支持阶段监督与记忆对该接口有用。但 4B SFT 与 32B zero-shot 同时改变了模型规模、领域监督与历史信息，不能据此认定模型规模不重要；执行成功率也不能替代纯语义准确率。
 
 ![TouchWorld 代表性推理过程（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-touchworld/infer_demo.3k8qzwhy5y.webp)
 
@@ -230,7 +242,7 @@ TWM 的 held-out 子目标预测结果如下：
 
 ### 6.1 为什么有效？
 
-**【Analysis】** 第一，TWM 将触觉从“当前状态描述”变为“未来接触参考”，给动作生成提供了比当前帧更稳定的目标。第二，TRT 学习 residual 而非完整 policy，输入短历史即可集中处理滑移、冲击和插入错位。第三，分层频率避免让 1 Hz 的语言推理阻塞 30 Hz 的控制回路。
+**【Analysis】** 第一，TWM 将触觉从“当前状态描述”变为“未来接触参考”，给动作生成提供了比当前帧更稳定的目标。第二，TRT 学习 residual 而非完整 policy，输入短历史即可集中处理滑移、冲击和插入错位。第三，独立的反馈路径有望减少等待重型生成模型的时间。但 v2 没有延迟剖析，不能将设计意图写成已测得的实时性保证。
 
 ### 6.2 核心创新
 
@@ -259,7 +271,7 @@ TWM 的 held-out 子目标预测结果如下：
 TouchWorld 给出的研究路线可以概括为“语义慢、动作中、反馈快”，但更重要的是明确每个时间尺度的责任边界：Planner 负责阶段，World Model 负责目标，nominal policy 负责进展，TRT 负责纠偏。后续值得探索三点：
 
 1. 让 TWM 输出带不确定性的多个 tactile goals，并由策略在线选择，而不是只预测单一未来。
-2. 根据接触事件自适应调整 1/10/30 Hz 调度和 commit interval，在平稳运动时省算力、在冲击时提高反馈率。
+2. 根据接触事件自适应调整各模块更新率和 commit interval，在平稳运动时省算力、在冲击时提高反馈率。
 3. 用统一的 tactile latent 和 action residual mask 做跨传感器、跨 embodiment 迁移，验证“预测-反应”分解是否比重新训练整套 VLA 更可扩展。
 
 <Aside type='note' title='阅读提示'>

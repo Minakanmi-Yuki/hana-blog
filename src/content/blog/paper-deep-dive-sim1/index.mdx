@@ -1,7 +1,7 @@
 ---
 title: 'SIM1 论文精读：让变形物理模拟成为零样本数据扩展器'
 publishDate: 2026-08-27
-updatedDate: 2026-08-27
+updatedDate: 2026-09-22
 description: '精读 SIM1：通过真实场景数字化、变形稳定求解器和扩散轨迹生成，把少量衣物示教扩展为可直接迁移到真实机器人的合成监督。'
 heroImage:
   { src: 'https://pic.hana0721.top/65089776_p0_master1200.5c1kl2nzfo.webp', color: '#7D8990' }
@@ -50,7 +50,7 @@ import { Aside } from '@/components/user'
 
 ## 1. 论文概述
 
-**【Paper】** 《SIM1: Physics-Aligned Simulator as Zero-Shot Data Scaler in Deformable Worlds》研究一个很具体、但对具身学习很关键的问题：衣物的形状、接触和拓扑不断变化，真实示教昂贵，而传统刚体模拟生成的数据很难直接迁移。作者的判断是，模拟失败的根因不是“合成”，而是没有被真实世界约束。
+**【Paper】** 《SIM1: Physics-Aligned Simulator as Zero-Shot Data Scaler in Deformable Worlds》研究一个很具体、但对具身学习很关键的问题：衣物的形状、接触关系和接触拓扑不断变化（这里不涉及撕裂等网格拓扑修改），真实示教昂贵，而传统刚体模拟生成的数据很难直接迁移。作者的判断是，模拟失败的根因不是“合成”，而是没有被真实世界约束。
 
 ![SIM1 的 real-to-sim-to-real 总览（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-sim1/figure-1.8vnnkw9qpr.webp)
 
@@ -66,7 +66,7 @@ import { Aside } from '@/components/user'
 2. 用高精度扫描与网格后处理得到带纹理、亚毫米级几何精度的衣物资产；用 ARX ACONE 的 URDF 对齐双臂机器人。
 3. 在 Newton/VBD 基础上加入 Augmented Vertex Block Descent（AVBD）式应变约束，减少实时抓取、拉伸时的过度变形与接触不稳定。
 4. 将示教轨迹拆成 interaction 与 moving 区段，用 diffusion-based trajectory generation 补全运动，并以规则和视频判别器过滤失败样本。
-5. 在真实 T-shirt folding 上，纯合成数据训练的策略达到 90%（$\pi_{0.5}$）零样本成功率，并报告约 1:15 的合成/真实样本等价关系。
+5. 在真实 T-shirt folding 上，纯合成数据训练的策略达到 90%（$\pi_{0.5}$）零样本成功率，并报告约 15:1 的合成/真实样本等价关系。
 
 ## 2. 背景与相关工作
 
@@ -80,7 +80,7 @@ import { Aside } from '@/components/user'
 
 | 维度                  | SIM1 的设定                                                                                          |
 | --------------------- | ---------------------------------------------------------------------------------------------------- |
-| Observation           | 仿真中渲染的头部相机 RGB、双臂状态与衣物粒子/网格状态                                                |
+| Observation           | 策略使用渲染 RGB 与机器人状态；粒子/网格状态仅供模拟器和筛选器使用                                   |
 | Action Representation | 双臂关节/末端位姿轨迹与夹爪开合；扩散模块使用 16 维 EE 向量（左右各 3D position、四元数和 openness） |
 | Policy                | 论文评估 $π_{0.5}$ 与 $π_0$，合成数据以 LeRobot 格式导出供 imitation learning                        |
 | Robot / Embodiment    | ARX ACONE 双臂；仿真遥操作使用 ARX X5 映射到模拟机器人                                               |
@@ -101,7 +101,7 @@ import { Aside } from '@/components/user'
 
 #### SIM1-Scene：真实场景数字化
 
-**【Paper】** 衣物安装在 mannequin 上，用 EinScan Rigil Pro 获取多视角 RGB 与 LiDAR，融合成点云后移除 mannequin 点，再进行 Poisson reconstruction、补洞、平滑和 remeshing，最终得到带纹理的 OBJ。文中称几何精度可达亚毫米级。机器人则直接导入厂商 CAD 生成的 URDF，并校正根坐标与双臂相对标定；桌面等环境资产按真实测量尺寸放置。
+**【Paper】** 衣物安装在 mannequin 上，用 EinScan Rigil Pro 获取多视角 RGB 与 LiDAR，融合成点云后移除 mannequin 点，再进行 Poisson reconstruction、补洞、平滑和 remeshing，最终得到带纹理的 OBJ。文中称几何精度可达亚毫米级，但没有给出资产处理后相对实物的系统测量误差表，不能把扫描精度直接当作整套接触模型的误差界。机器人则直接导入厂商 CAD 生成的 URDF，并校正根坐标与双臂相对标定；桌面等环境资产按真实测量尺寸放置。
 
 **【Analysis】** 这个模块的关键不是把照片变成漂亮 mesh，而是保留接触点、桌面高度和双臂工作空间的公制关系。衣物尺寸偏差会同时改变碰撞、摩擦和可达性，后续求解器再准确也无法补偿这种系统误差。
 
@@ -109,21 +109,23 @@ import { Aside } from '@/components/user'
 
 ![AVBD 应变约束与双向行为校准（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-sim1/figure-3.7w7k7q9hm6.webp)
 
-**【Paper】** cloth mesh 的顶点是粒子、边是连接关系。每次外力作用后，先运行 Newton-VBD 更新，再检查每条边的伸长；超过阈值时激活虚拟弹性约束，把额外的拉力加入下一轮顶点优化，从而快速传播接触引起的应变。
+**【Paper】** 附录 B 的求解器不只有一条“防拉长”约束：三角形用 St. Venant–Kirchhoff 膜能量描述面内弹性，相邻三角形用二面角能量描述弯曲；接触、摩擦、惯性与超限应变一起进入顶点更新。VBD 每次求解每个顶点的 $3\times3$ 局部 Newton 系统，而非组装一个全网格稠密系统。GPU/Warp 并行化使该实现约以 15 FPS 运行；这不是机器人策略的控制频率。
+
+**【Analysis】** 5% 伸长阈值主要抑制双臂快速牵拉时的数值过伸长，不能替代材料弹性或碰撞处理。附录还按邻近三角形/边的距离限制每次位移，使用 0.42 的松弛系数降低穿透风险；有限迭代的这种约束不能被解读为任何初始状态下都严格无穿透的证明。
 
 **【Paper】** 模拟参数 $\Theta=\{\rho,E,\nu,\mu,\eta,\zeta\}$ 分别表示密度、Young's modulus、Poisson's ratio、摩擦、恢复和 relaxation。作者不声称恢复真实材料参数，而是把真实双臂关节流送入模拟器，再比较布料下垂、折叠和接触行为，人工迭代参数直到达到操作层面的行为一致。
 
 #### SIM1-DataGen：结构化变形操作合成
 
-**【Paper】** 轨迹被拆成 interaction segments 与 moving segments。稳定抓取与接触片段直接从示教池中重用并随机重排；片段之间的运动由 conditional diffusion 根据历史和边界 pose 补全。这样做避免了在变形物体上自动寻找可靠 grasp point，也避免把接触片段粗暴切断。
+**【Paper】** 轨迹被拆成 interaction 与 moving 区段，复用示教中的抓取/释放事件，再用条件扩散衔接运动。§3.3 一方面说保留交互顺序，另一方面又泛称改变片段顺序；公开 `SelectorFine` 实际按阶段索引依次选取不同示教的候选片段，没有随机打乱任务阶段。因而更准确的理解是“同一阶段跨示教重组”，而不是任意交换抓取与释放的先后。
 
-**【Code】** 官方 `components/datagen/splitter.py` 的 `SplitterFine` 通过双夹爪位置变化阈值（默认 `stable_thresh=0.01`）检测 stable/moving 区间，合并相邻状态并把过短 stable 段并入 moving。`components/datagen/datagen_core.py` 中 `DataGenerator` 将稳定段组织成带 `history/src/tgt/traj/mask/lengths` 的 batch，送入 diffusion flow；扩散输出再经过 EE 轨迹平滑和 IK 转换回关节序列。
+**【Code】** `SplitterFine` 的 `stable_thresh=0.01` 检查双夹爪**开合标量**的帧间变化，不检查末端三维位置，也不直接检测接触力。代码中的 `moving` 是夹爪正在开合的区段，直接复制；`stable` 表示开合不变，其中可能包含持物运动，满足相邻区段条件时交给扩散。因此不能把代码的 stable/moving 标签机械等同于论文的 interaction/moving。当前 fine 入口还只保存恰好 19 段的源示教，是三次折叠任务的结构假设。
 
 #### 质量筛选与外观随机化
 
 **【Paper】** 首先用衣物粒子状态的规则快速剔除明显失败样本，再训练 ResNet-18 + Transformer 的二分类视频判别器 $D(V)$。只有 $D(V)>\tau_{disc}$ 的轨迹进入 Blender 渲染；材质、灯光和相机参数被随机化，最后连同机器人状态与动作写成 LeRobot 数据。
 
-**【Code】** `video_filtter.py` 将正负视频按较小类平衡采样，抽取固定采样率的最多 8 秒片段，ResNet-18 提取每帧特征后由 Transformer 聚合，输出有效性分数。`filter_cloth_quality.py` 读取 replay USD 的最后一帧衣物顶点，用 $z_{max}$ 与 $y_{min}$ 阈值过滤；位置随机化时先用 Kabsch 对齐到参考 USD。代码中的过滤器是可解释的后处理，并非论文中所称的端到端可微物理判定。
+**【Code】** `video_filtter.py` 将正负视频按较小类平衡采样，抽取固定采样率的最多 8 秒片段，ResNet-18 提取每帧特征后由 Transformer 聚合，输出有效性分数。`filter_cloth_quality.py` 读取 replay USD 的最后一帧衣物顶点，用 $z_{max}$ 与 $y_{min}$ 阈值过滤；位置随机化时先用 Kabsch 对齐到参考 USD。这是任务相关的末态几何启发式，不是对整个过程中应变、摩擦和接触正确性的完整验证；论文也没有声称这是端到端可微的物理判定。
 
 ### 4.3 关键公式
 
@@ -164,13 +166,15 @@ $$
 \min_\theta\;\mathbb E\left[\|\epsilon-\epsilon_\theta(g(x_0,k);h,p_s,p_e,k)\|_2^2\right].
 $$
 
-$g$ 是把轨迹扰动到等级 $k$ 的 corruption function，$\epsilon$ 是真实噪声，$\epsilon_\theta$ 是条件模型输出。推理时它补全 interaction 片段之间的 moving 区间，而不是重新生成已经验证过的抓取接触。
+$g$ 是把轨迹扰动到等级 $k$ 的 corruption function，$\epsilon$ 是真实噪声，$\epsilon_\theta$ 是条件模型输出。论文用它表达带边界与历史条件的运动补全；这里的生成器是离线数据引擎，不是部署时的 VLA 动作头。
+
+**【Code】** `simpleDiffusion` 默认 `pred_param="v"`，先把输出换算成 $\hat\epsilon=\sigma_t z_t+\alpha_t v_\theta$，再计算带有效帧 mask 和 SNR 相关权重的噪声平方误差；默认采用 DDPM 型迭代采样。因此文件名、变量名中的 `flow` 不能据以认定实现采用 flow matching。端点约束从 `traj` 的首尾有效帧建立，虽读取 `src/tgt`，`map_batch_to_diffusion_inputs()` 没有用它们覆盖 `traj`。跨示教构造的新目标 `tgt` 因而不保证真正进入扩散条件，后续平滑仍承担衔接作用；不能把代码视为论文起止位姿条件的逐字实现。
 
 ### 4.4 Training
 
 **【Paper】** 流程从 200 条仿真遥操作源轨迹出发。轨迹先按稳定/移动状态分段，再随机重用接触片段并用 diffusion 生成中间运动；规则过滤和视频判别器移除无效 episode，Blender 进行材质、灯光、相机随机化，最终生成 RGB、状态和 action 对齐的数据。
 
-**【Code】** `run_pipeline.sh` 把 `apps/datagen_app.py --use_dp --mode fine`、Kalman 平滑、`apps/replay_app.py`、关节可达性过滤和衣物质量过滤串起来。`DataGenerator.__init__` 当前实现会将 `use_dp` 固定为 `True` 并加载 `flow_ckpt_three.pth`；因此 README 中的“可选 DP”在该入口上实际是强制启用的。生成后 `ee16_to_joint()` 为每个 16 维末端向量调用 Newton IK，并附加夹爪开合限制。
+**【Code】** `run_pipeline.sh` 显式传入 `--use_dp --mode fine`，并串接 Kalman 平滑、物理 replay、关节连续性与衣物质量过滤。构造函数虽把局部变量 `use_dp` 改为 `True` 并无条件加载 `flow_ckpt_three.pth`，生成分支仍检查此前保存的 `self.use_dp`：准确问题是“即便不用扩散也需要加载资源”，不是“开关完全失效”。生成的 16 维末端序列经 IK 转成关节动作，并在保存时插值成约 1.5 倍帧数以减速。
 
 <Algorithm
   number={1}
@@ -200,7 +204,7 @@ $g$ 是把轨迹扰动到等级 $k$ 的 corruption function，$\epsilon$ 是真�
 
 ### 4.5 Inference
 
-**【Paper】** 训练好的 policy 只接收真实机器人 RGB 与状态，不需要额外 real-data fine-tuning。真实控制器执行一段 action 后获得下一帧观测，整个过程是闭环的；论文把这种从纯仿真训练到真实部署称为 zero-shot sim-to-real。
+**【Paper】** 这里的 zero-shot 指任务策略用合成示范微调后直接真实部署，不再用该任务真实示范适配；仍需要真实扫描、材料行为校准和 200 条仿真遥操作示教，且常规结果使用预训练 $\pi_0/\pi_{0.5}$。训练好的 policy 只接收真实 RGB 与机器人状态。真实控制器执行一段 action 后获得下一帧观测，整个过程是闭环的；论文把这种从纯仿真训练到真实部署称为 zero-shot sim-to-real。
 
 **【Code】** 官方仓库主要开源数据生成、replay、过滤、渲染和 LeRobot 转换，并提供 `replay_batch.sh` 等脚本。真实 VLA policy 的训练/部署控制器不在该仓库中，因此动作执行频率、低层控制器和 checkpoint 细节应以论文实验系统为准，不能从代码仓库推断。
 
@@ -238,7 +242,7 @@ $g$ 是把轨迹扰动到等级 $k$ 的 corruption function，$\epsilon$ 是真�
 
 **【Paper】** 真实环境用 ARX ACONE 双臂和 kinesthetic teaching 收集 1,000 条轨迹；仿真在 RTX 4090 上运行，操作员通过 ARX X5 做同构遥操作，得到 200 条种子轨迹。每个配置评估 30 次，成功定义为衣物达到目标折叠构型且没有掉落或重新展开。
 
-训练数据包括 200 条真实/仿真源轨迹或扩展后的 10k synthetic samples。泛化测试分别改变空间位置（平移最多 8 cm、旋转 ±15°）、衣物/桌面纹理及摩擦、灯光强度/方向和相机高度（±5°）。
+主结果的真实与仿真遥操作基线各用 200 条；生成组在域内使用 10,000 条、域外使用 2,000 条。这不是等样本量比较。空间随机化训练平移最多 5 cm，测试扩到 8 cm，旋转均为 ±15°；另测衣物/桌面纹理及摩擦、灯光和相机俯仰（±5°）。纹理组包含摩擦变化，因而并非纯视觉扰动。全文没有提供完整策略训练配方、独立训练种子方差或成功率置信区间。
 
 ![SIM1 生成的多衣物、多任务与多环境资产（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-sim1/figure-5.5flbst2lr0.webp)
 
@@ -250,15 +254,18 @@ $g$ 是把轨迹扰动到等级 $k$ 的 corruption function，$\epsilon$ 是真�
 
 ![SIM1 的 in-domain 与 out-of-domain 成功率（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-sim1/figure-7.96ahe1rh03.webp)
 
-| 评测                     | 结果                                                                      |
-| ------------------------ | ------------------------------------------------------------------------- |
-| $\pi_{0.5}$ in-domain    | 真实数据 97%，sim-teleoperated 87%，sim-generated 90%                     |
-| $\pi_{0.5}$ from scratch | 真实数据 0%，合成数据 76%                                                 |
-| $\pi_0$ zero-shot / 泛化 | 论文摘要报告 zero-shot 76%，泛化提升 +56%                                 |
-| 泛化收益（$\pi_{0.5}$）  | spatial +50%，texture +13%，lighting +47%，viewpoint +40%（相对真实基线） |
-| 跨衣物部署               | 未见过的 polo shirt 上，合成策略 70%，真实数据基线 20%                    |
+| 评测                  | 200 条真实示教 | 200 条仿真遥操作 | SIM1 生成 |
+| --------------------- | -------------: | ---------------: | --------: |
+| $\pi_{0.5}$ 域内      |            97% |              87% |       90% |
+| $\pi_{0.5}$ 空间      |            43% |              40% |       93% |
+| $\pi_{0.5}$ 纹理/摩擦 |            77% |              83% |       90% |
+| $\pi_{0.5}$ 灯光      |             0% |               0% |       47% |
+| $\pi_{0.5}$ 视角      |            47% |              63% |       93% |
+| $\pi_0$ 域内          |             3% |               0% |       76% |
 
-**【Analysis】** 这些数字支持两个层次的结论：在相同数据量下，物理对齐模拟可以接近真实示教；当数据规模扩大时，随机化带来的覆盖度开始超过少量真实数据的覆盖度。from-scratch 对照也说明结果并非完全依赖 $\pi_{0.5}$ 或 $\pi_0$ 的已有操作先验。
+**【Paper】** 以上按 Figure 7 记录。$\pi_{0.5}$ 的四类泛化相对真实基线分别提高 **50、13、47、46 个百分点**，不是相对百分比；$\pi_0$ 的空间、纹理、灯光、视角结果分别为 20%、43%、19%、43%。原博客把视角增益写成 40%，又把引言中未在图中对应到统一指标的“+56%”当成摘要结论，均不再沿用。
+
+**【Analysis】** 200 条仿真遥操作的 87% 与等量真实示教的 97% 说明数字孪生监督具有迁移价值，但生成组 90% 及域外收益同时包含更大数据预算、筛选和随机化，不能单独归因于求解器。Figure 7 所称 from scratch 为真实 0%、生成 76%，仍是 200 对 10,000 条，且论文没有详细说明重置了哪些预训练模块；它不能证明模拟在相同预算下全面替代真实数据。
 
 ### 5.3 Ablation Study
 
@@ -273,19 +280,21 @@ $g$ 是把轨迹扰动到等级 $k$ 的 corruption function，$\epsilon$ 是真�
 | + diffusion-based generation |       38% |          33% |
 | + deformation-stable solver  |       40% |          76% |
 
-仅分段可以产生样本，但片段衔接不连续；加入 diffusion 后动作更像人类、in-domain 成功率达到 47%；加入变形稳定求解器后平均成功率提升到 76%，说明运动生成的外观合理并不等于接触动力学正确。
+Table 1 的 Pass rate 是生成候选经过判别器后被保留的比例，不是真实机器人成功率。仅分段有 65% 保留率却得到 0% 策略成功率，说明过滤通过不能替代下游验证；加入扩散后保留率降到 38%，策略均值却升至 33%。这些是逐项累加配置，不能把每行差值当作模块在任意组合下的独立贡献。完整消融的域内成功率为 67%，而 Figure 7 是 90%；原文没有交代足以对齐两者的完整训练配置，故不把它们合并成同一次实验。MimicGen 的 0% 也仅指作者在该变形任务上的适配基线。
 
-**【Paper】** Figure 8 的拟合曲线给出数据等价关系：代表性的 $\pi_{0.5}$ in-domain 约 15 条 synthetic samples 才能提供 1 条 real demonstration 的训练价值；texture generalization 场景约为 5:1。这里的等价点来自拟合曲线，不应理解为所有任务和数据规模都固定遵循 15:1。
+**【Paper】** Figure 8 的拟合曲线给出数据等价关系：代表性的 $\pi_{0.5}$ in-domain 约 15 条 synthetic samples 才能提供 1 条 real demonstration 的训练价值；texture generalization 场景约为 5:1。具体等价点是域内 500 条真实对应 7,500 条合成，纹理泛化 300 条真实对应 1,500 条合成。它们来自限定区间的拟合曲线，不是普适 scaling law，也不表示单条合成数据比真实示教更有信息量。
 
 ### 5.4 Generalization
 
-**【Paper】** Figure 6 展示 towel、shorts、长袖衣物和皱衣服等任务，说明数据生成管线并不绑定单一 T-shirt folding。真实部署还测试了训练和模拟中没有出现的 polo shirt，体现对材质、尺寸和纹理变化的迁移。
+**【Paper】** Figure 6 展示毛巾、短裤、长袖和皱衣服；附录 D.1 进一步对毛巾与短裤各采 100 条仿真示教、扩展成 1,000 条，并在每项 30 次真实测试中报告 80% 与 93%。这些是针对新任务重新构建交互片段并训练，不能称为 T-shirt 策略的无训练跨任务泛化。长袖与皱衣展示没有同等完整的真实成功率表。未见 polo shirt 的数字存在原文冲突：正文 §4.2 为 70%（真实数据基线 20%），附录 D.1/Table 3 为 93%；本文保留这个差异，不擅自选取较高值。
 
 **【Analysis】** 泛化提升主要来自两种覆盖的叠加：几何/动力学对齐降低了合成监督的偏差，外观与位姿随机化扩大了视觉分布。若只做后者，模型可能学到大量与真实接触不一致的视觉捷径。
 
 ## 6. 方法分析
 
 ### 6.1 为什么有效？
+
+**【Paper】** 附录 D.4 估算真实采集 104 条/日、2.71 美元/条，8 张 RTX 4090 渲染约 710 条/日、0.10 美元/条，给出约 27 倍单条成本下降。但这是特定设备利用率、人工工资与折旧假设下的流水线估算，不是获得同等策略性能的 27 倍节省；扫描、专家校准、种子示教等启动成本和上文 15:1 的样本价值差异都需要另行核算。
 
 **【Analysis】** SIM1 的有效性来自三个误差源同时被约束：metric mesh 让碰撞位置对，AVBD 让接触下的应变传播对，interaction-preserving trajectory synthesis 让动作语义和接触时刻对。三者缺一时，数据会在策略训练中形成互相矛盾的视觉、状态与 action 标签。
 
@@ -317,9 +326,9 @@ $g$ 是把轨迹扰动到等级 $k$ 的 corruption function，$\epsilon$ 是真�
 
 1. **【Analysis】** 几何扫描、mannequin 分割、纹理映射和 URDF 标定本身是昂贵的工程流程；“减少真实示教”不等于消除现实采集成本。
 2. **【Analysis】** 论文中的参数匹配依赖人工视觉判断，可能存在操作者偏差，也缺乏统一的行为距离指标。
-3. **【Analysis】** 视频 discriminator 的正负样本来自模拟失败，若模拟器没有覆盖某种真实失败，过滤器无法发现分布外风险。
+3. **【Analysis】** 视频 discriminator 的正负样本来自模拟失败，若模拟器没有覆盖某种真实失败，过滤器无法发现分布外风险。附录 D.5 声称超过 99% 的过滤成功率，但没有给出完整测试集规模、混淆矩阵和跨分布评估，这不是 99% 的机器人成功率。
 4. **【Code】** 官方仓库开源的是模拟/生成栈，真实 policy 的训练和部署控制器并不完整公开，复现实验成功率仍需要额外系统组件。
-5. **【Analysis】** 1:15 等价关系来自特定任务和拟合区间；在更复杂的衣物拓扑、双手遮挡或高摩擦材料上，合成数据的边际收益可能饱和得更早。
+5. **【Analysis】** 15:1 的合成/真实等价关系来自特定任务和拟合区间；在更复杂的衣物拓扑、双手遮挡或高摩擦材料上，合成数据的边际收益可能饱和得更早。
 
 ## 8. 启发与研究思考
 

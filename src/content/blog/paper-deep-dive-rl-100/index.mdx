@@ -1,7 +1,7 @@
 ---
 title: 'RL-100 论文精读：用真实世界 RL 把扩散策略推向 100% 成功率'
 publishDate: 2026-08-26
-updatedDate: 2026-08-26
+updatedDate: 2026-09-22
 description: '精读 RL-100：在扩散视觉运动策略上统一模仿学习、迭代离线 RL 与在线 RL，并用一致性蒸馏实现一步控制。'
 heroImage:
   { src: 'https://pic.hana0721.top/99213551_p0_master1200.4jopcsx1ya.webp', color: '#687A82' }
@@ -38,7 +38,7 @@ import { Aside } from '@/components/user'
 
 <ArxivRating
   id='2510.14830'
-  tldr='RL-100 从少量人类示范出发，以统一的扩散去噪 PPO 目标进行迭代离线和在线真实世界 RL，并通过一致性蒸馏实现一步控制，在八类任务上达到 100% 成功。'
+  tldr='RL-100 从少量人类示范出发，以统一的扩散去噪 PPO 目标进行迭代离线和在线真实世界 RL，并通过一致性蒸馏实现一步控制，在八项任务、两种推理版本的汇总测试中取得 1000/1000 成功。'
   rank={5}
 />
 
@@ -48,17 +48,17 @@ import { Aside } from '@/components/user'
 
 ### 一句话总结
 
-**【Paper】** 先用 teleoperation demonstrations 训练扩散 visuomotor policy，再交替执行保守的离线 RL、策略 rollout 数据扩充和短程在线 RL；同一 clipped PPO surrogate 作用于每个 diffusion denoising step，最后把多步扩散策略蒸馏成 one-step consistency controller。
+**【Paper】** 先用示范训练扩散 visuomotor policy，再反复执行“离线改进 → 真实 rollout 扩充 → 重新 BC”，最后进入在线 RL。离线与在线 RL 共享逐去噪步的 clipped PPO 形式，IL 仍使用监督噪声预测；一步 consistency student 在 RL 期间同步学习。本文按 [arXiv v4 全文及补充材料](https://arxiv.org/pdf/2510.14830v4) 核查。
 
 ### 核心贡献
 
 **【Paper】**
 
-1. 提出三阶段 IL → iterative offline RL → online RL 的真实机器人后训练流程，把大部分数据预算放在更安全、可复用的离线阶段。
+1. 提出三阶段 IL → iterative offline RL → online RL 的真实机器人后训练流程，在每轮固定数据集上优化，再通过真实交互扩大该数据集；“离线”不等于整个训练不接触机器人。
 2. 将扩散采样写成嵌套的 two-level MDP，在所有去噪步共享环境级 advantage，统一离线和在线的 clipped PPO 目标。
 3. 用 reconstruction / VIB 正则稳定视觉表征，并用 consistency distillation 将 $K$ 步采样压缩到一步。
-4. 框架兼容 2D RGB 与 3D point cloud、single action 与 action chunking，也兼容 diffusion 和 flow policy。
-5. **【Paper】** 八项真实任务最终评测达到 1000/1000 成功；零样本变化平均 90.0%，少样本适应平均 86.7%，人工扰动下平均 96.0%，榨汁机器人在商场连续运行约七小时无失败。
+4. 论文实验覆盖 2D/3D 表征与单步/动作块控制；**【Code】** 当前官方实现另提供 flow policy 与 flow 蒸馏入口，不能将代码的全部组合都视为本文真实任务已验证的配置。
+5. 八项真实任务的 DDIM 与 CM 评测合计 1000/1000 成功；零样本、少样本、扰动测试的场景平均分别为 90.0%、86.7%、96.0%。这是任务专用策略的有限评测，不是一个通用策略在开放环境的可靠性保证。
 
 ![RL-100 八类真实机器人任务（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-rl-100/fig1.39lx6oo16v.webp)
 
@@ -70,7 +70,7 @@ import { Aside } from '@/components/user'
 
 ## 3. 问题定义
 
-**【Paper】** 每个时间步输入视觉观测 $o_t$（RGB 或点云）与机器人本体状态 $q_t$（关节位置/速度、夹爪状态），输出单步动作 $u_t\in\mathbb{R}^{d_a}$ 或长度为 $n_a$ 的动作块 $[u_t,\ldots,u_{t+n_a-1}]$。策略通过条件扩散生成动作，预测末端位姿增量时对每个动作维度归一化。
+**【Paper】** 每个时间步输入视觉观测 $o_t$（RGB 或点云）与机器人本体状态 $q_t$（关节位置/速度、夹爪状态），输出单步动作 $u_t\in\mathbb{R}^{d_a}$ 或长度为 $n_a$ 的动作块 $[u_t,\ldots,u_{t+n_a-1}]$。策略通过条件扩散生成动作，并按维度归一化。具体动作空间随任务变化：Push-T/Bowling 使用平面增量，双臂任务使用末端位姿/夹爪命令，灵巧手任务还包含手指关节；不能统一写成二维位姿增量。
 
 任务奖励大多是成功时终止并给 $+1$、其余时刻为 0 的稀疏奖励，另加时间步惩罚和动作抖动惩罚；Dynamic Push-T 使用基于位姿误差、推进进度和动作平滑度的 dense reward。**【Paper】** 实验覆盖 UR5、Franka + LeapHand、xArm–Franka 等单臂和双臂 embodiment。
 
@@ -88,8 +88,8 @@ import { Aside } from '@/components/user'
 
 - **输入**：最近 $n_o$ 帧观测和机器人状态。
 - **输出**：视觉特征 $z_t$，与 proprioceptive feature 拼接形成 $c_t$。
-- **【Code】** `rl_100/policy/rl100_3d.py` 提供 `DP3Encoder`、`DP3EncoderReconVIB` 和 `PointNetImaginationExtractorGP`；配置默认使用 DP3 点云编码器、512 点输入和 64 维输出，也提供 2D policy 分支。
-- **【Paper】** reconstruction loss 用 Chamfer distance 重建点云并重建状态，VIB 用 KL 项约束潜变量；RL 阶段将两项权重降低 10 倍，防止表征漂移又给策略改进留出空间。
+- **【Code】** `rl_100/policy/rl100_3d.py` 提供 `DP3Encoder`、`DP3EncoderReconVIB` 和 `PointNetImaginationExtractorGP`；`rl100_3d_epsilon.yaml` 默认选 DP3 编码器与 64 维输出，也有 2D 分支。论文补充材料的点云处理写 512 点，而效率比较处写 DP3 使用 1024 点；应按具体配置理解，不能将 512 当作所有实验的统一输入。
+- **【Paper】** reconstruction loss 用 Chamfer distance 重建点云并重建状态，VIB 用 KL 项约束潜变量；方法总述将两项 RL 正则权重设为 IL 的十分之一；但离线 RL 小节又明确共享并冻结 IL 预训练编码器，只更新各模块的任务头。联合编码器更新的收益由在线实现和仿真 Door 消融支持，不能笼统写成全部离线/在线阶段始终端到端更新。
 
 #### Diffusion / Flow Actor
 
@@ -100,11 +100,11 @@ import { Aside } from '@/components/user'
 
 #### Iterative Offline RL 与 OPE Gate
 
-**【Paper】** 每轮先用 IQL 训练 $Q,V$ 和 transition model，再以 PPO surrogate 更新候选策略。Approximate model-Q（AM-Q）离线评估候选策略与当前 behavior policy，只有当估计回报提升超过阈值 $\delta$ 时才接受更新；随后 rollout、合并数据并重新 BC。这一 gate 抑制了离线价值函数过估计导致的策略崩溃。
+**【Paper】** 每轮先用 IQL 训练 $Q,V$ 和 transition model，再以 PPO surrogate 更新候选策略。Approximate model-Q（AM-Q）离线评估候选策略与当前 behavior policy，只有当估计回报提升超过阈值 $\delta$ 时才接受更新；随后 rollout、合并数据并重新 BC。论文式 (9) 取 $\delta=0.05|\hat J_{\mathrm{AM-Q}}(\pi_b)|$。AM-Q 是在学习到的转移模型中累计 $Q$ 值的筛选分数，并非候选策略在真实环境测得的回报。gate 降低坏更新风险，但模型与 critic 同时失准时仍会误判；估计分数单调不构成真实回报或硬件安全的保证。
 
 #### One-step Consistency Distillation
 
-**【Paper】** consistency actor 以多步 diffusion actor 为 teacher，在离线和在线 RL 同时训练。teacher 使用 stop-gradient，RL 继续优化 teacher，而 consistency loss 让 student 从初始噪声直接输出动作。推理从约 10-step DDIM 变为单次前向，论文报告在 Box Folding 上墙钟时间从 65.1 s（DP-2D）降至 41.4 s。
+**【Paper】** consistency actor 以多步 diffusion actor 为 teacher，在离线和在线 RL 同时训练。teacher 使用 stop-gradient，RL 继续优化 teacher，而 consistency loss 让 student 从初始噪声直接输出动作。其回归目标是同一带噪输入经 teacher 沿既定 schedule 去噪至干净动作后的 stop-gradient 输出（补充式 S23），并非重新采一条不相关的 teacher 动作。DDIM 的 10 次网络调用压成一次，不意味着整机快十倍：Box Folding 的 RL-100 DDIM 为 45.6 s、CM 为 41.4 s，约快 1.10 倍；与 DP-2D 的 65.1 s 比较还混合了表征、策略和轨迹长度的变化。
 
 ### 4.3 关键公式
 
@@ -118,7 +118,11 @@ $$\mathcal{L}_{IL}=\mathbb{E}\left[\|\epsilon-\epsilon_\theta(a^k_t,k,c_t)\|_2^2
 
 $$J(\pi)=\mathbb{E}\left[\sum_{k=1}^{K}\min\left(r_k A_t,\operatorname{clip}(r_k,1-\varepsilon,1+\varepsilon)A_t\right)\right].$$
 
-其中 $r_k=\pi(a^k|s^k)/\pi_b(a^k|s^k)$ 是第 $k$ 步 importance ratio，$A_t$ 是环境时间步的 advantage，$\varepsilon$ 是 PPO clip 范围。**【Analysis】** 共享 $A_t$ 将稀疏任务奖励沿整条 denoising chain 传播，避免只在最终动作处学习。
+其中 $r_k=\pi(a^{k-1}|a^k,c_t)/\pi_b(a^{k-1}|a^k,c_t)$ 比较同一去噪转移在新旧策略下的密度；$A_t$ 为环境步 advantage，$\varepsilon$ 为 PPO clip 范围。训练必须使用方差严格为正的 stochastic DDIM 高斯转移，才能计算该密度。部署的确定性 DDIM 是退化映射，不能直接拿它计算高斯 log-likelihood（补充式 S16–S22）。
+
+离线使用 $A_t^{\mathrm{off}}=Q(s_t,a_t)-V(s_t)$；在线使用 GAE，并固定当前 PPO batch 的旧策略。**【Analysis】** 共享 advantage 给整条去噪链相同的任务反馈，但并没有额外观测到每一步独立的因果贡献，也没有把稀疏环境奖励变成真实的稠密奖励。
+
+**【Paper】** 若一次执行 $n_a$ 个动作，应使用块内折扣奖励 $R_{\mathrm{chunk}}=\sum_{j=0}^{n_a-1}\gamma^jR_{t+j}$，块间折扣为 $\gamma^{n_a}$。改变 chunk 长度却保持单步折扣，会改变优化问题。
 
 在线阶段的总损失为
 
@@ -135,10 +139,10 @@ $$\mathcal{L}_{on}=-J(\pi)+\lambda_V\mathbb{E}(V(s_t)-\hat V_t)^2,$$
   <AlgorithmStep>在 $\mathcal{D}_m$ 上训练 IQL critics 与 transition model。</AlgorithmStep>
   <AlgorithmStep>用跨去噪步 clipped PPO 更新候选策略，并通过 AM-Q gate 接受或拒绝。</AlgorithmStep>
   <AlgorithmStep>
-    部署候选策略收集 rollout，合并为 $\mathcal{D}_{m + 1}$，再做 IL 重训练。
+    部署通过 gate 接受的策略收集 rollout，合并为 $\mathcal{D}_{m + 1}$，再做 IL 重训练。
   </AlgorithmStep>
   <AlgorithmStep>
-    从离线最优策略开始收集少量 on-policy 数据，用相同 PPO 目标清除残余失败，并联合 consistency
+    从离线改进策略开始收集 on-policy 数据，用相同 PPO 形式继续改进，并联合 consistency
     distillation。
   </AlgorithmStep>
 </Algorithm>
@@ -160,7 +164,7 @@ $$\mathcal{L}_{on}=-J(\pi)+\lambda_V\mathbb{E}(V(s_t)-\hat V_t)^2,$$
 
 ### 4.6 代码实现对照
 
-**【Code】** `RL1003D` 把 observation encoder、diffusion/flow action head 和 scheduler 组合为统一 policy；`BehaviorProximalPolicyOptimization` 在 `unidpg/uni_ppo.py` 中计算 advantage、GAE 和 PPO ratio。配置中的 `num_inference_steps: 10`、`cm_inference_steps: 1` 对应论文的 DDIM 与 consistency 部署模式，`n_action_steps` 与 `chunk_as_single_action` 对应动作块语义。
+**【Code】** [官方实现](https://github.com/Lei-Kun/RL-100/tree/main/RL-100/rl_100) 的 `RL1003D` 把 observation encoder、diffusion/flow action head 和 scheduler 组合为统一 policy；`BehaviorProximalPolicyOptimization` 在 `unidpg/uni_ppo.py` 中计算 advantage、GAE 和 PPO ratio。`uni_ppo.py` 按去噪转移保存旧 log-probability；开启 `chunk_as_single_action` 时先对整个块求 log-probability 和，再计算一个比率。编码器正则是否更新受 `fix_encoder`、`recon` 等参数控制。配置中的 `num_inference_steps: 10`、`cm_inference_steps: 1` 对应论文的 DDIM 与 consistency 部署模式，`n_action_steps` 与 `chunk_as_single_action` 对应动作块语义。
 
 **【Analysis】** 论文将 RL-100 描述为 task/embodiment/representation-agnostic，但代码仍需要为具体机器人提供 runner、dataset、shape metadata 和 reset 逻辑；“agnostic”指核心优化接口不变，而不是无需适配即可运行。
 
@@ -168,7 +172,7 @@ $$\mathcal{L}_{on}=-J(\pi)+\lambda_V\mathbb{E}(V(s_t)-\hat V_t)^2,$$
 
 ### 5.1 Experimental Setup
 
-**【Paper】** 真实任务包含动态刚体、流体/颗粒、可变形毛巾、灵巧手旋拧、双臂折叠和多阶段榨汁。大多数任务每种方法评测 50 个 episode，Soft-towel Folding 的 consistency policy 额外连续评测 250 次。DP-2D 与 DP3 是 imitation baselines，RL-100 分别报告 DDIM 和 consistency model。
+**【Paper】** 真实任务包含动态刚体、颗粒倾倒、可变形毛巾、灵巧手旋拧、双臂折叠和榨汁子任务。Table 1 中多数单元格为 50 次；DDIM 的 Juicing–Placing 为 100 次，CM 的毛巾折叠为 250 次，CM 未评估 Juicing–Removal。因此 1000/1000 是 DDIM 的 450 次加 CM 的 550 次，既不是每个任务各 1000 次，也不是一次连续运行 1000 次。DP-2D 与 DP3 是 imitation baselines，RL-100 分别报告 DDIM 和 consistency model。
 
 ![RL-100 在零样本、少样本和人工扰动下的测试设置（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-rl-100/fig3.4qs28fs61r.webp)
 
@@ -182,27 +186,31 @@ $$\mathcal{L}_{on}=-J(\pi)+\lambda_V\mathbb{E}(V(s_t)-\hat V_t)^2,$$
 | Online RL (DDIM)     |     100.0% | 八项任务共 450/450 成功                       |
 | Online RL (CM)       |     100.0% | 七项评测任务共 550/550，含 250/250 折叠       |
 
-**【Paper】** 离线阶段相对 DP3 在 Box Folding 提升 48 个百分点、Pouring 提升 44 个百分点；在线阶段消除剩余失败。CM 一步推理在 Box Folding 上为 41.4 s，DDIM 为 45.6 s，DP-2D 为 65.1 s。Dynamic Push-T 中 RL-100 每单位时间完成 20 次成功，高于专家 teleoperator 的 17 次和初学者的 13 次。
+**【Paper】** 离线阶段相对 DP3 在 Box Folding 提升 48 个百分点、Pouring 提升 44 个百分点；在线阶段在最终有限评测中未出现失败。CM 一步推理在 Box Folding 上为 41.4 s，DDIM 为 45.6 s，DP-2D 为 65.1 s。Dynamic Push-T 的人类比较是在相同墙钟预算下完成 20、17、13 次成功，分别对应 RL-100、专家与初学者，不能解释成每秒或每小时的绝对吞吐。Figure 4A–B 则另外收集每方法 50 条成功轨迹计算耗时，不包含失败/超时成本；只有 4D 的 Push-T 指标包含失败。
 
 ![RL-100 与基线的步数、墙钟时间和人类效率比较（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-rl-100/fig4.4joud060q4.webp)
 
 ### 5.3 Ablation Study
 
-**【Paper】** 结果呈现清晰的单调链条：DP-2D → DP3 → RL-100 Offline → RL-100 DDIM/CM。去掉离线数据飞轮会失去大部分成功率增益；不做在线 RL 则难以清理长尾失败；不做 consistency distillation 则保留多步采样延迟。论文还在仿真 door task 中比较 reconstruction/VIB、固定 encoder 与联合训练，说明表征正则对稳定 RL 更新有帮助。
+**【Paper】** Table 1 的阶段对比支持逐步后训练的总体收益，但不是每项指标严格单调：例如 Unscrewing 的 DP-2D 为 82%，DP3 为 70%。阶段之间还改变了数据量，不能仅据此声称“移除数据飞轮”已被独立控制变量验证。
+
+补充 Figure S8 在 Adroit Door 上用三个 seed 分别考察 2D/3D、噪声标准差裁剪、CM/DDIM、表征正则/冻结编码器、噪声预测/干净样本预测。它支持该任务中 Recon+VIB 联合更新更稳、CM 接近 DDIM、噪声预测优于直接样本预测；不能外推为每个真实任务必然如此。论文对噪声预测的解释是额外随机性有助探索，属于机制解释，单任务消融不等于证明普遍的梯度优势。
+
+补充 Figure S7 报告仿真 SkipNet-CM 3.9M 参数、378 Hz，U-Net-CM 39.2M、133 Hz；这是策略推理频率，真实闭环还受约 30 Hz 相机和控制器限制。Figure S6 各基线按原论文模态运行，因此跨方法差距也不是只替换 RL 优化器的纯消融。
 
 ### 5.4 Generalization
 
-**【Paper】** 零样本改变摩擦、物体形状、容器、材料和干扰物，平均成功率 90.0%；只额外训练 1–3 小时的少样本适应平均 86.7%；在人为拉扯、推撞、敲击和反向旋拧下平均 96.0%。**【Analysis】** 这些测试并非只考察视觉识别，而是在检验闭环控制是否能在接触动力学变化后及时恢复。
+**【Paper】** Table 2 的零样本六种设置平均 90.0%；少样本三种设置微调 1–3 小时后平均 86.7%，其中新容器倾倒仅 60%；扰动五种设置平均 96.0%。这些是场景等权平均，表中未给各行的 trial 分母，不应直接套用 Table 1 的 50 次。**【Analysis】** 这些测试并非只考察视觉识别，而是在检验闭环控制是否能在接触动力学变化后及时恢复。
 
 ## 6. 方法分析
 
 ### 6.1 为什么有效？
 
-**【Analysis】** 三个环节分别解决三个瓶颈：IL 限制探索风险，迭代离线 RL 以大量低成本 rollout 获得 value-directed 改进，短程 online RL 专门覆盖离线数据中没有的失败状态。共享去噪 advantage 则把稀疏任务信号分配给生成动作的每一步。
+**【Analysis】** 三个环节分别解决三个瓶颈：IL 限制探索风险，迭代离线 RL 以可反复利用的真实 rollout 获得 value-directed 改进，online RL 在当前策略分布下继续探索和修正；其实际交互量并不总能忽略。共享去噪 advantage 则把稀疏任务信号分配给生成动作的每一步。
 
 ### 6.2 核心创新
 
-1. **目标统一**：离线和在线不切换优化器，减少训练阶段边界处的性能跌落。
+1. **目标统一**：离线与在线共享 clipped surrogate，但 advantage、数据来源和参考策略不同；形式统一有助衔接，不等于严格保证转换时无性能跌落。
 2. **数据飞轮**：更好的策略产生更好的数据，再用 IL 将多模态行为压回一个可部署 policy。
 3. **部署共设计**：训练时就加入 consistency distillation，而不是部署前再做可能损伤性能的压缩。
 
@@ -222,13 +230,15 @@ $$\mathcal{L}_{on}=-J(\pi)+\lambda_V\mathbb{E}(V(s_t)-\hat V_t)^2,$$
 
 ### 7.2 自己分析得到的局限
 
-**【Analysis】** 100% 成功率来自精心设计的八项任务和有限评测次数，不能直接等价于开放世界可靠性；奖励主要是终止成功信号，效率 shaping 与 jitter penalty 的权重需要按任务调节。CM 在 Orange Juicing–Removal 上因 IK-induced pose discontinuity 和噪声敏感性未评测，说明一步蒸馏并非对所有控制模式都安全。
+**【Analysis】** 100% 成功率来自精心设计的八项任务和有限评测次数，不能直接等价于开放世界可靠性；奖励主要是终止成功信号，效率 shaping 与 jitter penalty 的权重需要按任务调节。CM 在 Orange Juicing–Removal 上因 IK-induced pose discontinuity 和噪声敏感性未评测，说明一步蒸馏并非对所有控制模式都同样适用。毛巾任务保证两个目标角可见，纸盒使用预设折线，均有任务约束。商场七小时榨汁展示由已训练的放置/移除子策略与固定的压杆示教回放组成，不能描述为整段服务流程都由同一 RL 策略自主学会；训练与 reset 仍包含人工参与。
 
 ## 8. 启发与研究思考
 
 **【Analysis】** RL-100 给 VLA 后训练的启发不是“把 PPO 接到任意 policy 后面”，而是先找出 policy 内部真正产生动作的随机过程，再在该过程上定义可计算的 likelihood 和 conservative update。对未来的大型 VLA，可以保留语言模型的语义先验，只把 diffusion/flow action head、offline OPE gate 和 consistency distillation 作为部署层。
 
-另一个值得复用的工程结论是数据预算分配：论文八项任务平均约 115 条人工示范，随后约 566 条离线 rollout 和 434 条在线 rollout。**【Analysis】** 这更像“少量高质量人类数据 + 大量自主试错”的生产配方，而不是追求无限示范数据；但它成立的前提是 reset、奖励和安全审批已经自动化到足够低的边际成本。
+**【Paper / Analysis】** 数据预算应逐行读取 Table S3。八任务相加为 **1004 条示范/15.5 h、4573 条离线扩充 rollout/54.6 h、3223 条在线 rollout/42.5 h**，合计 112.6 h 数据采集，均值约 126/572/403 条。正文仍写 804/3965/3037 条及“总计不足 100 h”，恰好漏掉 Box Folding 一行，因此不能沿用正文的八任务平均 115/566/434。这里统计的是采集时长，不是含优化、标注、复位在内的完整人力成本。
+
+这种数据配方说明少量示范可以启动真实交互改进；它没有证明人工 reset 或奖励提供已完全自动化，也不能把 rollout 的成本视为零。
 
 <Aside type='note' title='阅读提示'>
   本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`

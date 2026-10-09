@@ -1,7 +1,7 @@
 ---
 title: 'WorldArena 论文精读'
 publishDate: 2026-08-27
-updatedDate: 2026-08-27
+updatedDate: 2026-09-22
 description: 'WorldArena 将 embodied world model 的视频感知质量、下游任务功能和人类判断放进同一套评测，并用 EWMScore 量化感知—功能鸿沟。'
 heroImage:
   { src: 'https://pic.hana0721.top/126839080_p0_master1200.232gprncye.webp', color: '#8C8275' }
@@ -56,6 +56,8 @@ import { Aside } from '@/components/user'
 
 ## 1. 论文概述
 
+本文核对 [arXiv v2 正文与附录 A–C](https://arxiv.org/html/2602.08971v2)及[官方代码 commit 2da2ae2](https://github.com/tsinghua-fib-lab/WorldArena/tree/2da2ae253b8637ba9de3afc7bea4e087f778ee4d)。后续公开比赛协议已扩展，下面区分论文实验与代码当前设置。
+
 **【Paper】** WorldArena 针对 embodied world model（EWM）的评测碎片化问题，建立一套同时覆盖感知质量与功能效用的 benchmark。它在 RoboTwin 2.0 的双臂操作场景上评测 14 个代表性模型，并发布公开 leaderboard 与 EWMScore。
 
 ### 一句话总结
@@ -70,7 +72,7 @@ import { Aside } from '@/components/user'
 2. 三种功能测试：Embodied Data Engine、Embodied Policy Evaluator、Embodied Action Planner。
 3. 70 名标注者对 3,500 个视频进行整体质量、指令遵循、物理合理性与 pairwise win-rate 评测。
 4. 将归一化后的 16 个指标取算术平均，得到可解释的 EWMScore。
-5. 在 14 个模型上发现 perception–functionality gap：EWMScore 与人类判断高度相关（Pearson $r=0.825$），但与 action-planning 仅弱相关（$r=0.360$）。
+5. 14 个模型参与视频质量比较，其中功能实验仅覆盖适用的子集；结果呈现 perception–functionality gap：EWMScore 与人类判断高度相关（Pearson $r=0.825$），但与 action-planning 仅弱相关（$r=0.360$）。
 
 ## 2. 背景与相关工作
 
@@ -82,7 +84,7 @@ import { Aside } from '@/components/user'
 
 ## 3. 问题定义
 
-给定初始观测 $o_0$、文本指令 $c$、动作序列 $a_{0:T}$ 和真实未来视频 $v^{gt}_{1:T}$，WorldArena 评估世界模型 $M$ 的两类输出：
+给定初始观测 $o_0$、文本指令 $c$、可选动作序列 $a_{0:T}$ 和参考视频 $v^{gt}_{1:T}$，WorldArena 按模型能力评估不同接口：文本条件模型用 $M(o_0,c)$，动作条件模型另接收控制序列。下面的统一符号不意味着每个模型都支持所有条件：
 
 $$
 \hat v_{1:T}=M(o_0, c, a_{0:T}), \qquad
@@ -101,7 +103,7 @@ $$
 
 ![WorldArena embodied task evaluation framework from paper Figure 3](https://world-arena.ai/assets_common/photos/Embodied_evaluation.svg)
 
-**【Paper】** 评测流程由三条支路组成：视频质量分支计算 16 个指标，功能分支分别测试 data engine、policy evaluator、action planner，最后再用人类评测和 EWMScore 汇总；三条功能支路共享 RoboTwin 场景与 IDM 接口。
+**【Paper】** 评测流程由三条支路组成：视频质量分支计算 16 个指标，功能分支分别测试 data engine、policy evaluator、action planner，最后再用人类评测和 EWMScore 汇总；三条功能支路共享 RoboTwin 场景，但只有数据合成和规划需要 IDM；policy evaluator 的动作由被评策略直接产生。**EWMScore 只聚合视频指标，不含三项功能成绩或人工分数。**
 
 ### 4.2 核心模块
 
@@ -109,21 +111,23 @@ $$
 
 **【Paper】**
 
-| 维度 | 指标与测量对象 |
-| --- | --- |
-| Visual Quality | MUSIQ Image Quality、LAION Aesthetic Quality、V-JEPA Similarity |
-| Motion Quality | RAFT Dynamic Degree、Flow Score、Motion Smoothness |
+| 维度                | 指标与测量对象                                                                           |
+| ------------------- | ---------------------------------------------------------------------------------------- |
+| Visual Quality      | MUSIQ Image Quality、LAION Aesthetic Quality、V-JEPA Similarity                          |
+| Motion Quality      | RAFT Dynamic Degree、Flow Score、Motion Smoothness                                       |
 | Content Consistency | DINO Subject Consistency、CLIP Background Consistency、光流 AEPE Photometric Consistency |
-| Physics Adherence | Qwen3-VL Interaction Quality、SAM 3 + NDTW Trajectory Accuracy |
-| 3D Accuracy | 深度图 Depth Accuracy、Qwen3-VL Perspectivity |
-| Controllability | Qwen3-VL Instruction Following、Qwen2.5-VL Semantic Alignment、Action Following 多样性 |
+| Physics Adherence   | Qwen3-VL 对视觉交互的判断；SAM 3 检测框中心的二维轨迹与参考轨迹的 NDTW 对齐              |
+| 3D Accuracy         | 对生成和参考视频分别估计单目深度、做中位尺度对齐后算 AbsRel；Qwen3-VL 判断透视合理性     |
+| Controllability     | Qwen3-VL Instruction Following、Qwen2.5-VL Semantic Alignment、Action Following 多样性   |
 
-**【Analysis】** 这组维度刻意把“像素看起来好”与“机器人运动是否合理”拆开。例如 Flow Score 高只说明运动明显，不保证抓取接触正确；Trajectory Accuracy 则直接比较机械臂轨迹，能揭示两者差异。
+**【Analysis】** 这组维度刻意把“像素看起来好”与“机器人运动是否合理”拆开。例如 Flow Score 高只说明运动明显，不保证抓取接触正确；Trajectory Accuracy 比较的是**图像平面里的检测框中心**，不是三维末端轨迹、关节状态或真实接触力。Depth Accuracy 的参考同样来自单目估计而非模拟器真实深度；尺度对齐会消除部分绝对尺度错误。这些指标是物理/几何的视觉代理，不能当作物理正确性证明。
+
+Action Following 也有命名上的陷阱：它计算同一首帧下三种不同指令所生成视频的 CLIP 特征两两差异，直接测到的是多样性；错误物体、幻觉或随机背景变化也可增大该值，需与 Instruction Following 联看。DINO/CLIP 一致性则加入动态惩罚，以减少“完全不动但很一致”的取巧；多个指标共享 RAFT、CLIP 或同一 VLM，16 项并不是 16 份独立证据。
 
 #### 三种 embodied task
 
-- **Data Engine**：world model 根据首帧和指令生成视频，再由 IDM 抽取 action，生成 paired video–action 数据；用这些合成数据训练 $\pi_{0.5}$，观察下游任务成功率增益。
-- **Policy Evaluator**：让 policy 的动作驱动 action-controllable world model 进行 rollout，并把模型中的成功率与 RoboTwin simulator 的成功率做相关性比较。
+- **Data Engine**：world model 根据首帧和指令生成视频，再由 IDM 抽取 action，生成 paired video–action 数据；用这些合成数据微调预训练 $\pi_{0.5}$，观察其在 RoboTwin 中的成功率。世界模型和 IDM 已使用真实动作示教，因此不是无动作数据凭空创造监督。
+- **Policy Evaluator**：让 policy 的动作驱动 action-controllable world model 进行 rollout，生成的观测继续反馈给 policy；另在 RoboTwin 中独立评测同一 policy，比较两组成功率。该分支不能每步从模拟器取真观测，否则就没有检验世界模型自身的 rollout 误差。
 - **Action Planner**：world model 直接根据首帧和文本指令生成视频，IDM 转成动作，在模拟器闭环执行并统计成功率。
 
 #### 人类评测
@@ -132,30 +136,37 @@ $$
 
 ### 4.3 关键公式
 
-对第 $m$ 个视频质量指标，设原始分数为 $s_m$，论文用经验上下界 $l_m,u_m$ 做线性归一化：
+对需要经验归一化的指标，设原始分数为 $s_m$，论文用经验上下界 $l_m,u_m$ 做线性归一化（这里写成 0–100 尺度）：
 
 $$
 \tilde s_m=100\cdot\mathrm{clip}\left(\frac{s_m-l_m}{u_m-l_m},0,1\right).
 $$
 
-其中 $l_m,u_m$ 是所有评测视频的第 1 和第 99 百分位边界；对于误差型指标（如 AEPE），实现中先做方向统一，使“越大越好”。EWMScore 是 16 项归一化分数的算术平均：
+附录 A.17 对 Flow、Trajectory、Photometric、Smoothness 使用第 1/99 百分位边界，Depth 还反转误差方向。Trajectory/Photometric 在此前先把距离/误差取倒数；JEPA 则按 $\exp(-40\widehat{\mathrm{MMD}}^2)$ 映射，VLM Likert 等另有各自映射，不能说 16 项都用同一百分位公式。附录写校准来自 **8 个模型**，而主实验是 14 个，未交代这 8 个的完整名单；表 6 给出固定边界。EWMScore 是处理后 16 项的算术平均：
 
 $$
 \mathrm{EWMScore}=\frac{1}{16}\sum_{m=1}^{16}\tilde s_m.
 $$
 
-**【Analysis】** 等权平均牺牲了任务特定的最优权重，却换来可解释性和跨模型可比性；它不应被理解为“真实机器人效用”的充分统计量。
+**【Analysis】** 等权指的是 16 个指标，而非六个维度：含三项的维度权重 3/16，Physics 与 3D 各为 2/16。固定权重和固定边界便于比较，但不能自动保证任务效用最大；它不应被理解为“真实机器人效用”的充分统计量。
 
 ### 4.4 Training
 
-**【Paper】** Benchmark 本身不训练一个统一的 world model，而是为每个被测模型提供统一的数据后处理、指标计算和功能测试协议。Data Engine 任务例外地包含两阶段训练：先在 RobotTwin 2.0 上 fine-tune world model 生成视频，再冻结 world model，用 VPP 风格的 diffusion policy head/IDM 抽取动作，训练不同数据量的 $\pi_{0.5}$。
+**【Paper】** Benchmark 本身不训练一个统一的 world model，而是为每个被测模型提供统一的数据后处理、指标计算和功能测试协议。Data Engine 任务例外地包含两阶段训练：先在 RoboTwin 2.0 上 fine-tune 可训练的 world model 生成视频，再冻结 world model，用 VPP 风格的 diffusion policy head/IDM 抽取动作，训练不同数据量的 $\pi_{0.5}$。
 
 <Algorithm number={1} title='WorldArena evaluation protocol' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>世界模型 $M$、RoboTwin 2.0 初始帧/动作/指令、ground-truth 视频与评测配置。</div>
   <div slot='output'>16 项视频指标、三类任务成功率/相关性、人类分数与 EWMScore。</div>
-  <AlgorithmStep>按统一预处理协议生成模型视频，并将长度扩展到不超过 ground truth 的 1.2 倍。</AlgorithmStep>
-  <AlgorithmStep>运行六个维度的自动指标；需要 VLM 的项目调用 Qwen3-VL 或 Qwen2.5-VL judge。</AlgorithmStep>
-  <AlgorithmStep>在 Data Engine、Policy Evaluator、Action Planner 三个闭环设置中运行 IDM、policy 或 simulator。</AlgorithmStep>
+  <AlgorithmStep>
+    先确定模型支持的条件与评测角色，按对应协议准备视频；1.2 倍参考长度的停止规则仅用于 policy
+    evaluator rollout。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    运行六个维度的自动指标；需要 VLM 的项目调用 Qwen3-VL 或 Qwen2.5-VL judge。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    分别执行合成数据→策略微调、policy↔world model 虚拟 rollout，以及 world model+IDM↔模拟器控制。
+  </AlgorithmStep>
   <AlgorithmStep>汇总人工标注，按经验边界归一化 16 项指标并计算 EWMScore。</AlgorithmStep>
 </Algorithm>
 
@@ -163,28 +174,42 @@ $$
 
 **【Paper】** 对单个模型的运行时行为依评测角色而异：open-loop 只生成一段未来视频；policy evaluator 将 policy action 作为下一步条件反复 rollout；action planner 则从文本指令出发生成视频，再由 IDM 转成可执行动作。成功与否由 RoboTwin simulator 或 VLM judge 判定。
 
-<Algorithm number={2} title='Closed-loop functional evaluation' inputLabel='输入' outputLabel='输出'>
-  <div slot='input'>初始观测 $o_0$、指令 $c$、待评测 policy 或 world model。</div>
-  <div slot='output'>任务 success rate；policy evaluator 额外输出与真实 simulator 的 Pearson correlation。</div>
-  <AlgorithmStep>将 $o_t$、指令和（若适用）动作 $a_t$ 输入 world model，生成未来视频片段。</AlgorithmStep>
-  <AlgorithmStep>用 IDM 把视频片段转换成动作序列，或直接读取 policy 的动作。</AlgorithmStep>
-  <AlgorithmStep>在 RoboTwin 中执行动作，获得下一观测并循环至任务结束。</AlgorithmStep>
-  <AlgorithmStep>统计 100 次 rollout 的成功率，或比较 world model 与 simulator 对同一组 policy 的排序。</AlgorithmStep>
+<Algorithm number={2} title='区分两种闭环的功能评估' inputLabel='输入' outputLabel='输出'>
+  <div slot='input'>初始观测、任务指令与适用于当前分支的 policy/world model。</div>
+  <div slot='output'>规划成功率，或五个 policy 的世界模型/模拟器成功率相关性。</div>
+  <AlgorithmStep>
+    规划分支：由当前模拟器观测生成未来表征，经 IDM 得到动作，再到模拟器执行并重取观测。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    评策略分支：policy 从生成观测出动作，动作条件 world model 生成下一观测；该闭环在模型内推进。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    评策略 rollout 在超过参考视频帧数的 1.2 倍后停止，由 VLM 对照参考视频判定成功。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    用 RoboTwin 另跑同组 policy，比较聚合成功率；不要把两个环境的反馈混在一次 rollout 中。
+  </AlgorithmStep>
 </Algorithm>
 
 ### 4.6 代码实现对照
 
 **【Code】** 官方仓库将实现拆成 `video_quality/` 与 `embodied_task/`。 `video_quality/evaluate.py` 解析 `--dimension` 和 YAML checkpoint 配置，实例化 `WorldArenaBenchmark`，再按维度调用 MUSIQ、RAFT、DINO、VLM、深度与轨迹等模块；因此指标可以按需分开运行，而不是必须一次跑完全部 16 项。
 
-**【Code】** `embodied_task/policy_eval_release_bundle/vlm_policy_evaluator.py` 负责读取 rollout 视频、调用 VLM 判定任务成功；`calculate_policy_pearson_r.py` 将 world-model 评测结果与 ground-truth simulator 结果对齐并计算 Pearson $r$。Data Engine 的 `step1_prepare_latent_wan.py`、`step2_train_action_robotwin_wan.py` 则把视频 latent 与 VPP policy 训练串起来。
+**【Code】** `embodied_task/policy_eval_release_bundle/vlm_policy_evaluator.py` 负责读取 rollout 视频、调用 VLM 判定任务成功；`calculate_policy_pearson_r.py` 将 world-model 评测结果与 ground-truth simulator 结果对齐并计算 Pearson $r$。`step1_prepare_latent_wan.py` 与 `step2_train_action_robotwin_wan.py` 则提供 latent 缓存和动作头训练入口。VLM evaluator 默认各取参考/预测视频 5 帧，提示词允许轻微幻觉、变形与轨迹差异，重点比较末帧和动作意图；因此它的“成功”与模拟器的物理完成判据不等价。相关性脚本默认 `valid-only`，会排除调用/解析错误，需同时报告有效样本数；切到 `errors-as-fail` 时分母会改变。
 
 **【Code】** 仓库还提供 `run_evaluation.sh`、`run_VLM_judge.sh`、配置 YAML 和 submission README；但模型权重、完整运行环境与所有第三方 checkpoint 不随仓库提供，复现实验仍需要自行准备依赖。
+
+还需留意三处公开实现细节：
+
+- `subject_consistency.py` 在动态分数不高于 0.1213 时直接乘该分数，与附录连续惩罚 $\min(1,S_{dyn}/\gamma)$ 不同；代码会对相邻帧项平均，而附录式 8/10 的求和漏写平均系数。
+- `trajectory_accuracy.py` 选参考视频中移动范围最大的轨迹，计算 `fastdtw` 欧氏距离和再除对齐路径长度、最后取倒数；与附录的平方距离和开方、除参考长度的写法不同。
+- `csv_results/aggregate_results.py` 汇集各项 CSV，并不直接计算 EWMScore；JEPA 列声明为 `JEPA Similarity`，写入时却用 `JEPA_Similarity`，当 JEPA 分数存在时会触发 `DictWriter` 未知字段错误。故“跑完脚本即可得到论文总榜”的表述过强。这是静态路径核查，未运行重型视频评测。
 
 ## 5. 实验
 
 ### 5.1 Experimental Setup
 
-**【Paper】** 数据来自 RoboTwin 2.0 Clean-50：50 个双臂操作任务，每个任务 50 个 episode；论文使用 2,000 个视频训练 world model、500 个视频测试。共评测 14 个模型，包括 Wan 2.2/2.6、Veo 3.1、CogVideoX 等通用视频模型，以及 Genie Envisioner、GigaWorld-0、TesserAct、WoW、Vidar、IRASim、CtrlWorld 和 Cosmos-Predict 2.5 的 text/action 变体。
+**【Paper】** 数据来自 RoboTwin 2.0 Clean-50：50 个双臂操作任务，每个任务 50 个 episode；每任务 40 条训练、10 条测试，共 2,000/500。只有具有训练代码的模型进行了同域 post-training，商业闭源模型并没有相同适配路径；不同基础预训练规模也未被控制。共评测 14 个模型，包括 Wan 2.2/2.6、Veo 3.1、CogVideoX 等通用视频模型，以及 Genie Envisioner、GigaWorld-0、TesserAct、RoboMaster、WoW、Vidar、IRASim、CtrlWorld 和 Cosmos-Predict 2.5 的 text/action 变体。
 
 ![WorldArena perceptual evaluation dimensions](https://raw.githubusercontent.com/tsinghua-fib-lab/WorldArena/main/assets/video_eval.png)
 
@@ -192,7 +217,7 @@ $$
 
 **【Paper】** EWMScore 排名中 Wan 2.6（61.86）、CtrlWorld（59.70）、Veo 3.1（58.87）位居前列，Genie Envisioner（43.65）最低。通用大模型通常在 Image/Aesthetic Quality 上强，embodied 模型在轨迹、主体一致性和物理相关指标上更有优势。
 
-**【Paper】** Data Engine 中，绝大多数模型生成数据训练出的 $\pi_{0.5}$ 仍落后于真实数据；只有 RoboMaster 和 WoW 在 Task 2 超过 real-data baseline。Action Planner 的直接成功率也远低于 $\pi_{0.5}$（Task 1/2 为 77%/66%），说明视频预测能力尚未转化为长时程控制能力。
+**【Paper】** Data Engine 中，绝大多数模型生成数据训练出的 $\pi_{0.5}$ 仍落后于真实数据；这里 Task 1/2 分别是 **adjust bottle / click bell**，每任务每模型生成 25 条轨迹，再各执行 100 次。WoW 为 45%/71%，RoboMaster 7%/68%，真实示教 baseline 77%/66%；Task 2 的 +5/+2 个百分点来自单组有限试验，未给种子方差或显著性。TesserAct 在 Task 1 为 1%，甚至低于零样本 π₀.₅ 的 2%，所以也不是所有合成数据都有正增益。Action Planner 的直接成功率也远低于 $\pi_{0.5}$（Task 1/2 为 77%/66%），例如 WoW 20%/21%、TesserAct 1%/35%。这支持所测两任务上的功能差距，但不能概括成 50 个任务均有同样差距。论文文字提过不同合成数据量，主结果只展示 25 条设置，未给完整 scaling curve。
 
 ![WorldArena embodied task evaluation protocol](https://raw.githubusercontent.com/tsinghua-fib-lab/WorldArena/main/assets/task_eval.png)
 
@@ -201,14 +226,16 @@ $$
 论文没有传统的“去掉一个模块”消融，而是用跨维度相关性和不同功能角色的对照验证 benchmark 设计：
 
 - **指标与人类判断**：EWMScore–human Pearson $r=0.825$，说明自动指标组合能近似主观总体质量。
-- **感知与 Data Engine**：相关性仅 $r=0.600$，视觉高分不保证合成数据能训练出强 policy。
-- **感知与 Action Planner**：相关性降到 $r=0.360$，表明闭环动作规划受动力学误差和长时程累积影响更大。
+- **感知与 Data Engine**：相关性为 $r=0.600$（作者称中等相关），视觉高分不保证合成数据能训练出强 policy。
+- **感知与 Action Planner**：相关性降到 $r=0.360$，支持“感知分数不能充分预测这组闭环成绩”，但不能仅凭相关性把原因唯一归结为长时程动力学误差；IDM质量与适配预算同样可能影响结果。
 
 ![WorldArena perceptual and functional evaluation overview](https://world-arena.ai/assets_common/photos/Perceptual%20evaluation.svg)
 
+**【Analysis】** 这些是模型层面的相关性，不是对每个视频成败的预测准确率；数据/规划图只覆盖六个模型，policy evaluator 更是在同一 π₀.₅ 的五个数据量变体上比较。Pearson 也不等于 rank correlation：即使预测成功率整体偏高，只要近似线性仍可得到高 $r$。需要同时看校准误差、排序和失败类型，不能据此证明学到了真实动力学。
+
 ### 5.4 Generalization
 
-**【Paper】** WorldArena 在同一套 RoboTwin 协议上同时覆盖 text-conditioned、action-conditioned、通用视频与机器人专用模型，说明 benchmark 可以跨模型范式使用。仓库也公开 submission 格式、测试数据集和 leaderboard，允许新模型按相同协议加入比较。
+**【Paper】** WorldArena 在同一套 RoboTwin 协议上同时覆盖 text-conditioned、action-conditioned、通用视频与机器人专用模型，说明 benchmark 可以跨模型范式使用。仓库也公开 submission 格式、测试数据集和 leaderboard，允许新模型提交。但当前 `worldarena_track2/docs/DATA_ENGINE.md` 已改为 **5 个子任务、只用 head 相机、动作 horizon 40、10k 步微调、每任务 100 次**；这是后续比赛协议，不应回填到论文的两任务结果。官方 README 还要求使用 2026-03-06 更新的测试集，复现时需锁定版本。
 
 **【Analysis】** 但这不是对真实机器人硬件的泛化证明：所有主要功能实验都依赖 RoboTwin 模拟器，真实部署中的相机噪声、接触建模和控制延迟仍未被覆盖。
 
@@ -216,7 +243,7 @@ $$
 
 ### 6.1 为什么有效？
 
-**【Analysis】** EWMScore 与人类判断高度相关，是因为 16 个指标覆盖了从清晰度到指令遵循的互补证据，减少单一 FVD 对失败模式的盲区。三类功能任务则把评价从“预测得像不像”推进到“预测是否改变下游决策”。
+**【Analysis】** EWMScore 与人类判断的模型级相关性支持其感知评测价值；一个可能原因是 16 个指标覆盖了从清晰度到指令遵循的互补证据，减少单一 FVD 对失败模式的盲区。三类功能任务则把评价从“预测得像不像”推进到“预测是否改变下游决策”。
 
 ### 6.2 核心创新
 
@@ -224,15 +251,15 @@ $$
 
 ### 6.3 与已有方法的本质区别
 
-| 评测 | 主要问题 | WorldArena 的补充 |
-| --- | --- | --- |
+| 评测               | 主要问题               | WorldArena 的补充                    |
+| ------------------ | ---------------------- | ------------------------------------ |
 | 传统视频 benchmark | 视频清晰、运动和一致性 | 增加物理、3D、可控性与 embodied task |
-| 单一闭环 benchmark | 能否完成某类任务 | 同时测数据生成、policy 排序和规划 |
-| 人工观感评测 | 人类觉得哪个更好 | 用自动 16 指标提供可扩展、可解释分数 |
+| 单一闭环 benchmark | 能否完成某类任务       | 同时测数据生成、policy 排序和规划    |
+| 人工观感评测       | 人类觉得哪个更好       | 用自动 16 指标提供可扩展、可解释分数 |
 
 ### 6.4 关键假设
 
-**【Paper】** 评测假设 RoboTwin 2.0 足以代表双臂 manipulation，且 IDM 能从生成视频中恢复有意义的 action；VLM judge 的成功判定也被视作可接受的任务标签。
+**【Analysis】** 协议依赖 RoboTwin 双臂场景、可训练的 IDM，以及能对生成视频可靠判定成功的 VLM judge。这是我们归纳的适用前提，不是论文已经验证的普遍保证。
 
 **【Analysis】** 这些假设决定了 benchmark 更适合比较“当前模型在该场景下的相对能力”，而非给出跨 embodiment、跨 simulator 的绝对能力上限。
 
@@ -247,7 +274,7 @@ $$
 **【Analysis】**
 
 1. EWMScore 对 16 项指标等权，可能掩盖关键安全维度（例如接触物理）上的灾难性失败。
-2. 经验百分位边界依赖当前 14 个模型和测试集；加入更强模型后，历史分数的可比性需要重新校准。
+2. 经验边界的校准子集存在“8/14 模型”的描述差异；加入新模型时若保持边界可维持历史尺度，但可能饱和，若重算边界则需重新计算历史分数。
 3. Data Engine 只用每个 world model 生成 25 条轨迹训练 policy，样本量较小，难以估计 scaling curve。
 4. Policy evaluator 中 world model 成功率高于 simulator 可能来自对成功轨迹的偏置，相关性并不等于动力学真实度。
 5. Action Planner 的 IDM、VLM 和 simulator 各自引入误差，失败归因仍不够细粒度。

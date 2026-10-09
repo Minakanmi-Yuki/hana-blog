@@ -1,7 +1,7 @@
 ---
 title: 'FD-VLA 论文精读'
 publishDate: 2026-08-26
-updatedDate: 2026-08-26
+updatedDate: 2026-09-22
 description: '精读 FD-VLA：用视觉与机器人状态蒸馏出力觉 token，在不依赖力传感器的情况下提升接触丰富操作。'
 heroImage:
   { src: 'https://pic.hana0721.top/125160058_p0_master1200.6ikvtm0o6l.webp', color: '#8C8275' }
@@ -47,6 +47,8 @@ import { Aside } from '@/components/user'
 **会议**：ICRA 2026（论文标注为 accepted）  
 **论文链接**：[arXiv](https://arxiv.org/abs/2602.02142)
 
+**核对范围**：[arXiv v1 全文](https://arxiv.org/html/2602.02142v1)。本文将论文的力表征蒸馏、注意力约束与真实力反馈区分开，并指出原文 flow-matching 符号及结果叙述中的不一致。
+
 <img
   src='https://pic.hana0721.top/blog/paper-deep-dive-fd-vla/overview.1e9ce4j7xr.webp'
   alt='FD-VLA 总体框架：训练时用实际力监督预测力 token，推理时只使用视觉与状态（论文 Figure 2）'
@@ -88,7 +90,7 @@ import { Aside } from '@/components/user'
   style='max-width:100%; height:auto;'
 />
 
-**【Analysis】** 这不是简单的 sensor imputation。FDM 的监督目标是“对控制有用的 force latent”，而不是重建每一个高频原始传感器采样，因此它更像 task-relevant representation distillation。
+**【Analysis】** 这是以力测量作为训练期特权信息的表征蒸馏。模型学会从已有视觉与状态中提取与力相关的线索，却没有增加部署时的可观测信息。动作损失鼓励表征有助于控制，但单凭 latent 对齐并不能证明它恢复了真实接触力或具备精确力反馈能力。
 
 ## 3. 问题定义
 
@@ -104,6 +106,8 @@ $$
 - **Robot / Embodiment**：UR5e 机械臂。
 - **Data**：每个任务 50 条 teleoperation demonstrations；SpaceMouse 用于示教。
 - **Objective**：conditional flow-matching policy loss 加上 force-distillation loss。
+
+论文在动机中提及关节力矩、速度、位置与接触力的相关性，却没有完整列出实际输入状态的字段。因此这里的 sensor-free 应理解为**不输入专用 force/torque 测量**，不能进一步声称部署状态一定不含机器人内部力矩信息。
 
 论文没有把“预测的力”定义成物理单位上的 $\hat{\bm F}_t$。它定义的是 VLM hidden dimension $D$ 中的 latent token，因此不能把 FDM 当作一个可直接替代力传感器的标定仪器。
 
@@ -127,7 +131,7 @@ $$
 - **输出**：$\bm f_t^V\in\mathbb R^{N_v\times D}$、$\bm f^L\in\mathbb R^{N_l\times D}$、$\bm f_t^S\in\mathbb R^{N_s\times D}$。
 - **作用**：视觉和语言沿用 SmolVLA / SmolVLM-2 的预训练表示；状态通过轻量 MLP 投影到相同维度。
 
-论文称视觉 backbone 使用 SignLIP，VLM 参数冻结，并在部分计算层采用 selective skipping；具体层数未明确说明。
+论文将视觉 backbone 写作 “SignLIP”（所引文献为 SigLIP）。VLM 参数冻结，并在部分计算层采用 selective skipping；具体层数未明确说明。
 
 #### Force Distillation Module（FDM）
 
@@ -141,6 +145,8 @@ FDM 有两个训练期分支：
 #### Directional Attention Mask
 
 模型把 token 分成 perceptual stream（视觉、语言）和 control stream（状态、预测力）。perceptual token 只能互相注意；control token 可以注意 perceptual token，并在控制流内部保持因果方向。于是控制信息可以读取语义，语义信息却不会被新加入的状态/力 token 反向污染。
+
+**【Analysis】** 冻结权重和限制注意力解决两种不同的问题：前者禁止参数更新，后者阻止新增 token 改变视觉语言 token 的前向表示。按 $[V,L,S,pF]$ 排序，力 token 能读取前面的状态 token，状态 token 不能读取后面的力 token；融合结果最终由 action expert 使用。论文没有单独去掉 mask 的消融，也没有语言能力保持测试，因此“保持预训练语义”首先是结构设计理由，不能当作独立验证的能力结论。
 
 #### Action Expert
 
@@ -162,8 +168,10 @@ $$
 
 $$
 \bm f_t^{pF}=\operatorname{FFN}\left(\operatorname{LN}\left([
-\bm Z_1,\ldots,\bm Z_H]\bm W_O+\bm p\right)\right).
+\bm Z_1,\ldots,\bm Z_{n_h}]\bm W_O+\bm p\right)\right).
 $$
+
+这里 $\bm Z_h=\bm\alpha_{t,h}(\bm C_t\bm W_{V,h})$，$n_h$ 是 attention head 数，$\bm W_O$ 是输出投影；为避免与动作 horizon 混淆，不沿用原文对此处 head 数也使用 $H$ 的记号。可学习 query 是跨样本共享的参数，其检索到的输出则随当前图像、状态变化。
 
 #### 力蒸馏损失
 
@@ -172,7 +180,7 @@ $$
 \left\|\bm f_t^{pF}-\bm f_t^{aF}\right\|_2^2.
 $$
 
-它约束的是 latent embedding 的欧氏距离，不是物理力值的绝对误差。
+它约束的是 latent embedding 的欧氏距离，不是物理力值的绝对误差。**【Analysis】** 若监督端的力编码固定，平方误差最优预测是给定视觉、状态时 teacher latent 的条件均值；这解释了为何不可预测的噪声可能被平均掉，同时也说明不可观测的接触差异会被平均掉。原文没有交代 force projection 是否 stop-gradient / 冻结，故不能把它补写成一个已训练并冻结的 teacher network。
 
 #### Conditional flow matching
 
@@ -184,7 +192,9 @@ $$
 \right],
 $$
 
-其中 $\bm A_t^\tau=\tau\bm A_t+(1-\tau)\epsilon$，$\epsilon\sim\mathcal N(0,I)$，$\bm X_t$ 是 masked VLM 特征。总目标为
+其中 $\bm A_t^\tau=\tau\bm A_t+(1-\tau)\epsilon$，$\epsilon\sim\mathcal N(0,I)$，$\bm X_t$ 是 masked VLM 特征；原文说明 $\tau$ 从 Beta 分布采样。
+
+**【Paper】** §III-E 同时将目标向量场写成 $\epsilon-\bm A_t$。**【Analysis】** 这与上式对递增 $\tau$ 求导得到的 $\bm A_t-\epsilon$ 相反。若采用“$\tau=0$ 噪声、$\tau=1$ 数据”的约定，自洽目标应为 $\bm u=\bm A_t-\epsilon$ 并从 0 向 1 积分；若要使用反向目标，则必须一并反转时间/积分约定。缺少官方实现时，不能认定作者实际求解器使用了哪一种。总目标为
 
 $$
 \mathcal L=\mathcal L^\tau(\theta)+\lambda\mathcal L_{\mathrm{dist}}.
@@ -227,7 +237,7 @@ $$
 
 ### 4.6 代码实现对照
 
-**【Code】** arXiv 源码包只包含 `root.tex`、`figures/` 和参考文献，没有随论文发布的训练、模型或推理代码仓库；论文页面的 Code/Data/Media 区域也未给出官方 GitHub 链接。因此无法对照具体的 `DataLoader`、optimizer、checkpoint 格式、action 维度或推理采样步数。
+本次核对的 v1 未提供可对照的官方训练/推理实现，本文没有独立核验 `DataLoader`、optimizer、checkpoint 格式、action 维度或采样步数。arXiv 的论文排版源文件也不等于模型代码，故不将本节标为 `【Code】` 事实。
 
 **【Analysis】** 这意味着本文关于 FDM、mask 和 flow-matching 的描述来自论文，而不是从可运行实现反推。复现时最需要补齐的工程细节包括：SmolVLM-2 的确切层跳过策略、状态 token 的排列、flow integration solver、$\lambda$、动作 horizon，以及三任务的时间同步和归一化方式。
 
@@ -237,7 +247,7 @@ $$
 
 <img
   src='https://pic.hana0721.top/blog/paper-deep-dive-fd-vla/setup.2ksnmq85t9.webp'
-  alt='FD-VLA 真实机器人实验平台：UR5e、Azure Kinect 与 RealSense D405（论文 Figure 4）'
+  alt='FD-VLA 真实机器人实验平台：UR5e、Azure Kinect 与 RealSense D405（论文 Figure 5）'
   class='zoomable'
   width='1773'
   height='1329'
@@ -250,7 +260,7 @@ $$
 
 <img
   src='https://pic.hana0721.top/blog/paper-deep-dive-fd-vla/snapshots.51ew1nf291.webp'
-  alt='FD-VLA 三个真实接触操作任务：擦白板、按紧急按钮、插入插头（论文 Figure 5）'
+  alt='FD-VLA 三个真实接触操作任务：擦白板、按紧急按钮、插入插头（论文 Figure 4）'
   class='zoomable'
   width='5752'
   height='2532'
@@ -285,25 +295,27 @@ $$
 | $\pi_0$ w/ force  |     33.3% |            46.7% |        60.0% |     46.7% |
 | **FD-VLA**        | **40.0%** |        **73.3%** |    **70.0%** | **61.1%** |
 
-FD-VLA 在三个任务上都最高，尤其在擦白板上比第二高方法高 23.3 个百分点。论文还报告：给 SmolVLA 或 $\pi_0$ 直接输入 raw force 虽然有帮助，但仍低于预测的 force token；这支持“task-relevant latent 比原始传感器值更适合作为 policy 条件”的解释。
+FD-VLA 在三个任务上都最高，尤其在擦白板上比第二高方法高 23.3 个百分点。**【Paper】** §IV-C 将 $\pi_0$ “without force” 写成 46.7%，但 Figure 6 区分出的无力/有力均值为 26.7%/46.7%，且与正文随后报告的 20.0 个百分点增益一致，本文采用图中口径。
+
+**【Analysis】** 结果说明该蒸馏与融合方案在这三个任务上优于作者实现的直接力输入基线，不能证明“估计力包含的信息比真实测量更多”。模块、融合方式和监督方式共同变化；噪声抑制只是合理解释之一，论文没有直接报告力重建误差、去噪频谱或独立的滤波传感器基线。
 
 ### 5.3 Ablation Study
 
 **【Paper】** 消融只替换 FDM 的力 token 形式，其他初始化、时间预算和 30 次 rollout 保持一致：
 
-| 变体                          |  Plug | Clean | Press |  Mean |
-| ----------------------------- | ----: | ----: | ----: | ----: |
-| w/o FDM                       |  8/30 | 15/30 | 12/30 | 38.9% |
-| FDM + actual force token      | 12/30 | 17/30 | 17/30 | 51.1% |
-| FDM + learnable token（本文） | 12/30 | 22/30 | 21/30 | 61.1% |
+| 变体                           |  Plug | Clean | Press |  Mean |
+| ------------------------------ | ----: | ----: | ----: | ----: |
+| w/o FDM（仍用 MLP 编码真实力） |  8/30 | 15/30 | 12/30 | 38.9% |
+| FDM + actual force token       | 12/30 | 17/30 | 17/30 | 51.1% |
+| FDM + learnable token（本文）  | 12/30 | 22/30 | 21/30 | 61.1% |
 
-**【Analysis】** 结果将收益拆成两部分：先有 FDM 的 early force–vision–state fusion，再把 actual force token 换成 learnable query。第二步带来的提升说明 query 不是被动地搬运传感器 embedding，而是在上下文中检索与任务相关的力先验。
+**【Paper】** 第二行用实际力 embedding **替代 FDM 的 query**，仍与视觉/状态交互；第一行没有 FDM，却仍有实际力输入，不能误读成“完全无力监督”。**【Analysis】** 38.9%→51.1% 支持早期交互的价值，51.1%→61.1% 则是改为 learnable query 后的任务表现；后者在插入任务上仍同为 12/30。每任务 30 次、未报告多训练种子方差，无法由此分离 query、蒸馏正则与噪声抑制各自的因果贡献。
 
 ### 5.4 Generalization
 
 <img
   src='https://pic.hana0721.top/blog/paper-deep-dive-fd-vla/generlization.pg2u3vodw.webp'
-  alt='FD-VLA 的视觉泛化设置：新背景与彩色灯光扰动（论文 Figure 8）'
+  alt='FD-VLA 的视觉泛化设置：新背景与彩色灯光扰动（论文 Figure 7）'
   class='zoomable'
   width='5427'
   height='1935'
@@ -337,7 +349,7 @@ Tactile-VLA / raw-force VLA 的部署闭环仍依赖传感器；FD-VLA 把 force
 - 接触状态在视觉和 proprioceptive state 中存在足够可预测的信息。
 - 对控制有用的力表征比原始力波形更低维、更稳定。
 - 预训练 VLM 的视觉—语言表征应当保持冻结，新增控制模态只需单向读取它。
-- 三个 UR5e 任务中的相关性可以迁移到没有力传感器的部署平台。
+- 部署时视觉与状态同训练期保持足够相似的接触相关性；跨平台迁移是待检验的扩展，尚非本文实验证明的性质。
 
 ## 7. 局限性
 
@@ -367,7 +379,6 @@ Tactile-VLA / raw-force VLA 的部署闭环仍依赖传感器；FD-VLA 把 force
 - 把 distillation loss 与 safety constraint、force-aware reward 或 model-predictive control 结合，验证 latent 是否真的能支持安全接触，而不仅是提高成功率。
 
 <Aside type='note' title='阅读提示'>
-  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现；由于该论文 arXiv
-  源码未附训练/推理代码，代码部分仅用于说明“没有可对照的官方实现”；`【Analysis】`
-  表示基于论文的分析推断。
+  本精读中 `【Paper】` 表示论文明确内容，`【Analysis】`
+  表示基于论文的分析推断；本次未核验官方模型实现。
 </Aside>

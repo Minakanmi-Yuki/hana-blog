@@ -1,7 +1,7 @@
 ---
 title: 'MM-ACT 论文精读：Learn from Multimodal Parallel Generation to Act'
 publishDate: 2026-08-26
-updatedDate: 2026-08-26
+updatedDate: 2026-09-22
 description: '精读 MM-ACT：在共享离散 token 空间中统一生成任务规划、未来图像与动作，并用 Context-Shared Multimodal Learning 提升机器人控制。'
 heroImage:
   { src: 'https://pic.hana0721.top/71875434_p0_master1200.7pvvr603z.webp', color: '#8C8275' }
@@ -63,9 +63,9 @@ import { Aside } from '@/components/user'
 **【Paper】**
 
 1. 使用 language、vision、action 三个 modality-specific tokenizer，把文本、图像、机器人状态和动作拼成共享序列。
-2. 提出 Context-Shared Multimodal Learning：三种目标从相同的多视角观察、任务指令和状态上下文出发，共享一次多模态建模过程。
+2. 提出 Context-Shared Multimodal Learning：三种目标从相同的多视角观察、任务指令和状态上下文出发，共享模型参数与对同一情境的监督。三种输出分别构成条件生成样本，并不是把未来图像和动作放在同一个输出 block 中联合去噪。
 3. 为文本/图像采用多步 re-mask decoding，为动作采用 one-step parallel decoding，在动作质量与控制频率之间做取舍。
-4. 在 LIBERO、Franka real-world 和 RoboTwin2.0 上验证，报告 96.3%、72.0% 和 52.38% 的成功率；RoboTwin 中联合文本、图像和动作训练比 action-only 提升 9.25 个百分点。
+4. 在 LIBERO、Franka real-world 和 RoboTwin2.0 上验证，报告 LIBERO 96.3% 套件平均成功率、Franka 72.0% 混合任务得分和 RoboTwin 52.38% 成功率；RoboTwin 中联合文本、图像和动作训练比 action-only 提升 9.25 个百分点。
 
 ## 2. 背景与相关工作
 
@@ -81,7 +81,7 @@ import { Aside } from '@/components/user'
 - **T2I / image generation**：预测执行动作 chunk 后的未来图像 $y^{img}$；
 - **MM2A / action generation**：输出长度固定的动作 chunk $y^{act}$。
 
-共享上下文记为 $u=(I_t,l_t,s_t,\ldots)$，模态 token 为 $m\in\{\texttt{<|mmu|>},\texttt{<|t2i|>},\texttt{<|mm2a|>}\}$。模型学习的是 $p_\theta(y^m\mid m,u)$，而不是为每个模态维护一个独立策略。
+共享上下文记为 $u=(I_t,l_t,s_t,\ldots)$，模态 token 为 $m\in\{\texttt{<|mmu|>},\texttt{<|t2i|>},\texttt{<|mm2a|>}\}$。模型学习的是 $p_\theta(y^m\mid m,u)$，三种条件分布共享参数，但输出相互独立成任务：生成动作时不把模型生成的文本或未来图像作为必经输入。Table 8 还分别改变辅助任务是否读取状态，因此“共享上下文”不应理解成每个实验中三种模态的输入 token 完全一致。
 
 **【Code】** 官方训练配置将 `chunk_size` 设为 8；LIBERO 使用 7 维 Franka action，RoboTwin 配置默认 `action_dim: 16`。action codebook 的大小来自 checkpoint 配置，数据集代码的默认值虽写作 1024，但论文与模型准备脚本使用 2048，因此复现实验应以 checkpoint 的 `model.config.action_vocab_size` 为准。
 
@@ -107,7 +107,9 @@ import { Aside } from '@/components/user'
 
 **【Paper】** 每种任务的上下文都是 `modal token + shared input`。`shared input` 交错包含多视角图像 token、任务指令、描述和可选 robot state。上下文之后追加固定长度的 mask block：图像为 256，动作长度为 $d_{action}\times N_{chunk}$。
 
-**【Analysis】** modal token 使同一个 backbone 具备“任务路由”能力；真正改变输出语义的不是网络分支，而是目标 block 的 tokenizer 范围与解码策略。
+**【Analysis】** modal token 指定当前要补全的模态。未来图像标签取自专家执行当前 action chunk 后的帧，但图像分支并未以候选 action chunk 为条件；它学习的是任务条件下专家接下来可能到达的画面，不能直接用作比较任意候选动作的反事实模拟器。
+
+**【Paper】** 附录 A 的规划文本也有明确来源：RoboTwin 记录脚本中抓取、移动、放置 primitive 的调用与完成时间，再填入“总任务—完整计划—已完成部分—接下来子任务”的模板；LIBERO-Long 则人工标注子任务边界。这是结构化阶段监督，而非自由生成并经机器人执行验证的长链推理。
 
 #### Bidirectional Transformer
 
@@ -121,7 +123,7 @@ $$
 q_t(x_t^i\mid x_0^i)=(1-f_m(t))\mathbf{1}[x_t^i=x_0^i]+f_m(t)\mathbf{1}[x_t^i=\texttt{<mask>}].
 $$
 
-**【Paper】** 文本使用 linear schedule；图像和动作使用 cosine schedule。动作训练固定 $t=1$，即整个 action block 从全 mask 状态开始，直接学习一次性补全。
+**【Paper】** 文本使用 $f_{text}(t)=t$，图像使用 $f_{img}(t)=\cos(\frac{\pi}{2}(1-t))$；动作采用全 mask 的单步配方。动作训练固定 $t=1$，即整个 action block 从全 mask 状态开始，直接学习一次性补全。
 
 统一损失只在被 mask 的位置计算：
 
@@ -133,81 +135,105 @@ $$
 
 ### 4.4 Training
 
-**【Paper】** 训练采用两阶段策略。Stage 1 令 $\lambda_{mm2a}=0$，先训练文本和图像生成；Stage 2 主要优化动作，同时把文本和图像权重降到约 0.05–0.1，以保留跨模态能力。LIBERO 每个子基准约 11k steps，RoboTwin 多任务约 27k steps，Franka 每个任务约 8k steps；batch size 为 128，action chunk size 为 8。
+**【Paper】** 所有模型从 MMaDA 的多模态预训练权重开始，再在目标机器人数据上训练；不是先统一进行大规模机器人动作预训练。两阶段安排只适用于有辅助模态的配置，action-only vanilla 直接训练动作。RoboTwin 的 +Text / +Image 各先单独训练辅助模态 500 steps，再以辅助权重 0.1、动作权重 1 联合训练约 27k steps；+Text&Image 先共同训练文本和图像 500 steps，再将两者权重各降到 0.05。
+
+**【Paper】** LIBERO 每个套件分别训练模型，附录 C 给出的 Object / Spatial / Goal / Long 步数约为 9k / 7.5k / 8.5k / 17.5k；正文的“平均约 11k”不能作为每个套件的精确配置。只有 Long 的 +Text 先进行约 800 steps 文本训练，再以文本 0.05、动作 1 联合训练。Franka 每个任务单独训练约 8k steps；实验 batch size 为 128、chunk size 为 8。
 
 **【Code】** `configs/mmact_robotwin_mix.yaml` 默认 `co_action/co_t2i/co_mmu=True`、`action_weight=1.0`、`t2i_weight=0.05`、`mmu_weight=0.05`，优化器是 AdamW，learning rate 为 $5\times10^{-5}$，warmup 500 steps。`training/train_mmact_robotwin_mix.py` 把 action、T2I、MMU batch 拼接后一次 forward，再按配置权重求和。
 
-<Algorithm number={1} title='Context-Shared Multimodal Training' inputLabel='输入' outputLabel='输出'>
+<Algorithm
+  number={1}
+  title='Context-Shared Multimodal Training'
+  inputLabel='输入'
+  outputLabel='输出'
+>
   <div slot='input'>多视角图像、指令、状态、文本计划、未来图像和动作 chunk</div>
   <div slot='output'>共享 backbone 的多模态 checkpoint</div>
-  <AlgorithmStep>用 language tokenizer、MAGVIT-v2 和 bin tokenizer 把三种目标编码到拼接词表。</AlgorithmStep>
-  <AlgorithmStep>为每个样本添加对应 modal token，并在目标位置构造 mask；动作任务在训练配置中可设为全 mask。</AlgorithmStep>
-  <AlgorithmStep>使用 bidirectional attention 对 action、T2I、MMU batch 做一次或分组 forward。</AlgorithmStep>
-  <AlgorithmStep>仅在 masked positions 计算交叉熵，按 $\lambda_{action},\lambda_{t2i},\lambda_{mmu}$ 加权后反向传播。</AlgorithmStep>
-  <AlgorithmStep>先进行 text/image Stage 1，再以较小的 text/image 权重加入 action Stage 2。</AlgorithmStep>
+  <AlgorithmStep>
+    用 language tokenizer、MAGVIT-v2 和 bin tokenizer 把三种目标编码到拼接词表。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    为每个样本添加对应 modal token，并在目标位置构造 mask；动作任务在训练配置中可设为全 mask。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    使用 bidirectional attention 对 action、T2I、MMU batch 做一次或分组 forward。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    仅在 masked positions 计算交叉熵，按 $\lambda_{action},\lambda_{t2i},\lambda_{mmu}$
+    加权后反向传播。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    先进行 text/image Stage 1，再以较小的 text/image 权重加入 action Stage 2。
+  </AlgorithmStep>
 </Algorithm>
 
 ### 4.5 Inference
 
-**【Paper】** 部署时只生成动作。模型把 action block 初始化为 mask，一次 forward 得到所有动作 token 的 logits，采样后反量化成连续动作并执行第一个时间步；随后重新采集观察，滚动生成下一个 chunk。论文在 chunk size 8、one-step decoding 下报告最高约 40 Hz 的 action generation frequency（每 chunk 5 Hz 的控制设置）。
+**【Paper】** 部署时只需生成动作。模型把 action block 初始化为 mask，一次 forward 同时得到所有位置的 logits，采样后反量化成连续动作。论文所说最高约 40 Hz 是每秒生成约 5 个、每个包含 8 个动作的 chunk 吞吐量，不是每秒 40 次读取新观测并重新决策；Table 6 的 0.22 s/chunk 对应约 4.5 chunks/s、36.4 actions/s。
 
-**【Code】** `MMACTModelLM.action_generate` 同时支持 one-step 和 re-mask 路径，实际是否一次完成由 `timesteps` 与部署配置控制；`deploy_policy.py` 默认构造 6-step 接口，但论文实验最终选择 one-step action decoding。代码因此比论文叙述更通用，复现论文设置时需要显式把 action generation 的步数设为 1。
+**【Code】** 当前 `experiments/robot/libero/run_libero_eval.py` 截取 `action_chunk[:8]` 后依次执行；RoboTwin 的 `deploy_policy.py` 也遍历整个 chunk。原文未规定“只执行第一个动作”，该说法与公开评测循环不符。chunk 内虽有低层控制反馈，但策略不会在每个动作后重新生成剩余序列。
+
+**【Analysis】** 双向 attention 让每个输出位置看到共同上下文与其他 masked positions，却不等于一次采样已条件化于其他位置最终选中的值。单步解码没有把已采样动作 token 再输入模型进行一致性修正；更长序列为何从 re-mask 获益，应从这一区别理解。
+
+**【Code】** `MMACTModelLM.action_generate` 同时支持 one-step 和 re-mask 路径，实际是否一次完成由 `timesteps` 与部署配置控制；RoboTwin `deploy_policy.py` 与通用部署类默认构造 6-step 接口，LIBERO 的公开评测示例则显式传入 1，但论文实验最终选择 one-step action decoding。代码因此比论文叙述更通用，复现论文设置时需要显式把 action generation 的步数设为 1。
 
 <Algorithm number={2} title='One-step Parallel Action Decoding' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>当前多视角观测、任务指令和 robot state</div>
   <div slot='output'>长度为 $N_{chunk}$ 的连续动作序列</div>
   <AlgorithmStep>构造 `<|mm2a|>` + shared context + 全 mask action block。</AlgorithmStep>
   <AlgorithmStep>使用 bidirectional Transformer 计算 action block 所有位置的 logits。</AlgorithmStep>
-  <AlgorithmStep>在 action vocabulary 范围内采样/取最大概率 token，并按 bin tokenizer 反量化。</AlgorithmStep>
-  <AlgorithmStep>执行当前 chunk 的第一个动作或控制窗口，获取下一帧观察后滚动预测。</AlgorithmStep>
+  <AlgorithmStep>在 action vocabulary 范围内采样 token，并按 bin tokenizer 反量化。</AlgorithmStep>
+  <AlgorithmStep>按控制窗口依次执行 chunk；公开仿真评测执行 8 步，再用新观察生成下一段。</AlgorithmStep>
 </Algorithm>
 
 ### 4.6 代码实现对照
 
-| 论文概念 | 官方代码位置 | 实际行为 |
-| --- | --- | --- |
-| 统一模型 | `models/modeling_mmact.py` | `MMACTModelLM` 继承 `MMadaModelLM`，复用 MMaDA backbone 并增加 action utilities。 |
-| 多任务 forward | `forward_process_vla` | 按 action、T2I、LM、MMU 的 batch 段建立 attention bias，分别计算 loss。 |
-| 动作 loss | `forward_process_action` / `forward_process_vla` | 默认 plain cross-entropy，也支持 margin 或 Gaussian soft CE。 |
-| 动作生成 | `action_generate` | 在 action slice 上做并行采样和低置信度 re-mask；`timesteps=1` 才是论文的 one-step 设置。 |
-| 数据量化 | `training/robotwin_dataset.py`、`training/libero_action_dataset.py` | 连续状态/动作裁剪到 $[-1,1]$ 后映射到离散 bins。 |
-| 训练入口 | `training/train_mmact_robotwin_mix.py` | 通过 `co_action/co_t2i/co_mmu` 组合任意模态，并按权重聚合。 |
-| 部署 | `deployment/mmact_deploy.py`、`experiments/robot/*/deploy_policy.py` | 将视觉 token、状态 token 和 action block 拼接后调用模型生成。 |
+| 论文概念       | 官方代码位置                                                         | 实际行为                                                                                 |
+| -------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| 统一模型       | `models/modeling_mmact.py`                                           | `MMACTModelLM` 继承 `MMadaModelLM`，复用 MMaDA backbone 并增加 action utilities。        |
+| 多任务 forward | `forward_process_vla`                                                | 按 action、T2I、LM、MMU 的 batch 段建立 attention bias，分别计算 loss。                  |
+| 动作 loss      | `forward_process_action` / `forward_process_vla`                     | 默认 plain cross-entropy，也支持 margin 或 Gaussian soft CE。                            |
+| 动作生成       | `action_generate`                                                    | 在 action slice 上做并行采样和低置信度 re-mask；`timesteps=1` 才是论文的 one-step 设置。 |
+| 数据量化       | `training/robotwin_dataset.py`、`training/libero_action_dataset.py`  | 连续状态/动作裁剪到 $[-1,1]$ 后映射到离散 bins。                                         |
+| 训练入口       | `training/train_mmact_robotwin_mix.py`                               | 通过 `co_action/co_t2i/co_mmu` 组合任意模态，并按权重聚合。                              |
+| 部署           | `deployment/mmact_deploy.py`、`experiments/robot/*/deploy_policy.py` | 将视觉 token、状态 token 和 action block 拼接后调用模型生成。                            |
 
 ## 5. 实验
 
 ### 5.1 Experimental Setup
 
-**【Paper】** 实验覆盖三个层次：LIBERO 四个子基准（Spatial、Object、Goal、Long）的 Franka 仿真；RoboTwin2.0 的 Agilex Piper 双臂、八个 unseen bimanual tasks；以及 Franka Research 3 真实机器人上的 Press Button、Stack Block、Sort Vegetables and Fruits。RoboTwin 使用约 70k 个过滤后的训练样本，Franka 每个任务收集 100 条 teleoperation demonstrations。
+**【Paper】** 实验覆盖三个层次：LIBERO 四个子基准（Spatial、Object、Goal、Long）的 Franka 仿真；RoboTwin2.0 的 Agilex Piper 双臂、八个任务类型的未见指令、场景与物体位置组合；以及 Franka Research 3 真实机器人上的 Press Button、Stack Block、Sort Vegetables and Fruits。这八种 RoboTwin 任务都参与训练，各采集 500 条专家轨迹，过滤后约 70k 个训练样本；这里的 unseen 不是未见任务类型。RoboTwin 使用这些样本联合训练，Franka 每个任务收集 100 条 teleoperation demonstrations。
 
 ![Franka Research 3 的真实机器人设置与三个任务（论文 Figure 4）](/blog/paper-deep-dive-mm-act/franka.webp)
 
 ### 5.2 Main Results
 
-| Benchmark | MM-ACT 结果 | 对比结论 |
-| --- | ---: | --- |
-| LIBERO average SR | **96.3%** | 高于 OpenVLA-OFT 95.4%、$\pi_0$ 94.2% 和 UniVLA 95.5%。 |
-| LIBERO-Long | 93.0%（+Text） | 相比 action-only vanilla 的 88.0%，任务规划联合训练提升 5.0 个百分点。 |
-| RoboTwin2.0（8 tasks） | **52.38%** | 高于 $\pi_0$ 的 48.13% 与 OpenVLA-OFT 的 23.13%。 |
-| Franka real-world | **72.0%** | Press Button 80%、Stack Block 70%、Sort 66%。 |
+| Benchmark              |        MM-ACT 结果 | 对比结论                                                                                                                        |
+| ---------------------- | -----------------: | ------------------------------------------------------------------------------------------------------------------------------- |
+| LIBERO average SR      |          **96.3%** | Spatial 97.8、Object 99.4、Goal 94.8 使用 vanilla；Long 93.0 使用 +Text。四个单独训练模型的平均，不是一个三模态模型的统一成绩。 |
+| LIBERO-Long            |     93.0%（+Text） | 相比 action-only vanilla 的 88.0%，任务规划联合训练提升 5.0 个百分点。                                                          |
+| RoboTwin2.0（8 tasks） |         **52.38%** | 高于 $\pi_0$ 的 48.13% 与 OpenVLA-OFT 的 23.13%。                                                                               |
+| Franka real-world      | **72.0% 混合得分** | 每任务每模型 20 次测试；按键 80%、叠块 70% 是整任务成功率，分拣 66% 是正确归置物体比例。                                        |
 
-**【Analysis】** 结果支持两件事：统一 token space 并没有牺牲 action performance；更重要的是，在 out-of-domain 的 RoboTwin 上，跨模态训练的收益大于单纯更换解码器带来的收益。
+**【Analysis】** 这些结果支持离散统一模型能够学到有竞争力的动作策略，但不能把三张表合成一个通用 checkpoint 的能力。Franka 72.0 相对 $\pi_0$ 70.0 高 2 个百分点，叠块两者同为 70%；在每任务 20 次、没有置信区间的条件下，不宜称为显著优势。跨模型预训练数据也不同，机制归因应主要看 MM-ACT 内部消融。
 
 ### 5.3 Ablation Study
 
 ![Context-Shared Multimodal Learning 的训练数据构造（论文 Figure 3）](/blog/paper-deep-dive-mm-act/training.webp)
 
-**【Paper】** RoboTwin action-only baseline 的平均成功率是 43.13%。加入 text、image、text+image 后分别为 46.50%（+3.37）、48.75%（+5.62）和 52.38%（+9.25）。这说明三种目标共享上下文时存在互补监督，而不是简单的多任务平均。
+**【Paper】** RoboTwin action-only baseline 的平均成功率是 43.13%。加入 text、image、text+image 后分别为 46.50%（+3.37）、48.75%（+5.62）和 52.38%（+9.25）。这支持所测试配方中的辅助监督互补，但没有固定总计算量或打乱上下文对应关系的对照；辅助配置还多出 Stage 1，因而尚未单独证明“相同上下文”本身是收益的必要原因。分任务也并非一致改善，例如 Lift Pot 从 vanilla 的 40% 降至三模态的 31%。
 
-动作解码策略也揭示了效率边界：chunk size 8 时 one-step 为 43.13%、0.22 s，re-mask（6 steps）为 42.38%、1.06 s；chunk size 16 时 re-mask 提升到 56.75%，但仍需 1.06 s。论文因此选择 chunk 8 + one-step 作为实时控制默认值。
+动作解码策略也揭示了效率边界：chunk size 8 时 one-step 为 43.13%、0.22 s，re-mask（6 steps）为 42.38%、1.06 s；chunk size 16 时 one-step 为 43.75%、0.23 s，re-mask 达到 56.75%、1.06 s，提升 13 个百分点。这个 action-only 长 chunk 配置甚至高于三模态默认配置的 52.38%，所以结论是质量与延迟的取舍，不能笼统说跨模态收益一定大于解码收益。论文因此选择 chunk 8 + one-step 作为实时控制默认值。
 
-**【Paper】** 文本与图像的解码策略对动作也有影响：image re-mask 达到 48.75%，高于 image one-step 的 46.13%；text one-step 与 re-mask 分别为 46.63% 和 46.50%。状态是否放入上下文也不同：text context 中加入 state 后为 43.50%，image context 中加入 state 后升至 51.50%。
+**【Paper】** Table 7 改变的是辅助模态训练所对应的 one-step / re-mask 配方，部署动作时并不需要先运行它们：image re-mask 达到 48.75%，高于 image one-step 的 46.13%；text one-step 与 re-mask 分别为 46.63% 和 46.50%。状态是否放入上下文也不同：text context 中加入 state 后为 43.50%，image context 中加入 state 后升至 51.50%。
 
 ### 5.4 Generalization
 
 ![RoboTwin unseen 场景中的未来图像预测（论文 Figure 5）](/blog/paper-deep-dive-mm-act/image-generation.webp)
 
-**【Paper】** 未来图像质量从 Stage 1 到 Stage 2 继续提升：PSNR 12.08→14.23、SSIM 0.79→0.80、LPIPS 0.11→0.09。相反，文本规划准确率由 81.5% 降到 68.7%；论文将其归因于文本目标在训练集上过快拟合，而图像目标仍在缓慢学习。这个反差说明跨模态训练并不自动让每个模态都变好。
+**【Paper】** Table 4 测试 +Image 配置在 1,000 个未见样本上的预测：Stage 1→2，PSNR 12.08→14.23、SSIM 0.79→0.80、LPIPS 0.11→0.09。Table 5 则测试另一个 +Text 配置，1,000 次文本规划评估由 81.5% 降至 68.7%。后者定义为 GPT-4o 判断生成计划与参考计划意图、决策一致并回答 yes 的比例（Figure 7 给出完整提示），不是人类审定准确率，也不是生成计划的实际执行成功率。
+
+**【Analysis】** 两张表不属于同一个三模态 checkpoint 的同时测量。作者结合文本 loss 很快接近零而图像 loss 缓慢下降，提出文本过拟合解释；但这仍不能排除动作微调造成的干扰或自动评判误差。可以确认的是，动作获益并不保证辅助模态的泛化同步改善。
 
 ## 6. 方法分析
 
@@ -218,17 +244,17 @@ $$
 ### 6.2 核心创新
 
 1. **统一目标**：将 AR token prediction 与 diffusion-like denoising 都改写成 masked-token cross-entropy。
-2. **统一上下文**：不是把多个 head 的 loss 机械相加，而是让三种目标读取完全相同的多模态观察。
+2. **统一上下文**：三种监督关联同一情境，但按模态构造独立样本；状态等可选字段可不同，损失仍是多任务加权和。
 3. **按模态分配解码预算**：文本/图像用多步 re-mask，动作使用一次并行预测，把算力优先留给控制频率。
 4. **离散 action representation**：连续控制通过 bin tokenizer 进入与文本、图像兼容的词表。
 
 ### 6.3 与已有方法的本质区别
 
-| 路线 | 文本 | 图像 | 动作 | 主要代价 |
-| --- | --- | --- | --- | --- |
-| AR unified VLA | AR | AR | AR | 动作逐 token，延迟高。 |
-| Hybrid unified VLA | AR | PD/re-mask | PD/re-mask | 需要混合 attention 与训练目标。 |
-| MM-ACT | block mask | block mask | one-step block mask | 结构简单，但 action 一步预测依赖离散化和固定 chunk。 |
+| 路线               | 文本       | 图像       | 动作                | 主要代价                                             |
+| ------------------ | ---------- | ---------- | ------------------- | ---------------------------------------------------- |
+| AR unified VLA     | AR         | AR         | AR                  | 动作逐 token，延迟高。                               |
+| Hybrid unified VLA | AR         | PD/re-mask | PD/re-mask          | 需要混合 attention 与训练目标。                      |
+| MM-ACT             | block mask | block mask | one-step block mask | 结构简单，但 action 一步预测依赖离散化和固定 chunk。 |
 
 ### 6.4 关键假设
 
@@ -248,7 +274,7 @@ $$
 - **【Analysis】** 论文的 one-step action 结果依赖固定 chunk size 8；对于更长动作序列，实验已显示 one-step 可能不如 re-mask。
 - **【Analysis】** action token 的 bin quantization 将连续控制误差离散化，论文没有给出 codebook size、控制频率与精度之间的系统敏感性实验。
 - **【Analysis】** 真实机器人只覆盖三个任务，且每任务 100 条示教；相比大规模 VLA 预训练，跨 embodiment 和跨任务扩展仍未充分验证。
-- **【Code】** 仓库同时保留了 one-step 与多步接口，默认参数和论文实验设置并不完全相同；直接运行部署脚本可能得到 6-step action decoding，而不是论文报告的 one-step 配置。
+- **【Code】** 仓库同时保留了 one-step 与多步接口，默认参数和论文实验设置并不完全相同；RoboTwin 默认可能使用 6 步，而 LIBERO 示例明确使用 1 步。另一个复现细节是，当前 `action_generate` 对 softmax 概率调用 `torch.multinomial`；`temperature` 主要参与 re-mask 选择，并不直接把动作 token 采样变成 argmax，不能仅以附录“temperature=0”推断动作解码完全确定。
 
 ## 8. 启发与研究思考
 
@@ -259,6 +285,8 @@ $$
 3. 把 depth、触觉、接触事件等新模态以同样的 tokenizer + mask block 方式接入，测试“共享上下文”能否扩展到真正的 physical state modeling。
 
 <Aside type='note' title='阅读提示'>
-  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
-  表示基于论文和代码的分析推断。论文图像已裁切为博客可用的 WebP，并保存在本文章的 public 路径下。
+  本文核对 [arXiv v2 正文与附录](https://arxiv.org/pdf/2512.00975v2) 及
+  [官方代码](https://github.com/HHYHRHY/MM-ACT)。`【Paper】` 表示论文明确内容，`【Code】`
+  表示官方代码实现，`【Analysis】` 表示基于论文和代码的分析推断。论文图像已裁切为博客可用的
+  WebP，并保存在本文章的 public 路径下。
 </Aside>

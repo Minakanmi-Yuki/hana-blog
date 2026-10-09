@@ -1,7 +1,7 @@
 ---
 title: 'EgoSteer 论文精读：从第一视角视频到可操控灵巧操作'
 publishDate: 2026-08-27
-updatedDate: 2026-08-27
+updatedDate: 2026-09-22
 description: '精读 EgoSteer：EgoSmith 数据流水线、统一机器人栈与世界模型增强 VLA 如何共同实现 40+ 任务的可操控双手灵巧操作。'
 heroImage:
   { src: 'https://pic.hana0721.top/101003773_p0_master1200.3uvfruqg2c.webp', color: '#8C8275' }
@@ -66,7 +66,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】**
 
-1. **EgoSmith**：四阶段自动流水线（预过滤、4D 运动估计、语言标注、后过滤）产出 9.60K 小时、2.09M episodes、1.04B frames 的 12 数据集语料；相对 HaWoR 约 9 倍吞吐。
+1. **EgoSmith**：四阶段自动流水线（预过滤、4D 运动估计、语言标注、后过滤）产出 9.60K 小时、1.04B frames 的 12 数据集语料（正文称 2.09M episodes，附录 Figure 7a 合计 2,290,861，数量口径存在不一致）；相对 HaWoR 约 9 倍吞吐（8×A800、8 段各 2K 帧的处理基准，并非在线机器人速度）。
 2. **统一机器人栈**：同一套低层 FK/IK 与控制节点服务遥操作、策略推理和人类介入；通过相对运动映射实现无跳变接管，并收集 187 小时、193 个任务的数据。
 3. **EgoSteer VLA**：Qwen3-VL-2B 骨干、DiT 风格 flow-matching action expert，以及仅训练期使用的 DINOv3 world-model expert。
 4. **全栈验证**：40 个任务平均成功率 75%，组合泛化与未见任务分别为 65% 和 62%；box folding、cake unboxing 少样本适配达到 75%/83%。
@@ -87,8 +87,8 @@ $$\tau=\{l,\mathbf K,(\mathbf I_t,\mathbf D_t,\mathbf T^{w2c}_t,\mathbf s^w_t,\m
 
 - **输入**：语言指令 $l$、相机内参 $\mathbf K$、最近 6 帧 RGB（1 FPS、覆盖 5 秒）和对应的状态历史。
 - **状态 / 动作**：双手各包含 3D wrist translation、6D wrist rotation、15D fingertip keypoints，总维度为 48；动作以当前相机坐标系下相对当前状态表示。
-- **输出**：长度 $h=32$ 的连续动作 chunk，控制频率 30 Hz。
-- **机器人**：RealMan 双臂平台与 AgiBot G1 两种 embodiment；遥操作使用 PsiBot SynGlove-Air 和 Vive Trackers。
+- **输出**：长度 $h=32$ 的连续动作 chunk，动作采样频率 30 Hz；它不是每秒调用整个 VLA 30 次。
+- **机器人**：RealMan 双臂平台与 AgiBot G1 两种 embodiment，均使用 6-DoF Ruiyan RY-H2 手（AgiBot G1 并非 Unitree G1）；遥操作使用 PsiBot SynGlove-Air 和 Vive Trackers。
 - **深度**：EgoSmith 输出深度和相机轨迹，但模型输入实际只使用 RGB；深度主要用于数据重建与质量控制。
 
 ## 4. 方法
@@ -107,7 +107,7 @@ $$\tau=\{l,\mathbf K,(\mathbf I_t,\mathbf D_t,\mathbf T^{w2c}_t,\mathbf s^w_t,\m
 
 **【Paper】**
 
-1. **预过滤**：128 点稀疏光流剔除行走和剧烈相机运动；YOLO 手部检测要求置信度至少 0.30、框面积在图像 2%–50%，且每帧至少有两只位于下中央区域的手。
+1. **预过滤**：128 点稀疏光流剔除行走和剧烈相机运动；YOLO 手部检测要求置信度至少 0.30、框面积在图像 2%–50%，且每帧至少有两个与指定图像区域相交的手框；只有连续至少 3 个无效帧才裁去片段，孤立检测失败会保留。该规则偏向清晰双手操作，不能声称保留了所有单手或遮挡密集的有效操作。
 2. **4D 运动估计**：用 DPVO 替代易漂移且昂贵的 DROID-SLAM，再用 Any4D 的 metric depth 对齐尺度；将 HaWoR 的相机系 MANO 手部重建转到一致的 world space。
 3. **语言标注**：Qwen3.5-VL-Plus 先过滤没有有效手-物交互的片段，再生成五级 coarse-to-fine 指令；另有 3.5% 片段在此阶段被丢弃。
 4. **后过滤**：在 episode、chunk、frame 三层检查相机、腕部和指尖轨迹的尺度、旋转与瞬时跳变。
@@ -116,7 +116,7 @@ $$\tau=\{l,\mathbf K,(\mathbf I_t,\mathbf D_t,\mathbf T^{w2c}_t,\mathbf s^w_t,\m
 
 ![统一机器人栈支持遥操作、推理和人工纠错（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-egosteer/robot-stack.7sny9zxwic.webp)
 
-**【Paper】** 手套提供腕部 $SE(3)$ 位姿和手指关节；腕部通过 mink 求 IK，手部通过关节映射驱动。推理时策略发布同一坐标约定下的腕部轨迹和指尖关键点，因此训练、介入和部署共享低层动力学。
+**【Paper】** 手套提供腕部 $SE(3)$ 位姿和手指关节；腕部通过 mink 求 IK，手部通过关节映射驱动。推理时策略发布同一坐标约定下的腕部轨迹和指尖关键点，因此训练、介入和部署复用低层 FK/IK 与控制实现；人体与机器人的动力学本身仍然不同。
 
 接管瞬间记录机器人状态 $(\mathbf T_t^R,\mathbf q_t^R)$ 与人类状态 $(\mathbf T_t^H,\mathbf q_t^H)$，之后只映射相对变化：
 
@@ -132,7 +132,7 @@ Action Expert 是约 300M 参数的 14 层 DiT（hidden 1024、8 heads、MLP 281
 
 #### World Model Expert
 
-**【Paper】** 4 层、约 70M 参数的 Transformer 接收干净动作 chunk、相对相机运动和 144 个 learnable query，输出未来帧的 DINOv3 ViT-L/16 特征。384×384 输入产生 24×24 的 teacher grid，再由 2×2 线性投影上采样。该 expert 不在推理图中，因此辅助目标没有部署时延。
+**【Paper】** 4 层、约 70M 参数的 Transformer 接收干净动作 chunk、相对相机运动和 144 个 learnable query，输出未来帧的 DINOv3 ViT-L/16 特征。384×384 的未来图像经冻结 teacher 得到 24×24 的目标特征；144 个 query 先输出 12×12 预测，再由 2×2 线性投影上采样到 24×24，不能把 teacher grid 理解成再次上采样的输入。Action Expert 与 World Model Expert **互不 attention**，都读取 backbone；因此 WM 对策略的影响通过共享主干梯度发生，并没有在执行时将预测画面喂给 action head。
 
 ### 4.3 关键公式
 
@@ -149,13 +149,15 @@ $$\mathcal L_{\mathrm{CFM}}=\mathbb E\left[\left\|\pi(\tilde{\mathbf a}_{\mathrm
 
 $$\mathcal L_{\mathrm{WM}}=\frac1{H_vW_v}\sum_{u,v}\left\|\mathbf Z_{u,v}-\hat{\mathbf Z}_{u,v}\right\|_2^2.$$
 
-这里 $\mathbf Z$ 是冻结 DINOv3 teacher 的未来帧特征，$\hat{\mathbf Z}$ 是 World Model Expert 的重建。特征回归比像素生成更不容易被光照和背景噪声干扰。
+这里 $\mathbf Z$ 是冻结 DINOv3 teacher 的未来帧特征，$\hat{\mathbf Z}$ 是 World Model Expert 的重建。作者选择这种目标以突出语义、降低像素细节负担；论文未提供像素生成与特征回归的等预算对照，因此抗光照噪声是方法动机，不能当成已独立测量的收益。
+
+**【Analysis】** WM 接收真实动作和真实相机相对运动，监督的是约一秒后的条件视觉特征；它既没有推理时的候选动作搜索，也没有多步 imagined rollout。因而“世界模型增强”应理解为训练期表征监督，消融尚不足以证明模型学到了可用作反事实规划的准确动力学。
 
 #### 总目标
 
 $$\mathcal L_{\mathrm{total}}=\mathcal L_{\mathrm{CFM}}+\mathcal L_{\mathrm{WM}}+0.05\mathcal L_{\mathrm{VLM}}.$$
 
-**【Code】** 配置文件 `egosteer_qwen3_vl.yaml` 中对应 `flow_loss_weight: 1.0`、`wm_loss_weight: 1.0`、`ce_loss_weight: 0.05`；VLM 分支在混合数据训练时承担 next-token prediction。
+**【Code】** 配置文件 [`src/config/model/qwen3_vl_2b.yaml`](https://github.com/egosteer/egosteer/blob/main/src/config/model/qwen3_vl_2b.yaml) 中对应 `flow_loss_weight: 1.0`、`wm_loss_weight: 1.0`、`ce_loss_weight: 0.05`；VLM 分支在混合数据训练时承担 next-token prediction。附录 C.1 另有七个数据集组成的约 10.4M 条 VLM 样本，不应把全部语言泛化归因于 9.6K 小时动作视频。源码 `compute_wm_loss` 还会对有效未来帧、视角和通道数取平均；论文公式仅显式写空间平均，因此相同名义权重并不自动意味着数值尺度完全一致。
 
 ### 4.4 Training
 
@@ -164,39 +166,62 @@ $$\mathcal L_{\mathrm{total}}=\mathcal L_{\mathrm{CFM}}+\mathcal L_{\mathrm{WM}}
 <Algorithm number={1} title='EgoSteer 训练' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>第一视角或机器人 episode：语言、RGB 历史、状态、动作、相机运动与未来帧。</div>
   <div slot='output'>可部署的 EgoSteer policy checkpoint。</div>
-  <AlgorithmStep>从 WebDataset shuffle buffer 采样一个 episode window，并构造 6 帧状态历史和 32 步动作 chunk。</AlgorithmStep>
-  <AlgorithmStep>将输入送入 Qwen3-VL backbone；对动作后缀采样 flow time 与噪声，保留 RTC prefix。</AlgorithmStep>
-  <AlgorithmStep>Action Expert 回归 flow velocity；World Model Expert 回归未来 DINOv3 特征；VLM 分支计算语言 loss。</AlgorithmStep>
-  <AlgorithmStep>按 $\mathcal L_{total}$ 反向传播，使用 HSDP、mixed precision、torch.compile、FlexAttention 和 WebDataset streaming。</AlgorithmStep>
-  <AlgorithmStep>先在人类数据上预训练，再用真实机器人数据 grounding；部署失败时采集介入片段进行 DAgger refinement。</AlgorithmStep>
+  <AlgorithmStep>
+    从 WebDataset shuffle buffer 采样一个 episode window，并构造 6 帧状态历史和 32 步动作 chunk。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    将输入送入 Qwen3-VL backbone；对动作后缀采样 flow time 与噪声，保留 RTC prefix。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    Action Expert 回归 flow velocity；World Model Expert 回归未来 DINOv3 特征；VLM 分支计算语言
+    loss。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    按 $\mathcal L_{total}$ 反向传播，使用 HSDP、mixed precision、torch.compile、FlexAttention 和
+    WebDataset streaming。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    先在人类数据上预训练，再用真实机器人数据 grounding；部署失败时采集介入片段进行 DAgger
+    refinement。
+  </AlgorithmStep>
 </Algorithm>
 
 ### 4.5 Inference
 
-**【Paper】** 部署时 action chunk 长度仍为 32，模拟延迟固定为 $d=4$；只保留前 12 步，因此扣除 prefix 后每轮实际执行 8 个新动作步。World Model Expert 被丢弃，策略通过 WebSocket server 向 Robot Stack 返回动作。
+**【Paper】** 部署时 action chunk 长度仍为 32，模拟延迟固定为 $d=4$；只保留前 12 步，因此扣除 prefix 后每轮实际执行 8 个新动作步。论文定义的动作推理路径不运行 World Model Expert，策略通过 WebSocket server 向 Robot Stack 返回动作。4 步 prefix 对应约 133 ms，8 个新动作约 267 ms；这是延迟覆盖与重规划的时间预算，不是实测端到端网络时延。
 
 <Algorithm number={2} title='EgoSteer 异步推理' inputLabel='输入' outputLabel='输出'>
-  <div slot='input'>当前语言指令、最近 6 帧相机图像、状态历史、相机内参，以及正在执行的动作 prefix。</div>
+  <div slot='input'>
+    当前语言指令、最近 6 帧相机图像、状态历史、相机内参，以及正在执行的动作 prefix。
+  </div>
   <div slot='output'>腕部相对位姿与双手指尖关键点动作 chunk。</div>
   <AlgorithmStep>Robot Stack 将观测编码后发送给 EgoSteer WebSocket policy server。</AlgorithmStep>
-  <AlgorithmStep>Qwen3-VL 产生 backbone KV cache，Action Expert 从高斯噪声开始执行 10 步 flow integration。</AlgorithmStep>
-  <AlgorithmStep>将 prefix 作为已知动作，读取去噪后的 suffix；只截取部署窗口并通过统一 FK/IK 控制节点执行。</AlgorithmStep>
-  <AlgorithmStep>若人类踩下脚踏板，启用相对运动映射接管；再次切换后从当前机器人状态继续策略推理。</AlgorithmStep>
+  <AlgorithmStep>
+    Qwen3-VL 产生 backbone KV cache，Action Expert 从高斯噪声开始执行 10 步 flow integration。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    将 prefix 作为已知动作，读取去噪后的 suffix；只截取部署窗口并通过统一 FK/IK 控制节点执行。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    若人类踩下脚踏板，启用相对运动映射接管；再次切换后从当前机器人状态继续策略推理。
+  </AlgorithmStep>
 </Algorithm>
 
 ### 4.6 代码实现对照
 
-**【Code】** 官方仓库是可运行的训练、评估和 serving 实现，而不只是模型定义：
+**【Code】** 对照截至 2026-09-22 的官方仓库，已提供训练、评估和 serving 的实现路径；本文做了源码核对，没有在机器人上运行它：
 
-| 论文概念 | 代码位置与实现 |
-| --- | --- |
-| 策略与三项损失 | `src/policy/egosteer.py`、`src/policy/egosteer_loss.py`；flow、WM、CE 分开计算后加权 |
-| Qwen3-VL backbone | `src/model/vlm/qwen3_vl_backbone.py`；新增 `<state>`、`<action>` slot token |
-| Action Expert | `src/model/vlm/qwen3_expert.py`；14 层、KV projection、AdaLN 条件化 |
-| World Model | `src/model/world_model/frozen_teacher.py` 与 `world_model/frozen_regression.yaml`；DINOv3 teacher 冻结 |
-| 数据窗口 | `src/dataset/vla_dataset.py`；RGB history=6、action horizon=32、WebDataset shuffle buffer=16384 |
-| 训练启动 | `train.py` 与 `scripts/train_egosteer_fsdp2_single_node.sh`；支持单机、多机和 cloud launcher |
-| 推理服务 | `src/serving/websocket_policy_server.py` 与 `src/policy/egosteer_inference.py` |
+| 论文概念          | 代码位置与实现                                                                                                             |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| 策略与三项损失    | `src/policy/egosteer.py`、`src/policy/egosteer_loss.py`；flow、WM、CE 分开计算后加权                                       |
+| Qwen3-VL backbone | `src/model/vlm/qwen3_vl_backbone.py`；新增 `<state>`、`<action>` slot token                                                |
+| Action Expert     | `src/model/vlm/qwen3_expert.py`；14 层、KV projection、AdaLN 条件化                                                        |
+| World Model       | `src/model/world_model/frozen_teacher.py` 与 `world_model/frozen_regression.yaml`；DINOv3 teacher 冻结                     |
+| 数据窗口          | `src/dataset/vla_dataset.py` 与 `src/config/data/unified_wds.yaml`；RGB history=6、action horizon=32、shuffle buffer=16384 |
+| 训练启动          | `train.py` 与 `scripts/train_egosteer_fsdp2_single_node.sh`；支持单机、多机和 cloud launcher                               |
+| 推理服务          | `src/serving/websocket_policy_server.py` 与 `src/policy/egosteer_inference.py`                                             |
+
+**【Code】** [`egosteer_inference.py`](https://github.com/egosteer/egosteer/blob/main/src/policy/egosteer_inference.py) 只计算 backbone cache 与 action flow stream，并在每个 Euler 步重新钳制已知 prefix。默认 10 步来自 `src/config/training/default.yaml`。构造模型与读取 checkpoint 仍可要求 DINO 路径，因此“零 WM 推理开销”指每次动作前向不运行 WM，不保证默认加载器完全不分配相关模块。
 
 **【Code】** README 提供 `EgoSteer-3B-Base`（9.6K 小时人类视频预训练）和 `EgoSteer-3B-RealMan`（RealMan post-training）权重。代码默认使用 Qwen3-VL-2B 与 DINOv3-ViT-L/16，最小推理环境为 Python 3.10、PyTorch 2.10 和 CUDA 12.8。
 
@@ -204,38 +229,42 @@ $$\mathcal L_{\mathrm{total}}=\mathcal L_{\mathrm{CFM}}+\mathcal L_{\mathrm{WM}}
 
 ### 5.1 Experimental Setup
 
-![七类灵巧操作任务与双手机器人设置（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-egosteer/teleop_task_7x6.5q85lxzbqq.webp)
+![七类灵巧操作任务示例（论文附录 Figure 10）](https://pic.hana0721.top/blog/paper-deep-dive-egosteer/teleop_task_7x6.5q85lxzbqq.webp)
 
 **【Paper】** 主实验覆盖 32 个 seen、4 个 compositional generalization、4 个 unseen task，每个任务 10 次随机试验；动作和语言均采用自由形式，物体、桌布和初始布局随机化。数据集包含 PnP Easy/Medium/Hard、non-prehensile、reorient、bimanual、contact-rich 七类。
 
 ### 5.2 Main Results
 
-![40 个任务上的成功率与类别分布（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-egosteer/main_exp_visualization.7sny9zxwne.webp)
+![40 个任务上的成功率与类别分布（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-egosteer/main_exp_visualization.7sny9zxwne.webp)
 
-**【Paper】** EgoSteer 在 40 个任务上平均成功率 75%，其中 22 个任务超过 80%；组合泛化平均 65%，未见任务 62%。它能遵循目标物体、指定手和细粒度动作指令，并在失败后重试。
+**【Paper】** EgoSteer 在 40 个任务上平均成功率 75%，其中 22 个任务达到至少 80%；组合泛化平均 65%，未见任务 62%。它能遵循目标物体、指定手和细粒度动作指令，并在失败后重试。
 
-基线比较中，EgoSteer 达到约 74%，Being-H0.5 为 39%，$\pi_{0.5}$ 为 22%。论文将差距归因于统一动作表示、更高分辨率、训练期 RTC 和更完整的部署优化。
+在另选的 **10 个较容易任务** 上进行基线比较，EgoSteer 达到 74%，Being-H0.5 为 39%，$\pi_{0.5}$ 为 22%。论文将差距归因于动作表示、分辨率和部署优化的整套差异；这是系统比较，不能把 35 / 52 个百分点的差距单独归给 WM，也不能与 40 任务的 75% 直接相减。
 
 ### 5.3 Ablation Study
 
-![预训练规模、DAgger、基线和组件消融结果（论文 Figure 7 / Table 1）](https://pic.hana0721.top/blog/paper-deep-dive-egosteer/scaling_law_visualization.et918d91t.webp)
+![预训练规模、DAgger、基线和组件消融结果（论文 Figure 6 / Table 1）](https://pic.hana0721.top/blog/paper-deep-dive-egosteer/scaling_law_visualization.et918d91t.webp)
 
 **【Paper】**
 
-| 变体 | 平均成功率 | 观察 |
-| --- | ---: | --- |
-| EgoSteer-FT（无 DAgger） | 22.5% | 仅 teleop fine-tuning，容易在部署分布偏移下失败 |
-| EgoSteer-DG | **62.5%** | 仅增加 8.3 小时纠正数据 |
-| No WM-objective | 31% | 细粒度动作精度下降 |
-| No training-RTC | 39% | contact-rich 任务出现暂停和抖动 |
-| Noisy data | 33% | 指令遵循与收敛均恶化 |
-| Ours | **44%** | 完整组件 |
+下表包含两组不同实验，不能共用一个基线：DAgger 对照是 4 个易失败任务、每任务 10 次；组件消融使用 1K 小时预训练、10 个 seen tasks、无 DAgger（Tables 5、9–10）。
 
-**【Paper】** 预训练从 3K 扩展到 6K、9.6K 小时会同时降低预训练 loss、提升真实执行 success/progress；这支持 EgoSmith 的数据质量和 EgoSteer 的 scaling behavior。
+| 变体                     | 平均成功率 | 观察                                            |
+| ------------------------ | ---------: | ----------------------------------------------- |
+| EgoSteer-FT（无 DAgger） |      22.5% | 仅 teleop fine-tuning，容易在部署分布偏移下失败 |
+| EgoSteer-DG              |  **62.5%** | 仅增加 8.3 小时纠正数据                         |
+| No WM-objective          |        31% | 细粒度动作精度下降                              |
+| No training-RTC          |        39% | contact-rich 任务出现暂停和抖动                 |
+| Noisy data               |        33% | 指令遵循与收敛均恶化                            |
+| Ours                     |    **44%** | 完整组件                                        |
+
+**【Paper】** 缩放实验的成功率为 Scratch / 3K / 6K / 9.6K = 30% / 40% / 43% / 60%（Table 7）。Table 6 同时显示预训练预算变化：3K 为 batch 2304、100K steps；6K 为 4608、100K；9.6K 为 4608、160K。因此它支持扩大数据与训练规模这套方案有效，不能视为固定算力下纯数据量的因果效应。
+
+**【Paper】** 组件消融也并非同一步数：完整 / 无 WM / 无 RTC / 噪声数据分别训练 30K / 80K / 30K / 20K steps，按各自最低验证 L1 选 checkpoint。无 RTC 同时改变训练和执行，噪声变体同时去掉前后过滤，故不能进一步拆出每个设计的独立贡献；44%→31% 支持辅助目标有用，但不是所有单任务都提高。
 
 ### 5.4 Generalization
 
-**【Paper】** 在 120 条 box-folding 示范（RealMan，18 steps、40 秒）和 200 条 cake-unboxing 示范（AgiBot G1，9 steps、1 分钟）下，预训练模型分别达到 75% 和 83%。Diffusion Policy、IMLE 以及从零训练的 EgoSteer 均为 0%，说明第一视角预训练提供的是可迁移的操作先验，而非单任务轨迹记忆。
+**【Paper】** 在 120 条 box-folding 示范（RealMan，18 steps、40 秒）和 cake-unboxing 示范（正文称 200 条、Table 11 为 229 条；AgiBot G1，9 steps、1 分钟）下，预训练模型分别达到 75% 和 83%。Diffusion Policy、IMLE 以及从零训练的 EgoSteer 均为 0%，每任务评估 24 次，75% 对应 18/24，83% 是约 20/24 的取整。结果支持该预训练初始化在这两个任务上降低机器人数据需求，但不能仅凭有限物体布局变化排除一切记忆，也不是零机器人数据迁移。
 
 ## 6. 方法分析
 
@@ -265,16 +294,17 @@ $$\mathcal L_{\mathrm{total}}=\mathcal L_{\mathrm{CFM}}+\mathcal L_{\mathrm{WM}}
 
 ### 7.2 自己分析得到的局限
 
-**【Analysis】** EgoSmith 的 4D 重建和语言标注依赖多个外部模型，质量阈值与数据集权重带有启发式成分；不同相机、手型和控制器的标定误差可能被模型误学成动作规律。实验报告主要是成功率，尚未充分拆解恢复次数、碰撞风险、能耗或每次推理的真实延迟；论文也未明确说明所有 40+ 任务的完整公开评测协议。
+**【Analysis】** EgoSmith 的 4D 重建和语言标注依赖多个外部模型，质量阈值与数据集权重带有启发式成分；不同相机、手型和控制器的标定误差可能被模型误学成动作规律。实验报告主要是成功率，尚未充分拆解恢复次数、碰撞风险、能耗或每次推理的真实延迟；附录已有任务、训练配置和每任务试验数，但没有给出足以估计训练随机性与所有任务置信区间的多种子结果。
 
 ## 8. 启发与研究思考
 
 1. **数据工程本身就是模型能力**：当原始视频规模达到十万小时量级时，深度、相机轨迹、语言和质量过滤的接口设计，可能比再堆几层网络更决定下游上限。
 2. **训练期辅助目标要服务于部署瓶颈**：预测 DINOv3 future feature 与部署时的动作精度直接相关，而不是泛化的“多任务学习”装饰。
-3. **纠错数据应按失败状态采集**：DAgger 用 8.3 小时把 22.5% 提升到 62.5%，提示真实机器人数据的边际价值取决于是否覆盖 policy 自己走到的分布。
+3. **纠错数据应按失败状态采集**：DAgger 在四个选定难任务上用 8.3 小时纠错数据把 22.5% 提升到 62.5%，提示真实机器人数据的边际价值取决于是否覆盖 policy 自己走到的分布。
 4. **异步控制需要进入训练分布**：RTC 的 prefix/suffix 设计值得推广到所有有高频控制和可变推理延迟的 VLA。
 5. **下一步问题**：如何把触觉、力控和更高 DoF 手部加入同一 action space？如何让世界模型预测不止一个未来帧，并支持长时任务规划？这些问题决定 EgoSteer 能否从“40 个任务的 steerability”走向真正开放世界的 dexterous autonomy。
 
 <Aside type='note' title='阅读提示'>
-  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】` 表示基于论文和代码的分析推断。
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  表示基于论文和代码的分析推断。
 </Aside>

@@ -1,7 +1,7 @@
 ---
 title: 'ACE-Ego-0 论文精读：把第一视角人类视频变成 VLA 的可用动作监督'
 publishDate: 2026-08-25
-updatedDate: 2026-08-25
+updatedDate: 2026-09-22
 description: '精读 ACE-Ego-0：用 camera-space action、形态条件、时间对齐和可靠性加权，把 1.48K 小时人类第一视角视频与机器人数据统一用于 VLA 预训练。'
 heroImage:
   { src: 'https://pic.hana0721.top/62258773_p0_master1200.7zr0vfh0rf.webp', color: '#8C8275' }
@@ -28,7 +28,7 @@ paper:
     - 'Jianbo Liu'
     - 'Xiaogang Wang'
     - 'Hongsheng Li'
-  venue: 'arXiv / CoRL 2026 submission'
+  venue: 'arXiv'
   year: 2026
   code: 'https://github.com/ACERobotics-VLA/ACE-Ego'
   project: 'https://acerobotics-vla.github.io/ACE-Ego/'
@@ -57,7 +57,7 @@ import { Aside } from '@/components/user'
 
 ### 一句话总结
 
-**【Paper】** ACE-Ego-0 解决的不是“如何再收集一个机器人数据集”，而是如何把便宜、规模大但动作标签噪声高的第一视角人类视频，安全地接入机器人 VLA 的训练目标。它沿空间、结构、时间三条轴统一 action representation，再用 reliability-aware human auxiliary loss 隔离 pseudo-action 的噪声。
+**【Paper】** ACE-Ego-0 解决的不是“如何再收集一个机器人数据集”，而是如何把便宜、规模大但动作标签噪声高的第一视角人类视频，以质量加权的方式接入机器人 VLA 的训练目标。它沿空间、结构、时间三条轴统一 action representation，再用 reliability-aware human auxiliary loss 降低 pseudo-action 噪声对训练的影响。
 
 ### 核心贡献
 
@@ -111,6 +111,8 @@ $$
 | Human       | 六个第一视角视频来源，经 3D hand reconstruction 得到 pseudo-action   |
 | 训练目标    | 机器人 primary flow matching + 人类 reliability-aware auxiliary loss |
 
+**【Paper】** 上式列的是统一几何布局；§3.2 明确训练使用 **camera-space delta action chunk**，真机也执行末端增量命令。不能将其直接理解成每步绝对位姿命令。论文未完整展开旋转增量的复合顺序，复现还需与控制器约定核对。
+
 **【Paper】** 论文把人类动作视为可用但不等价于机器人传感器标签的 supervision。因而目标不是让人手轨迹完全“伪装成”机器人轨迹，而是在共享接口中保留它们的质量差异。
 
 ## 4. 方法
@@ -136,7 +138,7 @@ $$
 - **输入**：机器人在 source frame $s$ 中的末端 pose，或人手重建得到的 wrist / palm 几何。
 - **中间模块**：外参变换、连续 6D rotation、hand-centric frame、gripper normalization。
 - **输出**：统一的双臂 22-D action。
-- **作用**：观测和动作位于同一个 head-camera frame，换 embodiment 时只需更换 camera extrinsic。
+- **作用**：观测和动作位于同一个 head-camera frame，减少不同 source 坐标约定的差异；完整部署仍需要 morphology、标定与低层控制适配。
 
 **【Paper】** 机器人 pose 使用
 
@@ -209,13 +211,13 @@ $M_{t,j}$ 是 padding、无效 arm 或越界投影的 action mask。
 
 #### Human reliability-aware auxiliary loss
 
-人类目标先经过长度为 3 的 temporal smoothing，得到 $\tilde{\mathbf a}$。每个时间步和通道的权重为：
+人类目标先经过长度为 3 的 temporal smoothing，得到 $\tilde{\mathbf a}$；人类输入的插值也必须对应平滑目标，即 $\mathbf a_s=s\tilde{\mathbf a}+(1-s)\boldsymbol\epsilon$，不能沿用未平滑目标的 noisy input。每个时间步和通道的权重为：
 
 $$
 W_{t,j}=\rho_j\,w_{\mathrm{data}}(d,h(j))\,w_{\mathrm{step}}(t,h(j)).
 $$
 
-位置通道的静态 prior 为 1，旋转和 gripper 通道的 prior 为 0.001；$w_{\mathrm{data}}\in[0.25,1]$ 反映数据集整体质量，$w_{\mathrm{step}}$ 根据局部速度和 jerk 超过数据集 95th percentile 的程度衰减。
+位置通道的静态 prior 为 1，旋转和 gripper 通道的 prior 为 0.001；$w_{\mathrm{data}}\in[0.25,1]$ 反映数据集整体质量，$w_{\mathrm{step}}$ 根据一阶与二阶位置差分超过该数据源/手侧 95th percentile 的程度衰减。附录把二阶差分称作 jerk，但严格说它是未按时间归一化的加速度型统计量；物理 jerk 是三阶位置导数。这里应按 Eq. (22) 实现，而非按名称换成三阶差分。
 
 $$
 \mathcal L_{\mathrm{haux}}=
@@ -233,7 +235,7 @@ $$
 \qquad \lambda_{\mathrm{haux}}=0.1.
 $$
 
-**【Analysis】** 这组公式体现了一个清晰的风险预算：机器人标签决定主要 vector field，人类标签只在可靠维度、可靠时间片段上施加小幅度的鲁棒约束。
+**【Analysis】** 通道权重、局部降权和 Huber 共同压低异常标签的影响，但不是机器人性能的安全保证：两类数据仍更新共享参数。$Z$ 按样本归一化还意味着，若把同一样本全部 $W_{t,j}$ 乘同一个常数，该常数会约掉；因此 dataset prior 不能简单理解成降低整条样本梯度的绝对开关。真正的总量关系还依赖 $\lambda_{\mathrm{haux}}$、各源采样比例和两个 loss 的归约方式。
 
 ### 4.4 Training
 
@@ -258,6 +260,8 @@ $$
 \qquad
 \hat R_{s,ee}=R_{\mathrm{cam}\leftarrow s}^{\top}\hat R_{\mathrm{cam},ee}.
 $$
+
+**【Analysis】** 上式是绝对 pose 的坐标变换；若控制接口使用位置增量，则 $\Delta p_s=R_{\mathrm{cam}\leftarrow s}^{\top}\Delta p_{\mathrm{cam}}$，不能再减平移项；姿态也需按接口的增量合成约定恢复。
 
 6D rotation 先通过 Gram–Schmidt 恢复为完整旋转矩阵，再交给机器人低层控制器。新 embodiment 需要注册 URDF 以取得 morphology token，并提供自己的 camera extrinsic 和 controller。
 
@@ -298,7 +302,7 @@ $$
 
 ### 5.2 Main Results
 
-**【Paper】** ACE-Ego-0 在 RoboCasa 的 24 任务平均成功率为 **72.8%**，高于 DIAL 70.2%、JoyAI-RA 63.2% 和 ABot-M0 58.3%。在 RoboTwin 2.0 上，Easy 为 **91.12%**，Hard 为 **90.62%**，均高于表中对比方法。
+**【Paper】** ACE-Ego-0 在 RoboCasa 的 24 任务平均成功率为 **72.8%**，高于 DIAL 70.2%、JoyAI-RA 63.2% 和 ABot-M0 58.3%。在 RoboTwin 2.0 上，Easy 为 **91.12%**，Hard 为 **90.62%**，均高于表中对比方法。RoboTwin 训练同时包含 2,500 条 clean 和 25,000 条 randomized demonstrations，因此 Hard 结果不应解释为从纯 clean 数据零样本泛化到随机环境。
 
 | 方法          | RoboCasa 平均 | RoboTwin Easy | RoboTwin Hard |
 | ------------- | ------------: | ------------: | ------------: |
@@ -309,13 +313,13 @@ $$
 | Hy-VLA        |             - |         90.90 |         90.10 |
 | **ACE-Ego-0** |      **72.8** |     **91.12** |     **90.62** |
 
-![ARX 真实双臂任务结果：ACE-Ego-0 与 π0.5、GR00T-N1.7 的比较（论文 Figure 7a）](https://pic.hana0721.top/blog/paper-deep-dive-ace-ego-0/real_robot_bar_repro.77ealxt4z8.webp)
+![ARX 真实双臂任务结果：ACE-Ego-0 与 π0.5、GR00T-N1.7 的比较（论文 Figure 5a）](https://pic.hana0721.top/blog/paper-deep-dive-ace-ego-0/real_robot_bar_repro.77ealxt4z8.webp)
 
 真实 ARX 平台上，ACE-Ego-0 六任务平均成功率为 **78.3%**，高于同数据 fine-tune 的 $\pi_{0.5}$（71.7%）和 GR00T-N1.7（35.6%）。Scoop Coffee 上达到 86.7%，而 GR00T-N1.7 为 36.7%；Sweep Cubes 上 GR00T-N1.7 只有 6.7%，说明长轨迹和双臂同步仍是主要差异来源。
 
 ### 5.3 Ablation Study
 
-![RoboCasa 组件消融：移除 morphology、时间对齐或 reliability-aware loss 的性能下降（论文 Figure 7b）](https://pic.hana0721.top/blog/paper-deep-dive-ace-ego-0/ablation_waterfall_repro.83as1e2tgk.webp)
+![RoboCasa 组件消融：移除 morphology、时间对齐或 reliability-aware loss 的性能下降（论文 Figure 5b）](https://pic.hana0721.top/blog/paper-deep-dive-ace-ego-0/ablation_waterfall_repro.83as1e2tgk.webp)
 
 **【Paper】** 在 RoboCasa 上逐个移除组件：
 
@@ -324,19 +328,19 @@ $$
 | 完整 ACE-Ego-0                    | **72.8%** |            - |
 | 去掉 morphology token             |     70.9% |         -1.9 |
 | 去掉 time-aligned chunking        |     71.7% |         -1.1 |
-| 去掉 human auxiliary loss         |     69.2% |         -3.6 |
+| 把人类样本改用等权监督            |     69.2% |         -3.6 |
 | Robot only（无人类视频）          |     68.3% |         -4.5 |
 | From Qwen（无 embodied pretrain） |     65.4% |         -7.4 |
 
-**【Analysis】** 最大跌幅来自 reliability-aware human auxiliary loss，而不是 representation 模块。这说明将人类视频“纳入训练”本身不是关键，关键是让它以不破坏机器人主目标的方式纳入。
+**【Paper】** 三项组件消融一次只移除一项，使用 190K-step checkpoint；其中 “w/o Human Loss” 仍保留人类数据，改为与机器人等权监督，不等于 “Robot only”。后两行来自另一组数据来源消融（Table 5）。**【Analysis】** 3.6 个百分点是三项组件消融中最大降幅，支持质量加权在该设置下有益；它不证明噪声完全被隔离，也不能将各降幅相加为独立贡献。
 
 ### 5.4 Generalization
 
 **【Paper】** 在 data-scarce 的 Sweep Cubes fine-tuning 中，只有 34 条机器人示教时成功率为 10%（1/10）；加入 419 个任务匹配的人类视频 episode 后升至 40%（4/10）。人类轨迹覆盖的凸包面积为 0.296 $\mathrm m^2$，机器人示教只有 0.062 $\mathrm m^2$，扩大约 4.8 倍。
 
-![Sweep Cubes 微调数据的动作覆盖：机器人示教、人类视频和叠加分布（论文 Figure 8）](https://pic.hana0721.top/blog/paper-deep-dive-ace-ego-0/coverage_A_trajectories.szoqcb8hx.webp)
+![Sweep Cubes 微调数据的动作覆盖：机器人示教、人类视频和叠加分布（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-ace-ego-0/coverage_A_trajectories.szoqcb8hx.webp)
 
-**【Analysis】** 这个实验支持一种更具体的泛化解释：人类视频未必提供精确的 gripper 或 rotation 标签，但可以填补 end-effector position 的行为覆盖空洞，尤其适合下游机器人数据稀缺的场景。
+**【Analysis】** 这个实验支持一种更具体的泛化解释：人类视频未必提供精确的 gripper 或 rotation 标签，但可以填补 end-effector position 的行为覆盖空洞，尤其适合下游机器人数据稀缺的场景。但该实验只有每组 10 次测试，且凸包面积只刻画平面位置覆盖，不代表完整动作或任务支持集；它提供机制线索，尚不能单独证明增益完全由覆盖面积导致。
 
 ## 6. 方法分析
 

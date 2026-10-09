@@ -1,7 +1,7 @@
 ---
 title: 'RDT2 论文精读：探索 UMI 数据规模化的跨本体零样本泛化极限'
 publishDate: 2026-08-25
-updatedDate: 2026-08-25
+updatedDate: 2026-09-22
 description: '精读 RDT2：用 10,000+ 小时 UMI 示教数据与 RVQ、Flow Matching、蒸馏三阶段训练，让 7B VLA 零样本迁移到未见机器人本体。'
 heroImage:
   { src: 'https://pic.hana0721.top/62423081_p0_master1200.3ns7nvxp9b.webp', color: '#6F7890' }
@@ -64,7 +64,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** 现有 VLA 的瓶颈集中在三处。第一，真实机器人示教昂贵，且同一数据通常绑定某个机器人平台；第二，离散 action token 与连续 diffusion 各有优缺点：前者与预训练 VLM 的 next-token objective 对齐，却带来量化误差和自回归延迟，后者表达多模态动作更自然，却训练慢并可能扰动 VLM 的离散知识；第三，大模型越大，实时控制要求越难满足。
 
-UMI（Universal Manipulation Interface）提供了一个折中：人手拿着设备记录 6-DoF 末端位姿和夹爪宽度，部署时只需保持相机和 gripper 型号一致，就能把动作转换到不同机械臂。**【Analysis】** 因此，RDT2 的“跨本体”首先是传感器、末端执行器和动作坐标的接口问题，其次才是模型的泛化问题。
+UMI（Universal Manipulation Interface）提供了一个折中：人手拿着设备记录 6-DoF 末端位姿和夹爪宽度，部署使用匹配的腕部相机与夹爪几何，再通过末端位姿控制接口驱动不同机械臂。附录 A 还要求初始 home pose 的视角接近手持采集的起始分布；外参、TCP、可达空间和低层控制器仍需适配。**【Analysis】** 因此，RDT2 的“跨本体”首先是传感器、末端执行器和动作坐标的接口问题，其次才是模型的泛化问题。
 
 与 OpenVLA、RDT-1B、π0 / π0.5 相比，RDT2 的区别在于同时扩大数据覆盖面、保留 VLM 的离散概率结构，并为 diffusion 路径增加显式的实时蒸馏阶段。
 
@@ -73,16 +73,16 @@ UMI（Universal Manipulation Interface）提供了一个折中：人手拿着设
 **【Paper】** 给定自然语言指令 $\ell$、当前 RGB 观测 $o_t$，模型需要输出动作块
 
 $$
-A_t=(a_t,\ldots,a_{t+T_a}),\qquad a_t\in\mathbb{R}^{d},
+A_t=(a_t,\ldots,a_{t+T_a-1}),\qquad a_t\in\mathbb{R}^{d},
 $$
 
-并学习 $p(A_t\mid\ell,o_t)$。论文假设当前观测已经包含决策所需信息，不显式建模历史观测。训练集为
+并学习 $p(A_t\mid\ell,o_t)$。论文假设当前观测已经包含决策所需信息，不显式建模历史观测。这里将长度为 $T_a$ 的 chunk 写成 $t$ 至 $t+T_a-1$，避免原文区间端点的歧义。训练集为
 
 $$
 \mathcal D=\{(\ell^{(i)},o_t^{(i)},A_t^{(i)})\}_{i,t}.
 $$
 
-评测任务由物体、场景、语言指令和机器人本体四个因素组合而成；有限训练集只能覆盖其中的稀疏子集，因此目标是对新组合而非只对新类别泛化。
+评测任务由物体、场景、语言指令和机器人本体四个因素组合而成；有限训练集只能覆盖其中的稀疏子集，因此目标是组合泛化。这里的“人类数据”是带追踪位姿和夹爪宽度标签的手持 UMI 示教，并非只看普通人类视频就能获得机器人动作。
 
 ## 4. 方法
 
@@ -99,7 +99,9 @@ $$
 - **输入**：人类手持 UMI 的追踪位姿、夹爪宽度、相机视频。
 - **输出**：与机器人本体弱相关的末端动作轨迹。
 - **关键设计**：CNC nylon 66 + glass fiber 提高刚度；红外光追踪替代易受纹理、透明背景影响的 SLAM；linkage gripper 改善狭窄空间可达性。
-- **作用**：减少不同机器人之间的视觉、夹爪和结构 gap，使策略可以直接映射到 UR5e、Franka Research 3 等平台。
+- **作用**：减少采集与部署的末端视觉、几何差异，论文验证 UR5e 与 Franka Research 3 两种机械臂。手持设备是执行夹爪的无动力几何复制件；红外追踪也需要相应基础设施，而不是任意手机视频即可采集。
+
+**【Paper】** 10,000+ 小时包含家庭与结构化场景；附录 B 另描述 50 工位、3,000+ 物体的补充采集。录像先切成任务片段，再切成含手别、对象和动作原语的细粒度片段，语言增强使用 Gemini 2.5 Pro。Stage 1 还混合超过 1,200 万视觉问答对；不能把“没有机器人动作示教”扩大为“没有来自机器人场景的视觉语言知识”。
 
 #### RVQ Action Tokenizer
 
@@ -116,11 +118,11 @@ $$
 
 #### 400M Action Expert
 
-**【Paper】** Stage 2 冻结 VLM，训练约 400M 参数的 RDT action expert；以 GQA 替换 MHA，并通过 cross-attention 读取 VLM 各层特征，输出连续动作速度场。**【Analysis】** 它把“大模型负责理解”和“小模型负责控制”拆开，因此可以在不重复计算视觉语言主干的情况下提高控制频率。
+**【Paper】** Stage 2 冻结 VLM，训练约 400M 参数的 RDT action expert；以 GQA 替换 MHA，并通过 cross-attention 读取 VLM 各层特征，输出连续动作速度场。**【Code】** `encode_image_and_instruction` 读取所选 VLM 层的 `past_key_values`，供 expert cross-attention 使用。这里的缓存复用发生在**同一观测的一次动作生成内部**；下一帧仍重新运行 VLM，并未实现一个异步慢理解、快控制的双频闭环。FM 推理也不先生成 RVQ 动作再修正，RVQ 的作用主要在 Stage 1 表征训练。
 
 #### One-Step Generator
 
-Stage 2 推理需要 5 次 integration。Stage 3 保持教师 expert 与 VLM 冻结，训练一个从 $t=0$ 出发的 student，直接回归教师多步轨迹；这就是 RDT2-UltraFast。
+Stage 2 推理需要 5 次 integration。Stage 3 保持教师 expert 与 VLM 冻结，以教师参数初始化 student，从 $t=0$ 出发回归**相同噪声、相同条件下教师五步积分的最终动作块**；这就是 RDT2-UltraFast。
 
 ### 4.3 关键公式
 
@@ -143,7 +145,7 @@ $$
 
 #### Flow Matching
 
-训练时采样 $\epsilon\sim\mathcal N(0,I)$、$\tau\sim U(0,1)$，构造
+主文公式以 $\tau\sim U(0,1)$ 描述目标；但附录 C.3、Table 10 与官方 `RDTRunner` 实际采用 $\tau=\operatorname{sigmoid}(z),\ z\sim\mathcal N(0,1)$ 的 logistic-normal 采样。两者加权不同，应以实际实现复现。采样 $\epsilon\sim\mathcal N(0,I)$ 后构造
 
 $$
 A_t^\tau=(1-\tau)\epsilon+\tau A_t,\qquad u(A_t^\tau\mid A_t)=A_t-\epsilon,
@@ -171,11 +173,13 @@ $$
 \mathcal L_{distill}=\mathbb E\|F(A_t^0,\ell,o_t;\theta)-G(A_t^0,\ell,o_t;\theta')\|_2^2.
 $$
 
+**【Analysis】** 蒸馏目标是从噪声到最终动作的映射，不是要求 student 重建全部中间去噪状态。在线重采噪声并计算教师终点扩大了训练目标覆盖，保留了同一观测下的随机动作生成接口，但不是对教师全部模式或尾部行为的等价保证。
+
 ### 4.4 Training
 
 **【Paper】** Stage 1 在 UMI 数据与少量 vision-language 数据的混合集上训练 128K iterations，使用 next-token cross-entropy；Stage 2 冻结 VLM，训练 action expert 66K iterations；Stage 3 在线计算教师多步结果并做 MSE 蒸馏。论文附录给出的两阶段共同超参包括每 GPU batch size 96、learning rate $10^{-4}$、AdamW、bf16、gradient clipping 1，Stage 1 使用 cosine decay，Stage 2 使用 constant schedule。
 
-**【Code】** 官方仓库把数据转为 WebDataset tar shards，通过 `Resample` 无限流式采样，并用 `wds.RandomMix` 动态混合数据源；训练脚本支持 full fine-tuning、LoRA 和 QLoRA。图像增强包括 color jitter、噪声、motion blur 与 JPEG corruption；Stage 2 时间步使用 logistic-normal 采样，集中训练 flow 中段较难区域。
+**【Paper】** 附录 C 的主训练把数据转为 WebDataset tar shards，通过 `Resample` 无限流式采样，并用 `wds.RandomMix` 混合数据源；训练脚本支持 full fine-tuning、LoRA 和 QLoRA。图像增强包括 color jitter、噪声、motion blur 与 JPEG corruption；Stage 2 时间步使用 logistic-normal 采样，集中训练 flow 中段较难区域。
 
 <Algorithm number={1} title='RDT2 三阶段训练' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>UMI 轨迹、RGB/语言样本、预训练 Qwen2.5-VL。</div>
@@ -186,28 +190,34 @@ $$
   <AlgorithmStep>冻结教师 expert，在线生成多步目标并训练单步 student。</AlgorithmStep>
 </Algorithm>
 
+**【Paper】** 下游 Table 2 另使用每任务 200 条示教：冻结 Stage 1 主干，训练 expert 50K steps，再蒸馏 20K steps，batch size 为全局 96。不能把这些成绩当作 4U 零样本结果。附录 D.5 对预训练 Stage 2 同时写“56 GPU × 每卡 96”和“全局 2,304”，两者算术不一致；精确复现需要核对实际训练日志，不能据此确定有效全局 batch。
+
 ### 4.5 Inference
 
-**【Code】** RDT2-VQ 的部署入口加载 Qwen2.5-VL、RVQ tokenizer 与 UMI normalizer；输入两路相机图像和语言指令后，生成 action token，再解码为归一化的连续动作块。RDT2-FM 则缓存 VLM 的 language-vision latent，连续 expert 进行 5 步 flow integration；UltraFast 只执行一次 student forward。动作随后发送到 UR5e 或 Franka FR3 的低层控制器。
+**【Code】** RDT2-VQ 的部署入口加载 Qwen2.5-VL、RVQ tokenizer 与 UMI normalizer；输入两路相机图像和语言指令后，生成 action token，再解码为归一化的连续动作块。RDT2-FM 则在同一 chunk 内复用 VLM 的多层 KV cache，expert 进行 5 步 Euler integration；论文的 UltraFast 用一次 student forward。模型输出还需经过 UMI 相对位姿到 TCP 控制空间的转换、夹爪尺度换算与执行时间调度。
+
+**【Paper / Code】** 附录 D.3 报告真实评测 chunk 为 32、state 接口为 14 维；但公开 README 的预训练使用示例为 **24 × 20** 动作块（每臂 3D 位置、6D 旋转、夹爪宽度，共 10 维），按 30 Hz 表示 0.8 秒动作，且 state 输入填零。`deploy/inference_real_fm.py` 也使用零 state；接口保留不代表当前模型真的以本体感知为条件。复现时必须区分论文实验配置和公开 checkpoint 配置。
 
 <Algorithm number={2} title='RDT2 实时推理' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>当前 RGB 观测、语言指令、机器人状态。</div>
   <div slot='output'>经 normalizer 反变换后的连续动作块。</div>
   <AlgorithmStep>用 Qwen processor 编码图像和指令，计算一次 VLM 条件 latent。</AlgorithmStep>
   <AlgorithmStep>VQ 路径自回归生成 action token；FM 路径从高斯噪声开始积分速度场。</AlgorithmStep>
-  <AlgorithmStep>UltraFast 用单步 student 直接得到动作块，并按 UMI 坐标映射到目标本体。</AlgorithmStep>
+  <AlgorithmStep>
+    UltraFast 用单步 student 直接得到动作块，并按 UMI 坐标映射到目标本体。
+  </AlgorithmStep>
   <AlgorithmStep>执行动作块，读取下一帧观测后滚动重复。</AlgorithmStep>
 </Algorithm>
 
 ### 4.6 代码实现对照
 
-| 论文概念 | 官方仓库对应 | 代码行为 |
-| --- | --- | --- |
-| VLA Stage 1 | `train.py`, `vla_trainer.py` | Qwen2.5-VL + action token 的监督微调，支持 LoRA/QLoRA |
-| UMI dataset | `data/umi_video_dataset.py`, `data/utils.py` | 从 zarr / 视频与标注读取图像、动作和 instruction |
-| Action token | `vqvae/models/multivqvae.py`、`train.py` | MultiVQVAE 编解码，动作 id 写入 Qwen 词表保留区 |
-| FM deployment | `models/rdt_inferencer.py`, `deploy/inference_real_fm.py` | 读取多层 VLM cache，连续 action expert 产生动作块 |
-| VQ deployment | `deploy/inference_real_vq.py` | 从 token 解码动作并做 normalizer 反变换 |
+| 论文概念      | 官方仓库对应                                              | 代码行为                                              |
+| ------------- | --------------------------------------------------------- | ----------------------------------------------------- |
+| VLA Stage 1   | `train.py`, `vla_trainer.py`                              | Qwen2.5-VL + action token 的监督微调，支持 LoRA/QLoRA |
+| UMI dataset   | `data/umi_video_dataset.py`, `data/utils.py`              | 从 zarr / 视频与标注读取图像、动作和 instruction      |
+| Action token  | `vqvae/models/multivqvae.py`、`train.py`                  | MultiVQVAE 编解码，动作 id 写入 Qwen 词表保留区       |
+| FM deployment | `models/rdt_inferencer.py`, `deploy/inference_real_fm.py` | 读取多层 VLM cache，连续 action expert 产生动作块     |
+| VQ deployment | `deploy/inference_real_vq.py`                             | 从 token 解码动作并做 normalizer 反变换               |
 
 **【Analysis】** 论文把三阶段写成统一方法，仓库则以 `RDT2-VQ` 和 `RDT2-FM` 两个公开模型为主要使用入口；论文中的 UltraFast 蒸馏路径在论文实验中明确，但当前仓库的通用 `RDTInferencer` 对 distill runner 仍保留注释接口，部署代码更完整地覆盖 VQ 与 FM 两条路径。
 
@@ -215,25 +225,29 @@ $$
 
 ### 5.1 Experimental Setup
 
-**【Paper】** 零样本实验严格使用 4U 设置：测试场景、物体、指令和机械臂都不出现在训练组合中；每个任务进行 256 次试验，Pick 任务额外重复 1,000 次观察成功率收敛。下游 fine-tuning 比较 RDT2 与 π0.5、π0-FAST，涵盖变形物体、长时程、动态响应和灵巧操作。
+**【Paper】** 零样本实验使用 4U 设置：3 个未见实验场景、2 种机械臂、100+ 新物体，测试指令与训练文本去重并作语言改写；每种任务共 256 次试验，另将 RDT2-FM 的 Pick 扩展到 1,000 次观察估计收敛。场景位于光照受控的实验室，并非再次进入随机家庭测试；未见指令也不自动意味着所有动作语义都未出现过。下游 fine-tuning 比较 RDT2 与 π0.5、π0-FAST，涵盖变形物体、长时程、动态响应和灵巧操作。
 
 ![4U 零样本任务的成功率（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-rdt2/rdt2-zeroshot_results.8s41lg6uo8.webp)
 
 ### 5.2 Main Results
 
-**【Paper】** 零样本结果中，RDT2-FM / RDT2-VQ 在 Pick、Pick-and-Place、Wipe、Press、Shake 上分别达到约 41/45%、26/29%、52/47%、27/25% 和 25/27% 的成功率（图中误差条为标准误）。成功率并不意味着“已解决通用机器人”，但证明了仅用人类 UMI 数据即可跨四个未见因素组合泛化。
+**【Paper】** 零样本结果中，RDT2-FM / RDT2-VQ 在 Pick、Pick-and-Place、Wipe、Press、Shake 上分别达到约 **41/45%、29/26%、52/51%、27/25%、47/44%** 的成功率（图中误差条为标准误）。这支持在指定硬件接口下的组合泛化。各任务成功定义也不同：Pick 要正确抓物、举高 10 cm 并保持 3 秒；Wipe 只要求完成清晰擦拭动作，没有量化清洁程度；Press 是按任意键，不是指定字符。两种输出头差异较小，误差条重叠不能当成正式的统计等效证明。
 
-Scaling law 实验在完整数据集单 epoch 上改变模型大小和已消费 token 数，拟合得到：
+Scaling law 针对 **RDT2-VQ 的在线训练交叉熵**：四档模型在完整数据集上均匀采样一个 epoch，用累计不重复 token 数度量 $D$，总参数 $N$ 包含视觉编码器（1.79B / 2.79B / 4.29B / 8.29B），拟合得到：
 
 $$
 \hat L(N,D)=E+\frac{A}{N^\alpha}+\frac{B}{D^\beta},
 $$
 
-其中 $E\approx2.1108,A\approx4.3754\times10^3,\alpha\approx0.4402,B\approx1.7906\times10^2,\beta\approx0.2251$。**【Analysis】** 这说明增加模型参数和数据量都仍有可预测收益，数据采集接口的可扩展性本身成为模型能力上限的一部分。
+其中 $E\approx2.1108,A\approx4.3754\times10^3,\alpha\approx0.4402,B\approx1.7906\times10^2,\beta\approx0.2251$。**【Analysis】** 这支持在研究范围内增加参数和数据会降低预测损失。即使每个 token 只消费一次，训练流中的 loss 也不是独立机器人测试集的成功率；相邻动作和语言改写还可能高度相关。公式没有证明 4U 成功率遵循相同指数，也没有找到标题所说的最终“极限”。该一次遍历协议应与常规预训练的无限重采样区分。
 
 ![RDT2 的模型与数据 scaling law（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-rdt2/rdt2-scaling_law_plot.7w7k5zx5rr.webp)
 
-fine-tuning 表 2 中，RDT2 在折衣服总体成功率 77%（π0.5 36%、π0-FAST 29%），桌面收纳 progress score 0.58（0.39、0.30），解拉链成功率 45%（13%、8%）；按钮按压相对人类反应时间差为 +97 ms（+323、+981 ms）。乒乓球在 1×/1.2×/1.5×/1.7×/2× 人类速度下的命中率为 88/85/76/68/—%，π0-FAST 因频率不足无法完成该项。
+Table 2 报告的是 **RDT2-UltraFast**：折衣服完整成功率 77%（π0.5 36%、π0-FAST 29%），未见衣物为 51%（15%、10%）；桌面收纳 progress score 为 0.58（0.39、0.30），未见场景为 0.33（0.17、0.11）。这个 score 每正确放置一件物品加 0.2，不能写成 58% 完整任务成功率。解拉链成功率为 45%（13%、8%）。
+
+按钮反应时间的 **+97 ms 是相对人类遥操作平均 2,661 ms 的差值**，所以 RDT2 的平均反应时间约为 2,758 ms；它不是 97 ms 端到端响应。π0.5、π0-FAST 的差值为 +323、+981 ms。乒乓球五档速度（1× / 1.2× / 1.5× / 1.7× / 2×）命中率完整为 **88 / 85 / 76 / 69 / 68%**，π0.5 为 78 / 74 / 58 / 57 / 56%；论文没有把该倍数定义成人类速度，命中也不代表回球落点合规或完成对打。π0-FAST 因频率不足未评测。
+
+**【Analysis】** 基线依据 OpenPI 实现，但附录 D.1 描述 π0.5 的 Gemma-2B / Gemma-300M 初始化、24 步动作与 20K 训练，未清楚标明所用通用 VLA checkpoint；RDT2 使用额外的大规模 UMI 预训练和不同微调计算量。因此表格支持作者这组配置的比较，不能归因为蒸馏本身或声称全面超越所有官方 π0.5 部署。
 
 ### 5.3 Ablation Study
 
@@ -241,9 +255,9 @@ fine-tuning 表 2 中，RDT2 在折衣服总体成功率 77%（π0.5 36%、π0-F
 
 **【Paper】** 主要消融结论有三点：
 
-- 先做 AR（Stage 1）再做 diffusion，比从头只用 diffusion 更快收敛且最终 loss 更低。
+- 先做 AR（Stage 1）再做 diffusion，在 Figure 6 的计算量坐标下达到更低的连续动作 MSE；AR 曲线的交叉熵使用右轴，不能与 diffusion MSE 的数值直接比较。对照还涉及冻结与联合更新主干的差别，未单独测量“语义知识被破坏”的程度。
 - RVQ 在相同量化误差下需要更少 token；论文 Figure 8 显示相较 FAST 可节省约三分之二 token。
-- Stage 3 蒸馏把 RDT2-FM 的 5 步积分变为单步生成，使 RDT2-UltraFast 达到 23.0 Hz；RDT2-FM 为 17.0 Hz，RDT2-VQ 为 16.0 Hz，π0.5 为 2.7 Hz，π0-FAST 为 1.6 Hz。
+- Figure 7 正确标签为：π0-FAST **1.6 Hz**、RDT2-VQ **2.7 Hz**、π0.5 **17.0 Hz**、RDT2-FM **16.0 Hz**、RDT2-UltraFast **23.0 Hz**。蒸馏相对 FM 是约 1.44 倍加速，而不是 VQ 已达到 16 Hz；这也表明 VLM 与其他开销使五步减到一步并不等于总时延缩短五倍。论文未充分交代该图的完整硬件、端到端计时边界及各变体成功率对照，频率不应替代闭环质量评估。
 
 ![不同 VLA 的推理频率（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-rdt2/rdt2-speed_ablation.4ubo4rvtqk.webp)
 
@@ -257,7 +271,7 @@ fine-tuning 表 2 中，RDT2 在折衣服总体成功率 77%（π0.5 36%、π0-F
 
 ### 6.1 为什么有效？
 
-**【Analysis】** RDT2 同时消除了三个相互牵制的误差源：UMI 降低数据跨本体的坐标差异；RVQ 让动作监督回到 VLM 熟悉的离散 next-token 空间；FM 与蒸馏再把离散决策还原为连续动作并满足实时性。三者缺一不可：没有大规模 UMI，泛化缺乏覆盖；没有 Stage 1，diffusion 学习慢且破坏语义先验；没有 Stage 3，7B 模型难以进入动态控制环。
+**【Analysis】** RDT2 尝试缓解三个相互牵制的问题：UMI 降低数据跨本体的坐标差异；RVQ 让动作监督回到 VLM 熟悉的离散 next-token 空间；FM 读取动作对齐后的 VLM 表征直接生成连续动作，蒸馏降低采样开销。实验支持这些选择的作用，但不能说三者“缺一不可”：未蒸馏的 FM 已有 16 Hz 推理，零样本任务也未使用 UltraFast；Stage 1 消融测的是收敛，不是通用视觉语言能力保留的直接测试。
 
 ### 6.2 核心创新
 
@@ -268,7 +282,7 @@ fine-tuning 表 2 中，RDT2 在折衣服总体成功率 77%（π0.5 36%、π0-F
 
 ### 6.3 与已有方法的本质区别
 
-**【Analysis】** π0 / π0.5 主要将 flow policy 与预训练 backbone 组合，RDT2 则先用 action token 让 VLM 学会“说出动作”，再让小型 expert 学会“连续地执行动作”。OpenVLA 等模型通常绑定特定机器人数据；RDT2 通过 UMI 把 embodiment 差异前移到采集和部署接口。相比 RDT-1B，RDT2 的关键增量是 10,000+ 小时数据、7B VLM 以及 RVQ + distillation 训练链。
+**【Analysis】** RDT2 的独特组合是大规模 UMI、RVQ 和额外蒸馏。离散动作预训练后学习连续 expert 也与 π0.5 的训练思路有相通之处，不能把“两阶段离散—连续”说成它独有的分界。OpenVLA 等模型通常绑定特定机器人数据；RDT2 通过 UMI 把 embodiment 差异前移到采集和部署接口。相比 RDT-1B，RDT2 的关键增量是 10,000+ 小时数据、7B VLM 以及 RVQ + distillation 训练链。
 
 ### 6.4 关键假设
 
@@ -300,6 +314,5 @@ fine-tuning 表 2 中，RDT2 在折衣服总体成功率 77%（π0.5 36%、π0-F
 
 <Aside type='note' title='阅读提示'>
   本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
-  表示基于论文和代码的分析推断。论文图因图床 CDN 尚未刷新，正文暂使用已验证 HTTP 200 的
-  GitHub Raw 地址。
+  表示基于论文和代码的分析推断。论文结果与公开 checkpoint 配置存在的差异已在相应段落注明。
 </Aside>

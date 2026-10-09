@@ -1,7 +1,7 @@
 ---
 title: 'SIMPLER 论文精读：用仿真可靠评测真实机器人操作策略'
 publishDate: 2026-08-27
-updatedDate: 2026-08-27
+updatedDate: 2026-09-22
 description: '精读 SIMPLER：通过系统辨识、视觉匹配和变体聚合，把真实数据训练的机器人策略放进仿真，并用 MMRV 与 Pearson 评估其与真实表现的相关性。'
 heroImage:
   { src: 'https://pic.hana0721.top/95619535_p0_master1200.8okafg4jti.webp', color: '#8C8275' }
@@ -33,7 +33,7 @@ paper:
     - 'Hao Su'
     - 'Quan Vuong'
     - 'Ted Xiao'
-  venue: 'arXiv'
+  venue: 'CoRL'
   year: 2024
   code: 'https://github.com/simpler-env/SimplerEnv'
   project: 'https://simpler-env.github.io/'
@@ -51,6 +51,8 @@ import { Aside } from '@/components/user'
 />
 
 ## 1. 论文概述
+
+本文的方法、公式与图表编号按 [arXiv v1 全文及附录](https://arxiv.org/pdf/2405.05941v1)核验；论文发表于 CoRL 2024，正式 [PMLR 论文集](https://proceedings.mlr.press/v270/li25c.html)的出版年为 2025。
 
 ### 一句话总结
 
@@ -82,7 +84,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** 给定若干策略 $\pi_1,\ldots,\pi_N$，真实评测得到成功率 $R_i$，仿真评测得到 $R_{\mathcal{S},i}$。目标不是要求 $R_i=R_{\mathcal{S},i}$，而是要求二者在策略集合上的相对关系一致：如果 $R_i>R_j$，则应有 $R_{\mathcal{S},i}>R_{\mathcal{S},j}$。
 
-一次 rollout 的观测是 RGB 图像和语言任务指令；动作使用 7 维末端执行器控制：世界坐标系平移增量、轴角旋转增量和夹爪开合。Google Robot 默认控制频率为 3 Hz，Bridge/WidowX 为 5 Hz；仿真内部约 500 Hz。
+在本文评测接口中，策略接收 RGB 与语言指令，适配器把各模型原生输出转换成 7 维仿真动作：平移增量、轴角旋转增量和夹爪命令。这个共同张量形状不意味着两台机器人的控制语义相同。Google Robot 默认控制频率为 3 Hz，Bridge/WidowX 为 5 Hz；仿真内部约 500 Hz。
 
 ### 评测指标
 
@@ -96,7 +98,7 @@ $$
 **【Paper】** Pearson $r$ 的问题是：它只看线性拟合，且对真实成功率很接近的一组策略非常敏感。论文因此定义两两策略的 rank violation：
 
 $$
-\operatorname{RV}(i,j)=|R_i-R_j|\,\mathbf{1}\left[(R_{\mathcal{S},i}>R_{\mathcal{S},j})\ne(R_i>R_j)\right],
+\operatorname{RV}(i,j)=|R_i-R_j|\,\mathbf{1}\left[(R_{\mathcal{S},i}<R_{\mathcal{S},j})\ne(R_i<R_j)\right],
 $$
 
 并取每个策略最严重的错误排序，再对策略求平均：
@@ -105,7 +107,9 @@ $$
 \operatorname{MMRV}(R,R_\mathcal{S})=\frac1N\sum_{i=1}^N\max_j\operatorname{RV}(i,j).
 $$
 
-MMRV 范围为 $[0,1]$，越低越好；它把“排错了多少”与“被排错的两个策略在现实中差多少”同时纳入。
+MMRV 范围为 $[0,1]$，越低越好；它把“错误排序”与现实中的性能差距联系起来。例如两策略现实为 0.8/0.7、仿真顺序反转，MMRV 为 0.1；现实若为 0.8/0.2，同样反转就罚 0.6。它不是绝对成功率误差：保持严格顺序但系统性高估/低估，可以得到零 MMRV。
+
+**【Code】** 论文式 (1) 用严格小于，`metrics.py` 用严格大于；没有平局时等价，有仿真平局时每个策略的最大违反项可能不同。三个真实成功率 0.1/0.2/0.9 若在仿真全部并列，按论文得 0.5，按现有代码得 0.3。因此应声明平局处理并同时公开原始分数。接口 `mean_maximum_rank_violation(perf_sim, perf_real)` 也有方向性：第二个参数提供惩罚幅度；`tools/calc_metrics.py` 顶部示例误将实参倒置，实际主程序顺序才是正确的。
 
 ## 4. 方法
 
@@ -121,7 +125,9 @@ SIMPLER 的数据流可以压缩成一句话：从真实 demo 或评测视频抽
 
 **【Paper】** 输入是一小批真实演示轨迹中的动作 $\{\mathbf a_i\}$、末端位姿 $\{(\mathbf x_i,R_i)\}$ 和初始仿真控制器参数。输出是关节 PD stiffness 与 damping，使同一串开环动作在仿真中产生接近真实的 6D 末端轨迹。作者使用三轮 simulated annealing，每轮缩小搜索范围。
 
-![系统辨识前后，仿真机器人对真实轨迹的跟踪差异（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-simpler/control_gap.9kgx4uccst.webp)
+![系统辨识前后，仿真机器人对真实轨迹的跟踪差异（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-simpler/control_gap.9kgx4uccst.webp)
+
+**【Paper】** 附录 C 的控制器设计同样关键：Google Robot 相对当前实测末端位姿生成目标，通过 Ruckig 满足速度、加速度与 jerk 限制后，逐仿真步设置关节 PD 目标；计划可能长于一个策略周期。WidowX 则在上一次目标位姿上累积增量，而不是每次从当前实测位姿重新开始。忽略这个差别会把执行误差反馈方式改掉，单纯调 PD 参数无法弥补。
 
 **【Analysis】** 这一步不是把物理世界完全辨识出来，而是对评测最敏感的“动作到末端运动”的闭环接口做校准。对于基于视觉的策略，几厘米的抓取偏差可能就会把成功变成失败，因此控制 gap 往往比物体质量的细节更优先。
 
@@ -129,11 +135,11 @@ SIMPLER 的数据流可以压缩成一句话：从真实 demo 或评测视频抽
 
 **【Paper】** Visual Matching 包含两个阶段：
 
-1. **Green screening**：用在线 inpainting 从真实视频首帧移除机器人和前景物体；仿真渲染得到前景 segmentation mask $M$，再合成
-   $$I'=M\odot I_{\text{sim}}+(1-M)\odot I_{\text{real}}.$$ 
+1. **Green screening**：在环境准备阶段用网页 inpainting 工具从真实视频首帧移除机器人和前景物体；仿真渲染得到前景 segmentation mask $M$，再合成
+   $$I'=M\odot I_{\text{sim}}+(1-M)\odot I_{\text{real}}.$$
 2. **Texture matching**：对差异最大的物体，先在真实图像中分割并对齐仿真姿态，再把真实 RGB texture unproject 到仿真 mesh；机器人 link 则可直接从真实图像挑选颜色并制作多套 texture。
 
-![Visual Matching：真实背景绿幕与前景纹理烘焙（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-simpler/visual_matching.5q85lvuf0m.webp)
+![Visual Matching：真实背景绿幕与前景纹理烘焙（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-simpler/visual_matching.5q85lvuf0m.webp)
 
 **【Code】** 官方仓库的 `rgb_overlay_path` 将真实背景图传给 evaluator，环境通过 segmentation mask 生成前景合成；`additional_env_build_kwargs` 可选择 `robot_init_x/y`、物体位置、相机和纹理 variant。`simpler_env/utils/env/` 提供观测转换，策略只接收与真实部署相同格式的 RGB 图像。
 
@@ -163,7 +169,7 @@ $$
 \mathcal L_{\text{sysid}}=\mathcal L_{\text{transl}}+\mathcal L_{\text{rot}}.
 $$
 
-其中 $(\mathbf x_i,R_i)$ 是真实末端位置与旋转，$(\mathbf x'_i,R'_i)$ 是用同一动作在 sim 中得到的结果；$(\mathbf p,\mathbf d)$（PD 参数）隐含在仿真轨迹中。平移与旋转采用相加而不是额外权重，论文未报告跨 embodiment 的单位归一化细节。
+其中 $(\mathbf x_i,R_i)$ 是真实末端位置与旋转，$(\mathbf x'_i,R'_i)$ 是用同一动作在 sim 中得到的结果；$(\mathbf p,\mathbf d)$（PD 参数）隐含在仿真轨迹中。平移与旋转直接相加，论文未报告跨 embodiment 的单位归一化细节。还需注意：若两姿态的相对转角为 $\theta\in[0,\pi]$，有 $\|R-R'\|_F=2\sqrt2\sin(\theta/2)$，所以原式旋转项实际等于 $\theta/2$，不是完整的 SO(3) 测地角；代码也按这个半角实现。它是作者采用的校准目标，不能把损失数值解释成“几米”或“几弧度”的单一物理误差。
 
 #### Visual Matching 合成
 
@@ -179,39 +185,49 @@ $$
 
 ### 4.4 Training
 
-SIMPLER 本身不训练新的 robot policy；训练对象是被评测的 RT-1、RT-1-X、RT-2-X 或 Octo，论文只使用其公开 checkpoint 和真实数据。SIMPLER 的“训练阶段”更准确地说是环境 calibration：从离线 demonstration 中抽取轨迹，优化控制参数，并准备背景、mesh、texture 与相机姿态。
+主实验评测既有 RT-1、RT-1-X、RT-2-X 与 Octo；SIMPLER 的核心方法不要求重训这些策略。附录 G 另训练了一个只学 pick-coke 的 RT-1 作扩展验证。RT-2-X 的论文结果也不意味着其 checkpoint 与推理服务已经在此仓库公开，发布的主要适配器是 RT-1/RT-1-X 和 Octo。SIMPLER 的“训练阶段”更准确地说是环境 calibration：从离线 demonstration 中抽取轨迹，优化控制参数，并准备背景、mesh、texture 与相机姿态。
 
 <Algorithm number={1} title='SIMPLER 环境校准' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>真实演示轨迹、机器人 URDF、对象资产、真实视频首帧与初始 PD 参数。</div>
   <div slot='output'>可执行的 SIMPLER 环境、校准后的控制器和 Visual Matching 纹理。</div>
   <AlgorithmStep>从真实轨迹读取动作、末端位姿和相机/机器人初始状态。</AlgorithmStep>
   <AlgorithmStep>在仿真中回放动作，计算平移与旋转 tracking loss。</AlgorithmStep>
-  <AlgorithmStep>对 stiffness/damping 做三轮 simulated annealing，保留最低 SysID loss 的参数。</AlgorithmStep>
+  <AlgorithmStep>
+    对 stiffness/damping 做三轮 simulated annealing，保留最低 SysID loss 的参数。
+  </AlgorithmStep>
   <AlgorithmStep>建立场景与碰撞几何，调节尺寸、密度、摩擦、相机和初始位姿。</AlgorithmStep>
-  <AlgorithmStep>选择 Visual Matching（背景合成与纹理匹配）或 Variant Aggregation（生成变体集合）。</AlgorithmStep>
+  <AlgorithmStep>
+    选择 Visual Matching（背景合成与纹理匹配）或 Variant Aggregation（生成变体集合）。
+  </AlgorithmStep>
 </Algorithm>
 
 ### 4.5 Inference
 
-**【Paper】** 推理时 policy 从仿真 RGB 与语言指令产生动作；Google Robot 以 3 Hz、WidowX 以 5 Hz 发送控制命令，底层在约 500 Hz 仿真频率下执行。长时程任务完成一个 subtask 后，环境更新语言指令并继续，直到最终成功或 episode 截止。
+**【Paper】** 推理时 policy 从仿真 RGB 与语言指令产生动作；Google Robot 以 3 Hz、WidowX 以 5 Hz 发送控制命令，底层在约 500 Hz 仿真频率下执行。开抽屉放苹果的两阶段任务按附录 B，在策略输出 terminate 或时间预算过半时切换指令，不是由成功判定器保证前一子任务已经完成；因此这是给定两阶段调度的执行评测，不能当作自主长时程任务规划能力。
 
 <Algorithm number={2} title='SIMPLER policy rollout' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>初始化后的仿真环境、语言任务、被评测 policy 和场景/纹理 variant。</div>
   <div slot='output'>episode success/failure、视频、动作轨迹与 success rate。</div>
   <AlgorithmStep>reset 环境，读取 RGB observation 和语言 instruction。</AlgorithmStep>
-  <AlgorithmStep>将图像与 instruction 输入 policy，得到 7D action 和 terminate 信号。</AlgorithmStep>
+  <AlgorithmStep>
+    将图像与 instruction 输入 policy，得到 7D action 和 terminate 信号。
+  </AlgorithmStep>
   <AlgorithmStep>把平移、轴角旋转和 gripper 拼接后调用 Gym `env.step`。</AlgorithmStep>
   <AlgorithmStep>若进入下一个 subtask，读取新 instruction；否则继续当前任务。</AlgorithmStep>
-  <AlgorithmStep>遍历 robot/object pose、纹理或随机种子，汇总成功率并计算 MMRV/Pearson。</AlgorithmStep>
+  <AlgorithmStep>
+    遍历 robot/object pose、纹理或随机种子，汇总成功率并计算 MMRV/Pearson。
+  </AlgorithmStep>
 </Algorithm>
 
 ### 4.6 代码实现对照
 
 **【Code】** `simpler_env/evaluation/maniskill2_evaluator.py` 的 `run_maniskill2_eval_single_episode` 是实际 rollout 核心：构造 `obs_mode="rgbd"` 环境，设置 `sim_freq=513`、`control_freq`、最大步数和 segmentation camera；reset 时传入机器人初始位置/四元数及物体位置或 episode id。每个时间步调用 `model.step(image, task_description)`，把 `world_vector`、`rot_axangle`、`gripper` 拼成 7D action，再调用 `env.step`。
 
-**【Code】** `simpler_env/policies/octo/octo_model.py` 默认维护长度为 2 的 image history，预测 horizon 为 4、执行 horizon 为 1，并用 `ActionEnsembler` 融合重叠预测；这说明论文中的“policy inference”在代码里还包含具体的 action chunking 与 ensemble 策略。RT-1 适配位于 `simpler_env/policies/rt1/rt1_model.py`。
+**【Code】** `simpler_env/policies/octo/octo_model.py` 默认维护长度为 2 的 image history，预测 horizon 为 4，每步实际输出一个动作，`ActionEnsembler` 默认温度为 0，等权融合针对同一时刻的重叠预测；这说明论文中的“policy inference”在代码里还包含具体的 action chunking 与 ensemble 策略。RT-1 适配位于 `simpler_env/policies/rt1/rt1_model.py`。Octo 的 Google 夹爪将绝对开合变成差分命令，幅度超过 0.5 时保持 15 次；WidowX 则直接二值化绝对开合，符号也不同。这些适配属于被评测系统，不能在比较时随意替换。
 
-**【Code】** `simpler_env/utils/metrics.py` 固化了论文中的 `REAL_PERF` 与 `SIMPLER_PERF`，并实现 `pearson_correlation`、`mean_maximum_rank_violation`。该文件还把每个 checkpoint 的 success rate 转成无序 trial 结果，以便进行 Kruskal–Wallis 分布检验。
+**【Code】** `simpler_env/utils/metrics.py` 固化了论文中的 `REAL_PERF` 与 `SIMPLER_PERF`，并实现 `pearson_correlation`、`mean_maximum_rank_violation`。该文件还可按指定试验次数把成功率四舍五入还原成 0/1 序列，再进行 Kruskal–Wallis 检验；这不是原始逐次配对轨迹。`pearson_correlation` 对方差为零还做了数值兜底，可能返回 0 或 1，而数学上的 Pearson 在这种情况下未定义。
+
+**【Code】** 通用 evaluator 的循环直到模型 terminate 或时间截断才结束，不以首次 `done` 立即退出；视频成功标签来自退出前最后一次环境 `done`。Octo 适配器始终输出零 terminate，因此终止条件依赖环境预算。复现时应核对任务是否采用持续/末态成功判定，不能默认使用“过程中成功过一次就算成功”。
 
 **【Analysis】** 代码与论文的边界很清楚：论文提出“怎样设计有信息量的环境”，代码负责“如何批量运行 policy、保存视频并汇总指标”。因此复现实验时不能只安装环境；还要保证 policy 的 action ordering、控制频率、相机输入和 episode termination 与真实 setup 一致。
 
@@ -219,43 +235,47 @@ SIMPLER 本身不训练新的 robot policy；训练对象是被评测的 RT-1、
 
 ### 5.1 Experimental Setup
 
-**【Paper】** 作者在 Google Robot 任务上评测 RT-1（converged、15% 和 begin checkpoint）、RT-1-X、RT-2-X、Octo-Base；在 BridgeData V2/WidowX 上评测 RT-1-X、Octo-Base、Octo-Small。Google Robot 的仿真结果对四种 arm/gripper texture 求平均，Octo 额外对三个随机种子求平均；总计约 1500 个配对 sim-real episodes。
+**【Paper】** 作者在 Google Robot 任务上评测 RT-1（converged、15% 和 begin checkpoint）、RT-1-X、RT-2-X、Octo-Base；在 BridgeData V2/WidowX 上评测 RT-1-X、Octo-Base、Octo-Small。Google Robot 的仿真结果对四种 arm/gripper texture 求平均，Octo 额外对三个随机种子求平均；主文和项目页概称约 1,500 次规模的 real/sim 对照；附录 B 明确仿真还要乘纹理、环境变体与 Octo 随机种子数，不能理解为合计只有 1,500 次、每条真实轨迹仅对应一次仿真。
 
 任务包括 pick coke can、move near、open/close drawer、place apple in closed drawer，以及 WidowX 的 spoon-on-towel、carrot-on-plate、stack-cube、put-eggplant-in-basket 等刚体操作。
 
+附录 B 的名义真实预算是每策略 pick-coke 75 次、move-near 60 次、开/关三层抽屉 54 次、开顶层抽屉放苹果 27 次，WidowX 每任务 24 次。RT-1 Begin 的抽屉真实评测因潜在硬件损伤在 2 次后停止，Table IV 的零分因此不是完成全部预算后的稳定估计。仿真增加重复次数只能减少仿真估计方差，不能弥补真实样本不足。
+
 ### 5.2 Main Results
 
-![BridgeData V2 上真实与仿真成功率（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-simpler/results_bridge.mtab01fh.webp)
+![BridgeData V2 上真实与仿真成功率（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-simpler/results_bridge.mtab01fh.webp)
 
-**【Paper】** Google Robot 三个任务上，Validation MSE、Variant Aggregation、Visual Matching 的平均指标如下：
+**【Paper】** Table I 按 Google Robot 的三个任务组汇总：Pick Coke Can、Move Near、Drawer。最后一组把“开/关抽屉”和“开抽屉放苹果”再平均，不能当作单一开抽屉任务。三组等权结果如下：
 
-| 评测协议 | MMRV ↓ | Pearson $r$ ↑ |
-| --- | ---: | ---: |
-| Validation MSE | 0.375 | 0.308 |
-| SIMPLER-VarAgg | 0.143 | 0.778 |
-| SIMPLER-VisMatch | **0.056** | **0.924** |
+| 评测协议         |    MMRV ↓ | Pearson $r$ ↑ |
+| ---------------- | --------: | ------------: |
+| Validation MSE   |     0.375 |         0.308 |
+| SIMPLER-VarAgg   |     0.143 |         0.778 |
+| SIMPLER-VisMatch | **0.056** |     **0.924** |
 
-按任务看，Visual Matching 在 Pick Coke Can 的 MMRV/Pearson 为 0.031/0.976，在 Drawer 上为 0.027/0.942。论文报告 RT-1 Converged 与 RT-2-X 在 Google Robot 上通常同时获得较高 real/sim 表现，RT-1 Begin 与 RT-1-X 较低；BridgeData V2 上 Octo-Small 整体优于 Octo-Base 与 RT-1-X。个别 policy 对视觉差异敏感，例如 RT-1 15% 和 Octo-Base 的 sim-real 成功率变化明显。
+按任务看，Visual Matching 在 Pick Coke Can 的 MMRV/Pearson 为 0.031/0.976，在 Drawer 上为 0.027/0.942。例如 Table IV 中单独开/关抽屉的 MMRV/r 为 0.055/0.915，开抽屉放苹果为 0/0.969，所以组内平均得到约 0.027/0.942。策略优势也依任务而定：RT-1-X 在放苹果的真实/仿真成功率为 40.7%/21.3%，均高于 RT-2-X 的 7.4%/3.7%，不能笼统称前者较弱。Bridge 的 Figure 7 还把四项抓取中间指标与四项最终成功一起平均；仅计算最终成功时，Table V 的平均 MMRV 约 0.028、r 约 0.848，而非图中的 0.014/0.890。个别 policy 对视觉差异敏感，例如 RT-1 15% 和 Octo-Base 的 sim-real 成功率变化明显。
 
 ![SIMPLER 的 real-sim 策略排序散点图（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-simpler/fig1_scatterplot.86ue0t1asd.webp)
 
-**【Analysis】** 结果支持的不是“仿真成功率就是现实成功率”，而是“SIMPLER 的排序错误通常只发生在现实成功率接近的策略之间”。这正是 MMRV 比单纯 Pearson 更适合 checkpoint selection 的原因。
+**【Analysis】** 结果支持的不是“仿真成功率就是现实成功率”，而是“SIMPLER 的排序错误通常只发生在现实成功率接近的策略之间”。MMRV 因而提供有用补充，但高相关不能保证挑中最佳模型：pick-coke 的真实最佳是 RT-1 15%（92%），仿真最佳却是 RT-1 Converged（85.7%）。还需要报告所选模型的真实损失幅度，并考虑真实成功率的采样误差。
+
+**【Paper】** “Validation MSE”基线对 Google Robot 随机取 25 条**训练**示范，因为未公开验证划分；Bridge 才取 25 条验证示范，比较的是负 MSE 与真实表现的相关性。这支持“该离线误差配置弱于闭环仿真”，不足以否定所有有严格划分、更大样本或更合适动作度量的离线评测。
 
 ### 5.3 Ablation Study
 
 ![不同分布偏移下的成功率变化（论文 Figure 8）](https://pic.hana0721.top/blog/paper-deep-dive-simpler/results_dist_shifts_google_robot.3uvkt9hzdd.webp)
 
-**【Paper】** SysID 消融中，论文给出的 control loss/MMRV 为：未校准设置 0.267/0.070、另一组参数 0.432/0.100，SIMPLER SysID 达到 **0.131/0.031**。视觉消融中，仅调整 drawer 或 robot texture、或只做 green-screen 都不能稳定改善相关性；同时使用 green-screen、drawer matching 与 robot matching 时，MMRV 为 **0.050**、real-sim success gap 为 **0.136**，最佳。
+**【Paper】** SysID 消融中，论文给出的 control loss/MMRV 为：两组扰动 PD 参数设置分别为 0.267/0.070 与 0.432/0.100，SIMPLER SysID 达到 **0.131/0.031**。视觉消融中，仅调整 drawer 或 robot texture、或只做 green-screen 都不能稳定改善相关性；同时使用 green-screen、drawer matching 与 robot matching 时，MMRV 为 **0.050**、real-sim success gap 为 **0.136**，最佳。这是三策略的独立视觉消融；正文称包含 RT-1 Begin，但 Table IX 实际列 RT-1 Converged、15% 与 RT-1-X，应按表中策略说明，不能与六策略主表直接比较。
 
-物理属性消融改变空可乐罐密度、夹爪静摩擦和柜门关节摩擦，成功率最多变化约 15%，但在合理参数范围内 MMRV 仍低、Pearson 仍高。把 Google Robot 环境移植到 Isaac Sim 后也保持良好相关性，说明对于这些以刚体为主的任务，具体 simulator 不是决定性因素。
+物理属性消融改变空可乐罐密度、夹爪静摩擦和柜门关节摩擦，成功率最多变化约 15%，但在合理参数范围内 MMRV 仍低、Pearson 仍高。Table X 的罐质量范围为 10–80 g、夹爪摩擦系数 0.25–2.0，不能推广到任意动力学失配。Isaac Sim 的对照只覆盖 pick-coke 与 move-near，采用 Variant Aggregation，且 Table XI 未列 RT-2-X；它支持两种引擎下这组刚体任务的排序可复现，未验证全部任务、全部策略或精密接触技能都与引擎无关。
 
 ![SAPIEN 与 Isaac Sim 的比较（论文 Figure 10）](https://pic.hana0721.top/blog/paper-deep-dive-simpler/results_simulators.7w7k7nm2r8.webp)
 
 ### 5.4 Generalization
 
-**【Paper】** 作者沿 background、lighting、distractors、table texture、camera pose 五个轴测试分布偏移。仿真和真实都显示 camera pose 与 table texture 影响较大，lighting 与 distractors 影响较小；对 solid table color 的平均下降约 4%（sim 约 2%），patterned texture 的下降约 25%（sim 约 24%）。
+**【Paper】** 作者沿 background、lighting、distractors、table texture、camera pose 五个轴测试分布偏移。仿真和真实都显示 camera pose 与 table texture 影响较大，lighting 与 distractors 影响较小；该结论来自两种 RT-1 增强配置，而非所有模型。实色桌面与图案桌面的平均下降分别约为真实 4/25 个百分点、仿真 2/24 个百分点，不能写成相对百分比。
 
-更有说服力的是新偏移预测：仿真中 Octo-Base 使用未调 arm texture 的成功率为 0%，换成 tuned texture 后为 29.3%，而 RT-1-X 对 arm texture 更鲁棒。真实世界把机械臂包上不同礼品包装纸后，仍观察到 Octo-Base 比 RT-1-X 更敏感，说明 SIMPLER 可以预测未在校准阶段显式设计的行为模式。
+更有说服力的是新偏移预测：仿真中 Octo-Base 使用未调 arm texture 的成功率为 0%，换成 tuned texture 后为 29.3%，而 RT-1-X 对 arm texture 更鲁棒。真实世界给机械臂包礼品纸后，Octo-Base 从 29.3% 降到 0%，RT-1-X 从 76% 降到 52%（Table VIII）；这是两个模型的定向预测验证，说明 SIMPLER 可以预测未在校准阶段显式设计的行为模式。
 
 ## 6. 方法分析
 
@@ -273,12 +293,12 @@ SIMPLER 本身不训练新的 robot policy；训练对象是被评测的 RT-1、
 
 ### 6.3 与已有方法的本质区别
 
-| 方向 | 训练/评测方向 | 目标 | SIMPLER 的区别 |
-| --- | --- | --- | --- |
-| Sim-to-real/domain randomization | sim 训练 → real 部署 | 提高迁移成功率 | real 训练 → sim 评测，关心排序信号 |
-| Digital twin | 尽可能复刻一个场景 | 逐帧/物理逼真 | 只建“足够能排序”的环境 |
-| Validation action MSE | 离线动作误差 | 选择 checkpoint | 直接执行闭环 policy，结果更贴近真实行为 |
-| 传统 rank correlation | 只比较名次 | 检查排序 | MMRV 还惩罚大幅度的错误排序 |
+| 方向                             | 训练/评测方向        | 目标            | SIMPLER 的区别                          |
+| -------------------------------- | -------------------- | --------------- | --------------------------------------- |
+| Sim-to-real/domain randomization | sim 训练 → real 部署 | 提高迁移成功率  | real 训练 → sim 评测，关心排序信号      |
+| Digital twin                     | 尽可能复刻一个场景   | 逐帧/物理逼真   | 只建“足够能排序”的环境                  |
+| Validation action MSE            | 离线动作误差         | 选择 checkpoint | 直接执行闭环 policy，结果更贴近真实行为 |
+| 传统 rank correlation            | 只比较名次           | 检查排序        | MMRV 还惩罚大幅度的错误排序             |
 
 ### 6.4 关键假设
 
@@ -299,12 +319,13 @@ SIMPLER 本身不训练新的 robot policy；训练对象是被评测的 RT-1、
 - **校准数据与评测分布耦合。** 如果 demonstration 只覆盖一种夹爪姿态，SysID 得到的参数未必适用于新的动作幅度或负载。
 - **策略输入接口仍可能不一致。** 真实系统的延迟、压缩、曝光和 proprioception 若没有在 simulator 中复现，视觉匹配只能修正外观，不能修正时序差。
 - **成功标签比较粗。** 二元 success rate 无法解释“抓住但放置偏了”等中间行为；视频和 episode stats 仍需人工审计。
+- **相关性与等价性不同。** 附录 G 的 Kruskal–Wallis 检验在部分设置下未拒绝分布一致假设，不能证明仿真与现实等价；Table XIV 中 pick-coke 和 move-near 各有 3 个策略达到 $p<0.05$，也表明绝对校准仍有限。
 - **MMRV 依赖策略集合。** 增加一个极差或极好的 policy 会改变平均 rank violation，因此跨论文比较时必须固定 checkpoint 集合和任务集合。
 - **GPU 与环境依赖重。** 官方代码要求 NVIDIA GPU、特定 CUDA/NumPy 版本，并依赖 ManiSkill2 子模块；这会削弱“可复现”的门槛优势。
 
 ## 8. 启发与研究思考
 
-1. **评测环境也可以被学习。** 可以把 MMRV 作为环境设计的 outer-loop objective，自动搜索相机、材质和控制参数，而不是手工决定哪些 gap 值得修正。
+1. **评测环境也可以被学习。** 可以探索用相关性优化环境参数，但必须为模型家族、任务或真实评测条件留出独立测试集；若反复用同一批真实结果最小化 MMRV，再在它们上报告相关性，就会把校准集拟合误当成新策略的预测能力。
 2. **从排序扩展到诊断。** 将 success rate 换成失败类型、接触阶段和动作延迟的分布，可构造“策略行为谱”，帮助定位是视觉、控制还是长时程规划导致失败。
 3. **为 VLA checkpoint 选择提供低成本闭环。** 训练期间每隔若干步在 SIMPLER 上跑一次，可能比保存 validation MSE 更早发现策略已经学会或遗忘某种 embodiment 技能。
 4. **面向动态和软体任务的下一步。** 对布料、液体和双臂协作，单纯刚体 simulator 不够；可以把可微物理、视频预测器和真实短片段校准结合起来，保持“相对性能相关”这一目标。

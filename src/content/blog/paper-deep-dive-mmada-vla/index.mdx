@@ -1,7 +1,7 @@
 ---
 title: 'MMaDA-VLA 论文精读：统一多模态指令与生成的离散扩散 VLA'
 publishDate: 2026-08-26
-updatedDate: 2026-08-26
+updatedDate: 2026-09-22
 description: '精读 MMaDA-VLA：把语言、图像、动作放进同一离散 token 空间，用并行迭代去噪共同生成目标观测与动作块。'
 heroImage:
   { src: 'https://pic.hana0721.top/62423081_p0_master1200.3ns7nvxp9b.webp', color: '#7B8496' }
@@ -54,7 +54,7 @@ import { Aside } from '@/components/user'
 
 ### 一句话总结
 
-**【Analysis】** 这篇工作的关键不是“把 diffusion 加到动作头上”，而是把“未来会看到什么”和“接下来怎么动”变成同一个生成问题：模型在每次去噪时反复对齐两者，因而可以把动作块放在任务状态演化的上下文里修正。
+**【Analysis】** 这篇工作的关键不是“把 diffusion 加到动作头上”，而是把“未来会看到什么”和“接下来怎么动”变成同一个生成问题：动作预测在各次去噪中读取正在形成的未来视觉表示。论文的 hybrid attention 规定 goal→action 的方向，所以“联合生成”不等于两种输出在前向计算中双向协商。
 
 ### 核心贡献
 
@@ -75,7 +75,7 @@ import { Aside } from '@/components/user'
 - **Autoregressive discrete VLA**：把动作离散成 token 后按固定顺序生成，动作维度之间并没有天然的先后关系，却会承受 token-by-token 的误差传播。
 - **World-model VLA**：额外生成未来图像，或先生成 goal image 再通过 inverse dynamics 得到动作，代价是阶段增多、训练和推理不一致。
 
-**【Analysis】** 动作 chunk 中的 7 个自由度更像一个“集合”而非自然语言句子。对它施加左到右顺序，会引入不必要的 inductive bias；而单纯并行一次预测又缺少修正机会。离散扩散提供了折中：先全部 mask，再用多个 denoising step 逐步确认 token。
+**【Analysis】** 同一时刻动作向量的各个坐标没有天然的语言式生成先后；但它们的含义和 chunk 内的时间顺序仍然固定，模型不是对动作置换不变的集合网络。对它施加左到右顺序，会引入不必要的 inductive bias；而单纯并行一次预测又缺少修正机会。离散扩散提供了折中：先全部 mask，再用多个 denoising step 逐步确认 token。
 
 ## 3. 问题定义
 
@@ -119,17 +119,17 @@ $$
 
 **【Paper】** 文本使用 LLaDA tokenizer，图像使用 MAGVIT-v2，动作使用 256-bin tokenizer。三种 token 被映射到共享 vocabulary，模型因此只需要一个输出 head 和一个 masked-token loss。
 
-**【Code】** `mmadavla/models/action_tokenizer.py` 将动作裁剪到 $[-1,1]$，通过 `np.digitize` 映射到 256 个 bin；`decode` 使用 bin center 还原连续值。`action_num_vq_tokens = action_chunk_size × 7`，所以 LIBERO 的 action 区域是 35 token，CALVIN 是 70 token。
+**【Code】** `mmadavla/data/utils.py` 先用训练数据各维度的第 1/99 百分位归一化并裁剪到 $[-1,1]$，`action_tokenizer.py` 再用 `np.digitize` 生成离散 ID，`decode` 使用区间中心还原。需注意当前实现的 `np.linspace(...,256)` 是 256 个边界、255 个区间中心；ID 255 在解码时被裁剪到最后一个中心，与 ID 254 重合。因此“256 个 action vocabulary ID”不严格等于“256 个不同重建值”。`action_num_vq_tokens = action_chunk_size × 7`，所以 LIBERO 的 action 区域是 35 token，CALVIN 是 70 token。
 
 #### Multi-modal prompting
 
-**【Code】** `mmadavla/utils/prompt.py` 固定拼接 `[ti2ia] → current image → text → goal image → action`。机器人状态被格式化为文本，和 task instruction 一起进入语言 token 区域；标签只保留 goal image 与 action 的被 mask 位置，其余位置使用 `ignore_id=-100`。
+**【Code】** `mmadavla/utils/prompt.py` 固定拼接 `[ti2ia] → current image → text → goal image → action`。机器人状态被格式化为文本，和 task instruction 一起进入语言 token 区域；普通内容 token 的标签只保留 goal image 与 action 中被 mask 的位置，其他内容设为 `ignore_id=-100`；但当前 `Prompting` 还保留了未 mask 的四个输出边界 token 标签，所以实现并非严格只对 masked tokens 求损失。
 
 #### Hybrid attention
 
-**【Paper】** 同一模态内部使用 bidirectional full attention，让 goal image 或 action chunk 的 token 可以全局交换信息；不同模态之间使用 causal attention，保持从 current observation / instruction 流向 generation 的方向性。这样既避免 action dimension 的人为顺序，又避免完全双向的跨模态信息泄漏。
+**【Paper】** 同一模态内部使用 bidirectional full attention，让 goal image 或 action chunk 的 token 可以全局交换信息；不同模态之间使用 causal attention，保持从 current observation / instruction 流向 generation 的方向性。具体按 `current image → instruction → goal image → action` 的区块顺序构造：动作能读取未来图像，未来图像不能读取动作。当前图像与未来图像虽同属视觉模态，也属于不同因果区块，不能把“同模态 full attention”误解为所有图像 token 互相可见。完全双向方案允许这种反馈，并不等于测试时看到了真实未来；作者所说 leakage 更接近训练时不同目标相互依赖/干扰。
 
-**【Code】** `construct_attention(..., AttnType.hybrid)` 以区域编号 1–5 构造布尔 attention bias，并用 `query_mask >= key_mask` 实现跨区域的因果约束。
+**【Code】** `construct_attention(..., AttnType.hybrid)` 确实以编号 1–5 和 `query_mask >= key_mask` 构造上述 bias。但核对到的 [commit b9644cf](https://github.com/yliu-cs/MMaDA-VLA/tree/b9644cf7389f2b6f4446839dc59377d1f585df2d) 中，`models/llada.py` 的实际 attention 调用传入 `attn_mask=None, is_causal=False`，其 PyTorch fallback 也忽略 mask；`dllm_cache.py` 替换后的 attention 路径同样如此。因此“构造了 hybrid bias”尚不能证明公开执行路径落实了论文的 hybrid attention。本文以下机制解释以论文设计为准，不把这份代码当成已验证的等价复现。
 
 #### Goal observation generation
 
@@ -137,9 +137,9 @@ $$
 
 #### Key-value cache
 
-**【Paper】** 指令在所有 denoising step 中不变，因此论文缓存每层的 $K_l,V_l,$ attention output 和 FFN output；generation 区域只刷新与缓存 value 向量 cosine similarity 最低的 $\lfloor\rho n'\rfloor$ 个 token，每 $\lambda$ 个 step 刷新一次。
+**【Paper】** 指令在所有 denoising step 中不变，因此论文缓存每层的 $K_l,V_l,$ attention output 和 FFN output；generation 区域按间隔刷新，并可用 value 向量的 cosine similarity 选择变化最大的 $\lfloor\rho n'\rfloor$ 个位置作选择性更新。这里缓存的是中间特征，不只是传统自回归解码中已确定 token 的 K/V。
 
-**【Code】** `mmadavla/utils/dllm_cache.py` 把 prompt/gen 分开缓存，并通过 `refresh_index` 选择低相似度位置。它是 training-free 的推理优化，不改变模型参数。
+**【Code】** `dllm_cache.py` 提供 prompt/gen 分区与 `refresh_index`，但 `eval/utils.py` 的默认 `transfer_ratio=0.0` 不启用选择性更新，且传给缓存的 `prompt_length` 包含两段视觉与动作的长度，而不只是固定输入。这与论文的固定上下文/可变输出划分不一致，复现缓存结果前需要核对实际评测版本与配置；仅启用 `cache=True` 不能视为已复现论文算法。
 
 ### 4.3 关键公式
 
@@ -151,7 +151,7 @@ $$
 \mathcal L(\theta)=-\mathbb E\left[\frac{1}{N_s}\sum_{i=1}^{n}\mathbf 1[x_i^{(s)}=\text{[M]}]\log \pi_\theta(x_i\mid x^{(s)})\right].
 $$
 
-其中 $\mathbf 1$ 只选择被破坏的位置，避免未 mask 的条件 token 主导损失；代码中对应 `F.cross_entropy`，并用 `ignore_id` 忽略其他位置。
+其中 $\mathbf 1$ 只选择被破坏的位置。公式按每个样本的 $N_s$ 归一化；当前代码则将 batch 与序列展平后对所有有效标签做一次 `F.cross_entropy(mean)`，mask 更多的样本会贡献更多有效项，并额外包含上述四个边界 token。没有单独的图像/动作模态均衡权重，统一损失也不意味着两种模态总梯度贡献相等。
 
 #### Cosine mask schedule
 
@@ -165,7 +165,7 @@ $$
 
 #### 迭代去噪与 confidence remasking
 
-**【Paper】** 第 $d$ 步先得到每个位置的 clean-token 预测 $\hat x^{(0)}$，再按预测置信度保留一部分 token、重新 mask 其余 token：
+**【Paper】** 第 $d$ 步先得到每个位置的 clean-token 预测 $\hat x^{(0)}$（论文 Eq. 4 使用 argmax），再按预测置信度保留一部分 token、重新 mask 其余 token：
 
 $$
 x_i^{(d-1)}=\begin{cases}
@@ -174,15 +174,15 @@ x_i^{(d-1)}=\begin{cases}
 \end{cases}
 $$
 
-这里 $c_i$ 是采样 token 的置信度，$\beta=\gamma(d/D)n'$ 是下一步需要保留的 mask 数量。
+这里 $c_i$ 是预测 token 的置信度，$\beta$ 是下一步仍保留 mask 的数量。论文把逆过程编号写成 $d=D,\ldots,1$，但 Eq. 5 附近又写 $\gamma(d/D)$；若直接代入递减 cosine，会得到方向相反的 mask 数量。与公开实现一致的清晰写法是用已完成步数 $j=1,\ldots,D$，令 $\beta_j\approx n'\gamma(j/D)$，随迭代从多到少。实际代码对图像和动作分别计算数量并保证每轮有进展。
 
-**【Code】** `generate` 使用 softmax 概率采样 token，再通过 `mask_by_random_topk` 加入 Gumbel noise；随着 `ratio` 增大，temperature 线性降到 0，使后期决策更确定。
+**【Code】** 当前 `generate` 对 softmax 概率调用 `torch.multinomial`，与论文 Eq. 4 的 greedy argmax 不同；Gumbel noise 用于决定哪些位置继续 mask。`temperature = temperature * (1-ratio)` 在循环中累计相乘，并非从初始值线性衰减，它也没有缩放 token 采样 logits。已确认位置通过 `torch.where(unknown_map, sampled, old)` 保持原值，再将其置信度设为极大值；迭代主要解决尚未确认的位置，不能描述成所有已生成动作都能无限反复改写。
 
 ### 4.4 Training
 
-**【Paper】** 预训练使用约 5,300 万跨 embodiment 样本，混合 DROID、BC-Z、Language Table、Furniture Bench、Fractal、Bridge V2、Kuka、CALVIN、LIBERO 等数据。backbone 是 8B 的 MMaDA-8B-Base；全局 batch size 640，AdamW，learning rate $10^{-4}$，weight decay 0.01，cosine decay，warm-up ratio 0.01，文本长度 128。8 节点、每节点 8 张 H800 上预训练约 30 小时。
+**【Paper】** 预训练使用约 5,300 万跨 embodiment 样本，混合 DROID、BC-Z、Language Table、Furniture Bench、Fractal、Bridge V2、Kuka、CALVIN、LIBERO 等数据。backbone 是 8B 的 MMaDA-8B-Base；全局 batch size 640，AdamW，learning rate $10^{-4}$，weight decay 0.01，cosine decay，warm-up ratio 0.01，文本长度 128。8 节点、每节点 8 张 H800 上预训练约 30 小时。这里的样本是观测—未来观测—动作窗口，不能当作 5,300 万条独立轨迹；DROID 约占 49.94%。混合中已包含 LIBERO 约 82.9 万样本与 CALVIN 约 100 万样本，作者明确排除了 CALVIN D，因此主结果是预训练后在已有目标基准继续微调的迁移实验，不是对这两个基准完全零接触的测试。
 
-**【Code】** `train/train_mmadavla.py` 的训练步骤是：读取 parquet → 拼接 robot state 文本 → 对 goal image 与 action 同步 mask → 用 `Prompting` 生成 attention bias 和 labels → 前向交叉熵 → gradient clipping、AdamW 更新与 cosine scheduler。默认 mixed precision 为 bfloat16；从 base MMaDA 初始化时会扩展 action vocabulary。
+**【Code】** `mmadavla/train/train_mmadavla.py` 的训练步骤是：读取 parquet → 拼接 robot state 文本 → 对 goal image 与 action 同步 mask → 用 `Prompting` 生成 attention bias 和 labels → 前向交叉熵 → gradient clipping、AdamW 更新与 cosine scheduler。默认 mixed precision 为 bfloat16；从 base MMaDA 初始化时会扩展 action vocabulary。
 
 <Algorithm number={1} title='MMaDA-VLA masked-token training' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>跨 embodiment 轨迹 $(o_t,\ell,o_{t'},a_{t:t'-1})$、视觉/文本/动作 tokenizers。</div>
@@ -197,7 +197,7 @@ $$
 
 **【Paper】** 推理时 current observation 和 instruction 固定，goal observation 与 action chunk 全部初始化为 `[M]`。模型执行 $D$ 次 denoising，在每次迭代中并行更新两段 token；最终分别用 MAGVIT-v2 decoder 和 action tokenizer 解码，机器人执行 action chunk，再回到下一轮闭环。
 
-**【Code】** `MMaDAVLAModelLM.generate` 默认 `timesteps=18`，每步对 action / vision 两个区域分别采样、计算置信度、按 schedule 重新 mask。论文效率实验最终选择 24 denoising steps、6 cache-refresh steps；README 的命令没有覆盖这些推理参数，部署时需按评测脚本配置。
+**【Code】** 底层 `MMaDAVLAModelLM.generate` 的函数默认是 18 步，但 README 所调用的 server 经 `MMaDA_VLA_Server` 默认传入 24 步、缓存刷新间隔 6 步，与论文选择一致；不能只看底层默认值断言部署用了 18 步。“6 refresh steps”在代码中是每 6 步刷新一次，而不是整个生成过程只刷新 6 次。控制只需最后的 action token，解码未来图像为像素用于检查或展示，并不是低层控制器的必需输入。
 
 <Algorithm number={2} title='MMaDA-VLA iterative closed-loop inference' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>当前 RGB 观测、proprioception、语言指令，以及 denoising steps $D$。</div>
@@ -210,15 +210,15 @@ $$
 
 ### 4.6 代码实现对照
 
-| 论文概念           | 官方代码位置                                             | 代码行为                                                                      |
-| ------------------ | -------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| Action tokenizer   | `mmadavla/models/action_tokenizer.py`                    | 256 bins，动作范围 $[-1,1]$，按 chunk 展平                                    |
-| Prompt / attention | `mmadavla/utils/prompt.py`                               | current image、text、goal image、action 的固定区域编号与 hybrid bias          |
-| Training loss      | `mmadavla/models/mmadavla.py`、`train/train_mmadavla.py` | 全序列 cross entropy，但 labels 只保留 masked generation token                |
-| Diffusion schedule | `mmadavla/utils/diffusion.py`                            | cosine mask、随机 mask、Gumbel top-k remasking                                |
-| Inference          | `mmadavla/models/mmadavla.py`                            | vision/action 两个区域并行采样，多步更新                                      |
-| Cache              | `mmadavla/utils/dllm_cache.py`                           | prompt/gen 分区 KV、attention、FFN cache；选择低 cosine similarity token 刷新 |
-| Data               | `mmadavla/data/lerobot.py`、`data/preprocess.py`         | LeRobot episode、视频帧、状态和 action chunk 的读取与归一化                   |
+| 论文概念           | 官方代码位置                                                      | 代码行为                                                                      |
+| ------------------ | ----------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Action tokenizer   | `mmadavla/models/action_tokenizer.py`                             | 256 bins，动作范围 $[-1,1]$，按 chunk 展平                                    |
+| Prompt / attention | `mmadavla/utils/prompt.py`、`models/llada.py`                     | 前者构造 hybrid bias，后者当前公开 attention 路径未使用它；见 §4.2。          |
+| Training loss      | `mmadavla/models/mmadavla.py`、`mmadavla/train/train_mmadavla.py` | batch 展平交叉熵，标签含 masked 内容及四个未 mask 的输出边界 token。          |
+| Diffusion schedule | `mmadavla/utils/diffusion.py`                                     | cosine mask、随机 mask、Gumbel top-k remasking                                |
+| Inference          | `mmadavla/models/mmadavla.py`                                     | vision/action 两个区域并行采样，多步更新                                      |
+| Cache              | `mmadavla/utils/dllm_cache.py`                                    | prompt/gen 分区 KV、attention、FFN cache；选择低 cosine similarity token 刷新 |
+| Data               | `mmadavla/data/lerobot.py`、`mmadavla/data/preprocess.py`         | LeRobot episode、视频帧、状态和 action chunk 的读取与归一化                   |
 
 **【Analysis】** 论文中的“world-model-like”是目标观测生成目标，不等同于一个可以任意 rollout 的显式 simulator。官方代码也没有单独的 inverse dynamics 网络；动作直接由同一 backbone 的 action vocabulary 解码。
 
@@ -234,24 +234,28 @@ $$
 
 **【Paper】**
 
-| Benchmark              |                             MMaDA-VLA |                               最强对比方法 |                差值 |
-| ---------------------- | ------------------------------------: | -----------------------------------------: | ------------------: |
-| LIBERO average success |                             **98.0%** |                          VLA-Adapter 97.3% |             +0.7 pp |
-| CALVIN 1/5 → 5/5       | 99.8 / 98.6 / 96.3 / 93.5 / **89.7%** | DreamVLA 98.2 / 94.6 / 89.5 / 83.4 / 78.1% | 第五子任务 +11.6 pp |
-| CALVIN average length  |                              **4.78** |                              DreamVLA 4.44 |               +0.34 |
-| Real-world success     |                           83.3%–93.3% |                       GR00T N1 56.7%–70.0% |       +23.3–26.6 pp |
+| Benchmark              |                             MMaDA-VLA |                               最强对比方法 |                      差值 |
+| ---------------------- | ------------------------------------: | -----------------------------------------: | ------------------------: |
+| LIBERO average success |                             **98.0%** |                          VLA-Adapter 97.3% |                   +0.7 pp |
+| CALVIN 1/5 → 5/5       | 99.8 / 98.6 / 96.3 / 93.5 / **89.7%** | DreamVLA 98.2 / 94.6 / 89.5 / 83.4 / 78.1% | 五连任务全部成功 +11.6 pp |
+| CALVIN average length  |                              **4.78** |                              DreamVLA 4.44 |                     +0.34 |
+| Real-world success     |                           83.3%–93.3% |                     GR00T N1.6 56.7%–70.0% |             +23.3–26.6 pp |
 
-**【Analysis】** 最有说服力的不是 LIBERO 的小幅平均提升，而是 CALVIN 后续子任务成功率：当错误必须跨多个动作块传播时，goal observation 约束与并行 refinement 的组合更能维持轨迹一致性。
+**【Paper】** CALVIN 的 1/5…5/5 是连续完成至少 1…5 个子任务的累计概率，而非“分别执行第 1…5 个任务”的独立成功率；五项概率相加为 4.779，四舍五入即平均完成长度 4.78。主评测使用 1,000 个 rollout。Figure 3 的真机四类任务依次为 86.7%、93.3%、93.3%、83.3%，对照标为 GR00T N1.6；每类 30 次试验，一个成功与否就改变约 3.33 个百分点。
+
+**【Analysis】** 长链改善与方法动机相符，但主表横向比较混合了不同预训练规模和模型配置，不能单靠该表把 +0.34 全部归因于 goal observation。
 
 ### 5.3 Ablation Study
 
 ![生成目标观测与 ground truth 对比（论文 Figure 5）](/images/paper-deep-dive-mmada-vla/figure-5.webp)
 
-**【Paper】** 在不使用预训练的 CALVIN 设置中，完整模型平均长度为 4.56；去掉 world-model 目标观测后降到 4.08，去掉 parallel denoising 后为 4.38，改为 causal attention 为 4.49，改为完全 bidirectional attention 为 4.52。
+**【Paper】** 在省去额外机器人数据预训练的 CALVIN 设置中，完整模型平均长度为 4.56；去掉 world-model 目标观测后降到 4.08，去掉 parallel denoising 后为 4.38，改为 causal attention 为 4.49，改为完全 bidirectional attention 为 4.52。
+
+**【Code】** 这里的 w/o Pre-Training 不是随机初始化 8B 网络：公开训练入口在未提供机器人 checkpoint 时仍从 MMaDA-8B-Base 加载参数，并扩展动作词表。因此消融考察的是机器人预训练阶段及 VLA 设计，不是多模态基础预训练是否必要。
 
 这些结果区分了三个因素：
 
-- **World-model objective** 带来最大收益（−0.48），说明未来视觉状态确实提供了动作规划信号。
+- **World-model objective** 带来最大收益（−0.48），支持未来视觉预测目标有用；它同时改变监督和输出 token 数量，不能单独证明模型已经学到物理正确的动力学。
 - **Parallel denoising** 比“先完整生成图像、再预测动作”更好（−0.18），动作可以读取图像生成过程中的中间 hidden states。
 - **Attention 形式** 的影响较小（均小于 0.1），但 hybrid attention 同时保留了模态内全局交互和模态间方向性。
 
@@ -263,7 +267,7 @@ $$
 
 ![不同去噪步数与 cache 刷新设置下的延迟—性能折中（论文 Figure 7）](/images/paper-deep-dive-mmada-vla/figure-7.webp)
 
-**【Paper】** 在单张 A100 上，KV cache 将平均延迟从约 2.0 s 降到 1.4 s；去噪步数增加时性能先升后降，24 steps 达到最佳平均长度 4.65。论文最终采用 24 steps、6 refresh steps 作为速度与成功率的折中。
+**【Paper】** Figure 7 在同一组随机抽取的 20 个 CALVIN 评测任务上比较效率，规模小于主表的 1,000 rollouts。单张 A100 上，cache 将匹配设置的平均延迟约从 2.0 s 降到 1.4 s；文中报告 24 steps 的最好平均长度为 4.65，并选择 24 步、每 6 步刷新缓存。4.65 不是主表 4.78 的直接复测，1.4 s 也是一次动作块推理的延迟，不是单个动作耗时或端到端控制周期。
 
 ## 6. 方法分析
 
@@ -273,7 +277,7 @@ $$
 
 1. **Shared token space** 让 vision、language、action 使用同一套 denoising 计算，减少模块边界的信息损失。
 2. **Goal observation** 把长时域动作变成“到达一个可预测状态”，给 action chunk 一个可检查的中间目标。
-3. **Iterative parallel refinement** 允许动作各维度互相参考并反复改写，避免 AR 顺序和早期错误锁死后续 token。
+3. **Iterative parallel refinement** 让尚未确定的动作位置读取已确定 token 与中间视觉表示，减少固定左到右顺序的限制；公开实现仍会锁定高置信度 token，因此早期误判并未被彻底消除。
 
 ### 6.2 核心创新
 
@@ -310,7 +314,7 @@ $$
 1. **代码与论文的部署鸿沟**：仓库公开了训练与模型推理，但真实 AgileX PiPER 的完整控制、相机同步和安全策略没有作为可复现实验脚本提供。
 2. **离散化误差**：256 bins 对 7-DoF 每个维度独立量化，bin range 由训练数据决定；超出数据分布的精细动作可能被截断。
 3. **延迟仍高于单次 forward policy**：24 次去噪即使有 cache 也需要约 1.4 s 量级，快速接触或高频控制场景可能无法直接使用。
-4. **目标观测不是可验证的真实动力学**：生成图像只需在 token 空间合理，不保证满足碰撞、摩擦、关节极限等物理约束。
+4. **目标观测不是动作条件模拟器**：论文的 goal 分支不能读取 action 区块，因此不能给它任意候选动作来预测结果或评估反事实轨迹；训练标签只是专家接下来到达的画面，也没有碰撞、摩擦等物理约束。
 5. **实验对比的统计不确定性未充分展开**：论文报告成功率和平均长度，但没有系统给出多随机种子置信区间或不同 chunk size 的完整敏感性曲线。
 
 ## 8. 启发与研究思考
@@ -324,6 +328,8 @@ $$
 - 下一步值得研究连续 action diffusion 与离散视觉生成的混合表示，以及带物理约束的 goal-state token。
 
 <Aside type='note' title='阅读提示'>
-  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
+  本文核对 [arXiv v3 全文](https://arxiv.org/pdf/2603.25406v3) 与 [官方代码
+  b9644cf](https://github.com/yliu-cs/MMaDA-VLA/tree/b9644cf7389f2b6f4446839dc59377d1f585df2d)。`【Paper】`
+  表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
   表示基于论文和代码的分析推断。论文与代码若有差异，以对应标注为准。
 </Aside>

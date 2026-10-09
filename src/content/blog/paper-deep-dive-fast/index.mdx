@@ -1,7 +1,7 @@
 ---
 title: 'FAST 论文精读：高效的 Vision-Language-Action 动作 Tokenization'
 publishDate: 2026-08-25
-updatedDate: 2026-08-25
+updatedDate: 2026-09-22
 description: '精读 FAST：用 DCT 与 BPE 压缩高频机器人动作，把自回归 VLA 从“预测数百个冗余 token”变成高信息密度的动作序列。'
 heroImage:
   { src: 'https://pic.hana0721.top/68232005_p0_master1200.60uu51sjdo.webp', color: '#8C8275' }
@@ -69,7 +69,7 @@ import { Aside } from '@/components/user'
 
 ### 一句话总结
 
-**【Paper】** FAST（Frequency-space Action Sequence Tokenization）指出：高频控制数据的问题不是动作本身太复杂，而是逐维、逐时间步 binning 产生了大量高度相关的 token，使 next-token prediction 的边际学习信号趋近于零。它先用离散余弦变换（DCT）把动作块转换到频域，量化后再用 Byte Pair Encoding（BPE）压缩，最后让自回归 VLA 只预测少量高信息密度 token。
+**【Paper】** FAST（Frequency-space Action Sequence Tokenization）指出：高频控制数据的问题不是动作本身太复杂，而是逐维、逐时间步 binning 产生了大量高度相关的 token，使 next-token prediction 的边际学习信号趋近于零。它先用离散余弦变换（DCT）把动作块转换到频域，量化后再用 Byte Pair Encoding（BPE）压缩，最后让自回归 VLA 预测更短的 token 序列。这里“边际信息趋近零”是作者对平滑、高频离散序列的机制解释与 toy experiment 观察，并非证明所有高频任务必然训练失败的普遍定理。
 
 ### 核心贡献
 
@@ -78,7 +78,7 @@ import { Aside } from '@/components/user'
 1. 提出一种不需要训练神经网络的压缩式动作 tokenizer：DCT 负责把平滑动作集中到低频系数，BPE 负责无损地合并稀疏系数序列。
 2. 在 20 Hz 的 Table Bussing、50 Hz 的 T-Shirt Folding 等高频任务上，FAST 让原本无法学习的自回归 VLA 取得有效策略；T-Shirt Folding 的平均 token 数从 700 降到 53。
 3. 发布在约 100 万条真实机器人动作块上训练的 FAST+ universal tokenizer，覆盖 single-arm、bi-manual、mobile 等 embodiment 与 joint / end-effector action space。
-4. 将 FAST 接入 $\pi_0$ 后，$\pi_0$-FAST 在 10k 小时级跨机器人数据上达到接近 diffusion $\pi_0$ 的表现，训练速度最高提升 5 倍，并首次展示 DROID 的完全 zero-shot 新场景语言指令控制。
+4. 将 FAST 接入 $\pi_0$ 后，$\pi_0$-FAST 在 10k 小时级跨机器人数据上达到接近 diffusion $\pi_0$ 的表现，达到相近任务表现所需的训练 GPU-hours 最多降为约 1/5；另一个 DROID 专门训练实验展示了无需目标环境微调的新场景语言控制。两项结果来自不同训练设置，不能混为同一个 checkpoint 的证据。
 
 **【Analysis】** 这篇工作真正改变的是 action representation，而不是 VLA backbone：它把“自回归模型是否能学会高频动作”转化为“每个 token 是否携带足够的新信息”。
 
@@ -117,15 +117,15 @@ $$
 
 论文覆盖的 Embodied AI 要素如下：
 
-| 要素 | FAST 中的设定 |
-| --- | --- |
-| Observation | RGB 图像、语言指令和 proprioceptive state；具体相机数量随任务而变 |
-| Vision / Language | $\pi_0$ 使用 PaliGemma-3B，OpenVLA 使用 Prismatic-7B |
-| Action representation | 1 秒 action chunk，先归一化，再做 DCT、量化、BPE |
-| Policy | 自回归 VLA，以 prefix-LM attention 预测动作 token |
-| Embodiment | single-arm、bi-manual、mobile；实验还包含静态机器人上的 Libero、DROID 等 |
-| Control frequency | 5–50 Hz 的公开与内部数据；DROID 评测为 15 Hz |
-| Decoder | BPE 逆变换、DCT inverse 与反归一化恢复连续动作 |
+| 要素                  | FAST 中的设定                                                            |
+| --------------------- | ------------------------------------------------------------------------ |
+| Observation           | RGB 图像、语言指令和 proprioceptive state；具体相机数量随任务而变        |
+| Vision / Language     | $\pi_0$ 使用 PaliGemma-3B，OpenVLA 使用 Prismatic-7B                     |
+| Action representation | 1 秒 action chunk，先归一化，再做 DCT、量化、BPE                         |
+| Policy                | 自回归 VLA，以 prefix-LM attention 预测动作 token                        |
+| Embodiment            | single-arm、bi-manual、mobile；实验还包含静态机器人上的 Libero、DROID 等 |
+| Control frequency     | 5–50 Hz 的公开与内部数据；DROID 评测为 15 Hz                             |
+| Decoder               | BPE 逆变换、DCT inverse 与反归一化恢复连续动作                           |
 
 **【Code】** 当前 `openpi` 的 `FASTTokenizer` 默认把 prompt 和离散 state 放在 prefix，把 FAST action tokens 放在 postfix；训练只对 postfix 的 `token_loss_mask` 计算 loss，推理时通过 `extract_actions` 解析 `Action: ... |` 区间并恢复动作。
 
@@ -133,9 +133,9 @@ $$
 
 ### 4.1 Overall Architecture
 
-![FAST 动作 tokenization 流程：归一化动作块经过 DCT、量化、低频优先 flatten 与 BPE，得到压缩 token（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-fast/dct_method.4ubo4rsq9g.webp)
+![FAST 动作 tokenization 流程：归一化动作块经过 DCT、量化、低频优先 flatten 与 BPE，得到压缩 token（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-fast/dct_method.4ubo4rsq9g.webp)
 
-**【Paper】** 整体数据流是：`action chunk → quantile normalization → DCT → scale-and-round → low-frequency-first flatten → BPE → action tokens`；解码按相反方向执行，再将 token 拼回 VLA 的语言模型词表。
+**【Paper】** 整体数据流是：`action chunk → quantile normalization → DCT → scale-and-round → low-frequency-first flatten → BPE → action tokens`；训练时先将离散 action token ID 映射到 VLA 词表；部署时模型生成这些 ID，再反向映射、BPE 解码、反量化、inverse DCT，最后用对应机器人的统计量反归一化。
 
 ### 4.2 核心模块
 
@@ -151,14 +151,14 @@ $$
 - **输入**：归一化后的每个动作维度时间序列。
 - **输出**：$D\times H$ 的频域系数矩阵 $C$。
 - **做什么**：把轨迹表示为不同频率的 cosine basis；低频系数描述整体形状，高频系数描述急剧变化。
-- **为什么需要**：平滑机器人轨迹的大部分能量集中在低频，频域表示天然比逐时间步表示更稀疏。
+- **为什么需要**：平滑机器人轨迹的大部分能量集中在低频，DCT 本身可逆且不减少 $HD$ 个系数；平滑性让能量集中，随后的量化才让小系数变成严格的零。
 
 #### Scale-and-Round Quantization
 
 - **输入**：DCT 系数 $C^i_j$ 与尺度 $\gamma$。
 - **输出**：整数系数 $\bar C^i_j$。
 - **做什么**：$\bar C^i_j=\operatorname{round}(\gamma C^i_j)$，用 $\gamma$ 在重建误差和压缩率之间做 trade-off。
-- **为什么需要**：BPE 需要离散整数序列；舍弃很小的系数会把大量近似零的频率分量变成可压缩模式。
+- **为什么需要**：BPE 需要离散整数序列；当 $|C^i_j|<1/(2\gamma)$ 时系数通常被舍入为零。筛选依据是幅值，不是固定截掉所有高频：足够大的高频系数仍会保留，突变也可以表示，只是压缩率可能降低。
 
 #### Low-Frequency-First Flatten
 
@@ -170,7 +170,7 @@ $$
 #### BPE Compression
 
 - **输入**：flatten 后的一维整数序列。
-- **输出**：词表大小固定的 dense action token 序列。
+- **输出**：来自固定词表、长度可变的 action token 序列。
 - **做什么**：学习高频共现的系数组合，把连续的零和重复模式合并。
 - **为什么需要**：仅有 DCT 会留下大量重复的 `0` token；BPE 进一步缩短序列，并让 action token 能复用 VLA 词表的离散接口。
 
@@ -201,7 +201,9 @@ $$
 [T_1,\ldots,T_n]=\operatorname{BPE}(\mathbf{s};\Phi)
 $$
 
-其中 $\gamma$ 越大，保留的重建细节越多、token 越长；$\Phi$ 只负责 lossless 地合并整数序列，不负责把动作映射到新的连续 latent space。
+通常 $\gamma$ 越大，重建细节越多、token 越长；$\Phi$ 只负责无损地合并**量化后的整数序列**。整条 FAST 管线仍是有损的，损失主要来自取整，不是 BPE。
+
+**【Analysis】** 对正交归一化 DCT，Parseval 等式给出 $\|a-\hat a\|_F^2=\|C-\hat C\|_F^2$；若只有步长 $1/\gamma$ 的取整、没有裁剪或解码错误，每个系数误差不超过 $1/(2\gamma)$，因而归一化动作 MSE 不超过 $1/(4\gamma^2)$。这解释 scale 如何控制数值保真度，却不是任务成功保证：接触和抓取对误差方向、时刻、物理反归一化范围都敏感。
 
 #### 自回归 prefix-LM
 
@@ -215,7 +217,7 @@ prefix 内部使用双向 attention，action postfix 使用 causal attention；�
 
 ### 4.4 Training
 
-**【Paper】** 训练阶段先对每个数据集的 1 秒动作块做 FAST tokenization，再把 action tokens 放入 VLA 的语言序列中。$\pi_0$ 与 OpenVLA 均不冻结 backbone；图像通常为 $224\times224$，state 以 256-bin 离散值作为输入。主要优化设置是 AdamW（$\beta_1=0.9,\beta_2=0.95$）、learning rate $5\times10^{-5}$、1k steps warm-up、gradient clipping 1，以及 decay 为 0.999 的 EMA。
+**【Paper】** 训练阶段先对每个数据集的 1 秒动作块做 FAST tokenization，再把 action tokens 放入 VLA 的语言序列中。$\pi_0$ 与 OpenVLA 均不冻结 backbone；图像通常为 $224\times224$，state 以 256-bin 离散值作为输入。主要优化设置是无 weight decay 的 AdamW（$\beta_1=0.9,\beta_2=0.95$）、learning rate $5\times10^{-5}$、1k steps warm-up、gradient clipping 1，以及 decay 为 0.999 的 EMA。
 
 <Algorithm number={1} title='FAST VLA Training' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>图像、语言指令、proprioception、连续动作 chunk，以及 FAST 的 scale 与 BPE 字典</div>
@@ -227,7 +229,7 @@ prefix 内部使用双向 attention，action postfix 使用 causal attention；�
   <AlgorithmStep>拼接 image tokens、语言 / state prefix、`Action:` 与 action tokens</AlgorithmStep>
   <AlgorithmStep keyword='for'>每个训练 batch</AlgorithmStep>
   <AlgorithmStep indent={1}>对 prefix 使用双向 attention，对 action postfix 使用 causal attention</AlgorithmStep>
-  <AlgorithmStep indent={1}>只在 action token 位置计算 next-token cross-entropy</AlgorithmStep>
+  <AlgorithmStep indent={1}>在 action postfix 计算 next-token cross-entropy；OpenPI 还监督 `Action:` 与结束标记</AlgorithmStep>
   <AlgorithmStep indent={1}>用 AdamW 更新 VLA 参数，并维护 EMA 权重</AlgorithmStep>
   <AlgorithmStep keyword='end for' />
   <AlgorithmStep keyword='return'>VLA checkpoint 与 tokenizer 配置</AlgorithmStep>
@@ -245,7 +247,9 @@ prefix 内部使用双向 attention，action postfix 使用 causal attention；�
   <AlgorithmStep>将图像编码为视觉 tokens，并把语言 / state 组成 prefix</AlgorithmStep>
   <AlgorithmStep>prefill prefix 的 KV-cache</AlgorithmStep>
   <AlgorithmStep keyword='while'>未生成终止符且未达到最大长度</AlgorithmStep>
-  <AlgorithmStep indent={1}>按 causal mask 预测下一个 action token（greedy 或设定温度采样）</AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    按 causal mask 预测下一个 action token（greedy 或设定温度采样）
+  </AlgorithmStep>
   <AlgorithmStep keyword='end while' />
   <AlgorithmStep>解析 `Action: ... |`，执行 BPE decode 与 inverse DCT</AlgorithmStep>
   <AlgorithmStep>按训练集统计量反归一化并执行动作 chunk</AlgorithmStep>
@@ -255,14 +259,16 @@ prefix 内部使用双向 attention，action postfix 使用 causal attention；�
 
 **【Code】** 官方 `Physical-Intelligence/openpi` 是论文之后公开的可运行实现，代码行为与论文的核心 tokenizer 一致，但将 tokenizer 与 PaliGemma / $\pi_0$ 的训练接口具体化：
 
-| 论文概念 | 代码位置 | 实际行为 |
-| --- | --- | --- |
-| FAST action tokenizer | `src/openpi/models/tokenizer.py:FASTTokenizer` | 从 Hugging Face 加载 `physical-intelligence/fast` 的 `AutoProcessor`，将 action tokens 映射到 PaliGemma 词表末端并跳过 128 个 special tokens |
-| Prompt / action 拼接 | `src/openpi/models/tokenizer.py:tokenize` | prompt、256-bin state 是 prefix；`Action:`、FAST tokens、`|` 是 postfix |
-| Loss mask | `src/openpi/transforms.py:TokenizeFASTInputs` | `token_ar_mask` 区分 prefix-LM 与 causal 区域，`token_loss_mask` 只监督 postfix |
-| 自回归模型 | `src/openpi/models/pi0_fast.py:Pi0FAST` | 图像和 prefix 一次性 prefill，随后 KV-cache 逐 token 解码 |
-| DROID 配置 | `src/openpi/training/config.py:pi0_fast_droid` | action_dim=8、action_horizon=10，使用 DROID 数据 transform |
-| FAST+ / specialist tokenizer | `src/openpi/training/misc/roboarena_config.py` | 默认可用 universal FAST+，也支持加载 `KarlP/fast_droid_specialist` |
+| 论文概念              | 代码位置                                                                                                                                       | 实际行为                                                                                                                                     |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
+| FAST action tokenizer | `src/openpi/models/tokenizer.py:FASTTokenizer`                                                                                                 | 从 Hugging Face 加载 `physical-intelligence/fast` 的 `AutoProcessor`，将 action tokens 映射到 PaliGemma 词表末端并跳过 128 个 special tokens |
+| Prompt / action 拼接  | `src/openpi/models/tokenizer.py:tokenize`                                                                                                      | prompt、256-bin state 是 prefix；`Action:`、FAST tokens、`                                                                                   | ` 是 postfix |
+| Loss mask             | `src/openpi/transforms.py:TokenizeFASTInputs`                                                                                                  | `token_ar_mask` 区分 prefix-LM 与 causal 区域，`token_loss_mask` 只监督 postfix                                                              |
+| 自回归模型            | `src/openpi/models/pi0_fast.py:Pi0FAST`                                                                                                        | 图像和 prefix 一次性 prefill，随后 KV-cache 逐 token 解码                                                                                    |
+| DROID 配置            | `src/openpi/training/config.py:pi0_fast_droid`                                                                                                 | action_dim=8、action_horizon=10，使用 DROID 数据 transform                                                                                   |
+| DCT / BPE 核心        | Hugging Face 的 [`processing_action_tokenizer.py`](https://huggingface.co/physical-intelligence/fast/blob/main/processing_action_tokenizer.py) | `norm="ortho"` DCT、scale-and-round、按频率优先 flatten，BPE 解码后 reshape 并 inverse DCT                                                   |
+
+**【Code】** 当前 OpenPI DROID 配置是 8 维、10 步，而论文附录 D 为 15 步 joint-velocity + absolute-gripper chunk，执行 8 或 15 步。Table I 的压缩对照另列 DROID 为 7 维；这些是不同表示/版本口径，不能用当前默认配置直接声称复现论文。HF processor 本身也**不做 quantile normalization**，调用方负责归一化，并在解码时提供 horizon 和 action dimension。它对超出训练范围下界的系数有裁剪，解码形状不符则返回零系数；因此“BPE 无损”需要合法编码和匹配形状的前提，部署不能把失败回退当成有效动作。
 
 **【Code】** 这意味着“FAST”在论文中是通用的 action representation，而 `pi0_fast` 是把该 representation 接进 PaliGemma 语言模型的具体架构；不要把 DCT/BPE tokenizer 本身和完整 VLA backbone 混为一谈。
 
@@ -272,22 +278,24 @@ prefix 内部使用双向 attention，action postfix 使用 causal attention；�
 
 **【Paper】** 作者使用 $\pi_0$ 与 OpenVLA 两种 VLA backbone，对比四类动作表示：naive per-dimension binning、FSQ、数据集专用 FAST、通用 FAST+。评测包含 Libero 仿真、Table Bussing（20 Hz）、T-Shirt Folding（50 Hz）、Grocery Bagging、Toast out of Toaster、Laundry Folding，以及 DROID（15 Hz）零样本新场景。
 
-| 数据集 | 动作维度 / 频率 | Naive 平均 token | FAST 平均 token | 压缩倍数 |
-| --- | ---: | ---: | ---: | ---: |
-| BridgeV2 | 7 / 5 Hz | 35 | 20 | 1.75× |
-| DROID | 7 / 15 Hz | 105 | 29 | 3.6× |
-| Table Bussing | 7 / 20 Hz | 140 | 28 | 5.0× |
-| T-Shirt Folding | 14 / 50 Hz | 700 | 53 | 13.2× |
+| 数据集          | 动作维度 / 频率 | Naive 平均 token | FAST 平均 token | 压缩倍数 |
+| --------------- | --------------: | ---------------: | --------------: | -------: |
+| BridgeV2        |        7 / 5 Hz |               35 |              20 |    1.75× |
+| DROID           |       7 / 15 Hz |              105 |              29 |     3.6× |
+| Table Bussing   |       7 / 20 Hz |              140 |              28 |     5.0× |
+| T-Shirt Folding |      14 / 50 Hz |              700 |              53 |    13.2× |
 
 ### 5.2 Main Results
 
-![不同 action tokenizer 在 Libero、DROID、Table Bussing 与 T-Shirt Folding 上的策略结果（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-fast/main_result.1apqeyq0mc.webp)
+![不同 action tokenizer 在 Libero、DROID、Table Bussing 与 T-Shirt Folding 上的策略结果（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-fast/main_result.1apqeyq0mc.webp)
 
 **【Paper】** 主要结果有三层：
 
 1. naive tokenization 在高频 Table Bussing 与 T-Shirt Folding 上几乎无法学会有效策略；FAST 与 FSQ 都显著改善训练，FAST 在灵巧真实任务上通常更好。
-2. FAST+ 的策略表现接近数据集专用 FAST，说明 universal tokenizer 不需要为每个机器人重新训练 BPE 字典。
-3. DROID policy 可以在完全未见的桌面、背景、物体、视角和桌高上，仅通过自然语言 prompt 完成拾取、擦桌、开关抽屉等任务；论文称这是该数据集首次展示这种 zero-shot evaluation。
+2. FAST+ 的策略表现接近数据集专用 FAST。不过 FAST+ 的词表训练混合**包含这些真实策略评测任务的数据**，这个比较检验的是共用词表是否损害策略学习。Figure 8 / Table III 对未见 morphology、控制频率和动作空间的证据则是离线重建/压缩，不能推导出机器人策略能零样本迁移到这些平台。
+3. DROID policy 可以在完全未见的桌面、背景、物体、视角和桌高上，仅通过自然语言 prompt 完成拾取、擦桌、开关抽屉等任务；该实验只用 DROID 成功数据训练、没有目标环境示教微调；zero-shot 的对象是新环境，不是从未学过的所有技能。附录 D：75K 成功 episodes，去掉全零 idle 动作，外部相机和三条语言标注随机采样，240K steps、batch 256，约 8×H100 训练 4 天。
+
+**【Paper】** Figure 6 混合了不同指标：LIBERO / T-Shirt Folding 为成功率，Table Bussing 为正确归置物体比例，DROID 为子步骤进度。DROID 的定量评测每策略共 44 次，单任务 2–4 次；三所大学场景的展示是另外的定性 rollout，作者明确未为这些展示统计成功率。不能把视频展示数量或混合指标平均当作大规模统一成功率。
 
 ### 5.3 Ablation Study
 
@@ -296,15 +304,15 @@ prefix 内部使用双向 attention，action postfix 使用 causal attention；�
 - **Backbone independence**：在 OpenVLA 的 T-Shirt Folding 上，把原本的 naive tokenizer 换成 FAST+ 后，策略重新获得可学习性，说明收益并不依赖 $\pi_0$ 的特定骨干。
 - **去掉 BPE**：仅保留 DCT 仍优于 naive，但大量重复 `0` token 会稀释学习信号、延长自回归解码，rollout 明显变差。因此 DCT 负责“集中信息”，BPE 负责“把集中后的稀疏序列真正压短”。
 
-**【Analysis】** 这个消融把“频域变换”和“序列压缩”拆开了：DCT 是 representation 的主要来源，BPE 则是让 representation 适合语言模型训练和推理的关键工程步骤。
+**【Analysis】** 这个消融把“频域变换”和“序列压缩”拆开了：DCT 与 BPE 两步共同有效，但论文没有固定输出长度、控制词表熵的完整实验；不能据此认定收益全部来自去相关而与序列变短无关。
 
 ### 5.4 Generalization
 
-![$\pi_0$-FAST 与 diffusion $\pi_0$ 在跨机器人数据混合上的 generalist policy 表现（论文 Figure 8）](https://pic.hana0721.top/blog/paper-deep-dive-fast/pi0_multi_task.77ealz6joo.webp)
+![$\pi_0$-FAST 与 diffusion $\pi_0$ 在跨机器人数据混合上的 generalist policy 表现（论文 Figure 11）](https://pic.hana0721.top/blog/paper-deep-dive-fast/pi0_multi_task.77ealz6joo.webp)
 
-**【Paper】** 在单任务比较中，$\pi_0$-FAST 在 Table Bussing 上约用 3 倍更少训练 steps 达到较高表现；在 Libero 与 T-Shirt Folding 等小数据集上两者相近。对 10k 小时级跨 embodiment 数据混合训练的 $\pi_0$-FAST generalist policy，其平均表现与 diffusion $\pi_0$ 接近，但训练计算量更低。
+**【Paper】** 在单任务比较中，$\pi_0$-FAST 在 Table Bussing 上约用 3 倍更少训练 steps 达到较高表现；在 Libero 与 T-Shirt Folding 等小数据集上两者相近。对 10k 小时级跨 embodiment 数据混合训练的 $\pi_0$-FAST generalist policy，其平均表现与 diffusion $\pi_0$ 接近；§VI-F 的 5× 指到达该表现所需的 GPU-hours，Figure 15 还比较了相同算力预算下的模型，而非每个训练 step 固定快 5×。训练混合含 903M 自有机器人 timesteps，开放数据约占采样混合的 9.1%。附录 E 进一步区分：grocery / toaster 使用通用模型直接评估，**laundry folding 仍用少量高质量任务数据微调**，不能把 generalist 图所有任务都称为 zero-shot。
 
-![单任务中自回归 $\pi_0$-FAST 与 diffusion $\pi_0$ 的收敛与任务进度对比（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-fast/pi0_single_task.icux89eyc.webp)
+![单任务中自回归 $\pi_0$-FAST 与 diffusion $\pi_0$ 的收敛与任务进度对比（论文 Figure 9）](https://pic.hana0721.top/blog/paper-deep-dive-fast/pi0_single_task.icux89eyc.webp)
 
 **【Paper】** 代价也很明确：在 NVIDIA 4090 上，diffusion $\pi_0$ 约 100 ms 生成 1 秒动作块，而 $\pi_0$-FAST 约 750 ms；后者通常要解码 30–60 个 action tokens，并使用完整的约 2B 参数语言模型，而 diffusion 只需约 10 个采样 steps 和更小的 action expert。
 
@@ -318,7 +326,7 @@ prefix 内部使用双向 attention，action postfix 使用 causal attention；�
 2. 自回归模型先预测低频系数，相当于先确定动作 chunk 的全局形状，再补充高频细节。
 3. BPE 把零和常见系数组合合并，减少需要依次预测的位置，使每个位置携带更多条件信息。
 
-因此，FAST 同时降低了序列长度和 token 间相关性，训练速度与策略质量都会改善。
+因此，FAST 在已测任务中改善了监督结构与训练效率。推理依然逐 token 串行；训练中 teacher forcing 能并行处理目标位置，解释了“训练快、部署仍慢”为何可以同时成立。
 
 ### 6.2 核心创新
 
@@ -328,11 +336,11 @@ prefix 内部使用双向 attention，action postfix 使用 causal attention；�
 
 ### 6.3 与已有方法的本质区别
 
-| 方法 | 表示方式 | 学习组件 | 高频动作的主要问题 |
-| --- | --- | --- | --- |
-| Naive binning | 每时间步、每维一个 bin | 无 | token 数随 $H D$ 线性膨胀，强相关 |
-| FSQ / VQ 类 | 学习 latent code | 需要训练 tokenizer | 调参和重建质量更复杂 |
-| FAST | DCT 系数 + BPE | 只学习 BPE 词表 | 需要处理 inference latency |
+| 方法          | 表示方式               | 学习组件           | 高频动作的主要问题                |
+| ------------- | ---------------------- | ------------------ | --------------------------------- |
+| Naive binning | 每时间步、每维一个 bin | 无                 | token 数随 $H D$ 线性膨胀，强相关 |
+| FSQ / VQ 类   | 学习 latent code       | 需要训练 tokenizer | 调参和重建质量更复杂              |
+| FAST          | DCT 系数 + BPE         | 只学习 BPE 词表    | 需要处理 inference latency        |
 
 **【Analysis】** FAST 并没有消除动作的连续性，而是把连续性放到更适合建模的频域坐标中；它与 diffusion policy 的差别也不只是“离散 vs 连续”，而是 autoregressive decoding 是否能通过良好 tokenization 获得高效监督。
 
@@ -341,7 +349,7 @@ prefix 内部使用双向 attention，action postfix 使用 causal attention；�
 **【Paper】** 方法隐含或明确依赖以下假设：
 
 - 机器人动作在所用 chunk 内具有足够的平滑性，使低频系数集中主要信息。
-- 一个 1 秒 chunk 能同时表达有用的局部轨迹和可压缩的时间结构。
+- 论文采用的 1 秒 chunk 兼顾局部轨迹和可压缩性；算法接口并不硬性限制为 1 秒。
 - 低频优先的顺序对 rollout 稳定性有帮助。
 - 在训练混合中看到的动作统计足以让 FAST+ 泛化到未见 robot morphology、action space 和 control frequency。
 
@@ -378,5 +386,5 @@ prefix 内部使用双向 attention，action postfix 使用 causal attention；�
 
 <Aside type='note' title='阅读提示'>
   本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
-  表示基于论文和代码的分析推断。图床刚上传的论文图在自定义 CDN 刷新前返回 404，文中暂用对应 GitHub Raw 地址，待 CDN 缓存刷新后可切回 `pic.hana0721.top`。
+  表示基于论文和代码的分析推断。
 </Aside>

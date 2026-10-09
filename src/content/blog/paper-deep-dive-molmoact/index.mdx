@@ -1,7 +1,7 @@
 ---
 title: 'MolmoAct 论文精读：空间推理 Action Reasoning Model'
 publishDate: 2026-08-25
-updatedDate: 2026-08-25
+updatedDate: 2026-09-22
 description: '精读 MolmoAct：用深度感知 token、视觉轨迹 trace 与离散动作 token，把 VLA 的感知、规划和控制组织成可解释、可 steer 的三阶段推理。'
 heroImage:
   { src: 'https://pic.hana0721.top/125160058_p0_master1200.6ikvtm0o6l.webp', color: '#8C8275' }
@@ -72,7 +72,7 @@ import { Aside } from '@/components/user'
 
 1. 提出 Action Reasoning Model（ARM）范式，把 perception、spatial planning 和 control 串成可监督的 token 序列。
 2. 用 Depth Perception Tokens 蒸馏 Depth Anything V2 的深度估计，用 2D trace 保存比语言更精确的空间计划。
-3. 设计保持序关系的 256-bin action token 初始化，降低动作词表学习成本；预训练约 9,216 GPU hours。
+3. 用 Qwen 词表尾部的 byte-level BPE 符号表示 256 个动作 bin，并公开训练配方；7B-D 的详细训练表报告预训练 9,728 H100 GPU hours，正文另有 9,216 的不一致数字。
 4. 发布超过 10,000 条高质量轨迹的 MolmoAct Dataset，以及模型权重、训练代码和数据配方。
 
 ## 2. 背景与相关工作
@@ -90,7 +90,7 @@ $$
 $$
 
 - **Observation**：side/front/wrist 等多视角 RGB；部分任务还会把用户画的轨迹叠加到图像。
-- **Action**：每个自由度先按数据集分位数归一化，再量化为 256 个 bin；post-training 时通常以 $K=8$ 的 action chunk 执行。
+- **Action**：连续位姿维度按数据集分位数归一化，再量化；夹爪维度单独处理。预训练和 mid-training 预测单步动作，post-training 才引入通常为 $K=8$ 的 chunk。
 - **Embodiment**：Google Robot、WidowX、Franka 单臂与双臂，以及 LIBERO 仿真中的 Franka Panda。
 - **数据**：OXE 子集（RT-1、BridgeData V2、BC-Z）、多模态 web data、辅助 depth/trace data 与 MolmoAct Dataset。
 
@@ -100,27 +100,27 @@ $$
 
 ![MolmoAct 训练、推理与数据流架构（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-molmoact/fig2_model_and_training.8okfnqbbtx.webp)
 
-**【Paper】** backbone 沿用 Molmo 的 ViT + 两层 MLP connector + decoder-only LLM；在语言模型输出空间中依次生成 depth tokens、visual trace tokens 和 action tokens。训练阶段还混合 dense caption、pointing、trajectory drawing 等任务，推理阶段只需一次自回归生成即可得到三种结果。
+**【Paper】** backbone 沿用 Molmo 的 ViT、attention pooling + MLP connector 和 decoder-only LLM 设计；主实验使用 7B-D（SigLIP2 + Qwen2.5-7B），7B-O 则使用 CLIP + OLMo2-7B。在语言模型输出空间中依次生成 depth tokens、visual trace tokens 和 action tokens。训练阶段还混合 dense caption、pointing、trajectory drawing 等任务，推理阶段在一次完整的自回归生成过程中依次输出三种结果。“一次生成”仍包含逐 token 的多次前向，不能等同于单次 forward。
 
 ### 4.2 核心模块
 
 #### Depth Perception Tokens
 
-**【Paper】** 深度图先由 Depth Anything V2 specialist 估计，再由 VQVAE 压缩成 $M=100$ 个 code，每个 code 映射到 128 个 `<DEPTH_k>` token。VLA 只看原始 RGB，却被监督去重建 specialist 的深度字符串，属于 specialist-to-generalist distillation。
+**【Paper】** 深度图先由 Depth Anything V2 specialist 估计，再由 VQVAE 压缩成 $M=100$ 个 code index，每个 index 从 128 项 codebook 中选一个，并一一映射成一个 `<DEPTH_k>` token。100 是空间位置数，128 是每个位置可选的离散类别数，二者不能混淆。VLA 只看原始 RGB，却被监督去重建 specialist 的深度字符串，属于 specialist-to-generalist distillation。
 
-**【Code】** `preprocess/processors.py` 中先调用 `DepthAnythingV2.infer_image`，把深度归一化为 8-bit 灰度，再通过 `DepthTokens.inference_depth_tokens` 输出 `<DEPTH_START>...<DEPTH_END>`。
+**【Code】** `preprocess/processors.py` 中先调用 `DepthAnythingV2.infer_image`，对每张深度图独立做 min-max 归一化并转为 8-bit 灰度，再由 `DepthTokens` 在 $320\times320$ 输入、32 倍下采样下产生 $10\times10=100$ 个 code。输出的是相对深度结构，不能直接当作具有米制尺度、跨帧可比较的 3D 地图；128 个 code 也不是 128 个距离刻度。训练需要教师，机器人在线推理由 MolmoAct 自己预测这些 token。
 
 #### Visual Reasoning Trace
 
-**【Paper】** 轨迹是最多 5 个点的折线 $\boldsymbol\tau=(p_1,\ldots,p_L)$，坐标归一化到 $[0,255]$。$p_1$ 是当前夹爪位置，其余点从未来 episode 均匀采样。它提供比自然语言更精确的末端定位和时间方向。
+**【Paper】** 轨迹是最多 5 个点的折线 $\boldsymbol\tau=(p_1,\ldots,p_L)$，坐标归一化到 $[0,255]$。$p_1$ 是当前夹爪位置，其余点从未来 episode 均匀采样。标签覆盖当前帧到 episode 终点，而非仅当前 8 步动作窗口。它保留粗略路径顺序，却没有连续时间戳、末端姿态、夹爪开合或接触力；同一条二维折线可能对应多条不同的三维运动。
 
-**【Code】** `preprocess/line_utils.py` 与 `processors.py` 将未来末端点均匀 subsample 成 line；推理 parser 在 `olmo/hf_model/molmoact/modeling_molmoact.py` 中解析 `<TRAJ_START>` 之间的坐标。
+**【Paper / Code】** 轨迹监督来自另一个 Molmo 的逐帧 pointing：询问夹爪位置，双臂分别询问左右夹爪，再把当前点、终点及至多三个中间点串起；它不是相机标定后投影的无误差机器人真值。`processors.py` 的 `Trace` 过滤检测失败点后均匀采样；`modeling_molmoact.py` 的 `parse_trace` 提取普通数值嵌套列表 `[[u,v],...]`，没有 `<TRAJ_START>` 标签。主视角生成 depth/trace，腕部视角作为附加输入，不是每个视角都生成一套推理链。
 
 #### Action Tokenizer 与 Policy
 
-**【Paper】** 每个动作维度按 1% 到 99% 分位数裁剪后量化为 256 bins，并映射到 Qwen tokenizer 末端的 byte-level BPE symbols。相邻 bin 使用相邻 symbol，给 action embedding 一个保留序关系的初始化，论文报告这使预训练成本比 GR00T 的 50,000 GPU hours 少五倍以上。
+**【Paper】** 每个动作维度按 1% 到 99% 分位数裁剪后量化为 256 bins，并映射到 Qwen tokenizer 末端的 byte-level BPE symbols。作者认为相邻 bin 所用符号共享部分字符，有利于初始化学习。但字符相似并不构成 embedding 距离单调的数学约束，论文也未报告只替换 token 映射、保持数据和训练预算不变的消融。§2.2 将 9,216 GPU hours 与 GR00T N1.5 的 50,000 比较，而 §4.1 / Table 4 给 7B-D 9,728、7B-O 8,192；数据规模、基础模型和硬件配置也不同，因此不能把总训练成本差异因果归结为这一初始化。
 
-**【Code】** `preprocess/processors.py` 的 `ActionProcessor` 完成 quantile normalization、tokenization 与 chunking；`launch_scripts/train_multitask_model.py` 的 `--action-chunk-size` 默认值为 8。
+**【Code】** `preprocess/processors.py` 的 `ActionProcessor` 完成 quantile normalization、tokenization 与 chunking；README 在数据预处理入口 `preprocess/action_reasoning_data.py` 中显式传入 `--action-chunk-size 8`；该参数不是 `train_multitask_model.py` 的训练参数。动作反量化还必须选择匹配机器人数据的 `unnorm_key`。
 
 ### 4.3 关键公式
 
@@ -133,7 +133,7 @@ p(\mathbf d,\boldsymbol\tau,\mathbf a\mid I,T)=
 \prod_k p(a_k\mid I,T,\mathbf d,\boldsymbol\tau,\mathbf a_{<k}).
 $$
 
-其中 $d_i$ 是深度 code，$\tau_j$ 是轨迹坐标 token，$a_k$ 是动作维度或 chunk 中的动作 token。**【Analysis】** 这个因子化把误差传播方向固定为“感知 → 计划 → 控制”：深度和轨迹不是生成后的解释，而是后续动作的条件。
+其中 $d_i$ 是深度 code，$\tau_j$ 是轨迹坐标 token，$a_k$ 是动作维度或 chunk 中的动作 token。**【Analysis】** 这个因子化把误差传播方向固定为“感知 → 计划 → 控制”：深度和轨迹是后续动作可以读取的先行 token。训练时使用示教链的正确前缀，推理时读取自己的预测，故上游错误可能向后传播；同时动作仍直接看得到原始图像和指令，这并不是强制所有控制信息只能经过 depth/trace 的硬瓶颈。可视化有助诊断，却不能单凭输出顺序证明这就是模型决策的忠实解释。
 
 深度字符串写作：
 
@@ -141,11 +141,13 @@ $$
 \mathbf d=(\langle\mathrm{DEPTH\_START}\rangle,\langle\mathrm{DEPTH}_{z_1}\rangle,\ldots,\langle\mathrm{DEPTH}_{z_{100}}\rangle,\langle\mathrm{DEPTH\_END}\rangle),
 $$
 
-其中 $z_i\in\{1,\ldots,128\}$。轨迹点 $p_i=(u_i,v_i)$，且 $u_i,v_i\in[0,255]$。
+其中 $z_i\in\{1,\ldots,128\}$ 是论文编号；公开 VQVAE 返回的 index 从 0 起，实际字符串使用 `<DEPTH_0>` 到 `<DEPTH_127>`，复现应服从 checkpoint 的 tokenizer 映射。轨迹点 $p_i=(u_i,v_i)$，且 $u_i,v_i\in[0,255]$。
 
 ### 4.4 Training
 
-**【Paper】** 预训练混合 26.3M 样本：action reasoning 和 trajectory-conditioned 数据各占约 38.7%，multimodal web 约 21.5%，其余为 depth/line 辅助数据。随后用约 1M action reasoning + 1M trajectory-conditioned 的 MolmoAct Dataset 做 mid-training（50k steps、batch size 128、128 张 H100），最后对新任务用 30–50 条示教做 LoRA post-training。
+**【Paper】** 预训练抽样权重为 action reasoning 40%、trajectory-conditioned action 40%、独立 depth 7.5%、独立 trace 7.5%、web 5%，不能把 Figure 3 的“原始数据占比”当作优化器实际看到的比例。正文称总计 26.3M 样本，但逐项给出的 10.5M + 10.5M + 1.5M + 1.5M + 2M 相加为 26.0M，Figure 3 左图与图注比例也不一致；可靠可执行的口径是正文抽样权重，公开训练配置合计机器人 80%、辅助 15%、web 5% 与之相符。这些主要是同一机器人帧转换出的不同监督样本，不是独立轨迹数。
+
+**【Paper】** Mid-training 使用约 1M action reasoning + 1M trajectory-conditioned 样本，两个外部视角分别与腕部视角配对，训练 50k steps、128 张 H100。§4.2 写 batch size 128，Table 4 却写 256；此处保留分歧，不将二者拼成唯一确定配方。Post-training 通常每任务 30–50 条示教，LoRA rank 32 / alpha 16；LIBERO 每套件单独训练约 40k–80k steps，Table 7 给出 97M 可训练 adapter 参数，说明“少示教”不等于无需较多适配计算。
 
 ![预训练数据混合比例（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-molmoact/fig3_datamix.pg2snw7xp.webp)
 
@@ -156,13 +158,15 @@ $$
   <div slot='output'>可生成 depth、trace、action 的 ARM checkpoint</div>
   <AlgorithmStep>将机器人轨迹转换为 depth string、future trace 和离散 action tokens</AlgorithmStep>
   <AlgorithmStep>按预训练、mid-training、post-training 三阶段混合采样数据</AlgorithmStep>
-  <AlgorithmStep>用 next-token objective 计算所有结构化 token 的监督损失（动作 token 是控制目标）</AlgorithmStep>
+  <AlgorithmStep>
+    用 next-token objective 计算所有结构化 token 的监督损失（动作 token 是控制目标）
+  </AlgorithmStep>
   <AlgorithmStep>在下游任务上以 LoRA 适配新 embodiment 与 action chunk size</AlgorithmStep>
 </Algorithm>
 
 ### 4.5 Inference
 
-**【Paper】** 推理时给定当前图像和指令，模型先生成深度，再生成轨迹，最后生成动作；执行 $K=8$ 个动作后重新进行 action reasoning。用户也可以把轨迹直接画在图像上，形成 $I^+=I\oplus\boldsymbol\tau$，绕过语言歧义实现交互式 steer。
+**【Paper】** 推理时给定当前图像和指令，模型先生成深度，再生成轨迹，最后生成动作；执行 $K=8$ 个动作后重新进行 action reasoning。另一种专门训练的 trajectory-conditioned 模式把用户轨迹叠加成 $I^+=I\oplus\boldsymbol\tau$，直接预测 $p(\mathbf a\mid I^+,T)$。根据 §2.4 与附录 G，它不继续走完整 depth→trace→action 链；不能把 steering 解释为仅替换推理链中间 token 后仍执行同一三阶段算法。作者也指出，该模式对图像平面内运动有效，但可能产生错误的深度方向位移。
 
 **【Code】** `experiments/libero/run_libero_eval.py` 和 vLLM 版本都先调用 `parse_depth`、`parse_trace`，再 `parse_action`；`olmo/hf_model/molmoact/modeling_molmoact.py` 与 `experiments/libero/molmoact.py` 提供同一套 parser。
 
@@ -177,13 +181,13 @@ $$
 
 ### 4.6 代码实现对照
 
-| 论文概念 | 官方代码位置 | 实际行为 |
-| --- | --- | --- |
-| ARM / VLA | `olmo/hf_model/molmoact/modeling_molmoact.py` | Hugging Face `MolmoActForActionReasoning` 负责生成与解析三类 token |
-| 深度蒸馏 | `preprocess/processors.py`、`scripts/vqvae.py` | Depth Anything V2 → 灰度图 → VQVAE code → depth string |
-| Trace 标注 | `preprocess/line_utils.py` | 从未来末端轨迹均匀采样最多 5 个点 |
-| Action chunk | `preprocess/processors.py`、`experiments/libero` | 256-bin action tokenizer，默认 chunk size 8 |
-| LoRA post-training | `scripts/train.py`、`launch_scripts/train_multitask_model.py` | 对下游任务启用 adapters，README 提供合并与推理脚本 |
+| 论文概念           | 官方代码位置                                                  | 实际行为                                                           |
+| ------------------ | ------------------------------------------------------------- | ------------------------------------------------------------------ |
+| ARM / VLA          | `olmo/hf_model/molmoact/modeling_molmoact.py`                 | Hugging Face `MolmoActForActionReasoning` 负责生成与解析三类 token |
+| 深度蒸馏           | `preprocess/processors.py`、`scripts/vqvae.py`                | Depth Anything V2 → 灰度图 → VQVAE code → depth string             |
+| Trace 标注         | `preprocess/line_utils.py`                                    | 从未来末端轨迹均匀采样最多 5 个点                                  |
+| Action chunk       | `preprocess/processors.py`、`experiments/libero`              | 256-bin action tokenizer，默认 chunk size 8                        |
+| LoRA post-training | `scripts/train.py`、`launch_scripts/train_multitask_model.py` | 对下游任务启用 adapters，README 提供合并与推理脚本                 |
 
 ## 5. 实验
 
@@ -191,7 +195,7 @@ $$
 
 ![MolmoAct Dataset 的任务示例与动词分布（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-molmoact/fig4_molmoact_dataset.mt8n8p27.webp)
 
-**【Paper】** 评测覆盖 SimplerEnv zero-shot、LIBERO 四个 suite、Franka 单臂/双臂真实任务、OOD 变化、开放指令跟随和 trace steering。真实评测每项任务通常 25 次试验；MolmoAct Dataset 包含 tabletop、home 等多场景和超过 100 个任务。
+**【Paper】** 评测覆盖 SimplerEnv zero-shot、LIBERO 四个 suite、Franka 单臂/双臂真实任务、OOD 变化、开放指令跟随和 trace steering。常规真机适配评测为每任务 25 次；mid-training 消融另用小规模试验，steering 为 15 次。MolmoAct Dataset 的正式统计是 10,689 条单臂 Franka 轨迹、93 个任务：home 7,730 条/73 任务，tabletop 2,959 条/20 任务，平均每轨迹 112 帧。不要将它写成超过 100 个任务。
 
 ### 5.2 Main Results
 
@@ -199,13 +203,17 @@ $$
 
 **【Paper】** 关键数字如下：
 
-| 设置 | MolmoAct 结果 | 论文报告的比较 |
-| --- | ---: | --- |
-| SimplerEnv Visual Matching zero-shot | 70.5% | 超过 Pi-0、GR00T N1.5 等闭源/大规模基线 |
-| LIBERO 平均成功率 | 86.6% | Long suite 比 ThinkAct 高 6.3 个百分点 |
-| 真实单臂 task progression | — | 平均比 Pi-0-FAST 高 10% |
-| 真实双臂 task progression | — | 平均比 Pi-0-FAST 高 22.7% |
-| OOD 真实泛化 | — | 平均比 Pi-0-FAST 高 23.3% |
+| 设置                                    |      MolmoAct 结果 | 论文报告的比较                                                                                                 |
+| --------------------------------------- | -----------------: | -------------------------------------------------------------------------------------------------------------- |
+| SimplerEnv Google Robot Visual Matching |  70.5%（预训练后） | 不额外适配该评测，但预训练已包含 RT-1 的相同机器人/任务分布；不是未见 embodiment 的零样本迁移。                |
+| LIBERO                                  | 论文报告平均 86.6% | Long 77.2% vs ThinkAct 70.9%，高 6.3 个百分点；表内四套件值直接算平均为 86.8%，与报告平均有 0.2 个百分点差异。 |
+| 真实单臂 task progression               |   论文报告约 +0.10 | 相对 $\pi_0$-FAST 的进度分差；底表存在均值不一致，见下文。                                                     |
+| 真实双臂 task progression               |  论文报告约 +0.227 | 相对 $\pi_0$-FAST 的进度分差；正文图与逐次表存在冲突。                                                         |
+| 真实泛化设置（含分布内）                |   0.6792 vs 0.4458 | Table 21 十五项平均，差 0.2333；只计十二项 OOD 则为 0.6510 vs 0.3958，差 0.2552。                              |
+
+**【Paper】** 真机主指标是人工定义的阶段进度 $s\in[0,1]$。例如 table bussing 的抓取、抬起、移到桶上方、放入分别计 0.25/0.5/0.75/1，均值 0.8 不意味着 80% 完成。不同任务的阶段权重也不同；附录 D.3 明确常规适配测试预先标记物体位置，以匹配示教分布。
+
+**【Analysis】** 底表核算还发现原文内部差异：Table 19 的 $\pi_0$-FAST Wipe Table 25 次记录平均为 0.93，而 Average 行写 0.817；Table 17 的 Set Table 基线平均为 0.24，Figure 5 柱图却约为 0.61。按 Tables 15–20 逐次记录重算，单臂/双臂平均进度优势约为 0.0593/0.3567，无法复现正文约 0.10/0.227。本文保留报告值并揭示冲突，不擅自断定哪个实验版本才正确。Table Bussing 也有 MolmoAct 0.84 低于基线 0.85，不能称为每项都胜出。
 
 ### 5.3 Ablation Study
 
@@ -213,11 +221,17 @@ $$
 
 ![MolmoAct Dataset 对真实任务的增益（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-molmoact/fig6_2_real_eval_molmoact_dataset.9rk4ym76lx.webp)
 
-**【Paper】** 去掉 MolmoAct Dataset 的 mid-training 后，三项真实任务平均下降 5.5%；这说明数据质量和域对齐不是可有可无的附加项。视觉 trace 也不是装饰：在歧义的 “pick up the bowl” 任务中，trace steering 成功率达到 0.75，比开放式语言 steering 高 33 个百分点。
+**【Paper】** Mid-training 消融比较 Close Lid、Rotate Pot、Pour Tea；正文称每项 10 次，Table 22 实际各列出编号 0–10 的 11 次。按表中 33 次记录计算，有/无 mid-training 的平均进度为 0.7394/0.6848，差 0.0545，能复现约 5.5 个百分点的报告差值；它是这三个适配任务上的增益，不能外推为所有操纵任务的统一增益。
+
+**【Paper】** Steering 在二选一的 clean/dirty bowl 上测试，附录 D.7 定义：朝正确碗运动计 0.5、抓住计 0.85、抬起计 1。Table 23 的视觉 steering 平均为 0.7467，语言 steering 为 0.4133，差 0.3333；真正得满分的分别是 7/15 与 2/15。因此图文中“75% success rate”实为约 0.75 的进度分。训练数据量也有冲突：正文写 100 条，附录列出干净/脏碗各 50 条直达和各 50 条探索路径，合计 200 条。这个结果支持已训练任务中的交互纠偏，不是任意新草图都可执行的保证。
+
+**【Analysis】** 论文没有在同一基础模型、数据与预算下逐项去掉 depth、future trace、web data 或动作 token 初始化的完整消融。已有 mid-training 和 steering 结果不能替代这些对照，也不能单独证明整条空间推理链每个环节的必要性。
 
 ### 5.4 Generalization
 
-**【Paper】** 真实 OOD 测试分别改变语言、目标空间位置、干扰物和未见物体；模拟 variant aggregation 则改变光照、纹理和相机视角。MolmoAct 在这些变化上保持更稳定的 task progression。开放指令人评中，它相对 SpatialVLA 的 Elo 高 109 分，相对 OpenVLA 的 pairwise 胜率为 81%。
+**【Paper】** 真实 OOD 测试分别改变语言、目标空间位置、干扰物和未见物体；模拟 variant aggregation 则改变光照、纹理和相机视角。零样本模型的 SimplerEnv Variant Aggregation 为 59.3%，低于自身 Visual Matching 70.5%；额外 RT-1 微调后才达到 72.1%（相对 Visual Matching 71.6% 接近）。不能把微调后的鲁棒性归给零样本 checkpoint，且 72.1 的次高对照是 SpatialVLA 65.8%，差 6.3 个百分点，原文拿 RT-2-X 64.3% 计算“第二名 +7.8”忽略了 SpatialVLA。
+
+**【Paper】** 开放指令人评覆盖五个自定义仿真场景、29 条筛选后指令、100 位评委和 1,500 多次偏好投票，比较的是哪段 rollout 更符合指令：MolmoAct 相对 SpatialVLA Elo 高 109、偏好胜率 58%，相对 OpenVLA 为 81%。这不是 81% 物理任务成功率。另一个 30 张网络图片、87 条提示的 trace 人评只评价画出的轨迹，不验证机器人执行或碰撞可行性。
 
 ![语言与视觉轨迹泛化的人评结果（论文 Figure 8）](https://pic.hana0721.top/blog/paper-deep-dive-molmoact/fig8_lang_generalize.1764h8xmpo.webp)
 
@@ -225,7 +239,7 @@ $$
 
 ### 6.1 为什么有效？
 
-**【Analysis】** 第一，深度 token 给 RGB-only backbone 注入了可压缩的 3D 先验；第二，trace 把长时域规划变成少量几何约束，减少语言描述到控制的语义损失；第三，三段 token 都能用现成的 next-token infrastructure 训练，不需要为每个 embodiment 设计新的 diffusion head。数据消融还表明，结构化中间监督和高质量 household trajectories 具有叠加收益。
+**【Analysis】** 第一，深度 token 给 RGB-only backbone 注入了可压缩的 3D 先验；第二，trace 把长时域规划变成少量几何约束，减少语言描述到控制的语义损失；第三，三段 token 都能用现成的 next-token infrastructure 训练，不需要为每个 embodiment 设计新的 diffusion head。mid-training 消融支持增加 household 数据有帮助，但并未将数据质量、额外优化步骤与结构化监督的各自效应分离。
 
 ### 6.2 核心创新
 
@@ -233,11 +247,11 @@ $$
 
 ### 6.3 与已有方法的本质区别
 
-**【Paper】** CoT-VLA 等方法主要在语言空间中分解任务；TraceVLA 主要使用轨迹作为辅助输出；MolmoAct 则把 depth、trace、action 组织成有固定顺序的因子化链，并在预训练阶段同时学习三者。**【Analysis】** 因此它更像“可观测的 latent program”，而不是在动作旁边附加一段解释。
+**【Paper】** CoT-VLA 生成未来视觉子目标，本身就是 visual CoT，不能归为纯语言任务分解；[TraceVLA](https://arxiv.org/abs/2412.10345) 将轨迹可视化为动作预测的提示输入，也不是主要预测 future trace 的辅助输出。MolmoAct 的区分点是显式预测相对深度 token 和未来末端折线，再条件化生成动作，并额外训练 trace-overlay→action 模式以支持用户 steering。**【Analysis】** 因此它更像“可观测的 latent program”，而不是在动作旁边附加一段解释。
 
 ### 6.4 关键假设
 
-- **【Paper】** 由 RGB 蒸馏出的离散深度足以支持常见桌面操作，且 100 个 VQVAE code 能保留有用的空间结构。
+- **【Analysis】** 每图归一化的相对深度与 100 个 VQVAE code 能保留足够的任务相关结构；这是假设及设计动机，不是已由逐项消融证明的充分条件。
 - **【Analysis】** 2D trace 与低层动作之间存在稳定映射；当遮挡严重、相机外参变化很大或需要接触力反馈时，这个假设可能失效。
 - **【Analysis】** action token 的序关系初始化能跨 embodiment 迁移，但不同机器人动作维度和范围仍需 post-training 校准。
 
@@ -245,7 +259,7 @@ $$
 
 ### 7.1 作者明确提出的局限
 
-**【Paper】** 作者指出，生成更多 reasoning tokens 会带来推理速度与数据采集控制频率不匹配的问题；服务器到机器人通信延迟也会放大这一差距，未来需要更快的 VLM 优化或更小的 edge model。
+**【Paper】** 附录 G 明确列出四类限制：外部视角看不到夹爪时，trace 与策略都会退化；steering 需要多样且精确的轨迹、充分的路径变化示教，并容易出现相机深度方向误差；额外 reasoning token 和通信增加延迟，使推理频率与采集频率失配；100 个 depth token 对细粒度接触几何可能不足。数据采集的 home 15 Hz、tabletop 20 Hz 不能当作模型闭环控制频率。
 
 ### 7.2 自己分析得到的局限
 
@@ -262,5 +276,7 @@ $$
 3. 把 depth/trace 的早停、缓存和 speculative decoding 纳入控制器设计，降低 reasoning token 对闭环频率的影响。
 
 <Aside type='note' title='阅读提示'>
-  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】` 表示基于论文和代码的分析推断。
+  本文核对 [arXiv v4 正文及附录 A–G](https://arxiv.org/pdf/2508.07917v4) 与
+  [官方实现](https://github.com/allenai/molmoact)。`【Paper】` 表示论文明确内容，`【Code】`
+  表示官方代码实现，`【Analysis】` 表示基于论文和代码的分析推断。
 </Aside>

@@ -1,7 +1,7 @@
 ---
 title: 'LingBot-VA 论文精读：用因果世界模型驱动机器人控制'
 publishDate: 2026-08-26
-updatedDate: 2026-08-26
+updatedDate: 2026-09-22
 description: '精读 LingBot-VA：将视频世界建模与逆动力学动作生成交织为因果自回归序列，并以 MoT、KV Cache、部分去噪和 FDM 校正实现长时程闭环操控。'
 heroImage:
   { src: 'https://pic.hana0721.top/93990522_p0_master1200.et40soxif.webp', color: '#8C8275' }
@@ -82,7 +82,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** 常规 VLA 往往学习 $a_t\sim\pi_\theta(\cdot\mid o_t)$，让一个网络用机器人示范同时掌握视觉语义、物理动态和控制。论文将这一瓶颈称为 representation entanglement：动作监督相对稀疏，很难独自支撑高维视觉动态的学习。
 
-已有 world-model 路线包括交互式 neural simulator、按 chunk 生成视频—动作片段的 diffusion policy、以及先生成视觉子目标再由 policy 执行的两阶段方法。**【Paper】** 作者认为前两类在闭环控制中会遭遇 reactivity gap、跨 chunk 的有限记忆，以及 chunk 内双向 attention 的因果不一致。
+已有 world-model 路线包括交互式 neural simulator、按 chunk 生成视频—动作片段的 diffusion policy、以及先生成视觉子目标再由 policy 执行的两阶段方法。**【Paper】** 作者批评部分已有方法的反馈滞后与跨 chunk 记忆不足。不过本文也在 chunk 内采用双向 attention；其“因果”主要指 chunk 间的信息顺序，不能解释为所有 token 严格逐时刻单向，更不是识别了干预意义上的因果机制。
 
 **【Analysis】** 这篇工作的主张不是“画面越逼真，机器人越强”，而是需要对 action 有用、可由真实反馈反复修正的 future latent。由此也能理解：推理可让视频仅部分去噪，但动作仍需完整 flow integration。
 
@@ -119,13 +119,13 @@ $$
 
 **【Paper】** prompt 经语言编码器进入 transformer；图像经 Wan2.2 causal VAE 变为 video latent，连续动作经轻量 MLP 变为 action embedding。二者按时间交错后进入 MoT：video stream 用 flow matching 预测未来 latent，action stream 则根据该视觉转变、历史和指令生成动作；每轮执行后，真实观测重新进入上下文。
 
-**【Paper】** 视频以 $\tau=4$ 进行时间稀疏化，每个视频帧关联 $\tau$ 个连续动作，序列是 $[z_t,a_{t,1},\ldots,a_{t,\tau},z_{t+1},\ldots]$。预测 $K$ 个视觉帧因此对应 $\tau K$ 个高频动作，而不等价于用低帧率视频控制机器人。
+**【Paper】** 论文以视频和动作交错表示时间，但必须区分原始图像帧、下采样帧与 VAE latent 帧。RoboTwin 的视频从 50 Hz 下采样至 12.5 Hz，VAE 又做 4 倍时间压缩。**【Code】** 因而官方 RoboTwin 配置是每个 latent 帧对应 16 个动作，LIBERO 则为 4 个；不能把 $\tau=4$ 一概解释为每个预测 latent 只对应 4 次控制。配置中的 $K$ 也是 latent chunk 长度，实际开环动作数需再乘 `action_per_frame`。
 
 ### 4.2 核心模块
 
 #### Causal video latent 与统一动作表示
 
-**【Paper】** Wan2.2 causal VAE 使用 $4\times16\times16$ 时空压缩，再经过 patchify；拼接多路视角后，每帧有 $N=192$ 个空间 token。动作统一为每臂的 7 维 EEF pose、最多 7 维 joint 与 1 维 gripper，总计 30 维；缺失关节补零，并按训练集做逐维 quantile normalization。
+**【Paper】** Wan2.2 causal VAE 使用 $4\times16\times16$ 时空压缩，再经过 patchify；论文给出的表示规模为每帧 $N=192$ 个空间 token；实际 token 数还取决于输入分辨率和多视角拼接布局，不能将它视为任意相机配置都不变的常数。动作统一为每臂的 7 维 EEF pose、最多 7 维 joint 与 1 维 gripper，总计 30 维；缺失关节补零，并按训练集做逐维 quantile normalization。
 
 **【Code】** `wan_va/dataset/lerobot_latent_dataset.py` 读取 LeRobot episode 中预提取的 `latents/`，将相机 latent 拼接；`_action_post_process` 对动作按 latent frame 对齐、填充并依据 `inverse_used_action_channel_ids` 保留当前 embodiment 的有效维度。RoboTwin 配置使用三路相机，LIBERO 使用两路。
 
@@ -143,13 +143,13 @@ $$
 \alpha=\sqrt{d_v/d_a}
 $$
 
-以保持输出方差。**【Analysis】** 该操作没有增加表达能力，却是把大 video backbone 的先验稳定转交给新 action branch 的必要分布对齐。
+以保持输出方差。**【Analysis】** 该操作意在减小两个分支初始激活尺度的差异。Figure 7 的训练损失与梯度曲线支持它比所测随机初始化更稳定，但不能据此证明它是迁移视频先验的唯一必要条件。
 
 #### Causal teacher forcing 与 Noisy History Augmentation
 
 ![统一视频—动作预训练的因果 attention mask（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-lingbot-va/attention_mask2-crop.3d5j4dh2mp.webp)
 
-**【Paper】** 训练时将真实交错 trajectory 用作 teacher-forcing context，每个 token 只能 attend 到时间更早的 token，因此可在一次前向中并行优化所有时间步。以 $p=0.5$，视觉历史还会被扰动为：
+**【Paper】** 训练时将真实交错 trajectory 用作 teacher-forcing context。§3.2 明确说明 **chunk 内双向、chunk 间因果**：同一组待生成 token 可以相互建模，不能读取更晚 chunk 的真实目标；动作分支还以对应的未来视觉表示为条件。这使多个 chunk 的训练可以并行，而部署仍按视频预测、动作反推的顺序推进。以 $p=0.5$，视觉历史还会被扰动为：
 
 $$
 \tilde z_{\le t}=(1-s_{\mathrm{aug}})\epsilon+s_{\mathrm{aug}}z_{\le t},
@@ -181,7 +181,7 @@ $$
 \mathcal L_{\mathrm{inv}}=\mathbb E\left[\left\|v_\psi(a_t^{(s)},s,\tilde z_{\le t+1},a_{<t}\mid c)-\dot a_t^{(s)}\right\|^2\right].
 $$
 
-这里 $v_\theta$、$v_\psi$ 为视频 / 动作 vector field；$c$ 是指令；$\tilde z$ 是可带噪的历史；论文取 $\lambda=1$。**【Code】** `wan_va/train.py` 用两套 `FlowMatchScheduler` 对 latent 与 action 分别加噪，`compute_loss` 对两项做 SNR-weighted MSE；action loss 额外受有效动作维度 mask 约束，最后直接相加反向传播。
+这里 $v_\theta$、$v_\psi$ 为视频 / 动作 vector field；$c$ 是指令；$\tilde z$ 是可带噪的历史；论文取 $\lambda=1$。**【Code】** `wan_va/train.py` 用两套 `FlowMatchScheduler` 对 latent 与 action 分别加噪，`compute_loss` 对两项做 scheduler 按 diffusion timestep 加权的 MSE；action loss 额外受有效动作维度 mask 约束，最后直接相加反向传播。
 
 ### 4.4 Training
 
@@ -208,9 +208,11 @@ $$
 
 **【Paper】** 基础推理缓存历史 token 的 key / value。每轮从噪声生成 $K$ 个未来视频 latent（仅部分去噪），再生成对应动作（完整积分）；机器人执行动作、接收真实图像并编码为新 $z$，再更新 cache。KV cache 避免重复计算，也保留了跨 chunk 的历史。
 
-**【Paper】** 异步控制中，机器人执行 $a_t$ 时后台生成下一 chunk。若直接基于旧视觉预测 $\hat z_t$ 续写 $\hat z_{t+1}$，会放大 stale forecast。FDM-grounded 方案使用最近真实反馈 $z_{t-1}$ 和当前执行动作 $a_t$ 前向预测 $z_t$，以反馈对齐的 latent 替代旧预测后再生成下一段；post-training 还加入 $\mathcal L_{\mathrm{fdm}}$。
+**【Paper】** 异步控制中，机器人执行 $a_t$ 时后台生成下一 chunk。若直接基于旧视觉预测 $\hat z_t$ 续写 $\hat z_{t+1}$，会放大 stale forecast。FDM-grounded 方案使用最近真实反馈 $z_{t-1}$ 和当前执行动作 $a_t$ 前向预测 $z_t$，以反馈对齐的 latent 替代旧预测后再生成下一段；post-training 还加入 $\mathcal L_{\mathrm{fdm}}$。关键在于用已知的执行动作做前向预测，推断计算结束时机器人将到达的状态；它仍是模型预测，不是提前获得真实未来观测。
 
-**【Code】** 仓库实现为 server-client inference。RoboTwin 的 `eval_polict_client_openpi.py` 获取 action、按 `action_per_frame` 执行，得到关键帧后调用 `infer(..., compute_kv_cache=True, imagine=False, state=action)` 更新 cache。配置与论文报告不同：RoboTwin 默认 `frame_chunk_size=2`、video / action steps 25 / 50；LIBERO 为 4、20 / 50。应按模型 checkpoint 的实际 config 部署，不能把论文 3 / 10 step 直接视为仓库默认。
+**【Paper】** 异步模式另有一个重要取舍：§3.4 丢弃 $t-1$ 之前的历史，以最近动作、真实观测、当前动作与预测状态组成紧凑上下文。因此，基础自回归模式能累积记忆，不代表该异步模式也保留完整执行历史；记忆实验和异步加速实验不能自动合并成同一个部署配置的能力。
+
+**【Code】** 仓库实现为 server-client inference。RoboTwin 的 `eval_polict_client_openpi.py` 获取 action、按 `action_per_frame` 执行，得到关键帧后调用 `infer(..., compute_kv_cache=True, imagine=False, state=action)` 更新 cache。配置与论文报告不同：RoboTwin 默认 `frame_chunk_size=2`、每 latent 帧 16 个动作、video / action steps 25 / 50；LIBERO 为 4、每帧 4 个动作、20 / 50。应按模型 checkpoint 的实际 config 部署，不能把论文 3 / 10 step 直接视为仓库默认。
 
 <Algorithm number={2} title='FDM-grounded 异步闭环控制' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>初始观测 $o_0$、指令 $c$、chunk size $K$ 与 KV cache</div>
@@ -220,7 +222,9 @@ $$
   </AlgorithmStep>
   <AlgorithmStep keyword='Parallel'>执行当前动作，同时在后台准备下一段预测</AlgorithmStep>
   <AlgorithmStep keyword='Observe'>读取新真实观测并编码为最新 $z$</AlgorithmStep>
-  <AlgorithmStep keyword='Ground'>由 FDM 使用真实状态与已执行动作重建当前视觉 latent</AlgorithmStep>
+  <AlgorithmStep keyword='Ground'>
+    由 FDM 使用最近真实状态与当前正在执行的动作预测当前视觉 latent
+  </AlgorithmStep>
   <AlgorithmStep keyword='Predict'>
     更新 KV cache，生成下一 video / action chunk，进入下一轮
   </AlgorithmStep>
@@ -248,7 +252,7 @@ $$
 
 ### 5.2 Main Results
 
-**【Paper】** RoboTwin 50 任务平均成功率为 Easy 92.93%、Hard 91.55%，相对次优 Motus 高 4.2、4.6 个百分点；Horizon=3 时达到 93.22% / 93.28%，增益增至 8.2 / 9.1 个百分点。
+**【Paper】** Table 1 的 RoboTwin 50 任务平均成功率为 Easy 92.93%、Hard 91.55%，相对次优 Motus 高 4.2、4.6 个百分点；Horizon=3 时达到 93.22% / 93.28%，增益增至 8.2 / 9.1 个百分点。这里 Horizon=3 指任务由三个语义子步骤组成，不是预测 chunk size $K=3$。
 
 | 方法        | RoboTwin Easy | RoboTwin Hard | LIBERO Avg |
 | ----------- | ------------: | ------------: | ---------: |
@@ -260,25 +264,29 @@ $$
 
 **【Paper】** LIBERO 分项是 Spatial $98.5\pm0.3$、Object $99.6\pm0.3$、Goal $97.2\pm0.2$、Long $98.5\pm0.5$。论文的 SOTA 表述应在其选取的基线与协议下理解；其表中 Goal 的最高值实际是 OpenVLA-OFT 的 97.9。
 
+**【Paper】** 真实实验每任务每方法 20 次，交替测试两种策略。附录将重试成功计 0.5、首次成功计 1、失败计 0，再归一化为 progress；成功率按表中 Success 列报告。两者并不等价：Fold Clothes 的成功率为 35% 对 30%，但 progress 为 48.8% 对 62.9%，不能写成所有指标全面领先。附录文字称只有满分才成功，逐次表却将若干非满分试验记为成功，例如 Table S5 本方法第 17 次；本文保留作者的两列结果，指出评分说明与记录不完全一致，不自行重定义成功。
+
 **【Analysis】** 长 horizon 上的更大增益与“因果 cache + 真实回灌”叙事相一致，但不能仅据主结果断言收益完全来自记忆机制；数据规模、视频预训练和系统实现也共同变化。
 
 ### 5.3 Ablation Study
 
-![不同动作网络初始化的训练动态（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-lingbot-va/loss_comparison-crop.83as2s8pqv.webp)
+![不同动作网络初始化的训练动态（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-lingbot-va/loss_comparison-crop.83as2s8pqv.webp)
 
-**【Paper】** RoboTwin Easy 的完整模型为 92.9；FDM-grounded async 为 90.4，而 naive async 为 74.3，Horizon=3 更降至 32.9。结论是并行化本身不足，必须用真实反馈对齐异步视觉预测。使用原始 Wan2.2-5B 直接 fine-tune 的基线为 80.6；随机初始化 action stream 的曲线梯度波动更大、收敛更慢，插值加缩放初始化最平稳。
+**【Paper】** RoboTwin Easy 的完整模型为 92.9；FDM-grounded async 为 90.4，而 naive async 为 74.3，Horizon=3 更降至 32.9。FDM 比朴素异步恢复了 16.1 个百分点，但仍比同步少 2.5 个百分点；作者称吞吐约提高 2 倍，不能解释为完全无精度代价。使用原始 Wan2.2-5B 直接 fine-tune 的基线为 80.6；随机初始化 action stream 的曲线梯度波动更大、收敛更慢，插值加缩放初始化最平稳。另需注意，§4.4 预训练消融文字给出 92.10% / 91.12%，与 Table 1 的 92.93% / 91.55% 不同；相关消融描述为每任务 50 示范、3K 微调步，而主实验是混合 27,500 示范、50K 步。不能把这些数字当成同一训练预算下逐项替换模块的严格归因。
 
 ### 5.4 Generalization
 
-![新物体与 OOD 位置的泛化评测（论文 Figure 8）](https://pic.hana0721.top/blog/paper-deep-dive-lingbot-va/generalization-crop.7p4cbx0f71.webp)
+![新物体与 OOD 位置的泛化展示（论文 Figure 10）](https://pic.hana0721.top/blog/paper-deep-dive-lingbot-va/generalization-crop.7p4cbx0f71.webp)
 
-**【Paper】** 作者在“训练时仅见单一物体、测试换形状与纹理”和“训练时位置局部固定、测试随机特别是 OOD 区域”两个轴评估泛化，报告方法均优于比较对象。低数据分析中，10 条示范时该方法在 Make Breakfast progress score 比 $\pi_{0.5}$ 高 15.6 个百分点，在 RoboTwin Easy 高 10.3 个百分点。
+**【Paper】** Figure 10 展示单一训练物体向新形状/纹理物体，以及局部训练位置向 OOD 位置的迁移；该部分没有报告完整试验数量、成功率表和匹配基线，因而属于定性证据。Figure 8 的低数据结果则可量化：10 条示范时 Make Breakfast progress 为 61.1% 对 45.5%，高 15.6 个百分点；RoboTwin Easy 在 **5 条**示范时为 46.6% 对 36.3%，高 10.3 个百分点，10 条时为 58.2% 对 50.7%，高 7.5 个百分点。
+
+**【Paper】** 记忆任务要求准确擦拭 6 次，或打开抽屉直到找到积木，报告本方法均达 100%。搜索任务训练时积木可在左右任一抽屉，测试却固定在左侧、要求先搜右侧；这个设置支持执行跨观测的任务流程，但仅凭它还不能排除固定搜索顺序策略，不能视为一般隐状态推理能力的充分证明。
 
 ## 6. 方法分析
 
 ### 6.1 为什么有效？
 
-**【Analysis】** 它同时解决了三个层次的问题：视频预训练提供物体与接触变化的表示；因果 attention 与 KV cache 让完整执行历史持续可用；部分去噪、异步执行、FDM 回锚共同把昂贵的生成过程变成可闭环使用的控制系统。缺少其中任一项，另两项也难以直接转化为实时机器人能力。
+**【Analysis】** 它同时解决了三个层次的问题：视频预训练提供物体与接触变化的表示；基础模式的因果 attention 与 KV cache 提供跨 chunk 上下文，异步模式则用较短上下文换速度；部分去噪、异步执行、FDM 回锚共同把昂贵的生成过程变成可闭环使用的控制系统。现有消融分别支持其中部分设计，但没有给出所有模块在完全匹配预算下的全因子实验，因而不宜把每一项都宣布为必要条件。
 
 ### 6.2 核心创新
 
@@ -317,8 +325,7 @@ $$
 **【Analysis】** LingBot-VA 提出一个直接的设计准则：world model 不必独立充当 planner；把预测状态变化作为 action model 的条件，可让 imagination 对控制拥有明确的学习责任。值得继续检验的方向包括：加入 tactile / force / proprioception 来增强 FDM 的反馈锚点；让模型估计未来 latent 的不确定性，并在不确定时动态缩短 chunk；以及探索统一动作接口在灵巧手、移动底盘和更多 embodiment 间的边界。
 
 <Aside type='note' title='阅读提示'>
-  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示截至 2026-08-26
-  对官方公开仓库的核对，`【Analysis】`
-  表示基于论文和代码的分析。六张论文图已裁剪上传；图床自定义域尚未刷新，正文暂使用已验证 HTTP 200 的
-  GitHub Raw URL。
+  本精读依据 arXiv v2 全文与附录。`【Paper】` 表示论文内容，`【Code】` 表示截至 2026-09-22
+  对官方仓库的核对，`【Analysis】`
+  表示解释与证据边界。论文内部或论文与默认配置之间的差异在相关段落单独说明。
 </Aside>

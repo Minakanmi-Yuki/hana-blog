@@ -1,7 +1,7 @@
 ---
 title: 'VLA-0 论文精读：不改 VLM，直接把动作写成文本'
 publishDate: 2026-08-25
-updatedDate: 2026-08-25
+updatedDate: 2026-09-22
 description: '精读 VLA-0：以 Qwen2.5-VL 为底座，不新增动作 token 或动作头，仅用数字文本、动作集成和 masked action augmentation 构建高性能 VLA。'
 heroImage:
   { src: 'https://pic.hana0721.top/66497987_p0_master1200.58hynbbxn8.webp', color: '#8C8275' }
@@ -42,7 +42,7 @@ import { Aside } from '@/components/user'
 
 ### 一句话总结
 
-**【Paper】** VLA-0 重新审视了一个被主流路线忽略的方案：不新增 action token、不接专用 action head，也不改 tokenizer，而是提示一个普通 Vision-Language Model（VLM）把未来动作直接生成成数字字符串。论文以 Qwen2.5-VL-3B 为底座，配合 action decoding、ensemble prediction 和 Masked Action Augmentation，在 LIBERO 和 SO-100 上取得了出人意料的高性能。
+**【Paper】** VLA-0 重新审视了一个被主流路线忽略的方案：不新增 action token、不接专用 action head，也不改 tokenizer，而是提示一个普通 Vision-Language Model（VLM）把未来动作直接生成成数字字符串。[论文](https://arxiv.org/pdf/2510.13054)以 Qwen2.5-VL-3B 为底座，配合 action decoding、ensemble prediction 和 Masked Action Augmentation，在 LIBERO 和 SO-100 上取得了出人意料的高性能。
 
 ### 核心贡献
 
@@ -61,11 +61,11 @@ import { Aside } from '@/components/user'
 
 - **Discrete Token VLA**：把动作离散到若干 bin，再占用 VLM 词表中的 token；代表方法包括 RT-2 和 OpenVLA。
 - **Generative Action Head VLA**：在 VLM 外增加连续动作生成模块，例如 diffusion/flow action head。
-- **Custom Architecture VLA**：引入专用 action tokenizer 或改造 decoder，例如 DCT 风格的 action tokenization 或 ACT head。
+- **Custom Architecture VLA**：引入专用 action tokenizer 或改造动作解码，例如 FAST 的 DCT 压缩与 OpenVLA-OFT 的并行连续动作预测。原文将 OFT 概称为“ACT head”，但不应因此把 OFT 与原始 ACT 的完整架构等同。
 
 ![Families of VLA methods from paper Figure 2](https://pic.hana0721.top/blog/paper-deep-dive-vla-0/comp_fig_horizontal.8adzwv4xsi.webp)
 
-**【Paper】** 第一类方法的困难是动作分辨率受 token 数量约束，而且复用文本 token 可能损害原本的语言语义；后两类虽然表达力更强，却引入额外参数、训练阶段和工程复杂度。VLA-0 的问题意识很直接：如果 VLM 本来就会生成数字，为什么不能让它直接生成动作数字？
+**【Paper / Analysis】** 原文讨论第一类方法的困难是动作分辨率受 token 数量约束，而且复用文本 token 可能损害原本的语言语义；后两类虽然表达力更强，却引入额外参数、训练阶段和工程复杂度。VLA-0 的问题意识很直接：如果 VLM 本来就会生成数字，为什么不能让它直接生成动作数字？
 
 **【Analysis】** 这不是声称架构修改没有价值，而是把研究变量换成了训练 recipe。论文真正想验证的是：当输入格式、数字约束、动作集成和遮挡增强都设计得足够仔细时，所谓“最简单”的文本动作接口是否已经足够强。
 
@@ -83,7 +83,7 @@ $$
 
 **【Paper】** LIBERO 实验使用第三人称和 wrist camera；真实 SO-100 实验使用左右相机。每个 LIBERO suite（Spatial、Object、Goal、Long）包含 10 个任务，每个任务评估 50 个 episode。
 
-**【Code】** 官方默认配置使用 Qwen2.5-VL-3B-Instruct、7 维 original action、8 步 horizon、1 帧 history、2 个 camera、1000 个 action bins 和 224×224 图像。仓库中的 `img_libero_aug.yaml` 同样设置 `history=1`、`horizon=8`，并使用 `physical-intelligence/libero` LeRobot 数据集。
+**【Code】** [官方实现与配置](https://github.com/NVlabs/vla0)默认配置使用 Qwen2.5-VL-3B-Instruct、7 维 original action、8 步 horizon、1 帧 history、2 个 camera、0–1000 的动作整数范围 和 224×224 图像。仓库中的 `img_libero_aug.yaml` 同样设置 `history=1`、`horizon=8`，并使用 `physical-intelligence/libero` LeRobot 数据集。
 
 ## 4. 方法
 
@@ -114,23 +114,23 @@ z_i=\operatorname{round}\left(
 \right).
 $$
 
-模型只需输出 `z_1 z_2 ... z_{H\times D}`，不需要知道动作 token 的特殊语义。分辨率 $B$ 可以按任务调节，不受 VLM 词表大小限制。
+模型只需输出 `z_1 z_2 ... z_{H\times D}`，不需要知道动作 token 的特殊语义。分辨率 $B$ 可以按任务调节，不需要为每个取值新增一个词表项。这里 $[0,B]$ 含 $B+1$ 个可表示整数，量化间隔是 $(M_i-m_i)/B$；在范围内四舍五入的单维误差至多是该间隔的一半。但更长的数字仍增加自回归 token 成本，“任意分辨率”不等于任意精度都免费。
 
-**【Code】** `get_text_action` 使用数据集统计量的 min/max 归一化并四舍五入为整数；`get_action_from_text_action` 将文本解析为 `(batch, horizon, act_dim)`，缺少数字时用最后一个动作补齐，超出 horizon 时截断，再按 min/max 还原连续值。
+**【Code】** `get_text_action` 使用数据集统计量的 min/max 归一化并四舍五入为整数；`get_action_from_text_action` 将文本解析为 `(batch, horizon, act_dim)`，单样本尾部不足一个完整动作时先丢弃该尾部；已有完整动作但不足 horizon 时重复最后一项，过长则截断，再反归一化。解析异常时整批返回各维 min/max 中点；当前函数没有对越界整数执行 clamp。
 
 #### NumberSpaceOnlyProcessor
 
-**【Code】** 推理时 `NumberSpaceOnlyProcessor` 把 logits 限制到数字 `0–9`、空格和 EOS。这样模型虽仍通过原生 text generation 生成动作，但不会输出解释性自然语言或非法字符。**【Analysis】** 这个约束是“文本动作”能稳定落地的重要工程边界：动作语义不需要新 token，但语法仍需要硬约束。
+**【Code】** 推理时 `NumberSpaceOnlyProcessor` 把 logits 限制到数字 `0–9`、空格和 EOS。这样模型虽仍通过原生 text generation 生成动作，但不会输出解释性自然语言或非法字符。**【Analysis】** 这个约束减少了非法字符，却不保证输出恰有 $H D$ 个数、没有连续空格，或所有数都落在 $[0,B]$。它是字符集合约束，不是完整语法或机器人动作可行性检查。
 
 #### Ensemble Prediction
 
-**【Paper】** 每次推理生成一段未来动作，连续时刻的预测会重叠。时刻 $t$ 的最终动作取最近 $n$ 次预测在对应时间位置上的平均：
+**【Paper】** 每次推理生成一段未来动作，连续时刻的预测会重叠。时刻 $t$ 的最终动作取可用的最近 $n$ 次预测在同一环境时间位置上的平均（启动阶段只平均已有预测）：
 
 $$
 \hat a_t=\frac{1}{n}\sum_{j=0}^{n-1}\hat a_{t-j}^{(j)}.
 $$
 
-这对应 ACT 的 Temporal Ensembling 思路，使数字文本解码造成的局部抖动不直接传到机器人。
+这对应 ACT 的 Temporal Ensembling 思路。它融合的是不同观测时刻对同一执行时刻的预测，不是同一输入重复采样 $n$ 次；旧预测可能平滑抖动，也可能在突变后拖慢响应。
 
 **【Code】** LIBERO 命令示例使用 `--action_horizon 1 --ensemble_prediction 8`，即每个环境步执行一项动作并融合 8 个预测；实时 SO-100 评测为保持部署简单，论文明确没有启用 ensemble。
 
@@ -138,7 +138,7 @@ $$
 
 **【Paper】** 训练时随机把目标动作字符串中的一部分字符替换为 mask 字符。被遮挡位置不参与 loss，同时输入中的对应 token 被替换为 `?`，迫使模型根据图像和指令推理动作，而不是只做数字序列的 auto-completion。
 
-**【Code】** `QwenActor.forward` 中约 10% 样本不做增强，其余样本从 `[0, action_mask_aug_per]` 均匀采样遮挡比例；默认配置是 `action_mask_aug_per=0.4`，被遮挡 label 设为 `-100`，输入 token 设为 id `30`。
+**【Code】** `QwenActor.forward` 中约 10% 样本不做增强，其余样本从 `[0, action_mask_aug_per]` 均匀采样遮挡比例；默认配置是 `action_mask_aug_per=0.4`，被遮挡 label 设为 `-100`，输入 token 设为 id `30`（`?`）。代码按字符串字符索引直接偏移到 token 索引，这依赖当前 Qwen 对数字和空格的单字符分词；迁移 tokenizer 时必须重新检查这种一一对应。它不训练模型补回被遮挡位置，而是让后续未遮挡 token 在破损前缀下仍能被预测。
 
 ### 4.3 关键公式
 
@@ -152,7 +152,7 @@ $$
 \log p_\theta(y_k\mid y_{<k},o_t),
 $$
 
-其中 $\mathcal A$ 是未被遮挡的动作字符位置。system prompt、用户消息、图像 token 和 padding 都不计入 loss。
+其中 $\mathcal A$ 是未被遮挡的动作 token 位置（实现也监督 assistant 的结束标记）。system prompt、用户消息、图像 token 和 padding 都不计入 loss。
 
 **【Code】** 官方实现复制 Qwen 的 shifted-token loss：`shift_logits` 预测下一个 token，`shift_labels` 右移一位；`CrossEntropyLoss(ignore_index=-100)` 完成屏蔽。
 
@@ -171,11 +171,19 @@ $$
 <Algorithm number={1} title='VLA-0 training' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>图像序列、语言指令、连续动作序列、动作范围统计量</div>
   <div slot='output'>微调后的 Qwen2.5-VL VLA-0</div>
-  <AlgorithmStep>读取一条样本，取 $H$ 个未来动作并按每维 min/max 归一化到 $0\ldots B$。</AlgorithmStep>
-  <AlgorithmStep>把整数动作展平成空格分隔字符串，拼入 system/user/assistant chat template。</AlgorithmStep>
-  <AlgorithmStep>按采样比例随机把动作字符串字符替换为 `?`，并把对应 labels 设为 ignore index。</AlgorithmStep>
+  <AlgorithmStep>
+    读取一条样本，取 $H$ 个未来动作并按每维 min/max 归一化到 $0\ldots B$。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    把整数动作展平成空格分隔字符串，拼入 system/user/assistant chat template。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    按采样比例随机把动作字符串字符替换为 `?`，并把对应 labels 设为 ignore index。
+  </AlgorithmStep>
   <AlgorithmStep>用原生 Qwen2.5-VL 前向计算 causal language modeling cross-entropy。</AlgorithmStep>
-  <AlgorithmStep>用 Adam/AdamW 更新 VLM 参数并保存 checkpoint 与 dataset statistics。</AlgorithmStep>
+  <AlgorithmStep>
+    用 Adam/AdamW 更新 VLM 参数并保存 checkpoint 与 dataset statistics。
+  </AlgorithmStep>
 </Algorithm>
 
 **【Paper】** 论文实验采用 full fine-tuning，batch size 192、学习率 $5\times10^{-6}$、64 epochs，在 8 张 A100 上约训练 32 小时。
@@ -187,27 +195,36 @@ $$
 <Algorithm number={2} title='VLA-0 action inference' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>当前相机图像、语言指令、动作统计量</div>
   <div slot='output'>一个或多个反归一化后的连续动作</div>
-  <AlgorithmStep>用相同的 Qwen chat template 构造 system prompt、图像和 instruction，不放入 assistant 的真实动作。</AlgorithmStep>
-  <AlgorithmStep>用 `NumberSpaceOnlyProcessor` 限制生成词表，只允许数字、空格和 EOS。</AlgorithmStep>
-  <AlgorithmStep>自回归生成最多 `num_tokens=1024` 个 token，或只生成一阶动作所需的 token。</AlgorithmStep>
-  <AlgorithmStep>解析整数序列，按 horizon/act_dim 整形、补齐或截断，再按 min/max 反归一化。</AlgorithmStep>
+  <AlgorithmStep>
+    用相同的 Qwen chat template 构造 system prompt、图像和 instruction，不放入 assistant
+    的真实动作。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    用 `NumberSpaceOnlyProcessor` 限制生成词表，只允许数字、空格和 EOS。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    自回归生成最多 `num_tokens=1024` 个 token，或只生成一阶动作所需的 token。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    解析整数序列，按 horizon/act_dim 整形、补齐或截断，再按 min/max 反归一化。
+  </AlgorithmStep>
   <AlgorithmStep>执行当前动作；在 LIBERO 中可收集多次重叠预测并 ensemble。</AlgorithmStep>
 </Algorithm>
 
-**【Code】** `get_one_step_action=True` 时，模型会把上一次的 action text 接回输入，只生成当前一步需要的数字，并通过 `service.py` 以 streaming API 逐步返回。公开 README 报告标准 PyTorch 在 RTX 5090 上约 4 Hz；8 路 ensemble 需要同时运行 8 个模型实例，因此真实部署默认关闭 ensemble。
+**【Code】** `get_one_step_action=True` 时，模型会把上一次的 action text 接回输入，只生成当前一步需要的数字，并通过 `service.py` 以 streaming API 逐步返回。服务在一次请求内反复使用同一组 `image_data`，不是每返回一个动作就接收新的相机图像；streaming 降低首动作等待，但不能自动视作逐动作视觉闭环。论文报告标准 PyTorch 在 RTX 5090 上约 4 Hz；论文讨论的实时 8 路 streaming ensemble 需要并发实例，因此真实实验关闭 ensemble；这不是离线仿真做 temporal averaging 在数学上必需八套独立权重。
 
 ### 4.6 代码实现对照
 
-| 论文概念 | 官方代码位置 | 实际实现 |
-| --- | --- | --- |
-| VLM backbone | `rv_train/models/qwen/model.py` | 加载 `Qwen2_5_VLForConditionalGeneration` |
-| 文本动作格式 | `format_data` 与 `system_message` | 输出 $H\times D$ 个空格分隔整数 |
-| 动作量化 | `get_text_action` | 按 dataset min/max 映射到 `num_bins_actions` |
-| 动作解析 | `get_action_from_text_action` | 解析、补齐/截断、反归一化 |
-| 合法 token 约束 | `NumberSpaceOnlyProcessor` | 数字、空格、EOS 以外 logits 置为 $-\infty$ |
-| 遮挡增强 | `QwenActor.forward` | 随机屏蔽 action 字符并忽略对应 loss |
-| 训练入口 | `rv_train/train.py` | DataLoader、optimizer、checkpoint、dataset stats |
-| 评测与部署 | `eval/eval_libero.py`, `rv_train/deploy/` | LIBERO ensemble、SO-100 API/streaming |
+| 论文概念        | 官方代码位置                              | 实际实现                                         |
+| --------------- | ----------------------------------------- | ------------------------------------------------ |
+| VLM backbone    | `rv_train/models/qwen/model.py`           | 加载 `Qwen2_5_VLForConditionalGeneration`        |
+| 文本动作格式    | `format_data` 与 `system_message`         | 输出 $H\times D$ 个空格分隔整数                  |
+| 动作量化        | `get_text_action`                         | 按 dataset min/max 映射到 `num_bins_actions`     |
+| 动作解析        | `get_action_from_text_action`             | 解析、补齐/截断、反归一化                        |
+| 合法 token 约束 | `NumberSpaceOnlyProcessor`                | 数字、空格、EOS 以外 logits 置为 $-\infty$       |
+| 遮挡增强        | `QwenActor.forward`                       | 随机屏蔽 action 字符并忽略对应 loss              |
+| 训练入口        | `rv_train/train.py`                       | DataLoader、optimizer、checkpoint、dataset stats |
+| 评测与部署      | `eval/eval_libero.py`, `rv_train/deploy/` | LIBERO ensemble、SO-100 API/streaming            |
 
 **【Code】** `transform_from_so100` 的函数签名包含 robot state，但它构造给 QwenActor 的样本只保留 RGB 和 instruction；当前 VLA-0 模型实际是视觉-语言条件策略，不把 proprioception 作为额外 token 输入。**【Analysis】** 这也是“zero modification”的一部分：动作接口是文本，观测接口仍沿用 VLM 的图像+文本范式。
 
@@ -229,26 +246,26 @@ $$
 
 ![Real-world SO-100 comparison from paper Figure 4](https://pic.hana0721.top/blog/paper-deep-dive-vla-0/model_comparison_final.51ew07hga3.webp)
 
-**【Paper】** 真实实验中，VLA-0 平均成功率比 SmolVLA 高 12.5 个百分点。SmolVLA 使用了大规模 SO-100 预训练，而 VLA-0 从 Qwen2.5-VL 开始训练，说明文本动作接口的效果不只停留在 LIBERO 仿真。
+**【Paper】** 真实实验 Figure 4 中，VLA-0/SmolVLA 的 banana、cupcake、apple、reorient 成功率分别为 85/60、65/55、60/30、30/45，平均 60.0/47.5，相差 12.5 个百分点；VLA-0 在转向任务反而低 15 个百分点。论文未给出各真实任务测试次数、重复 seed 或置信区间，不能从柱状图推断统计显著性。SmolVLA 使用了大规模 SO-100 预训练，而 VLA-0 从 Qwen2.5-VL 开始训练，说明文本动作接口的效果不只停留在 LIBERO 仿真。
 
 ### 5.3 Ablation Study
 
 **【Paper】** LIBERO 四套件平均成功率的消融如下：
 
-| 配置 | 平均成功率 | 相对完整模型 |
-| --- | ---: | ---: |
-| 完整 VLA-0（ensemble + mask + tile，resolution 1000） | 94.7 | 0.0 |
-| 去掉 action ensemble | 92.0 | -2.0 |
-| 去掉 Masked Action Augmentation | 93.5 | -1.2 |
-| resolution 4000 | 94.2 | -0.5 |
-| resolution 250 | 93.2 | -1.5 |
-| 不 tile 多图 | 94.5 | -0.2 |
+| 配置                                                  | 平均成功率 | 相对完整模型 |
+| ----------------------------------------------------- | ---------: | -----------: |
+| 完整 VLA-0（ensemble + mask + tile，resolution 1000） |       94.7 |          0.0 |
+| 去掉 action ensemble                                  |       92.0 |         -2.7 |
+| 去掉 Masked Action Augmentation                       |       93.5 |         -1.2 |
+| resolution 4000                                       |       94.2 |         -0.5 |
+| resolution 250                                        |       93.2 |         -1.5 |
+| 不 tile 多图                                          |       94.5 |         -0.2 |
 
-**【Paper】** action ensembling 是影响最大的组件；resolution 1000 已足够，增加到 4000 没有收益，降到 250 则损失 1.5 个百分点；图片是否 tile 影响很小。**【Analysis】** 这组结果把“简单架构”与“简单 recipe”区分开：文本动作本身只是必要条件，稳定输出依赖时间融合和抗 teacher-forcing 偏差的增强。
+**【Paper / Analysis】** 原文 Table II 的差值栏和正文写 ensemble 增益为 2.0 点，但 $94.7-92.0=2.7$，这里按表内成功率重算。action ensembling 是这组单项消融中影响最大的组件；resolution 1000 已足够，增加到 4000 没有收益，降到 250 则损失 1.5 个百分点；图片是否 tile 影响很小。**【Analysis】** 这组结果把“简单架构”与“简单 recipe”区分开：文本动作本身只是必要条件，稳定输出依赖时间融合和抗 teacher-forcing 偏差的增强。
 
 ### 5.4 Generalization
 
-**【Paper】** LIBERO 的四个 suite 分别考察空间位置、物体变化、目标变化和更长时序；VLA-0 在四类上都超过未预训练竞争方法。真实实验还在不同初始物体位置下评估，而不是只复现示教轨迹。
+**【Paper / Analysis】** 四个 suite 按空间、物体、目标与长任务组织，但本文结果是在对应 LIBERO 示范上微调后的标准评测，不能把 suite 名称直接当作“从未见过的新物体/新任务”泛化证据。真实实验变化了初始物体位置；论文没有独立测量保留多少通用 VQA、语言推理或跨机器人能力。
 
 **【Code】** `eval/eval_libero.py` 支持通过 `task_suite_name`、`task_name`、`action_horizon`、`ensemble_prediction` 和并行 episode 参数复现实验；README 提供的推荐设置是每步执行一个 action、融合 8 个预测。
 
@@ -258,10 +275,10 @@ $$
 
 **【Analysis】**
 
-1. **保留 VLM 先验**：不把原词表 token 改成动作 token，语言模型原本的指令理解能力不会被动作语义覆盖。
+1. **保留 VLM 先验**：不把原词表 token 改成动作 token，避免了直接重定义既有 token 的含义，但 full fine-tuning 仍可能导致遗忘；本文没有语言/VQA 保持率实验，不能保证语义能力不变。
 2. **分辨率与词表解耦**：动作数字由多个字符组成，$B$ 可以调整到 250、1000 或 4000，而不需要为每个 bin 新增 token。
 3. **文本生成天然支持变长序列**：未来多个时间步只需串接数字，不需要为固定 horizon 设计额外输出头。
-4. **遮挡增强迫使视觉 grounding**：随机破坏已生成的数字前缀，降低模型通过局部数字模式投机完成任务的机会。
+4. **遮挡增强迫使视觉 grounding**：随机破坏训练时 teacher-forced 的数字前缀，鼓励利用图像与指令；性能消融与此解释相容，但未用注意力或输入遮挡实验独立证明视觉依赖增强。
 5. **Temporal Ensembling 把 token 噪声变成低通滤波**：多个重叠 action chunk 的平均能减轻离散解码和单步预测抖动。
 
 ### 6.2 核心创新
@@ -285,15 +302,15 @@ $$
 
 ### 7.1 作者明确提出的局限
 
-**【Paper】** 真实部署标准 PyTorch 速度约 4 Hz；作者指出 TensorRT-LLM、蒸馏和量化可能提升速度。实时实验没有启用 ensemble，因为 8 路同时运行会增加部署成本。论文也没有把 action-free 视频用于预训练，而是聚焦有动作标注的任务示教。
+**【Paper】** 真实部署标准 PyTorch 在 RTX 5090 上流式输出约 4 Hz；作者提出蒸馏和量化作为提速方向，并把大规模动作数据训练留作未来工作。实时实验没有启用 ensemble，因为 8 路同时运行会增加部署成本。这些结果不能推出 VLA-0 在大规模动作预训练后的收益或 scaling 趋势。
 
 ### 7.2 自己分析得到的局限
 
 **【Analysis】**
 
 - 文本动作是自回归生成，输出 $H\times D$ 个数字的延迟会随 horizon、动作维度和数字位数增长；长时序或高 DoF 任务可能不适合一次生成完整 chunk。
-- 每个动作维度使用独立 min/max，异常值和跨任务统计差异会直接影响量化分辨率；代码解析失败时会退回 min/max 中点，属于安全兜底而非可靠控制。
-- NumberSpaceOnlyProcessor 只约束字符集合，不保证数字数量、范围或动作语义正确；后处理还需要补齐、截断和裁剪。
+- 每个动作维度使用独立 min/max，异常值和跨任务统计差异会直接影响量化分辨率；代码解析失败时会退回 min/max 中点，只是解析失败兜底，中点动作不必等于保持当前位置或安全停止。
+- NumberSpaceOnlyProcessor 只约束字符集合，不保证数字数量、范围或动作语义正确；当前代码做补齐/截断，却没有输出数值裁剪；接入控制器时仍需验证范围和动作合法性。
 - ensemble 在仿真中收益明显，但真实部署关闭 ensemble，说明论文最强结果与低延迟部署之间仍有取舍。
 - 主要结果集中在 LIBERO 和 SO-100，尚不能据此推断文本动作接口对双臂、高频触觉和复杂接触动力学同样有效。
 - 公开仓库默认配置与论文训练细节不同，复现实验必须使用 checkpoint 附带的 config、dataset statistics 和对应 LeRobot 版本。

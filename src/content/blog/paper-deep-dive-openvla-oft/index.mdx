@@ -1,7 +1,7 @@
 ---
 title: 'OpenVLA-OFT 论文精读：Fine-Tuning Vision-Language-Action Models'
 publishDate: 2026-08-23
-updatedDate: 2026-08-23
+updatedDate: 2026-09-22
 description: '精读 OpenVLA-OFT：通过并行解码、Action Chunking、连续动作与 L1 回归，把 7B VLA 适配到 LIBERO 与双臂 ALOHA。'
 heroImage:
   { src: 'https://pic.hana0721.top/65089776_p0_master1200.5c1kl2nzfo.webp', color: '#8C8275' }
@@ -33,7 +33,7 @@ import { Aside } from '@/components/user'
 
 <ArxivRating
   id='2502.19645'
-  tldr='OpenVLA-OFT 用并行解码、动作分块、连续动作和 L1 回归替代自回归离散 token 生成，使 OpenVLA 在 LIBERO 达到 97.1% 平均成功率，并获得 26× 动作生成吞吐提升。'
+  tldr='OpenVLA-OFT 用并行解码、动作分块、连续动作和 L1 回归替代自回归离散 token 生成，使 OpenVLA 在 LIBERO 达到 97.1% 平均成功率；单图配置获得约 26× 动作生成吞吐提升。'
   rank={5}
 />
 
@@ -72,7 +72,7 @@ import { Aside } from '@/components/user'
 
 1. 用受控实验拆开比较三类设计选择：自回归（autoregressive）还是并行解码（parallel decoding）、离散还是连续动作、next-token prediction / L1 regression / diffusion 三种学习目标。
 2. 发现并行解码配合 Action Chunking 不只提升速度，也会提高下游任务成功率；连续动作比 256-bin 离散化更精细；高容量 OpenVLA 使用简单的 L1 回归即可达到与 diffusion 接近的效果。
-3. 在 LIBERO 四个 task suites 上，OpenVLA-OFT 平均成功率达到 **97.1%**，相比 fine-tuned OpenVLA 的 76.5% 提升 20.6 个百分点，动作生成吞吐提升 **26×**。
+3. 在 LIBERO 四个 task suites 上，OpenVLA-OFT 平均成功率达到 **97.1%**，相比 fine-tuned OpenVLA 的 76.5% 提升 20.6 个百分点，这里最高成功率使用双视角与状态；**26×** 吞吐对应单图版本，不能视为同一个实验点。
 4. 在真实双臂 ALOHA 上，OpenVLA-OFT+ 处理多相机、14 维关节状态和 25-step action chunk，在四类新任务上平均得分 87.8%，高于 ACT、Diffusion Policy、RDT-1B 和 $\pi_0$ 的对比结果。
 
 **【Analysis】** 论文最重要的结论是：当 base VLA 已经有很强的视觉—语言表征时，fine-tuning 的“接口设计”可能比继续堆更复杂的 action generator 更关键。它把预训练模型从“只能按原格式吐出动作 token”改造成一个可以接受多视角、proprioception 并一次输出一段连续动作的 Policy。
@@ -107,10 +107,10 @@ $$
 | ------------------ | ----------------------------------------------------------------- | --------------------------------------------------------------------- |
 | Robot / Embodiment | 仿真 Franka Emika Panda                                           | 真实双臂 ALOHA（两套 ViperX 300 S）                                   |
 | Observation        | third-person image + instruction；增强版加入 wrist image 与 state | third-person + left/right wrist images、14-D joint state、instruction |
-| Action             | 7-D delta end-effector pose                                       | 14-D absolute joint-angle target                                      |
+| Action             | 6-D delta end-effector pose + gripper                             | 14-D absolute joint-angle target                                      |
 | Control frequency  | benchmark 设置                                                    | 25 Hz                                                                 |
 | Chunk size         | $K=8$                                                             | $K=25$                                                                |
-| Training data      | 每个 suite 500 条 expert demonstrations                           | fold shorts 20、fold shirt 30、scoop 45、put X into pot 300 条        |
+| Training data      | 每个 suite 原有 500 条示教，主实验过滤失败/no-op                  | fold shorts 20、fold shirt 30、scoop 45、put X into pot 300 条        |
 
 **【Paper】** LIBERO 的四个 suites 分别强调 spatial layout、object、goal 和 long-horizon generalization。ALOHA 的四个任务覆盖 deformable object、长时接触操作、工具使用和语言驱动目标选择。
 
@@ -120,9 +120,9 @@ $$
 
 ![OpenVLA-OFT 的并行解码、动作表示和 FiLM 设计（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-openvla-oft/design-decisions.7zr60z2uwk.webp)
 
-**【Paper】** 输入图像先经过 OpenVLA 的 SigLIP + DINOv2 fused vision encoder，视觉 patch、语言 token 和可选的 proprio token 被投影到 LLM embedding space；解码器在 action 位置接收空 embedding，并用 bidirectional attention 一次性产生 $K D$ 个动作隐藏状态，最后交给离散 logits 或连续 action head。
+**【Paper】** 本文按 [arXiv v2](https://arxiv.org/abs/2502.19645v2) 核对。输入图像先经过 OpenVLA 的 SigLIP + DINOv2 fused vision encoder，视觉 patch、语言 token 和可选的 proprio token 被投影到 LLM embedding space；解码器在 action 位置接收空 embedding，并用 bidirectional attention 一次性产生 $K D$ 个动作隐藏状态，最后交给离散 logits 或连续 action head。
 
-**【Analysis】** “空 action embedding + bidirectional mask”是 OFT 的关键结构变化。它不是把自回归 decoder 再加速，而是取消 action token 之间的因果依赖，把每个输出位置变成并行的 query。这样 $K$ 增大时主要增加序列长度，而不会增加 $K D$ 次串行生成。
+**【Analysis】** “空 action embedding + bidirectional mask”是 OFT 的关键结构变化。零值槽位仍由位置编码区分，而且会通过 attention 相互交换信息；并行生成不等于各动作独立。它不是把自回归 decoder 再加速，而是取消 action token 之间的因果依赖，把每个输出位置变成并行的 query。这样 $K$ 增大时主要增加序列长度，而不会增加 $K D$ 次串行生成。
 
 ### 4.2 核心模块
 
@@ -130,7 +130,7 @@ $$
 
 - **输入**：视觉 patch、语言 prompt、可选 proprio token，以及 $K D$ 个空 action slots。
 - **输出**：一次 forward 得到的 $K D$ 个 action hidden states。
-- **中间模块**：将 causal attention mask 换成允许 action slots 相互 attend 的 bidirectional mask；视觉和语言部分仍作为条件上下文。
+- **中间模块**：将 causal attention mask 换成允许 action slots 相互 attend 的 bidirectional mask；条件与动作槽位在公开实现中全序列双向交互（仅屏蔽 padding），不应假定视觉/语言 prefix 仍保持因果 mask。
 - **为什么需要**：自回归 OpenVLA 生成一个 7-D action 要多次调用 decoder，Action Chunking 会把这一成本再乘以 $K$。并行解码把动作 token 的串行依赖改为单次预测。
 
 **【Paper】** 在 LIBERO 上，单独加入 parallel decoding 后吞吐从 4.2 Hz 提升到 15.9 Hz；再加入 $K=8$ 的 Action Chunking 后达到 108.8 Hz。相对 OpenVLA，chunk 的吞吐提升约 26×。
@@ -139,9 +139,11 @@ $$
 
 **【Paper】** 原始 OpenVLA 将每个归一化动作维度映射到 $[-1,1]$ 的 256 个 bins，再用词表 token 表示。OFT 改用一个 MLP action head，把 action hidden states 直接映射为连续动作。
 
-**【Code】** `prismatic/models/action_heads.py` 的 `L1RegressionActionHead` 先把每个时间步的 $D$ 个 hidden states reshape 成一个向量，再送入两层 `MLPResNet` block，输出形状为 `(batch, chunk_len, action_dim)`。这意味着连续动作头不需要修改 LLM 的词表，也不再使用 action token 的 softmax。
+**【Code】** 双向 attention 的关键实现不在主模型文件里，而在 `pyproject.toml` 指定的 [Transformers fork](https://github.com/moojink/transformers-openvla-oft)：`LlamaSdpaAttention` 将 mask 改为只屏蔽 padding 并设 `is_causal=False`。换回普通 Transformers，或随意换 attention backend，不能假定语义仍与 OFT 一致。动作输入先被清零，避免双向注意力看到真实未来动作造成标签泄漏。
 
-**【Analysis】** 连续 head 的收益并不只是“数值更精确”。它把语言模型的离散 token 预测与机器人动作回归解耦，使 $D$ 可以从 LIBERO 的 7 改成 ALOHA 的 14，而无需为每个新动作维度重新设计 token vocabulary。
+**【Code】** `prismatic/models/action_heads.py` 的 `L1RegressionActionHead` 先把每个时间步的 $D$ 个 hidden states reshape 成一个向量，再送入两层 `MLPResNet` block，输出形状为 `(batch, chunk_len, action_dim)`。其输入/输出投影加两个残差块共含四层 Linear，与附录“四层 MLP”的概括对应。它不再用动作词表 softmax，但 head 并非参数量可忽略：LIBERO 约 151M，ALOHA 约 269M；只是相对于 7B 骨干，其额外推理耗时较小。
+
+**【Analysis】** 连续 head 的收益并不只是“数值更精确”。它把语言模型的离散 token 预测与机器人动作回归解耦，使 $D$ 可以从 LIBERO 的 7 改成 ALOHA 的 14，通过新动作 head 和示教重新学习控制映射。单纯增加动作维度本来也不必增加离散词表；连续 head 的关键是避免量化并引入直接的数值误差监督。
 
 #### Additional Inputs：多图像与 Proprioception
 
@@ -149,7 +151,7 @@ $$
 
 **【Code】** `prismatic/extern/hf/modeling_prismatic.py` 的 `_process_vision_features()` 和 `_process_proprio_features()` 分别处理视觉与状态；`prismatic/models/projectors.py` 中的 `ProprioProjector` 是 `Linear → GELU → Linear`。`prismatic/vla/constants.py` 为 LIBERO 设置 `PROPRIO_DIM=8`，为 ALOHA 设置 `PROPRIO_DIM=14`。
 
-**【Paper】** LIBERO 加入 wrist image 和 proprio 后，吞吐仍有 71.4 Hz，平均成功率为 94.5%；说明并行解码提供的延迟余量可以换取更丰富的输入。
+**【Paper】** LIBERO 加入 wrist image 和 proprio 后，吞吐仍有 71.4 actions/s；在过滤后的训练集上四套平均成功率为 97.1%，其中 Long 为 94.5%；说明并行解码提供的延迟余量可以换取更丰富的输入。
 
 #### FiLM：让语言进入视觉 backbone
 
@@ -163,7 +165,7 @@ $$
 \widehat{F}=(1+\gamma)\odot F+\beta.
 $$
 
-其中 $\gamma,\beta\in\mathbb{R}^{D_{ViT}}$，会广播到所有 patch；代码为 SigLIP 和 DINOv2 的每个 block 创建独立的线性投影。使用 $(1+\gamma)$ 而不是 $\gamma$，可以让接近零初始化的 FiLM 近似 identity transformation，减少对预训练视觉表示的初始扰动。
+其中 $\gamma,\beta\in\mathbb{R}^{D_{ViT}}$，会广播到所有 patch；代码为 SigLIP 和 DINOv2 的每个 block 创建独立的线性投影。作者使用 $(1+\gamma)$ 的动机是小调制量下接近 identity。公开实现对新投影使用普通 `nn.Linear` 初始化，并没有把权重严格置零，所以不能宣称初始调制精确恒等。代码均值池化的是排除动作后的 prompt embedding（包含提示语/特殊 token），而非一个另行训练的句子编码器。
 
 ### 4.3 关键公式
 
@@ -188,7 +190,7 @@ $$
 \left|\widehat A_{k,d}-A_{k,d}\right|.
 $$
 
-**【Paper】** $A$ 和 $\widehat A$ 都在训练时归一化到机器人相关的动作范围。L1 让模型趋向条件分布的中位数，带来简单、稳定的单次前向预测，但对同一观测对应多个互斥行为的分布可能不够表达。
+**【Code】** L1 在归一化动作上计算；当前配置 LIBERO 使用 q01/q99、ALOHA 使用 min/max。**【Analysis】** 可分的 L1 最优解是各坐标的条件中位数，不必是一个真实存在的联合动作“模式”。若同一观测有左右绕行两种互斥示教，逐坐标中位数可能落在不可行轨迹上；论文示教主要采用一致策略，因此该结果不能证明 L1 能完整表达任意多模态动作分布。
 
 #### Diffusion 对照目标
 
@@ -198,15 +200,15 @@ $$
 \mathcal{L}_{diff}=\mathbb{E}_{t,\epsilon}\left[\|\epsilon_\theta(A_t, t, o_t)-\epsilon\|_2^2\right].
 $$
 
-这里 $t$ 是扩散时间步，$\epsilon$ 是高斯噪声；推理时需要 DDIM 反向去噪。论文训练和默认测试均使用 50 步，因此每次 action chunk 需要多次 VLA forward。
+这里 $t$ 是扩散时间步，$\epsilon$ 是高斯噪声；推理时需要 DDIM 反向去噪。“训练 50 步”指扩散噪声日程有 50 个时间级，训练每个样本随机采一个级别来预测噪声；默认测试才迭代 50 次。公开实现缓存视觉编码后的特征，在去噪循环中重新运行 LLM 和动作 head，并非每次都重新执行两个 ViT。
 
 ### 4.4 Training
 
-**【Paper】** 作者保留 OpenVLA 的大部分预训练权重，通过 LoRA 在小规模示教数据上适配。LIBERO 每个 suite 有 500 条 expert demonstrations；非 diffusion 版本训练 50K–150K gradient steps，diffusion 版本通常需要 100K–250K steps。ALOHA 使用每个任务独立的 20–300 条示教，训练 50K–150K steps。
+**【Paper】** 作者保留 OpenVLA 的大部分预训练权重，通过 LoRA 在小规模示教数据上适配。LIBERO 每个 suite 原有 500 条示教，主实验沿用 OpenVLA 的成功示教/no-op 过滤；非 diffusion 版本训练 50K–150K gradient steps，diffusion 版本通常需要 100K–250K steps。ALOHA 使用每个任务独立的 20–300 条示教，训练 50K–150K steps。
 
 **【Code】** `vla-scripts/finetune.py` 默认使用 LoRA rank 32、AdamW、学习率 `5e-4`、bf16 mixed precision，并在 `num_steps_before_decay` 后将学习率衰减 10 倍。训练脚本会把 `use_l1_regression` 与 `use_diffusion` 设为互斥；动作 head、proprio projector 和 FiLM 模块的参数会加入 optimizer。代码默认 `batch_size=8`（每 GPU），实际命令按 GPU 数量决定总 batch。
 
-**【Code】** `RLDSBatchTransform` 将当前动作和后续 $K-1$ 个动作拼成一个 action chunk，只对动作响应部分计算 loss；`RLDSDataset` 使用 `window_size=1`、`future_action_window_size=K-1`，并在 episode 尾部通过 pad mask 处理不足一个 chunk 的片段。训练中还保存 dataset statistics，供推理时把归一化动作还原到真实机器人范围。
+**【Code】** `RLDSBatchTransform` 构造当前及未来 $K-1$ 步动作，L1/diffusion 分支直接计算连续动作/噪声损失；离散 response 仍用于定位 action slots。`window_size=1`、`future_action_window_size=K-1` 配合 `chunk_act_obs` 将有效起点数设为 `traj_len-(K-1)`，因此公开版本丢弃不足完整 chunk 的尾部起点；`observation.pad_mask` 标识的是历史观测 padding，不是动作尾部损失 mask。训练中还保存 dataset statistics，供推理时把归一化动作还原到真实机器人范围。
 
 <Algorithm number={1} title='OpenVLA-OFT Training' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>预训练 OpenVLA、RLDS 示教数据 $D$、chunk size $K$、动作维度 $D_a$</div>
@@ -221,13 +223,17 @@ $$
   <AlgorithmStep keyword='return'>训练完成的 OFT 或 OFT+ checkpoint 与动作归一化统计</AlgorithmStep>
 </Algorithm>
 
+**【Paper】** 附录实际训练预算比“只改几个 LoRA 参数”更大：LIBERO 共训练约 279M 参数；ALOHA 加上 FiLM 后约 853M，其中 FiLM projectors 约 456M。LIBERO 最终 Goal 选 50K checkpoint，其余为 150K；作者每 50K 测试并报告最佳值，未描述一个完全独立的 checkpoint 选择验证集，因此这些数字包含选择过程。训练 L1 < 0.01 是经验收敛标准，不能直接翻译为机器人几何误差或闭环成功阈值。
+
 ### 4.5 Inference
 
-**【Paper】** 推理时不再生成文本 token，而是把 action slots 清零后进行一次并行 forward。L1 版本直接输出 $K$ 个连续动作，反归一化后执行整个 chunk，再重新观测和查询模型。LIBERO 执行 $K=8$，ALOHA 执行 $K=25$；这相当于在控制周期内减少 replanning 次数，也能降低单步误差累积。
+**【Paper】** 推理时不再生成文本 token，而是把 action slots 清零后进行一次并行 forward。L1 版本直接输出 $K$ 个连续动作，反归一化后执行整个 chunk，再重新观测和查询模型。LIBERO 执行 $K=8$，ALOHA 执行 $K=25$；它减少了重规划次数，代价是在整个 chunk 中不读新观测；是否降低误差累积取决于任务动力学，不能由分块本身保证。
 
 **【Code】** `prismatic/extern/hf/modeling_prismatic.py` 的 `_regression_or_discrete_prediction()` 将 action token embedding 置零，取语言模型最后一层对应 action positions 的 hidden states，然后调用 `action_head.predict_action()`。`vla-scripts/deploy.py` 加载 action head、proprio projector 和可选 FiLM；`experiments/robot/aloha/run_aloha_eval.py` 通过 server-client 接口持续请求 action chunks。
 
-**【Code】** diffusion 版本的 `_run_diffusion_prediction()` 从高斯噪声开始，按 scheduler 的 timesteps 循环，每一步都把当前 noisy action 投影回 LLM embedding space，并重新运行 VLA 预测噪声；这正是它在成功率接近 L1 时仍然更慢的原因。
+**【Code】** ALOHA 示例在 action queue 为空时同步查询，然后依次执行动作；代码只补足每步到 0.04 秒，不会把查询延迟藏在异步预取中。因此 25Hz 是 chunk 内目标执行节奏，chunk 边界还会产生推理/通信停顿。
+
+**【Code】** diffusion 版本的 `_run_diffusion_prediction()` 从高斯噪声开始，按 scheduler 的 timesteps 循环，每一步都把当前 noisy action 投影回 LLM embedding space，并重新运行语言解码器与动作 head 预测噪声；这正是它在成功率接近 L1 时仍然更慢的原因。
 
 <Algorithm number={2} title='OpenVLA-OFT Inference' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>图像 $I_{1:M}$、状态 $s_t$、指令 $l_t$、训练好的 action head</div>
@@ -263,7 +269,7 @@ $$
 
 **【Paper】** LIBERO 每个 suite 包含 10 个任务，每个任务 50 次评测，共 500 trials。主要 baseline 是按原 recipe fine-tune 的 OpenVLA；同时比较 Diffusion Policy、Octo、DiT Policy、Seer、MDT、$\pi_0$ 等方法。ALOHA 评测四个真实任务，使用预定义的 staged scoring rubric，报告平均完成分数而非只看二值成功。
 
-**【Code】** 官方 `LIBERO.md` 给出可复现实验：8 GPU、每 GPU batch size 8、`learning_rate=5e-4`、150K steps、`num_images_in_input=2`、`use_proprio=True`；`ALOHA.md` 则使用三路图像、14-D state、25-step chunk、FiLM 和 50K 后学习率衰减。
+**【Code】** 官方 `LIBERO.md` 给出训练入口示例：8 GPU、每 GPU batch size 8、`learning_rate=5e-4`、150K steps、`num_images_in_input=2`、`use_proprio=True`；`ALOHA.md` 则使用三路图像、14-D state、25-step chunk、FiLM 和 50K 后学习率衰减。
 
 ### 5.2 Main Results
 
@@ -276,9 +282,10 @@ $$
 | OpenVLA fine-tuned                    |     84.7 |     88.4 |     79.2 |     53.7 |     76.5 |
 | + Parallel Decoding + Action Chunking |     91.3 |     92.7 |     90.5 |     86.5 |     90.2 |
 | + PD&AC + Continuous-Diffusion        |     96.9 |     98.1 |     95.5 |     91.1 |     95.4 |
-| **OpenVLA-OFT（PD&AC + Cont-L1）**    | **97.6** | **98.4** | **97.9** | **94.5** | **97.1** |
+| OFT：单图 + Cont-L1                   |     96.2 |     98.3 |     96.2 |     90.7 |     95.3 |
+| **OFT：Cont-L1 + wrist/proprio**      | **97.6** | **98.4** | **97.9** | **94.5** | **97.1** |
 
-**【Paper】** 从 76.5% 到 90.2% 的提升来自 PD + AC；再换成连续动作后，L1 和 diffusion 的平均成功率几乎相同（97.1% vs. 95.4%，不同输入设置）。Long suite 的提升尤其明显，支持“chunk 能降低 compounding error 并捕获更长时间依赖”的解释。
+**【Paper】** 从 76.5% 到 90.2% 的提升来自 PD + AC；再换成连续动作后，相同单图输入下 L1 和 diffusion 的平均成功率接近（95.3% vs. 95.4%）。增加 wrist/proprio 再从 95.3% 到 97.1%。这里没有“PD only”的成功率结果，因此 76.5→90.2 无法拆成 PD 与 AC 各自的贡献；Long 提升与时序建模解释相符，但不是直接测量误差累积。原始未过滤数据配双视角/状态的均值则为 94.5%，不能与最高 97.1% 混用。外部基线还存在输入、数据清洗及额外 LIBERO-90 预训练差异，Table I 的分组应保留。
 
 #### LIBERO 推理效率
 
@@ -290,34 +297,36 @@ $$
 | + PD&AC + Cont-L1                 |   109.7 Hz | 0.0729 s |          90.7% |
 | + PD&AC + Cont-L1 + wrist/proprio |    71.4 Hz | 0.1120 s |          94.5% |
 
-**【Paper】** PD 把 7 次顺序 decoder pass 变成 1 次；AC 只带来约 17% 的 latency 增加，却让每次查询产生 8 个动作，因此吞吐达到 26×。连续 L1 head 的额外 MLP 成本很小；相反，50-step diffusion 的吞吐只有 4.2 Hz，减少测试去噪步数虽能提速，却会显著损失成功率。
+**【Paper】** PD 把 7 次顺序 decoder pass 变成 1 次；AC 只带来约 17% 的 latency 增加，却让每次查询产生 8 个动作，因此吞吐达到 26×。连续 L1 head 的额外 MLP 成本很小；相反，50-step diffusion 的吞吐只有 4.2 Hz，DDIM 降到 10 步时 Long 仅从 91.1% 到 91.0%，5 步仍有 90.0%；到 2 步才降为 85.7%，1 步为 0%。所以应读成“在本实现下存在速度—质量曲线”，不能概括为少去噪必然严重掉点。
+
+**【Analysis】** 表中 throughput 是 $K/\text{latency}$，不是每秒新观测的闭环查询次数：单图 OFT 约 $8/0.0729=109.7$ actions/s、约 13.7 queries/s；加入额外输入后约 8.9 queries/s，动作吞吐相对 4.2 的提升约 17×，而非 26×。
 
 #### ALOHA 真实机器人
 
 ![OpenVLA-OFT+ 与 ACT、Diffusion Policy、RDT-1B、$\pi_0$ 在 ALOHA 四个任务上的完成分数（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-openvla-oft/aloha-results.5xbdcx49r8.webp)
 
-**【Paper】** OpenVLA-OFT+ 在四个任务的平均得分为 **87.8**，各任务为 fold shorts 100.0、fold shirt 100.0、scoop X into bowl 100.0、put X into pot 51.3。它在四个任务上都高于或不低于对比方法，尤其在需要语言选择目标的任务上优势明显。
+**【Paper】** OpenVLA-OFT+ 在四个任务的平均得分为 **87.8**，各任务为 fold shorts 100.0、fold shirt 100.0、scoop X into bowl 100.0、put X into pot 51.3。它在四个任务上都高于或不低于对比方法，但 shorts 所有方法都为 100，shirt 上 DP、π0 同样 100，优势主要由另外两个任务拉开。87.8 是四个任务百分制得分的等权均值，不是 56 次试验的总体二值成功率。Put X 的 51.25 分中，“最终盖回锅盖”平均只有 5/20 分，对应 24 次里的 6 次完成整条累计阶段链；前面选对目标与最后完成操作仍有明显差距。
 
-ALOHA 推理效率表明，OpenVLA-OFT+ 的吞吐为 **77.9 Hz**、单次 latency 为 0.321 s（3 路 224×224 图像、14-D state、$K=25$）。它低于参数更小的 ACT（432.8 Hz）和使用 JAX 的 $\pi_0$（291.6 Hz），但相较原始 OpenVLA 的 1.8 Hz 已足以支撑 25 Hz 控制器，并且仍保留 7B 视觉语言表征的泛化能力。
+ALOHA 推理效率表明，OpenVLA-OFT+ 的吞吐为 **77.9 Hz**、单次 latency 为 0.321 s（3 路 224×224 图像、14-D state、$K=25$）。它低于参数更小的 ACT（432.8 Hz）和使用 JAX 的 $\pi_0$（291.6 Hz），但相较原始 OpenVLA 的 1.8 Hz 足以在生成预算上覆盖 25 actions/s，但不等于 77.9Hz 或 25Hz 的新观测闭环。25 步 chunk 对应约 1 秒开放环执行；实测 0.321 秒查询延迟会进一步影响响应。所有速度均为单张 A100 上 100 次查询的平均，RDT-1B 预测 64 步却只执行/计入前 25 步，π0 使用 JAX，因而跨实现比较不能单独归于模型参数量。
 
 ### 5.3 Ablation Study
 
 **【Paper】** 论文的核心消融可以归纳为：
 
-| 消融                    | 观察                                              |
-| ----------------------- | ------------------------------------------------- |
-| 去掉 PD，保留原始自回归 | 速度低，Action Chunking 几乎不可用                |
-| PD + AC 替换原始解码    | 平均成功率 +14 个百分点，Long suite 改善最大      |
-| 离散动作 → 连续 L1      | 平均成功率再提升约 5 个百分点，且推理成本几乎不变 |
-| L1 → diffusion          | 成功率接近，但训练收敛更慢、推理需多次去噪        |
-| 去掉 OpenVLA 预训练     | LIBERO 平均成功率下降 5.2 个百分点                |
-| ALOHA 去掉 FiLM         | 语言 grounding 降到 33%，接近随机选目标           |
+| 消融                    | 观察                                                    |
+| ----------------------- | ------------------------------------------------------- |
+| 去掉 PD，保留原始自回归 | 速度低，Action Chunking 几乎不可用                      |
+| PD + AC 替换原始解码    | 平均成功率 +14 个百分点，Long suite 改善最大            |
+| 离散动作 → 连续 L1      | 平均成功率再提升约 5 个百分点，且推理成本几乎不变       |
+| L1 → diffusion          | 成功率接近，但训练收敛更慢、推理需多次去噪              |
+| 去掉 OpenX 机器人预训练 | 从预训练 Prismatic VLM 出发仍有 91.9%，比 OFT 低 5.2 点 |
+| ALOHA 去掉 FiLM         | 语言 grounding 降到 33%，接近随机选目标                 |
 
-**【Analysis】** 这些消融说明 OFT 不是单个 trick：PD 提供速度和 chunk headroom，AC 改变时间尺度，continuous head 改善动作精度，L1 把复杂的生成式动作建模换成一次回归。FiLM 则不是所有任务都必需；论文在 LIBERO 中不使用 FiLM，因为那里原始语言 grounding 已经足够好。
+**【Analysis】** 这些消融说明 OFT 不是单个 trick：PD 提供速度和 chunk headroom，AC 改变时间尺度，continuous head 改善动作精度，L1 把复杂的生成式动作建模换成一次回归。FiLM 消融直接支持其对这两个 ALOHA 任务的语言选择作用；“消除了虚假视觉相关”是作者解释，实验没有定位具体哪些视觉特征导致该问题。无 FiLM 的目标选择约 33% 与三选一随机基线接近，不是总任务得分。
 
 ### 5.4 Generalization
 
-**【Paper】** 最有说服力的泛化实验是从单臂预训练迁移到双臂 ALOHA：OpenVLA 预训练没有见过双臂数据、多视角输入或绝对 joint-angle action，但 OFT+ 仍能在折衣服、勺子取物和目标物入锅任务上工作。作者还在 BridgeData V2 的超过 50K demonstrations 上测试了 OFT，观察到 OpenVLA-OFT 超过原始 OpenVLA 的平均任务表现。
+**【Paper】** 最有说服力的泛化实验是从单臂预训练迁移到双臂 ALOHA：OpenVLA 预训练没有见过双臂数据、多视角输入或绝对 joint-angle action，但 OFT+ 仍能在折衣服、勺子取物和目标物入锅任务上工作。附录还训练一个覆盖全部四套 LIBERO 的共同策略：OFT 为 96.8%，加 FiLM 为 97.0%，与每套独立训练的 97.1% 接近。Bridge 的 50,365 条示教实验是对已见过 Bridge 的 base 再适配，6 个任务各 10 次、均分 65.8→69.2；Lift Eggplant、Flip Pot、Lift Cheese/Chili 三项反而下降，不能把小幅平均收益称为全面泛化改善。
 
 **【Analysis】** 这并不意味着 OFT 消除了 embodiment gap。它更准确地说明：当新任务数据足以约束动作接口时，一个保留预训练视觉语言表征的 7B VLA 可以通过低秩适配快速跨越相当大的输入输出分布偏移。
 
@@ -325,7 +334,7 @@ ALOHA 推理效率表明，OpenVLA-OFT+ 的吞吐为 **77.9 Hz**、单次 latenc
 
 ### 6.1 为什么有效？
 
-**【Analysis】** 第一层原因是时间尺度改变。单步行为克隆每次只看当前状态，任何小误差都会影响下一次观测；Action Chunk 直接学习短轨迹，等价于把有效 horizon 压缩成更少的 replanning 点。它不能保证每个 chunk 内部都正确，但减少了策略在每个微小时间步重新犯错的机会。
+**【Analysis】** 第一层原因是短轨迹联合预测。带位置编码的动作槽位可以在 attention 中交换时序信息，避免逐维自回归的串行成本；但执行完整 chunk 也放弃了中途反馈。实验显示净收益，尚不能证明减少查询本身总能减少错误。
 
 第二层原因是把离散语言建模目标与连续控制目标分开。OpenVLA 的 7 个 action tokens 只是为了让 VLM 复用 next-token prediction；下游控制真正关心的是动作几何误差。L1 head 让 hidden state 直接承担这个回归任务，避免 256-bin quantization。
 
@@ -339,11 +348,11 @@ ALOHA 推理效率表明，OpenVLA-OFT+ 的吞吐为 **77.9 Hz**、单次 latenc
 2. 用 Action Chunking 同时提高吞吐与长时任务稳定性。
 3. 用连续动作和 L1 objective 保留控制精度，并保持单次 forward 推理。
 4. 用统一的序列接口接入多相机与 proprioception。
-5. 用 FiLM 把语言条件注入 ViT，解决多视角场景中的 language grounding。
+5. 用 FiLM 把语言条件注入 ViT，改善本文两个 ALOHA 语言选择任务的 grounding。
 
 ### 6.3 与已有方法的本质区别
 
-**【Analysis】** 与 FAST 一类方法相比，OFT 不再努力压缩自回归 token，而是改变 decoder 的生成范式；因此它可以一次预测完整 chunk。与 diffusion / flow-matching VLA 相比，OFT 选择表达能力更弱但推理更简单的 L1 regression；论文结果表明在高容量 OpenVLA 上，这个 trade-off 在 fine-tuning 场景是有利的。与从零训练 ACT、Diffusion Policy 相比，OFT 依赖预训练 VLM，因此模型大得多、吞吐不一定最高，但能用更少的示教和更强的语义泛化换取任务性能。
+**【Analysis】** 与 FAST 一类方法相比，OFT 不再努力压缩自回归 token，而是改变 decoder 的生成范式；因此它可以一次预测完整 chunk。与 diffusion / flow-matching VLA 相比，OFT 选择表达能力更弱但推理更简单的 L1 regression；论文结果表明在高容量 OpenVLA 上，这个 trade-off 在 fine-tuning 场景是有利的。与从零训练 ACT、Diffusion Policy 相比，OFT 依赖预训练 VLM，因此模型大得多、吞吐不一定最高，在相同目标示教集上取得更高平均任务得分；这不是逐一改变示教数量的数据效率曲线。
 
 ### 6.4 关键假设
 

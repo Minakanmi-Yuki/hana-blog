@@ -1,7 +1,7 @@
 ---
 title: 'villa-X 论文精读：用物理接地的 Latent Action 连接 VLA 规划与控制'
 publishDate: 2026-08-25
-updatedDate: 2026-08-25
+updatedDate: 2026-09-22
 description: '精读 villa-X：用 proprioceptive FDM 让 latent action 对齐机器人动力学，再以 joint diffusion 联合规划 latent action 与低层动作，实现跨 embodiment 的 VLA 迁移。'
 heroImage:
   { src: 'https://pic.hana0721.top/70434530_p0_master1200.b9htgy5uw.webp', color: '#8C8275' }
@@ -58,9 +58,11 @@ import { Aside } from '@/components/user'
 
 ![villa-X 总览与 LAM 结构（论文 Figure 1）](https://arxiv.org/html/2507.23682v3/figs/lam_overview2.png)
 
+本文通读 [arXiv v3 正文与附录 A–I](https://arxiv.org/html/2507.23682v3)，并核对[代码 commit 9b44899](https://github.com/microsoft/villa-x/tree/9b4489946fdaef1e7b8bd55aee8f65f768323ea8)及[发布 LAM 配置 caa95b7](https://huggingface.co/microsoft/villa-x/blob/caa95b7/lam/model_config.json)。
+
 ### 一句话总结
 
-**【Paper】** villa-X（Vision-Language-Latent-Action）针对 latent action 在 VLA 中“看起来像运动、却未必对应真实控制”的问题，引入 proprioceptive Forward Dynamics Model（proprio-FDM）进行物理接地；随后以 joint diffusion 同时学习 latent-action expert 和 robot-action expert，让中层 latent plan 真正参与低层动作生成。
+**【Paper】** villa-X（Vision-Language-Latent-Action）针对 latent action 在 VLA 中“看起来像运动、却未必对应真实控制”的问题，引入 proprioceptive Forward Dynamics Model（proprio-FDM）进行物理接地；随后以 joint diffusion 同时学习 latent-action expert 和 robot-action expert，让中层 latent plan 通过注意力参与低层动作生成。这里 ACT 是本文 ACTor，不是另一篇 Action Chunking with Transformers。
 
 ### 核心贡献
 
@@ -120,7 +122,7 @@ $$
 
 #### Embodiment Context
 
-**【Paper】** $c_e=f(\text{dataset ID},\text{control frequency})$：dataset ID 使用可学习 embedding，控制频率经 sinusoidal feature 与 MLP 编码。它让 proprio-FDM 吸收“某个机器人如何运动”的差异，而不迫使 latent token 记住 embodiment 身份。
+**【Paper】** $c_e=f(\text{dataset ID},\text{control frequency})$：dataset ID 使用可学习 embedding，控制频率经 sinusoidal feature 与 MLP 编码。它给 proprio-FDM 一个解释机器人差异的额外条件，减少把所有差异塞进 latent 的压力；没有对抗去身份或独立性约束，因此不能保证 latent 完全不含 embodiment 信息。
 
 #### ACTor Module
 
@@ -130,7 +132,7 @@ $$
 - **ACT-latent**：18 层 Transformer，预测长度为 6 的 latent action plan。
 - **ACT-robot**：另一个 18 层 Transformer，结合 VLM 特征、latent plan、本体状态与 embodiment context，预测长度为 4 的 robot action chunk。
 - **Wrist camera 分支**：可用时由预训练 ResNet-18 提取，并通过 cross-attention 映射为 16 个 token；训练时随机丢弃 wrist view 的概率为 50%。
-- **Stochastic masking**：50% 情况下完全屏蔽 robot-to-latent attention；其余情况下随机屏蔽 50% latent token，防止 ACT-robot 走“只抄 latent”的捷径。
+- **Stochastic masking**：正文写 50% 样本完全屏蔽“robot query 读取 latent key”的注意力，其余样本随机屏蔽一半 latent token。附录 B 则描述为 50% attention-weight dropout 后再随机屏蔽剩余 token，两种实施细节并不完全等价；ACT 源码未公开，无法确认实验采用哪种。目的都是避免 robot expert 过度依赖 latent。
 
 ### 4.3 关键公式
 
@@ -155,50 +157,71 @@ $$
 \mathbb E\left[\left\|v_\theta^\tau(x_t^\tau,O_t)-u(x_t^\tau\mid x_t)\right\|_2^2\right],
 $$
 
-其中 $O_t=(o_t,l,q_t,c_e)$，$x_t^\tau=\tau x_t+(1-\tau)\epsilon$，$\epsilon\sim\mathcal N(0,I)$，目标向量场 $u=\epsilon-x_t$，$\tau\in[0,1]$ 是 flow matching 时间。
+其中 $O_t=(o_t,l,q_t,c_e)$，$x_t^\tau=\tau x_t+(1-\tau)\epsilon$，$\epsilon\sim\mathcal N(0,I)$，沿这个从噪声到数据的路径，导数应为 **$u=x_t-\epsilon$**，相应推理从 $\tau=0$ 积分到 1。论文原文写成 $\epsilon-x_t$，与它自己的插值方向相反；本文按路径导数纠正符号，不能声称已通过未公开的 ACT 代码验证。若使用相反方向的参数化，必须同时调整插值和积分方向。
 
-**【Analysis】** block-wise causal attention 是实现 Eq. 4 分解的关键：latent block 可以读取 VLM 条件，robot block 可以读取 VLM 与 latent block，但 mask 随机化后仍必须具备从视觉和语言独立恢复动作的能力。
+**【Paper】** 附录 B 给 latent 与 robot 使用不同 Beta 分布采样 flow time，并让 latent 偏向更高噪声区域；具体分布参数未列出。因此“joint diffusion”不等于两者永远使用同一噪声程度。
+
+**【Analysis】** block-wise mask 让 latent 分支只读取 VLM 和自己的带噪序列，robot 分支读取 VLM、latent hidden states 与控制条件。两分支在去噪过程中交互，不是先得到完整干净计划再独立调用低层策略；式中的概率分解是设计意图，不能仅凭 mask 推导任意采样器都精确实现该分布。mask 也只限制前向信息：robot loss 仍可经读取到的 latent 特征反传，论文没有声明在此 stop-gradient。
 
 ### 4.4 Training
 
-**【Paper】** 训练分三阶段：LAM 预训练、ACT 联合预训练、目标 embodiment 微调。LAM 使用 223.5M 条机器人轨迹中的 1.6M 帧和 3.6M human video clips；ACT 预训练混合机器人动作标签与无动作视频。LAM 学习率为 $1.5\times10^{-4}$、batch size 512、线性 warmup 2000 steps；ACT 学习率为 $5\times10^{-5}$、warmup 200 steps，并将梯度裁剪到 1.0。
+**【Paper】** 训练分三阶段：LAM 预训练、ACT 联合预训练、目标 embodiment 微调。预训练混合包含 **1.6M 条机器人轨迹、223.5M 帧**以及 3.6M human video clips；原博客把轨迹数和帧数写反。LAM 只用主视角，ACT 可额外用 wrist view；ACT 预训练混合机器人动作标签与无动作视频。LAM 学习率为 $1.5\times10^{-4}$、batch size 512、线性 warmup 2000 steps；ACT 学习率为 $5\times10^{-5}$、warmup 200 steps，并将梯度裁剪到 1.0。
 
 <Algorithm number={1} title='villa-X 训练流程' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>机器人轨迹、无动作人类视频、语言指令与 embodiment metadata</div>
   <div slot='output'>物理接地的 LAM、联合 latent–robot ACT policy</div>
-  <AlgorithmStep>从相邻观测帧提取 IDM latent，并通过 VQ 得到离散 token 与连续 codebook vector。</AlgorithmStep>
-  <AlgorithmStep>用 image FDM 重建未来图像；对有机器人状态的样本，用 proprio-FDM 预测未来状态和动作。</AlgorithmStep>
-  <AlgorithmStep>联合优化视觉重建、proprioceptive prediction 与 VQ commitment；人类视频省略 proprio loss。</AlgorithmStep>
-  <AlgorithmStep>冻结/初始化 VLM，训练 ACT-latent 与 ACT-robot 的 joint flow matching，并施加 block-wise causal attention 与 stochastic masking。</AlgorithmStep>
-  <AlgorithmStep>在目标 embodiment 上重置 state/action projection 与 decoder，使用少量示教进行 finetuning。</AlgorithmStep>
+  <AlgorithmStep>
+    从相邻观测帧提取 IDM latent，并通过 VQ 得到离散 token 与连续 codebook vector。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    用 image FDM 重建未来图像；对有机器人状态的样本，用 proprio-FDM 预测未来状态和动作。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    联合优化视觉重建、proprioceptive prediction 与 VQ commitment；人类视频省略 proprio loss。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    以预训练 PaliGemma 初始化 VLM、随机初始化两个 expert，并联合训练 ACT 各组件；施加 block-wise
+    causal attention 与 stochastic masking。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    在目标 embodiment 上重置 state/action projection 与 decoder，使用少量示教进行 finetuning。
+  </AlgorithmStep>
 </Algorithm>
 
 ### 4.5 Inference
 
-**【Paper】** 推理时不需要 IDM 从真实未来帧反推 latent。ACT-latent 根据当前视觉和语言直接提出未来 latent plan；ACT-robot 读取该 plan 和当前 embodiment 状态生成 action chunk，执行后再滚动更新观测。
+**【Paper】** Realman 微调重置 state/action encoder 与 action decoder，除 vision encoder 外调全参数，共 60k gradient steps。训练数据以 10 Hz 采集，去除静止帧后每轨迹平均约 120 步；不能将这些后处理步直接当成等间隔原始时间轴。
+
+**【Paper】** 推理时不需要 IDM 从真实未来帧反推 latent。ACT-latent 与 ACT-robot 的带噪序列联合迭代，前者只依赖当前视觉/语言及自身序列，后者读取 latent 分支与控制条件；最终取 robot action 输出并滚动更新。论文未明确给出部署积分步数或一次实际执行的前缀长度，不能仅由 $M=4$ 断言执行全部四步。
 
 <Algorithm number={2} title='villa-X 推理流程' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>当前图像（可含 wrist view）、语言指令、本体状态与 embodiment context</div>
   <div slot='output'>当前控制周期的 robot action chunk</div>
   <AlgorithmStep>VLM 编码当前图像和语言，形成高层条件特征。</AlgorithmStep>
-  <AlgorithmStep>ACT-latent 在 joint flow matching 采样中预测长度为 $N$ 的 latent action plan。</AlgorithmStep>
-  <AlgorithmStep>ACT-robot 以 latent plan、状态和 embodiment context 为条件，生成长度为 $M$ 的低层动作。</AlgorithmStep>
-  <AlgorithmStep>执行动作 chunk，读取下一时刻观测并重复上述过程；需要可视化计划时，可将 latent 送入 image FDM 或 world model。</AlgorithmStep>
+  <AlgorithmStep>初始化 latent 与 robot 动作噪声，按 flow 采样日程迭代两个 expert。</AlgorithmStep>
+  <AlgorithmStep>
+    每次迭代中 latent expert 读 VLM 条件，robot expert 读取 latent
+    特征、视觉语言及控制条件，更新两类动作。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    取最终 robot action chunk 送部署端执行，读取下一时刻观测并重复；需要可视化计划时，可将 latent
+    送入 image FDM 或 world model。
+  </AlgorithmStep>
 </Algorithm>
 
 ### 4.6 代码实现对照
 
-**【Code】** 官方仓库当前明确发布的是 LAM：
+**【Code】** 截至 2026-09-22，官方仓库明确发布的是 LAM：
 
-| 论文组件 | 官方代码对应 | 说明 |
-| --- | --- | --- |
-| IDM | `lam/model.py::IgorEncoder.idm` | 以滑动窗口读取 clip，输出相邻帧 latent；默认时间窗口为 8 帧。 |
-| VQ | `lam/vq.py::VectorQuantizer2` | codebook size 32，使用 commitment loss；`LatentActionMixin.idm` 返回 token 或 codebook index。 |
-| Image FDM | `lam/model.py::IgorDecoder` | `apply_latent_action` 根据当前图像与 latent 重建未来图像。 |
-| Proprio-FDM | 未发布 | README 的 release plan 只勾选 Latent Action Model，Actor Model 仍为未完成。 |
-| ACT / training / evaluation | 未发布 | 仓库没有对应 policy 训练脚本，不能把论文中的 ACT 细节误写成已公开代码行为。 |
+| 论文组件                    | 官方代码对应                    | 说明                                                                                           |
+| --------------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------- |
+| IDM                         | `lam/model.py::IgorEncoder.idm` | 以滑动窗口读取 clip，输出相邻帧 latent；默认时间窗口为 8 帧。                                  |
+| VQ                          | `lam/vq.py::VectorQuantizer2`   | codebook size 32，使用 commitment loss；`LatentActionMixin.idm` 返回 token 或 codebook index。 |
+| Image FDM                   | `lam/model.py::IgorDecoder`     | `apply_latent_action` 根据当前图像与 latent 重建未来图像。                                     |
+| Proprio-FDM                 | 未发布                          | README 的 release plan 只勾选 Latent Action Model，Actor Model 仍为未完成。                    |
+| ACT / training / evaluation | 未发布                          | 仓库没有对应 policy 训练脚本，不能把论文中的 ACT 细节误写成已公开代码行为。                    |
 
-**【Code】** README 给出的实际调用是 `IgorModel.from_pretrained(...)`、`lam.idm(video)` 和 `lam.apply_latent_action(image, latent_action)`；公开权重为约 955M 参数的 `microsoft/villa-x/lam`。这部分代码更像可复现的 LAM 推理基线，而不是完整 villa-X policy release。
+**【Code】** README 给出的实际调用是 `IgorModel.from_pretrained(...)`、`lam.idm(video)` 和 `lam.apply_latent_action(image, latent_action)`；公开权重位于 `microsoft/villa-x/lam`。发布配置是 encoder/decoder 各 12 层、768 hidden、12 heads，和附录所写 encoder 32 heads 不同；也不能拿 Python 类默认 decoder 8 层替代 checkpoint 配置。更关键的是每个帧间转换使用 **2 个 32 维 codebook 向量**拼成 64 维，二者共享 32-entry 码本；不是把整段运动只能分类为 32 种。`idm` 默认返回量化向量，`return_dict=True` 才同时给 indices；按八帧滑窗输出帧间标签，带上下文的标签不应被理解为严格只看相邻两帧的函数。这部分可核对的是 LAM 推理，不能由可加载 checkpoint 推定 proprio-FDM 训练 recipe 已公开。
 
 ## 5. 实验
 
@@ -206,7 +229,7 @@ $$
 
 ![villa-X 真机实验平台：Realman 夹爪与 XArm-XHand 灵巧手（论文 Figure 5）](https://arxiv.org/html/2507.23682v3/figs/real_robot.png)
 
-**【Paper】** SIMPLER 包含 Google robot 的 Pick、Move、Drawer 与 WidowX 的 Carrot、Eggplant、Spoon、Cube 共 7 类任务。LAM probing 在未参与 LAM 训练的 LIBERO 上进行：冻结 latent model，再训练三层 MLP 从 latent 预测 8 维 robot action。
+**【Paper】** 主结果 Table 2 实际展示 Google 的 Pick、Move、Drawer 与 WidowX 四任务，共 7 个任务栏；附录 G 却说评估 8 项，并列了 Open-and-Place 的 108 次，但主表没有该栏，故 77.7% 只能按所列三项解读。Google 其余三项分别 300/240/216 次，WidowX 每任务 24 初始配置重复 10 次共 240 rollout。LAM probing 在未参与 LAM 训练的 LIBERO 上进行：冻结 latent model，再在 LIBERO train split 训练三层 MLP，在 validation split 做离线 action readout。论文 probing 使用位置 3＋四元数 4＋夹爪 1 的八维表示，不是 LIBERO 原生七维控制接口；指标取各维绝对误差的最大值，再统计误差区间数量，不能写成平均 L1 或闭环成功率。
 
 真机实验包括：
 
@@ -217,40 +240,44 @@ $$
 
 **【Paper】** 在 SIMPLER 上，完整 villa-X 的 Google robot 平均成功率为 **77.7%**，WidowX 为 **62.5%**；移除 latent expert 后分别降至 **36.5%** 与 **49.0%**。论文报告的完整模型在 Google robot 上高于 GR00T-N1.5（57.9%），在 WidowX 上略高于 GR00T-N1.5（62.0%）。
 
-| 方法 | Google Robot Avg. | WidowX Avg. |
-| --- | ---: | ---: |
-| villa-X | **77.7** | **62.5** |
-| villa-X w/o latent | 36.5 | 49.0 |
-| GR00T-N1.5 | 57.9 | 62.0 |
-| LAPA | N/A | 57.3 |
+| 方法               | Google Robot Avg. | WidowX Avg. |
+| ------------------ | ----------------: | ----------: |
+| villa-X            |          **77.7** |    **62.5** |
+| villa-X w/o latent |              36.5 |        49.0 |
+| GR00T-N1.5         |              57.9 |        62.0 |
+| LAPA               |               N/A |        57.3 |
 
-在 XHand 真机上，villa-X 相比移除 latent expert 的版本，在 seen / unseen 条件下多数任务更好：例如 Pick & Place 为 84/68 对 72/60，Pour Water 为 60/30 对 40/10。Realman 上，villa-X 的 Pick-out、Unstack、改变桌布成功率分别达到 100%、100%、60%。
+**【Analysis】** 主表混合了文献引用分数、直接预训练模型（带星号）和后训练模型；训练数据规模、输入与后训练预算并未统一。WidowX 62.5 对 62.0 的小差距尤其不宜称为统计显著。
+
+在 XHand 真机上，villa-X 相比移除 latent expert 的版本，在 seen / unseen 条件下多数任务更好：例如 Pick & Place 为 84/68 对 72/60，Pour Water 为 60/30 对 40/10。Realman 上，villa-X 的 Pick-out、Unstack、改变桌布分别为 100%、100%、60%，每组仅 10 次；它在 Pick-in 30% 和 Stack 50% 还低于无 latent 的 40%/60%，并非所有任务受益。XHand 的 unseen 指新物体/背景，不是未学过的任务类别；Pick & Place 每条件 50 次、Stack 20 次，其余 10 次。
 
 ### 5.3 Ablation Study
 
 ![Probing 实验：加入 proprio-FDM 后 latent 更能预测低层动作（论文 Figure 3）](https://arxiv.org/html/2507.23682v3/figs/probing.png)
 
-**【Paper】** 论文做了两组关键消融：
+**【Paper】** 以下 Table 1 消融只用 10% Fractal＋10% Bridge V2＋全部 Something-Something V2，属于缩小机器人数据的预训练实验。58.5/40.8 不能与主结果 77.7/62.5 直接相减归因某个模块。三个对照是：
 
 1. **去掉 proprio-FDM（wo/pp）**：SIMPLER 平均分从 Google 机器人的 58.5 降至 57.4，从 WidowX 的 40.8 降至 32.3；probing 也显示 w/pp 在低 L1 误差区间有更多样本，说明 latent 包含更可读出的动作信息。
-2. **去掉 LAM（wo/LAM）**：Google 平均仅 35.0，WidowX 33.1，表明无动作视频提供的 latent prior 对预训练十分重要。
-3. **替换 latent 接入方式**：LAPA-style 与 Go-1-style 的 Google 平均分别为 43.8 与 32.8，明显低于 joint ACT 的 58.5；这支持“显式条件的联合扩散”优于只做初始化或独立 planner。
+2. **去掉 LAM（wo/LAM）**：Google 平均仅 35.0，WidowX 33.1，说明该设置的联合 latent 训练整体有益；删除 LAM 同时去掉了利用无动作视频的监督路径，不是保持数据利用方式与网络容量完全不变的单因素试验。
+3. **替换 latent 接入方式**：LAPA-style 与 Go-1-style 的 Google 平均分别为 43.8 与 32.8，明显低于 joint ACT 的 58.5；这是在作者架构内重实现的两种接入方式，不是对原 LAPA/Go-1 全系统的统一复现；结果支持本设置中的 joint ACT 设计。
 
-**【Analysis】** 消融结果把收益拆开了：proprio-FDM 改善“latent 表示什么”，joint ACT 改善“policy 如何使用它”。两者缺一不可，单独扩大视频数据不能替代这两个结构性约束。
+**【Paper】** 附录 F 去 mask 后为 53.2/34.0，去 context 后为 49.1/38.5；它们相对 58.5/40.8 支持各设计在当前设置有益。附录 H 还报告 LIBERO 四套件分别微调、每任务 20 次，完整模型平均 90.1%，无 latent 为 81.9%。
+
+**【Analysis】** 可以说 proprio-FDM 改善 latent 的可读出控制信息、联合 ACT 提高其使用效果；不能说两者“缺一不可”或数据扩大必然无法替代。proprio-FDM 在 Google 上均值只改善 1.1 个百分点，且 Drawer 单项反而下降，需要保留这种不均匀性。
 
 ### 5.4 Generalization
 
-**【Paper】** latent expert 在训练未见过的 Realman 机械臂上零样本生成计划，并能理解开放词汇 symbolic icons。论文用 world model 将 latent plan 渲染成视频，观察到“touch the corn”等指令对应的运动轨迹。
+**【Paper】** latent expert 在训练未见过的 Realman 机械臂上零样本生成计划，并展示开放词汇 symbolic icons 的定性案例。论文用 world model 将 latent plan 渲染成视频，观察到“touch the corn”等指令对应的运动轨迹。
 
-**【Analysis】** 这里测到的是计划层的泛化，不等同于“零样本直接控制任意机器人”：真正的低层动作仍需 embodiment-specific finetuning，且公开代码尚未包含 ACT policy。应把它理解为 latent space 的跨 embodiment 语义迁移证据。
+**【Analysis】** 这里测到的是计划层的泛化，不等同于“零样本直接控制任意机器人”：真正的低层动作仍需 embodiment-specific finetuning，且公开代码尚未包含 ACT policy。应把它理解为 latent space 的跨 embodiment 语义迁移线索，尚无这组符号任务的量化真实执行率。附录 D.3 另称 Realman probing 为 zero-shot，但其 readout MLP 在 Realman 标签上训练：零样本的是 LAM 表示迁移，非无监督得到 Realman 控制器。
 
 ## 6. 方法分析
 
 ### 6.1 为什么有效？
 
-**【Analysis】** latent action 要成为跨 embodiment 的桥，必须同时满足两个条件：视觉上能解释“发生了什么”，控制上能解释“机器人如何做到”。image FDM 提供前者，proprio-FDM 提供后者；dataset ID 和 control frequency 则把 embodiment 差异放在 context 中，避免污染 latent 本身。
+**【Analysis】** latent action 要成为跨 embodiment 的桥，必须同时满足两个条件：视觉上能解释“发生了什么”，控制上能解释“机器人如何做到”。image FDM 提供前者，proprio-FDM 提供后者；dataset ID 和 control frequency 则把 embodiment 差异放在 context 中，为 latent 减少记忆身份的压力，但没有证明完全解耦。
 
-joint diffusion 的好处是把“计划”和“执行”放在一次条件生成中训练。ACT-latent 先形成较长时间尺度的中层意图，ACT-robot 再按当前状态翻译为短 action chunk；attention mask 把这条依赖写进网络结构，而不是只期待模型自己学出来。
+joint diffusion 的好处是把“计划”和“执行”放在一次条件生成中训练。latent 与 robot 两个时间尺度的序列在去噪中交互；attention mask 把这条依赖写进网络结构，而不是只期待模型自己学出来。
 
 ### 6.2 核心创新
 
@@ -261,12 +288,12 @@ joint diffusion 的好处是把“计划”和“执行”放在一次条件生�
 
 ### 6.3 与已有方法的本质区别
 
-| 路线 | latent action 的角色 | villa-X 的差异 |
-| --- | --- | --- |
-| LAPA-style | 先预测 latent，再替换成 robot-action head | latent 主要是初始化，推理时依赖弱 |
-| Go-1-style | 独立 autoregressive latent planner | 存在 teacher-forcing / runtime mismatch |
-| GR00T-style | 把 latent 视作另一种 embodiment | 不显式做 joint latent→robot 条件分解 |
-| villa-X | ACT-latent 与 ACT-robot 联合 flow matching | latent 是推理时可见的中层计划变量 |
+| 路线        | latent action 的角色                       | villa-X 的差异                          |
+| ----------- | ------------------------------------------ | --------------------------------------- |
+| LAPA-style  | 先预测 latent，再替换成 robot-action head  | latent 主要是初始化，推理时依赖弱       |
+| Go-1-style  | 独立 autoregressive latent planner         | 存在 teacher-forcing / runtime mismatch |
+| GR00T-style | 把 latent 视作另一种 embodiment            | 不显式做 joint latent→robot 条件分解    |
+| villa-X     | ACT-latent 与 ACT-robot 联合 flow matching | latent 是推理时可见的中层计划变量       |
 
 ### 6.4 关键假设
 
@@ -298,5 +325,6 @@ joint diffusion 的好处是把“计划”和“执行”放在一次条件生�
 
 <Aside type='note' title='阅读提示'>
   本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
-  表示基于论文和代码的分析推断。官方仓库截至本文写作时只发布 LAM，ACT policy 部分应以论文为准，不应误认为已有完整开源实现。
+  表示基于论文和代码的分析推断。官方仓库截至本文写作时只发布 LAM，ACT policy
+  部分应以论文为准，不应误认为已有完整开源实现。
 </Aside>

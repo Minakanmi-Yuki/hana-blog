@@ -1,7 +1,7 @@
 ---
 title: 'πRL 论文精读：为 Flow-based VLA 打通 Online RL'
 publishDate: 2026-08-26
-updatedDate: 2026-08-26
+updatedDate: 2026-09-22
 description: '精读 πRL：将 flow matching 的去噪过程改写为可计算似然的随机策略，使 π0 与 π0.5 能以 PPO 从在线交互中继续提升。'
 heroImage:
   { src: 'https://pic.hana0721.top/145491169_p0_master1200.2dpccm5v9t.webp', color: '#8C8275' }
@@ -25,6 +25,8 @@ paper:
     - 'Hao Lin'
     - 'Hongzhi Zang'
     - 'Xiang Li'
+    - 'Bingwen Wei'
+    - 'Jiakai Zhou'
     - 'Quanlu Zhang'
     - 'Zhaofei Yu'
     - 'Guoliang Fan'
@@ -57,22 +59,22 @@ import { Aside } from '@/components/user'
 
 ### 一句话总结
 
-**【Paper】** πRL 的关键不是给 VLA 外接一个通用 PPO，而是先解决 flow matching policy 的两个前置障碍：确定性 ODE 采样缺少探索，且很难直接得到 PPO 所需的 action log-likelihood。Flow-Noise 与 Flow-SDE 都把去噪转移改为有解析高斯概率的随机决策，从而让 $\pi_0$、$\pi_{0.5}$ 可以从在线交互中继续优化。
+**【Paper】** πRL 的关键不是给 VLA 外接一个通用 PPO，而是先解决 flow matching policy 的两个前置障碍：给定初始噪声后的 ODE 轨迹没有额外随机转移，且很难直接得到 PPO 所需的 action log-likelihood。Flow-Noise 与 Flow-SDE 都把去噪转移改为有解析高斯概率的随机决策，从而让 $\pi_0$、$\pi_{0.5}$ 可以从在线交互中继续优化。
 
 ### 核心贡献
 
 1. **【Paper】** 提出两条 RL-compatible flow policy：Flow-Noise 在去噪过程中学习噪声网络；Flow-SDE 将 ODE 改写为同边缘分布的 SDE，并将去噪与环境交互建模为两层 MDP。
 2. **【Paper】** 在 LIBERO、ManiSkill、MetaWorld、CALVIN 上评测 $\pi_0$ 与 $\pi_{0.5}$；附录还以 GR00T 验证方法不限于 $\pi$ 系列。
-3. **【Paper】** Flow-SDE 的 hybrid ODE-SDE rollout 每个环境步仅保留一个随机去噪步骤，论文报告相对完整两层 MDP 约有 $2\times$ 加速。
+3. **【Paper】** Flow-SDE 的 hybrid ODE-SDE rollout 每个环境步仅保留一个随机去噪步骤，论文报告相对完整两层 MDP 约有 $2\times$ PPO update 加速。
 4. **【Code】** 官方 RLinf 公开 flow_sde、flow_noise、OpenPI policy、PPO 配置和四个基准的示例入口。
 
 ## 2. 背景与相关工作
 
 **【Paper】** VLA 往往按 pre-training → SFT 训练：VLM 接收图像、语言和可选 proprioception，action expert 输出连续动作。SFT 的上限受到专家示范成本和质量约束，故近年工作尝试用 online RL 改进策略。
 
-**【Paper】** 已有 VLA-RL 多针对离散 action token，或以显式 Gaussian head 表示连续最终动作。flow-based VLA 则学习条件向量场，将高斯噪声逐步变换为 action chunk；少量去噪步下，最终 action 的连续流似然不便直接计算，原始 ODE sampler 又没有随机探索。
+**【Paper】** 已有 VLA-RL 多针对离散 action token，或以显式 Gaussian head 表示连续最终动作。flow-based VLA 则学习条件向量场，将高斯噪声逐步变换为 action chunk；少量去噪步下，最终 action 的连续流似然不便直接计算，初始高斯噪声虽已使最终动作随机，但确定性中间转移无法直接提供这里需要的 Gaussian transition likelihood。
 
-**【Analysis】** 难点发生在 policy interface 而非 PPO 本身：如果不能可靠计算新旧策略对已采样 action 的概率比 $\rho$，policy gradient 就无从定义。πRL 的本质是为 flow sampler 构造一个可探索、可算 log-prob 的随机策略参数化。
+**【Analysis】** 难点发生在 policy interface 而非 PPO 本身：PPO 需要可计算的新旧策略概率比 $\rho$；这不意味着所有 policy gradient 都必须采用同一种显式似然参数化。πRL 的本质是为 flow sampler 构造一个可探索、可算 log-prob 的随机策略参数化。
 
 ## 3. 问题定义
 
@@ -83,6 +85,8 @@ $$
 \qquad
 \mathcal{J}(\pi_\theta)=\mathbb{E}\left[\sum_{t=0}^{T}\gamma^tR_{\mathrm{ENV}}(\mathbf{o}_t,\mathbf{A}_t)\right].
 $$
+
+**【Paper】** 本文以 [arXiv v3（2026-01-29）](https://arxiv.org/abs/2510.25889v3) 为准。区分预测长度 $H$ 与重规划执行长度 $H^{\prime}$：Table 11 中 $\pi_0$ 在 LIBERO 预测 50 步、实际执行 5 步或 Long 的 10 步；$\pi_{0.5}$ 预测 10 步，执行 5 或 10 步。RL 的一次环境决策及奖励对应实际执行的前缀，不是所有预测动作都送入环境。
 
 **【Paper】** Conditional Flow Matching 从干净动作 $\mathbf{A}_t$、噪声 $\epsilon\sim\mathcal{N}(0,I)$ 构造中间状态 $\mathbf{A}_t^\tau=\tau\mathbf{A}_t+(1-\tau)\epsilon$，令向量场预测目标速度 $\mathbf{u}=\mathbf{A}_t-\epsilon$。推理则从高斯噪声开始，迭代去噪成动作块。
 
@@ -118,13 +122,15 @@ $$
 
 **【Paper】** Flow-SDE 从 probability-flow ODE 出发，加入 drift correction 与扩散项以构造等价 SDE。内层 state 是 $(\mathbf{o}_t,\mathbf{A}_t^\tau)$：未完成去噪时 reward 为 0；最后一步执行 action chunk 后才与外层环境交互，获得 $R_{\mathrm{ENV}}$ 并转移到 $\mathbf{o}_{t+1}$。
 
-**【Paper】** 完整两层 MDP 的长度会变为“环境步数 × 去噪步数”。hybrid rollout 每个环境步随机选择一个 SDE transition 做探索，其他去噪步骤照确定性 ODE 执行，因而缩短有效 horizon。
+**【Paper】** 完整两层 MDP 的长度会变为“环境步数 × 去噪步数”。hybrid rollout 每个环境步随机选择一个 SDE transition 做探索，其他去噪步骤照确定性 ODE 执行，因而缩短用于 RL 更新的有效 horizon。所有 $K$ 次动作生成仍要运行；Figure 7 的 814.2 → 428.6 秒测量的是 update time，不能解读成部署动作生成快两倍。
 
 #### Critic placement
 
 ![π0.5 将 critic 接在 VLM 输出后的结构（论文 Figure 4 右）](https://pic.hana0721.top/blog/paper-deep-dive-pi-rl/pi-rl-critic-pi05-crop.9kgx4k93zk.webp)
 
-**【Paper】** $\pi_{0.5}$ 将 critic 接在融合多模态输入的 VLM 输出后得到 $V_{\mathrm{vlm}}(\mathbf{o}_t)$；$\pi_0$ 的 action expert 同时依赖 noisy action 和 state，论文以去噪时间上的 value 均值近似 observation-level value。共享 actor-critic backbone 的动机是降低额外显存。
+**【Paper / Code】** $\pi_{0.5}$ 将 critic 接在 VLM 输出后，$\pi_0$ 在 action expert 后读出 value，并沿去噪轨迹取均值。这里应区分一般架构与实验配置：§4.3.2、Figure 4 解释了 $\pi_{0.5}$ 可将离散状态并入 prompt；附录 B.2 却明确说本实验省略 state。官方 `dataconfig` 中 `pi05_libero / pi05_maniskill / pi05_metaworld / pi05_calvin` 的 `discrete_state_input=False` 支持后者，因此不能写成本实验的 VLM critic 一定看到了机器人状态。共享骨干的动机是节省显存。
+
+**【Analysis】** $\pi_0$ 的 noisy-action value 均值是 observation-level baseline 的近似，不会因为取平均就严格成为真实 $V(o)$。Figure 6 在 LIBERO-Long 上反而发现不看 state 的 VLM critic 略好；作者仍保留 expert critic 以包含状态，说明这是建模取舍，不是实验证明其最优。
 
 ### 4.3 关键公式
 
@@ -148,16 +154,23 @@ $$
 
 **【Paper】** $\delta$ 是去噪步长，$\sigma_{\theta'}$ 是可学习的标准差；因此整条 path 的 log-likelihood 是初始噪声概率与 $K$ 个 Gaussian transition 概率之和。
 
-#### Flow-SDE transition
+**【Analysis】** 必须分清 joint path likelihood 与最终动作的 marginal likelihood：$\log p(A^0,\ldots,A^1\mid o)$ 是已采样隐变量路径的联合概率，不是积分掉中间状态后的 $\log p(A^1\mid o)$。初始标准高斯不依赖参数，在新旧比率中抵消；它不会使最终动作分布变成一个高斯。
+
+#### Flow-SDE transition：先统一时间方向
+
+**【Paper / Analysis】** 论文 Eq. (8) 写成 $v^\tau+\frac{\sigma_\tau^2}{2\tau}[A^\tau+(1-\tau)v^\tau]$，但前文又定义 $A^\tau=\tau A+(1-\tau)\epsilon$、从 $\tau=0$ 噪声走向 1 数据。这两组约定不能直接混用：在前一种插值下，score 应为 $\nabla\log q_\tau(A^\tau)=(\tau v^\tau-A^\tau)/(1-\tau)$。因此不宜照抄原式后宣称它已经与全文的正向时间定义一致。
+
+**【Code】** 官方实现实际采用 OpenPI 的反向时间 $u$：$u=1$ 为噪声、$u=0$ 为数据，预测速度 $v_u=\epsilon-A$，以正步长 $\delta$ 向 $u-\delta$ 更新。把 `sample_mean_var_val` 展开，SDE transition 是：
 
 $$
-d\mathbf{A}^\tau=\left[\mathbf{v}^\tau+
-\frac{\sigma_\tau^2}{2\tau}\left(\mathbf{A}^\tau+(1-\tau)\mathbf{v}^\tau\right)\right]d\tau
-+\sigma_\tau d\mathbf{w}_\tau,
-\qquad \sigma_\tau=a\sqrt{\frac{\tau}{1-\tau}}.
+\mu_u=x_u-\left[v_u+\frac{\sigma_u^2}{2u}\bigl(x_u+(1-u)v_u\bigr)\right]\delta,
+\qquad \Sigma_u=\sigma_u^2\delta I,
+\qquad \sigma_u=a\sqrt{\frac{u}{1-u}}.
 $$
 
-**【Paper】** $d\mathbf{w}_\tau$ 是 Wiener noise，$a$ 控制探索强度；离散化后依旧有 Gaussian mean / variance，因此可直接得到 PPO 的逐步 log-probability。
+**【Code】** 这里的减号来自时间向零积分。代码在起点 $u=1$ 将噪声日程分母中的 1 替换成下一时间点，避免除零；不是直接求值上述奇异端点。随后采样 $x_{u-\delta}=\mu_u+\sigma_u\sqrt\delta\,\epsilon'$。这一写法同时交代了 drift、标准差以及实际时间方向。
+
+**【Analysis】** “等价边缘分布”首先是连续时间、正确 score / vector field 下的结论；学习误差、有限 Euler 步以及端点处理均会改变离散采样分布。Table 2 的 $K=1$ 正好显示这个区别：同一 SFT 的 ODE eval 为 63.8%，加噪 rollout 只有 9.4%，不能把理论等价解释成训练时动作质量必然不变。
 
 #### PPO 与 chunk return
 
@@ -172,7 +185,7 @@ $$
 \right].
 $$
 
-**【Paper】** $R_t=\sum_{j=0}^{H-1}r_{t,j}$ 是 action chunk 内奖励的和；$\gamma$ 是折扣、$\lambda$ 是 GAE 的 bias-variance 系数、$\varepsilon$ 限制策略更新。Flow-Noise 的 $\rho_t$ 可来自整条去噪链，Flow-SDE 则来自内层随机转移。
+**【Paper / Analysis】** 按实际执行前缀，应记 $R_t=\sum_{j=0}^{H^{\prime}-1}r_{t,j}$；论文 §4.3.1 简写为 $H$，附录则明确区分预测与执行长度。这里是 chunk 内不再折扣的求和，再以宏步 $\gamma$ 折扣；它不等于原始控制步上采用 $\gamma$ 的回报（后者还需 chunk 内折扣及 $\gamma^{H^{\prime}}$）。$\gamma$ 是折扣、$\lambda$ 是 GAE 的 bias-variance 系数、$\varepsilon$ 限制策略更新。Flow-Noise 的 $\rho_t$ 可来自整条去噪链，Flow-SDE 则来自内层随机转移。
 
 ### 4.4 Training
 
@@ -187,7 +200,9 @@ $$
   <AlgorithmStep indent={1}>
     Flow-SDE 执行随机 SDE transition；hybrid 形式仅随机化一个去噪步
   </AlgorithmStep>
-  <AlgorithmStep>执行 action chunk，累积 reward，并保存 Gaussian log-probabilities</AlgorithmStep>
+  <AlgorithmStep>
+    执行前 $H^{\prime}$ 步，累积 reward，并保存随机去噪状态与 Gaussian log-probabilities
+  </AlgorithmStep>
   <AlgorithmStep>用 critic 计算 value，以 GAE 生成 advantage</AlgorithmStep>
   <AlgorithmStep keyword='for'>每个 PPO update epoch</AlgorithmStep>
   <AlgorithmStep indent={1}>
@@ -199,7 +214,7 @@ $$
 
 ### 4.5 Inference
 
-**【Paper】** 评测时不保留探索噪声：Flow-Noise 丢弃 noise network；Flow-SDE 使用 deterministic ODE sampling。每次从噪声生成 $H$ 个连续动作并执行。
+**【Paper】** 评测时不再注入逐去噪步探索噪声：Flow-Noise 丢弃 noise network，Flow-SDE 改用 ODE。初始高斯噪声仍会采样，所以 deterministic 指给定初始噪声后的积分过程。每次预测 $H$ 步，只执行前 $H^{\prime}$ 步后重新观测。
 
 <Algorithm number={2} title='πRL Deterministic Inference' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>当前观测与经 RL 更新的 flow policy</div>
@@ -210,7 +225,7 @@ $$
   <AlgorithmStep indent={1}>预测 $\mathbf{v}_\theta(\mathbf{A}^{\tau_k},\mathbf{o})$</AlgorithmStep>
   <AlgorithmStep indent={1}>以无噪声 Euler / ODE update 得到下一去噪状态</AlgorithmStep>
   <AlgorithmStep keyword='end for' />
-  <AlgorithmStep>将最终 $\mathbf{A}^1$ 作为 action chunk 交给机器人或模拟器</AlgorithmStep>
+  <AlgorithmStep>将最终 $\mathbf{A}^1$ 的前 $H^{\prime}$ 步交给机器人或模拟器，之后重新观测</AlgorithmStep>
 </Algorithm>
 
 ### 4.6 代码实现对照
@@ -225,17 +240,21 @@ $$
 | likelihood / critic | get_log_prob_value                                                     | 对保存的去噪 chain 逐步算 Gaussian log-prob；$\pi_{0.5}$ 可由 VLM prefix output 预测 value                        |
 | 训练配置            | examples/embodiment/config/libero_spatial_ppo_openpi_pi05.yaml         | PPO 使用 GAE、chunk-level reward / logprob；示例设 num_action_chunks: 5、num_steps: 3、policy LR $5\times10^{-6}$ |
 
+**【Code】** [噪声头实现](https://github.com/RLinf/RLinf/blob/main/rlinf/models/embodiment/modules/explore_noise_net.py) 还澄清一个易误读的名字：`noise_logvar_range=[0.08,0.16]` 传入的是**标准差上下界**，内部先计算 $\log(\sigma^2)$，在该区间插值，再取 $\exp(\cdot/2)$。论文把这两个数称为 log-variance bounds，与实现命名不一致；不能据此使用 $e^{0.08/2}$ 作为最小噪声。
+
+**【Code / Analysis】** 当前 [OpenPI actor](https://github.com/RLinf/RLinf/blob/main/rlinf/models/embodiment/openpi/openpi_action_model.py) 的 `joint_logprob=True` 对 $K+1$ 个 log-prob **取平均**，而非 Eq. (5) 的求和；随后 chunk-level 聚合只对执行前缀和有效动作维求和。因此实际比率含去噪长度归一化，不能笼统称其为论文全路径概率比的原样实现。默认 hybrid 路径只重算选中的一步，并在当前 batch 共用一个随机去噪索引；不是每个样本独立选步。`num_action_chunks: 5` 在这一适配器中表示执行前缀长度 5，不是连续执行五个独立生成的 chunk。
+
 **【Code】** 示例将 actor、environment、rollout colocate；这与论文所述同 GPU 串行 shared allocation 一致。仓库已是通用 RL framework，因此不应把其中所有模型与算法都归因于 πRL。
 
 ## 5. 实验
 
 ### 5.1 Experimental Setup
 
-**【Paper】** LIBERO 关注组合变化与长程操作；ManiSkill 包含 4,352 个 pick-and-place 任务组合；MetaWorld MT50 覆盖 50 个操作任务；CALVIN 测试持久场景中连续五个子任务。主比较从 few-shot SFT checkpoint 起步后做 RL，测量的是 online feedback 对目标分布中 SFT policy 的提升，而不是从零训练的样本效率。
+**【Paper】** LIBERO 关注组合变化与长程操作；ManiSkill 包含 4,352 个 pick-and-place 任务组合；MetaWorld MT50 覆盖 50 个操作任务；CALVIN 测试持久场景中连续五个子任务。LIBERO 比较从 few-shot SFT checkpoint 起步后做 RL；其余基准使用各自任务数据（ManiSkill 16,384 条、MetaWorld 2,500 条、CALVIN ABC 约 24 小时 play data），测量的是 online feedback 对目标分布中 SFT policy 的提升，而不是从零训练的样本效率。
 
 ### 5.2 Main Results
 
-**【Paper】** Table 1 的 ID 平均成功率（%）如下。Flow-SDE 和 Flow-Noise 的相对排名随模型与基准而变。
+**【Paper】** Table 1 的平均值是四个基准百分比的等权平均，其中 CALVIN 采用 **五子任务全部完成率 Len-5**，不是平均完成子任务数。表中的增益应读作百分点；它既不是合并所有 rollout 的成功率，也不是相对提升百分比。
 
 | Model       | SFT Avg. | Flow-SDE Avg. | Flow-Noise Avg. | 最佳平均增益 |
 | ----------- | -------: | ------------: | --------------: | -----------: |
@@ -246,21 +265,31 @@ $$
 
 **【Analysis】** 两条路线接近但不完全同胜，说明不只是“有没有噪声”决定效果；critic 误差、reward、去噪步数和 chunk 长度都会改变有效的 PPO 信号。论文在消融中优先使用计算更高效的 Flow-SDE，是工程取舍而非 Flow-Noise 无效。
 
+**【Paper / Analysis】** LIBERO 的 $\pi_{0.5}$ “one-shot” 是每个子任务一条，共 40 条示范，随后在目标 suite 上大量在线交互；不是总共只用一条机器人轨迹。每个 suite 按 10 个任务 × 50 初始状态评估，Long 由 43.9% 到 Flow-Noise 94.0%；Table 3 的 Flow-Noise 平均 98.3% 高于 full-data SFT 96.9%，证明的是节省**专家示范**的可能性，不能据此宣称总环境样本更少。Table 11 的 500 epochs、64 并行环境、每轮 8 次 rollout 也提醒我们，SFT 与 RL 的数据预算类型不同。表格未给多训练种子置信区间，98.3 与 97.9 的细小差异不宜称为稳定胜出。
+
+**【Paper】** 奖励并不全是最终成败：LIBERO / MetaWorld 用任务成功的 0/1，CALVIN 每完成子任务给 1，ManiSkill 除放置成功的 1 外还有抓稳物体的 0.1。不同 reward shaping、重置策略与执行长度都影响样本效率；Figure 16 的 episode 缩短也不能单独归因于学到了更优几何路径。
+
 ### 5.3 Ablation Study
 
 ![Flow-SDE 中不同 MDP 表述的训练与评测曲线（论文消融图）](https://pic.hana0721.top/blog/paper-deep-dive-pi-rl/pi-rl-mdp-ablation-crop.45iem4tyn8.webp)
 
 **【Paper】** Flow-SDE 消融有三条直接结论：
 
-1. 固定与可学习噪声都可收敛；受控比较中固定 noise level 为 0.5，learnable noise bounds 为 0.08 和 0.16。
+1. 固定与可学习噪声都可收敛；受控比较中固定 noise level 为 0.5，learnable noise 参数为 0.08 和 0.16（实现是标准差界，见 §4.6）。
 2. 小噪声减少探索扰动，但 $a=0.2$ 有更高 clipped fraction 和训练不稳定；必须平衡 exploration 与 rollout quality。
 3. $K=1$ 有明显 ODE-to-SDE 离散化误差；更大 $K$ 改善 rollout、但增加训练复杂度。更大 action chunk 虽可能提高 SFT 表现，却降低交互频率和 reward credit 的精度。
 
 **【Paper】** 在 LIBERO-Spatial，RL eval 成功率在 noise $a=0.2/0.5/0.8$ 时为 73.1/94.5/98.1；在 $K=1/2/4/8$ 时为 88.5/97.0/94.5/86.7。这是该基准和预算下的测量值，不应视为通用最优超参数。
 
+**【Paper】** Appendix F / Table 9 在匹配的 Flow-SDE 设置下比较 PPO 与 GRPO：$\pi_0$ 平均 96.0% 对 90.0%，$\pi_{0.5}$ 为 97.9% 对 91.5%。这支持本文配置中的 critic / GAE 路线，并不排除经过独立调参的 GRPO。VLM LoRA 的稳定方案同时把学习率由 $5\times10^{-6}$ 降至 $10^{-6}$、每轮更新由 4 降至 2；不能把性能差异全部归因于“是否解冻 VLM”。
+
 ### 5.4 Generalization
 
-**【Paper】** OOD 被区分为环境 / 视觉变化（CALVIN、ManiSkill）和任务变化（MetaWorld ML45）。前两类中 ID 增益可迁移到 OOD；MetaWorld 未见任务的曲线波动，未显示显著稳定的提升。
+**【Paper】** OOD 被区分为环境 / 视觉变化（CALVIN、ManiSkill）和任务变化（MetaWorld ML45）。ManiSkill 的 OOD 改进可量化：$\pi_{0.5}$ 的 Flow-SDE 平均 26.4 → 49.3，Flow-Noise 达 53.4，二者与 ID 排名相反。语义干扰仍明显更难，不能将 OOD 平均提升等同于解决了 grounding。MetaWorld ML45 的 5 个未见任务曲线波动，未显示稳定提升。
+
+**【Paper / Analysis】** CALVIN 需要分开读 Table 5 的 Scene D 结果（Len-5 61.3 → 87.0；平均完成数 3.838 → 4.717）与 Figure 5 / Appendix D.2 的 ABC → D OOD（61.3 → 79.1）。D.2 的结果段又写了“identical D→D settings”，与同节 ABC 训练、D 测试的说明冲突；本文按明确的 OOD setup 标注 79.1，并保留这个原文歧义，不把 87.0 当作零样本跨场景结果。
+
+**【Paper】** 实机证据限于 Appendix E.2 的一个 Franka pick-and-place：以 3D Gaussian Splatting 渲染和 ManiSkill 物理重建场景，20 条规划器示范后进行 100 次 RL iteration，零样本部署从 SFT 失败到 40% 成功。原文未报告该 40% 的试验分母或置信区间；它是 real2sim2real 个案，不是真实机器人在线 RL 训练的验证。
 
 **【Analysis】** 这更支持 action-level refinement：PPO 能利用 reward 改进已知任务族中的接触、抓取和轨迹细节，但 sparse reward 未必足以让策略组合出新的任务目标。论文没有证明“RL 自动获得跨任务泛化”。
 
@@ -286,7 +315,7 @@ $$
 
 ### 7.1 作者明确提出的局限
 
-**【Paper】** 作者指出 online RL 的 sample efficiency 仍低，现阶段框架依赖 sim-to-real deployment；未来希望提高效率以支持真实世界 RL。
+**【Paper】** 作者指出 online RL 的 sample efficiency 仍低，现阶段实机展示依赖 sim-to-real deployment。Appendix I 还报告尝试 Flow-CPS 后，虽然 ODE→SDE 初始性能损失减小，RL 增益仍有限；保真度更高不自动意味着更好的探索。GR00T-N1.5 扩展将 expert dropout 替换为 identity，以避免同一动作重算 log-prob 时引入另一套随机掩码；Table 10 平均 52.5 → 89.9 支持跨 flow 架构可用，但仅在 LIBERO 检验。
 
 ### 7.2 自己分析得到的局限
 
@@ -300,6 +329,6 @@ $$
 
 <Aside type='note' title='阅读提示'>
   本精读中 【Paper】 表示论文明确内容，【Code】 表示官方代码实现，【Analysis】
-  表示基于论文和代码的分析推断。论文图片已裁切并上传；因图床 CDN 尚未刷新，当前使用已验证 HTTP 200
-  的 GitHub Raw URL。
+  表示基于论文和代码的分析推断。核验依据为论文 v3 全文及附录 A–J、官方 RLinf
+  实现。代码主分支会演进，文中将论文结论与当前实现细节分开标注。
 </Aside>

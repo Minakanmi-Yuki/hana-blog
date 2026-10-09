@@ -1,8 +1,8 @@
 ---
 title: 'GR-RL：面向长时域灵巧精密操作的强化学习专精化'
 publishDate: 2026-08-26
-updatedDate: 2026-08-26
-description: '精读 ByteDance Seed 的 GR-RL：用分布式 critic 学习任务进度、过滤次优示范，再通过形态对称增强和 latent-space online RL，让 VLA 学会多眼孔鞋带穿线。'
+updatedDate: 2026-09-22
+description: '精读 ByteDance Seed 的 GR-RL：用分布型 critic 学习任务进度、过滤次优示范，再通过形态对称增强和 latent-space online RL，让 VLA 学会多眼孔鞋带穿线。'
 heroImage:
   { src: 'https://pic.hana0721.top/134041716_p0_master1200.5q80bz7b6v.webp', color: '#8C8275' }
 category: 'research'
@@ -51,7 +51,7 @@ import { Aside } from '@/components/user'
 
 <ArxivRating
   id='2512.01801'
-  tldr='GR-RL 把通用 VLA 专精化为长时域灵巧策略：用分布式 Q 值估计任务进度并过滤示范，做左右形态对称增强，再在动作扩散器的 latent noise 空间进行在线 RL，对齐训练与部署行为。'
+  tldr='GR-RL 把通用 VLA 专精化为长时域灵巧策略：用分布型 Q 值估计任务进度并过滤示范，做左右形态对称增强，再在动作扩散器的 latent noise 空间进行在线 RL，对齐训练与部署行为。'
   rank={5}
 />
 
@@ -66,7 +66,7 @@ import { Aside } from '@/components/user'
 **【Paper】**
 
 1. 提出三阶段 reinforcement-augmented recipe：filtered behavior cloning、morphological symmetry augmentation、online steering RL。
-2. 证明 sparse reward 下的 distributional critic 可以作为视觉-语言条件的 task progress evaluator，并用于自动数据清洗。
+2. 展示 sparse reward 下的 distributional critic 可提供视觉-语言条件的进度代理，用来过滤示范；这不是其值必然等于真实完成度的理论证明。
 3. 将探索从末端位姿/关节空间移到 action diffusion 的 latent noise 空间，减小毫米级任务中“加一点噪声就彻底失败”的问题。
 4. 在真实双臂移动操作机器人上完成鞋带穿过多个 eyelet，并展示掉落重抓、错位重试、重定向鞋子等恢复行为。
 
@@ -85,28 +85,28 @@ import { Aside } from '@/components/user'
 **【Paper】** 在时间步 $t$，策略接收语言指令 $l$、三路 RGB 观测 $\mathbf{o}_t$ 和 proprioception 状态 $\mathbf{s}_t$，输出长度为 $k$ 的双臂动作 chunk：
 
 $$
-\mathbf{a}_t = \pi_\theta(l,\mathbf{o}_t,\mathbf{s}_t),\qquad \mathbf{a}_t=a_{t:t+k}.
+\mathbf{a}_t = \pi_\theta(l,\mathbf{o}_t,\mathbf{s}_t),\qquad \mathbf{a}_t=(a_t,\ldots,a_{t+k-1}).
 $$
 
-训练奖励是 episode 末端的 binary sparse reward：只有鞋带穿入正确 eyelet 并完全放到桌面上时才得到 1。**【Paper】** 机器人是 7-DoF 双臂、带移动底盘的 ByteMini-v2；其肘部峰值扭矩从 17 Nm 提升到 35 Nm，单臂峰值负载从 1.4 kg 提升到 3.15 kg，底盘投影面积缩小到 450 mm × 650 mm。
+任务成功标签是 binary sparse signal；用于离线 chunk 学习的折扣奖励见式 (1)：只有鞋带穿入正确 eyelet 并完全放到桌面上时才得到 1。**【Paper】** 机器人是 7-DoF 双臂、带移动底盘的 ByteMini-v2；其肘部峰值扭矩从 17 Nm 提升到 35 Nm，单臂峰值负载从 1.4 kg 提升到 3.15 kg，底盘投影面积缩小到 450 mm × 650 mm。
 
 **Embodied AI checklist**
 
-| 项目 | 论文设定 |
-| --- | --- |
-| Vision / Language | Qwen2.5-VL-3B-Instruct 作为 VLM backbone；仅使用后半层 KV cache 加速推理 |
-| Policy | Flow-matching action DiT 生成动作 chunk |
-| Critic | causal transformer，采用 Q-chunking 与 distributional RL |
-| Action representation | 双臂动作 chunk（论文未给出完整维度表） |
-| Reward | 末端 binary sparse reward |
-| Embodiment | ByteMini-v2，7-DoF 双臂 + 移动底盘 |
-| Deployment | 轨迹优化约束 jerk 和时间连续性 |
+| 项目                  | 论文设定                                                                 |
+| --------------------- | ------------------------------------------------------------------------ |
+| Vision / Language     | Qwen2.5-VL-3B-Instruct 作为 VLM backbone；仅使用后半层 KV cache 加速推理 |
+| Policy                | Flow-matching action DiT 生成动作 chunk                                  |
+| Critic                | causal transformer，采用 Q-chunking 与 distributional RL                 |
+| Action representation | 双臂动作 chunk（论文未给出完整维度表）                                   |
+| Reward                | 末端 binary sparse reward                                                |
+| Embodiment            | ByteMini-v2，7-DoF 双臂 + 移动底盘                                       |
+| Deployment            | 轨迹优化约束 jerk 和时间连续性                                           |
 
 ## 4. 方法
 
 ### 4.1 Overall Architecture
 
-GR-RL 由 VLA policy $\pi_\theta$ 和 multi-task critic $Q_\phi$ 组成，总参数量约 5B。VLA 读取视觉、语言和机器人状态，flow-matching DiT 输出动作 chunk；critic 对同一条件下的每个动作评估一段 Q 值。训练先用 critic 计算进度并筛选数据，再 BC 和镜像增强，最后冻结大部分 VLA、只在 latent noise 上做在线探索。
+GR-RL 由 VLA policy $\pi_\theta$ 和 multi-task critic $Q_\phi$ 组成，总参数量约 5B。VLA 读取视觉、语言和机器人状态，flow-matching DiT 输出动作 chunk；critic 对同一条件下的每个动作评估一段 Q 值。训练先用 critic 计算进度并筛选数据，再 BC 和镜像增强，最后固定基础 VLA，在 latent noise 上做在线 steering，并更新动作空间与噪声空间 critic。
 
 ![GR-RL 的 Mixture-of-Transformer 架构：VLA、Action Diffusion Transformer 与 Critic（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-gr-rl/model_arch.70b2rxhzol.webp)
 
@@ -119,13 +119,13 @@ GR-RL 由 VLA policy $\pi_\theta$ 和 multi-task critic $Q_\phi$ 组成，总参
 - **做什么**：TD3+BC 在成功轨迹和失败轨迹上训练 critic。对成功轨迹中标记的 retry keyframe 截断，可构造 hindsight 失败轨迹，使 critic 同时看到“最终成功”和“在这里失败”。
 - **为什么需要**：人工逐帧标注错误片段主观且昂贵；Q 值的突然下降可以自动定位误插、松手等负贡献动作。
 
-**【Paper】** distributional critic 将值限制在 $[0,1]$，相比无界回归更能抵抗长时域 sparse reward 的过估计。
+**【Paper】** distributional critic 将回报分布的支撑限制在 $[0,1]$，在文中对照里比无界回归更能抑制值尺度漂移。**【Analysis】** 有界不等于准确或校准，分布宽度也不自动等于模型的认知不确定性；它首先是回报分布，仍受离线数据覆盖、bootstrap 和函数逼近偏差影响。
 
 ![成功轨迹上的学习到的任务进度示例（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-gr-rl/progress_main.5q85lm01a1.webp)
 
 #### Filtered behavior cloning
 
-对每个 chunk 计算 $\rho_{t:t+k}$。若序列中的下降超过阈值 $\delta$，就把样本视为 suboptimal 并从 BC 数据集中剔除；剩余高质量 transitions 用来初始化策略。这里的关键不是重新设计 BC loss，而是改变 BC 看到的示范分布。
+对每个 chunk 计算 $\rho_{t:t+k}$。若序列中的下降超过阈值 $\delta$，就把样本视为 suboptimal 并从 BC 数据集中剔除；剩余高质量 transitions 用来初始化策略。被删除的是以该时刻为起点的监督样本，而不是把轨迹两端拼接成一个不存在的动作跳跃。保留不发生显著下降的样本也不等于每一步都必须严格增加进度；有用的后退、重抓只要提高后续成功机会，就可能获得较高值。retry keyframe 仍需人工标注，因此不能称为完全无人工的数据清洗。
 
 #### Morphological symmetry augmentation
 
@@ -133,7 +133,7 @@ GR-RL 由 VLA policy $\pi_\theta$ 和 multi-task critic $Q_\phi$ 组成，总参
 
 #### Latent-space online steering
 
-直接在腕部位姿上加噪声几乎无法完成毫米级插入。GR-RL 在共享 VLM backbone 后增加 51.5M 参数的 noise predictor $\pi_{\theta'}$，预测 action DiT 的初始噪声 $\epsilon_t$，让探索沿着原 flow policy 的可行动作流形进行。另训练 noise-space critic $Q_{\phi'}$，避免优化时反向穿过完整 flow model。
+直接在腕部位姿上加噪声几乎无法完成毫米级插入。GR-RL 在共享 VLM backbone 后增加 51.5M 参数的 noise predictor $\pi_{\theta'}$，预测 action DiT 的初始噪声 $\epsilon_t$，让探索通过已训练的 flow decoder 映射到结构化动作。**【Analysis】** 这是限制探索的动作先验，不是每个 latent 都对应安全、成功或在示范流形上的动作的保证。另训练 noise-space critic $Q_{\phi'}$，避免优化时反向穿过完整 flow model。
 
 ### 4.3 关键公式
 
@@ -146,7 +146,7 @@ r_t=\begin{cases}
 \end{cases}
 $$
 
-$T$ 是轨迹长度，$k$ 是动作 chunk 长度，$\mathbb{I}(\tau)$ 表示该 episode 是否成功，$\gamma$ 是折扣因子。奖励只在末端出现，因此 critic 的中间值可以被解释为“从当前状态继续执行的成功概率/进度”。
+$T$ 是轨迹长度，$k$ 是动作 chunk 长度，$\mathbb{I}(\tau)$ 表示该 episode 是否成功，$\gamma$ 是折扣因子。式 (1) 对末尾覆盖终点的 chunk 使用折扣后的成功标签，其余 chunk 为零；不能误实现成最后 $k$ 个原始时间步各重复发一次完整成功奖励。**【Analysis】** critic 学的是策略相关的折扣回报：即使最终同样成功，离成功更远也可能值更低。因此进度是价值代理，既不是机械的 $t/T$，也不是天然校准的成功概率；失败前缀被截断标为失败还会改变其回报监督语义。
 
 **Progress（【Paper】）**
 
@@ -154,7 +154,7 @@ $$
 \rho_t=\operatorname{mean}\big(Q_\phi(\mathbf{o}_t,l,\mathbf{s}_t,\mathbf{a}_t)\big).
 $$
 
-均值把 categorical value distribution 压成一个可排序的标量；阈值 $\delta$ 决定哪些下降足以判定动作有害。
+这里的 mean 是回报随机变量的期望。若固定支撑为 $z_j$、网络输出概率为 $p_j$，则 $\rho_t=\sum_jp_jz_j$；不能对概率向量直接取算术平均，后者恒等于类别数的倒数，完全没有进度信息。阈值 $\delta$ 决定过滤的敏感度，有限视野内的值下降仍可能把有益探索误删。
 
 **Noise predictor objective（【Paper】）**
 
@@ -162,21 +162,31 @@ $$
 \mathcal{L}(\pi_{\theta'})=\mathbb{E}\left[-Q_{\phi'}(\mathbf{o}_t,l,\mathbf{s}_t,\epsilon_t)+c\max\left(\tfrac12\|\epsilon_t\|^2-\beta,0\right)\right].
 $$
 
-第一项鼓励高回报噪声，第二项在噪声范数超过阈值 $\beta$ 时惩罚偏离标准正态分布；$c$ 控制约束强度。
+第一项鼓励高回报噪声，第二项惩罚 $\tfrac12\|\epsilon_t\|^2$ 超过 $\beta$ 的样本，$c$ 控制强度。**【Analysis】** 它相当于对标准正态负对数密度中二次项的尾部约束，不是预测噪声分布与高斯之间的完整 KL：小范数但退化的分布也可不受惩罚，所以不能据此保证分布匹配。
+
+**【Paper】** 噪声 critic 的训练目标是蒸馏动作 critic：先把同一噪声经固定 flow policy 转为动作，再使 $Q_{\phi'}(o,l,s,\epsilon)$ 的 categorical 分布匹配 $Q_\phi(o,l,s,\pi_\theta(o,l,s\mid\epsilon))$。这让 actor 更新能沿噪声 critic 求梯度，而不穿过全部去噪步骤。为避免 critic 只认识当前 predictor 产生的狭窄区域，蒸馏噪声以一半概率来自标准高斯、另一半来自 noise predictor。
 
 ### 4.4 Training
 
-**【Paper】** 离线阶段使用成功轨迹和 hindsight 失败轨迹训练 distributional critic，再按进度下降过滤 transitions，并用镜像数据做 BC。在线阶段先用离线 checkpoint 采集 673 条 rollout 校准 critic，之后每收集 12 个新 episode 优化 50 步；on-policy buffer 只保留最近两个 checkpoint 生成的数据，其余转入 off-policy buffer，且不混入遥操作轨迹，以避免动力学分布错配。
+**【Paper】** 离线阶段使用成功轨迹和 hindsight 失败轨迹训练 distributional critic，再按进度下降过滤 transitions，并用镜像数据做 BC。在线阶段先用离线 checkpoint 采集 673 条 rollout 校准 critic，之后每收集 12 个新 episode 优化 50 步；on-policy buffer 只保留最近两个 checkpoint 生成的数据，其余转入 off-policy buffer，且不混入遥操作轨迹，以减少与部署控制栈的动力学分布错配。训练 batch 从新旧两个 buffer 各取一半；这里称为 on-policy buffer 的仅是近期数据集合，整体更新仍采用 off-policy TD3，而不是 PPO 式 on-policy 算法。
 
 <Algorithm number={1} title='GR-RL training recipe' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>成功/失败遥操作轨迹、语言指令、视觉观测与机器人状态</div>
   <div slot='output'>对齐部署行为的专精化 VLA policy</div>
-  <AlgorithmStep>用 TD3+BC 和 sparse reward 训练 distributional critic。</AlgorithmStep>
-  <AlgorithmStep>从成功轨迹的 retry keyframe 截断出 hindsight 失败轨迹。</AlgorithmStep>
-  <AlgorithmStep>计算每个 action chunk 的进度，删除下降超过 $\delta$ 的 transitions。</AlgorithmStep>
-  <AlgorithmStep>对图像、左右腕部、状态、动作和空间语言做 morphological mirror augmentation。</AlgorithmStep>
+  <AlgorithmStep>标注成功轨迹的 retry keyframe，截断构造 hindsight 失败轨迹。</AlgorithmStep>
+  <AlgorithmStep>
+    用成功与失败数据、chunk 级 sparse reward 和 TD3+BC 训练 distributional critic。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    计算每个 action chunk 的进度，删除下降超过 $\delta$ 的 transitions。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    对图像、左右腕部、状态、动作和空间语言做 morphological mirror augmentation。
+  </AlgorithmStep>
   <AlgorithmStep>用过滤后的原始/镜像数据做 behavior cloning，得到离线初始策略。</AlgorithmStep>
-  <AlgorithmStep>用离线策略 rollout 预热 replay buffer，训练 noise predictor 与两个 critic，进行 online RL。</AlgorithmStep>
+  <AlgorithmStep>
+    用离线策略 rollout 预热 replay buffer，训练 noise predictor 与两个 critic，进行 online RL。
+  </AlgorithmStep>
 </Algorithm>
 
 ### 4.5 Inference
@@ -184,17 +194,23 @@ $$
 部署时 VLA 产生固定长度 action chunk，随后通过 trajectory optimization 约束 jerk 和时间连续性，再由双臂控制器执行。online RL 学到的不是一套脱离基础模型的新动作，而是对 flow policy 初始噪声的 steering，因此保留了离线策略的动作先验。
 
 <Algorithm number={2} title='Latent-space inference' inputLabel='输入' outputLabel='输出'>
-  <div slot='input'>语言指令 $l$、三路 RGB 观测 $\mathbf{o}_t$、状态 $\mathbf{s}_t$</div>
+  <div slot='input'>
+    语言指令 $l$、三路 RGB 观测 $\mathbf{o}_t$、状态 $\mathbf{s}_t$
+  </div>
   <div slot='output'>经过平滑优化并执行的动作 chunk</div>
-  <AlgorithmStep>VLA 编码视觉、语言和状态，noise predictor 采样初始噪声 $\epsilon_t$。</AlgorithmStep>
-  <AlgorithmStep>将 $\epsilon_t$ 输入 flow-matching action DiT，逐步去噪得到 $k$ 步动作。</AlgorithmStep>
+  <AlgorithmStep>
+    VLA 编码视觉、语言和状态，noise predictor 采样初始噪声 $\epsilon_t$。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    将 $\epsilon_t$ 输入 flow-matching action DiT，逐步去噪得到 $k$ 步动作。
+  </AlgorithmStep>
   <AlgorithmStep>用 jerk 与 temporal-continuity 约束优化动作轨迹。</AlgorithmStep>
   <AlgorithmStep>执行当前动作并滚动观察，遇到掉落或错位时在闭环中重新规划。</AlgorithmStep>
 </Algorithm>
 
 ### 4.6 代码实现对照
 
-**【Code】** 论文提供项目主页 [seed.bytedance.com/gr_rl](https://seed.bytedance.com/gr_rl)，截至本文撰写时未发现可公开访问的官方 GitHub 训练代码、配置或 checkpoint。因而无法对模型类、DataLoader、优化器实现和实际超参数逐文件核验；上文“代码实现”部分仅报告论文公开的系统行为，不把推测写成代码事实。
+**【Analysis】** 截至 2026-09-22，论文所链的[官方项目入口](https://seed.bytedance.com/gr_rl) 未提供可核验的训练仓库与 checkpoint，因此本文不使用实现证据标签。重现仍需 critic 的支撑离散化、chunk TD target、过滤阈值、噪声约束、reward 标注和控制后处理细节；不能用 TD3+BC 的通用实现擅自补全。
 
 ## 5. 实验
 
@@ -206,21 +222,23 @@ $$
 
 ### 5.2 Main Results
 
-**【Paper】** 多阶段消融的成功率为：GR-3 原始 BC 45.7%，加入 progress filtering 后 61.6%，再加入镜像增强后 72.7%，完整 GR-RL（含 online steering）83.3%。在线训练早期因 offline-to-online 分布偏移短暂下降，随后移动平均成功率超过 90%；最终采用 online step 500 的 checkpoint 做评测。
+**【Paper】** 多阶段消融的成功率为：GR-3 原始 BC 45.7%，加入 progress filtering 后 61.6%，再加入镜像增强后 72.7%，完整 GR-RL（含 online steering）83.3%。在线训练早期短暂下降，作者归因于 offline-to-online 分布偏移；随后最近 **24 个 episode** 的移动平均超过 90%，最终采用 online step 500 的 checkpoint 得到 83.3%。24 次滑窗与最终评测是不同统计口径，不能将峰值 90% 当成最终成功率。
+
+**【Analysis】** 这组 45.7→61.6→72.7→83.3 是顺序增加组件后的结果，各步收益依赖此前配置，不能当作相互独立的因果贡献。论文没有给齐最终评测次数、鞋型划分及置信区间；也未充分说明该比例如何汇总多个 eyelet，不能扩大为任意鞋型上整双鞋全部穿好并打结的成功率。
 
 ![GR-RL 各训练阶段成功率及在线曲线（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-gr-rl/main_metric.8s41mu1g3c.webp)
 
 ### 5.3 Ablation Study
 
-**【Paper】** 非分布式 critic 会在长时域 sparse reward 下严重过估计，早期状态的值尺度失真；distributional critic 的值被限制在预设范围内，能更稳定地反映时间顺序。直接回归成功轨迹的 $t/T$ 也会过度平滑，难以捕捉“只差几毫米”的插入失败和具有长期影响的重新抓取。
+**【Paper】** 文中的非分布型 critic 在一条高质量成功轨迹的对照上出现严重过估计，早期状态的值尺度失真；distributional critic 的值被限制在预设范围内，能更稳定地反映时间顺序。直接回归成功轨迹的 $t/T$ 也会过度平滑，难以捕捉“只差几毫米”的插入失败和具有长期影响的重新抓取。
 
-![分布式与非分布式 critic 的进度预测对比（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-gr-rl/progress_ablation.9kgx4ki3os.webp)
+![分布型与非分布型 critic 的进度预测对比（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-gr-rl/progress_ablation.9kgx4ki3os.webp)
 
-![不同训练阶段的中间步骤成功率（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-gr-rl/bar_stage_label.3nscxk1jmc.webp)
+![不同训练阶段的中间步骤成功率（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-gr-rl/bar_stage_label.3nscxk1jmc.webp)
 
 ### 5.4 Generalization
 
-**【Paper】** 模型能处理不同颜色和尺寸的鞋子，并在鞋带掉落、未精确穿入 eyelet、初始抓取点过远、鞋子朝向/位置不理想、两端交叉等情况下主动重抓、重试、重定向或调整场景。中间阶段统计显示，filtering 和 online RL 对 threading 阶段的失败降低最明显，镜像增强则在各阶段都有较为均匀的收益。
+**【Paper】** Figure 8 的定性示例展示了不同颜色和尺寸鞋子上的行为，以及在鞋带掉落、未精确穿入 eyelet、初始抓取点过远、鞋子朝向/位置不理想、两端交叉等情况下的主动重抓、重试、重定向或场景调整。**【Analysis】** 这些片段说明恢复行为存在，但没有按未见鞋型、扰动强度报告独立成功率，不能据此证明开放分布泛化。**【Paper】**中间阶段统计显示，filtering 和 online RL 对 threading 阶段的失败降低最明显，镜像增强则在各阶段都有较为均匀的收益。
 
 ## 6. 方法分析
 
@@ -230,7 +248,7 @@ $$
 
 ### 6.2 核心创新
 
-真正新颖之处不是“在 VLA 后面加 RL”，而是把 critic 的值重新解释成可用于数据治理的 progress signal，并把 online exploration 的坐标系改成 flow policy 的 latent noise。这样既能拒绝坏示范，又不会用无结构的动作噪声破坏精密操作。
+真正新颖之处不是“在 VLA 后面加 RL”，而是把 critic 的值重新解释成可用于数据治理的 progress signal，并把 online exploration 的坐标系改成 flow policy 的 latent noise。它使数据筛选和在线探索都利用已有控制知识；实际仍可能误筛恢复动作或产生坏的噪声 steering，需要真实闭环评测。
 
 ### 6.3 与已有方法的本质区别
 
@@ -259,5 +277,6 @@ GR-RL 给出的研究路线很清晰：先把通用 VLA 当作“可行性先验
 
 <Aside type='note' title='阅读提示'>
   本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
-  表示基于论文和公开资料的分析推断。论文图像因自定义 CDN 尚未刷新，暂使用已验证 HTTP 200 的 GitHub Raw 地址。
+  表示基于论文和公开资料的分析推断。本文核验 [arXiv v3](https://arxiv.org/abs/2512.01801v3)
+  全文，所有数值保留其相应评测口径。
 </Aside>

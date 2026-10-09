@@ -1,7 +1,7 @@
 ---
 title: 'WARP-RM 论文精读：用时间扭曲学习相对进度奖励'
 publishDate: 2026-08-25
-updatedDate: 2026-08-25
+updatedDate: 2026-09-22
 description: '精读 WARP-RM：通过 AR(1) 时间扭曲生成自监督进度标签，再用密集 signed progress 过滤和重加权行为克隆数据。'
 heroImage:
   { src: 'https://pic.hana0721.top/71875434_p0_master1200.7pvvr603z.webp', color: '#8C8275' }
@@ -26,7 +26,7 @@ paper:
     - 'Fred Shentu'
     - 'Philipp Wu'
     - 'Ken Goldberg'
-  venue: 'arXiv'
+  venue: 'CoRL 2026'
   year: 2026
   code: 'https://github.com/uynitsuj/WARP-RM'
   project: 'https://uynitsuj.github.io/warp-rm/'
@@ -42,6 +42,8 @@ import { Aside } from '@/components/user'
   tldr='WARP-RM 用时间扭曲和回放反转生成无人工标注的 signed relative progress，再以动作 chunk 末帧的进度速度筛选并重加权行为克隆数据。'
   rank={4}
 />
+
+本文依据 [arXiv v4（2026-09-06）](https://arxiv.org/pdf/2606.28320v4)及其附录 A–I，并核对[官方实现与仿真复现指南](https://github.com/uynitsuj/WARP-RM/blob/main/docs/reproduce_sim.md)。v4 已把 512 场景、多基线、等保留比例的仿真实验纳入正文；旧版 128 场景结果只在保留的旧图说明中出现。
 
 ## 1. 论文概述
 
@@ -73,11 +75,11 @@ WARP（Warp-Augmented Relative Progress）不要求人工标注子任务边界�
 
 已有数据筛选方法大致分三层：
 
-| 粒度 | 典型做法 | 主要问题 |
-| --- | --- | --- |
-| Dataset / episode | 用影响函数、互信息或 episode 长度保留整条轨迹 | 轨迹内好坏片段无法区分 |
-| Frame / chunk | 学习 progress reward，再重加权 action chunk | 需要可靠的局部进度标签 |
-| VLM / preference | 让视觉语言模型比较轨迹或判断语义里程碑 | 查询昂贵，时间分辨率通常较低 |
+| 粒度              | 典型做法                                      | 主要问题                     |
+| ----------------- | --------------------------------------------- | ---------------------------- |
+| Dataset / episode | 用影响函数、互信息或 episode 长度保留整条轨迹 | 轨迹内好坏片段无法区分       |
+| Frame / chunk     | 学习 progress reward，再重加权 action chunk   | 需要可靠的局部进度标签       |
+| VLM / preference  | 让视觉语言模型比较轨迹或判断语义里程碑        | 查询昂贵，时间分辨率通常较低 |
 
 **【Paper】** ReWiND、VIP、LIV 等工作大多把进度放在绝对时间轴上：归一化帧号或跨示教时间对齐可以作为简单监督，但长时序遥操作中，同一个归一化时间可能对应完全不同的状态。SARM、ARM 使用更细粒度的 reward model，却依赖人工标注的阶段边界或偏好数据。SCIZOR 也使用自监督的时间距离信号，但 WARP 进一步用 signed、局部、连续的相对速度给 action chunk 加权。
 
@@ -91,11 +93,15 @@ $$
 \mathcal{D}_{\mathrm{ref}} = \{o_0, o_1, \ldots, o_{T-1}\}.
 $$
 
-给定一个长度为 $N$ 的窗口，WARP 选择源帧索引 $i_0,\ldots,i_{N-1}$。索引可以递增、递减或在中间改变方向。模型输入是视觉特征 $\phi(o_{i_j})$，目标是窗口起点到每个位置的归一化累计位移：
+给定一个长度为 $N$ 的窗口，WARP 选择源帧索引 $i_0,\ldots,i_{N-1}$。索引可以递增、递减或在中间改变方向。模型输入是视觉特征 $\phi(o_{i_j})$，目标是相对于窗口起点的带符号时间位移（可以随局部反转下降，并非累计路程）：
 
 $$
 y_j = \frac{i_j-i_0}{C_{\mathrm{norm}}}, \qquad j=0,\ldots,N-1.
 $$
+
+这里 $C_{\mathrm{norm}}=(N-1)Sf$，$f$ 是视频帧率，$S$ 是**同一窗口内相邻 token 的时间间隔**。实体实验 $N=32,S=1.5\,\mathrm{s},f=30\,\mathrm{Hz}$，因此 $C_{\mathrm{norm}}=1395$ 源帧，窗口跨越 **46.5 秒**。它不是按 episode 长度归一化，也不是每 1.5 秒移动一次短窗口。以标准间隔向前取帧时，$y_j-y_{j-1}=1/31$，后面的差分缩放才使参考速度等于 1。
+
+**【Analysis】** 标签仍由时间生成。“局部相对”消除了跨示教绝对阶段对齐的要求，却没有自动消除时间与真实进度之间的差异：参考示教中的停顿仍会获得向前增加的标签。因此方法依赖较高效的参考集，以及视觉模型能否把合成速度变化迁移到真实犹豫、回退。
 
 任务不是直接输出机器人动作，而是为下游动作数据提供质量信号：
 
@@ -103,7 +109,7 @@ $$
 - **Output**：每帧 signed progress velocity $\hat v_t$，以及由其积分得到的相对进度曲线。
 - **Action representation**：下游策略使用约 1 秒 action chunks；WARP-RM 不改变动作维度。
 - **Robot / Embodiment**：实体双臂 I2RT YAM；任务包括从随机皱缩状态折叠 T-shirt，以及将塑料瓶放入箱子。
-- **Dataset**：成功示教用于训练 WARP-RM；政策数据按 episode 时长构造 D1/D2/D3 等质量 tier。
+- **Dataset**：成功示教用于训练 WARP-RM；策略数据也来自最终成功的示教，再按 episode 时长构造 D1/D2/D3 等质量 tier；不是把整条失败示教混入训练。
 - **Policy objective**：带 WARP 权重的 flow-matching BC 损失。
 
 这里的“reward”不是环境交互中由传感器得到的稀疏奖励，也不是带 value baseline 的严格 RL advantage。论文明确把 $\hat v_{\mathrm{end}}$ 称为 advantage 的经验代理。
@@ -129,9 +135,9 @@ z_0\sim\mathcal{N}(0,\sigma_\infty^2),\qquad
 z_k=\alpha z_{k-1}+\sqrt{1-\alpha^2}\,\sigma_\infty\epsilon_k,
 $$
 
-其中 $\alpha$ 控制相邻速度相关性，$\epsilon_k\sim\mathcal{N}(0,1)$。令 $\tilde v_k=\exp(z_k)$，再把它们缩放到从 $\frac13L$ 到 $\frac53L$ 的随机路径长度，得到非负的 forward displacement。
+其中 $\alpha$ 控制相邻速度相关性，$\epsilon_k\sim\mathcal{N}(0,1)$。令 $\tilde v_k=\exp(z_k)$。实体配方以 $L=(N-1)S$ 为标准时间跨度，先采样路径预算 $\ell\sim\mathcal U[fL/3,5fL/3]$，并将其截断到 episode 可容纳的长度；再令步长大小为 $\ell\tilde v_k/\sum_r\tilde v_r$。$\ell$ 控制的是反转前的总路程预算，出现往返后不等于最早、最晚访问帧之间的跨度。
 
-为产生回退信号，采样 $R\sim\mathrm{Poisson}(\lambda_{rev})$ 个 reversal point，并在这些位置翻转后续速度符号；最后以 0.5 概率整体反转窗口。累积位移 $c_j=\sum_{k<j}u_k$ 后，索引为 $i_j=\mathrm{round}(i_0+c_j)$。
+为产生回退信号，采样并截断 $R=\min(\mathrm{Poisson}(\lambda_{rev}),N-2)$，从内部位置无放回选择 reversal points，翻转后续步长符号。累积位移 $c_j=\sum_{k<j}u_k$ 后，根据 $\min c_j,\max c_j$ 选择合法起点，保证整条路径留在视频内；最后以 0.5 概率整体反转采样序列并取整。
 
 **为什么这样做？** 独立地随机跳帧会产生不自然的速度抖动，模型可能学到采样伪影；AR(1) 让速度变化更像真实操作中的连续节奏。反向播放不是物理上严格的失败轨迹，却能提供负进度监督。
 
@@ -163,7 +169,7 @@ $$
 v_j=(N-1)(\hat y_j-\hat y_{j-1}).
 $$
 
-一个源帧通常被多个窗口覆盖，所有覆盖该帧的预测取平均，得到 $\hat v_t$。正值对应 forward progress，零附近对应停滞，负值对应 regression。
+**【Paper】** 相邻窗口起点只移动一个源帧。窗口内相邻 token 之间的速度预测覆盖对应的源帧区间，再对重叠区间取平均得到 $\hat v_t$；正、零、负分别被用作推进、停滞、回退的估计。密集输出不等于独立的高频测量：单次判断利用长达 46.5 秒的上下文，而且双向 Transformer 可以看到目标帧之后的画面。它适合离线数据筛选，不能直接当作因果、实时的在线奖励。
 
 ### 4.3 关键公式
 
@@ -176,7 +182,7 @@ p_l=\frac{b_{l+1}-y_j}{b_{l+1}-b_l},\qquad
 p_{l+1}=\frac{y_j-b_l}{b_{l+1}-b_l}.
 $$
 
-**【Analysis】** 这相当于保留连续值信息，同时把优化变成分类问题。论文引用的动机是直接回归容易出现优化不稳定和容量利用不足；分类头还可以通过 bin 分布表达一定的不确定性。
+**【Analysis】** 这相当于保留连续值信息，同时把优化变成分类问题。论文引用的动机是直接回归容易出现优化不稳定和容量利用不足；实际损失是 $-\sum_b p_b\log q_b$，30 个 bin 位于 $[-3,3]$，越界标签在代码中先截断。这里的 C51 指离散支撑上的分布式回归形式，并没有 RL 的 Bellman 更新；预测分布也未经实验验证为校准过的不确定性，不能把某个 bin 的概率解释成任务成功概率。
 
 #### WARP-BC weighting
 
@@ -194,13 +200,13 @@ $$
 \left[w(s,a)\,\mathcal{L}_{\mathrm{flow}}(\pi_\theta;s,a)\right].
 $$
 
-其中 $\tau=1$ 表示只保留高于参考专家节奏的 chunk；连续权重让速度更高的片段拥有更大梯度。$w=0$ 的 chunk 会在训练前被过滤，避免保留大量无效样本而只是把 batch 权重变成零。
+其中 $\tau=1$ 表示只保留估计速度高于参考单位的 chunk；这是由任务内参考集校准的数值尺度，而非跨任务通用的‘专家水平’。连续权重让速度更高的片段拥有更大梯度。$w=0$ 的 chunk 会在训练前被过滤，避免保留大量无效样本而只是把 batch 权重变成零。
 
 ### 4.4 Training
 
 **【Paper】** WARP-RM 只在固定的高质量参考子集 $\mathcal{D}_{RM}$ 上训练。T-shirt 实验中参考集是 1,950 条最短示教（≤59.8 s），用于定义 $\hat v\approx1$ 的 canonical pace。训练数据从成功 episode 中在线采样时间扭曲窗口；视觉 encoder 冻结，Transformer 和 progress head 更新。
 
-论文主实验参数为 $N=32$、源视频 30 Hz、窗口间 canonical stride $S=1.5$ s、$\alpha=0.5$、$\sigma_\infty=\ln2$、$\lambda_{rev}=1$、过滤阈值 $\tau=1$。这些参数是论文实验设置，不应与代码后续 recipe 的所有默认值混用。
+论文主实验参数为 $N=32$、源视频 30 Hz、窗口内 inter-token stride $S=1.5$ s、$\alpha=0.5$、$\sigma_\infty=\ln2$、$\lambda_{rev}=1$、过滤阈值 $\tau=1$。附录 E 还给出 batch size 1024、训练 15,000 steps、AdamW 峰值学习率 $4\times10^{-4}$。这些是实体实验设置。仿真改用 $S=0.5$ s，32-token 窗口跨度为 15.5 s，但采样路径预算仍固定为 465–2325 个源帧，**并未随 $S$ 缩成三分之一**；模型训练 20,000 steps，发布的是第 14,400 step 的 best-composite checkpoint（附录 D）。这一区别会改变训练标签分布，复现时不能只改一个 stride 参数。
 
 <Algorithm number={1} title='WARP-RM Training' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>成功示教视频集合、冻结视觉编码器 $\phi$、窗口长度 $N$</div>
@@ -217,7 +223,7 @@ $$
 
 ### 4.5 Inference
 
-**【Paper】** 对一段未见过的 demonstration，模型在每个 source-frame offset 上建立重叠窗口；窗口内预测累计进度，作离散 temporal derivative，再把多窗口预测平均到每个 frame。动作 chunk 的末帧速度直接作为 WARP-BC 的 gate 与 weight。
+**【Paper】** 对一段未见过的 demonstration，模型在每个 source-frame offset 上建立重叠窗口；窗口内预测累计进度，作离散 temporal derivative，再把多窗口预测平均到每个 frame。实体实验将动作 chunk 的末帧速度用作 gate 与连续 weight；v4 仿真实验采用同样的筛选思路，但保留样本一律赋单位权重。
 
 <Algorithm number={2} title='WARP-BC Inference and Curation' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>示教 episode、训练好的 WARP-RM、action chunk 长度 $H$、阈值 $\tau$</div>
@@ -230,23 +236,23 @@ $$
   <AlgorithmStep>使用 $w\cdot\mathcal{L}_{\mathrm{flow}}$ 训练下游 policy</AlgorithmStep>
 </Algorithm>
 
-**【Code】** 当前仓库的 `dense_inference_relative` 会扫描每个 feature step，聚合窗口速度后 cumsum，并把累计曲线 min-max 归一化到 `[0,1]`。短 episode 若放不下完整 canonical window，会自动缩短 stride 并按比例 rescale velocity；这是工程上的稳健性处理，不是论文新增结论。
+**【Code】** 当前仓库的 `dense_inference_relative` 会扫描每个 feature step，聚合窗口速度后 cumsum，并把累计曲线 min-max 归一化到 `[0,1]`。短 episode 若放不下完整 canonical window，会自动缩短 stride 并按比例 rescale velocity；只有足够长、能够构造窗口时才走该重采样分支；极短输入仍有线性进度/均匀速度的 fallback。积分后的 `[0,1]` 曲线用于展示，实际筛选使用未做这种 min-max 归一化的 `avg_velocity`，否则 $\tau=1$ 的意义会改变。
 
 ### 4.6 代码实现对照
 
 **【Code】** 官方仓库 `uynitsuj/WARP-RM` 提供训练、特征预计算、打分、可视化和 LeRobot parquet 注入脚本。核心对应关系如下：
 
-| 论文概念 | 官方代码 | 实际行为 |
-| --- | --- | --- |
-| 时间扭曲采样 | `warp_rm/data/samplers.py` | `ARSampler` 实现 AR(1) log-speed、path budget 和 reversals；仓库还提供 IID、`ContinuousWarpSampler` 等可插拔变体 |
-| 相对累计标签 | `warp_rm/data/labelers.py` | `RelativeCumulativeLabeler` 输出窗口起点对齐的累计 displacement；另有 delta-velocity labeler |
-| 视觉编码器 | `warp_rm/models/backbones/dinov3.py` | 通过 HuggingFace 加载冻结 `facebook/dinov3-vitb16-pretrain-lvd1689m`，输出 768 维 pooled feature |
-| 时序模型 | `warp_rm/models/aggregators/transformer.py` | temporal diff → Linear → sinusoidal PE → bidirectional Transformer → C51 expectation |
-| 训练损失 | `warp_rm/core/loss.py` | relative head 使用 soft-bin C51 CE；可选 absolute、sign、completion、smoothness auxiliary loss |
-| 密集推理 | `warp_rm/visualization/inference.py` | 重叠窗口速度平均、积分、归一化；支持 relative 与 delta 两种标签模式 |
-| 数据注入 | `scripts/data/write_warp_rm_annotations.py` | 写入 `warp_rm_progress` 与 `warp_rm_signed_magnitude` 到 LeRobot 数据副本 |
+| 论文概念     | 官方代码                                    | 实际行为                                                                                                         |
+| ------------ | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| 时间扭曲采样 | `warp_rm/data/samplers.py`                  | `ARSampler` 实现 AR(1) log-speed、path budget 和 reversals；仓库还提供 IID、`ContinuousWarpSampler` 等可插拔变体 |
+| 相对累计标签 | `warp_rm/data/labelers.py`                  | `RelativeCumulativeLabeler` 输出窗口起点对齐的累计 displacement；另有 delta-velocity labeler                     |
+| 视觉编码器   | `warp_rm/models/backbones/dinov3.py`        | 通过 HuggingFace 加载冻结 `facebook/dinov3-vitb16-pretrain-lvd1689m`，输出 768 维 pooled feature                 |
+| 时序模型     | `warp_rm/models/aggregators/transformer.py` | temporal diff → Linear → sinusoidal PE → bidirectional Transformer → C51 expectation                             |
+| 训练损失     | `warp_rm/core/loss.py`                      | relative head 使用 soft-bin C51 CE；可选 absolute、sign、completion、smoothness auxiliary loss                   |
+| 密集推理     | `warp_rm/visualization/inference.py`        | 重叠窗口速度平均、积分、归一化；支持 relative 与 delta 两种标签模式                                              |
+| 数据注入     | `scripts/data/write_warp_rm_annotations.py` | 写入 `warp_rm_progress` 与 `warp_rm_signed_magnitude` 到 LeRobot 数据副本                                        |
 
-**【Analysis】** 论文把 WARP 描述成一个相对稳定的 AR(1) 采样器和 30-bin head，而当前公开代码已经演化成研究框架：sampler、labeler、融合方式、辅助头和数据布局都可替换。因此复现实验时必须锁定 commit、ablation、`source_standard_stride`、feature stride 和 retention threshold；直接运行仓库默认 recipe 不等于复现论文 Table 1。
+**【Analysis】** 论文把 WARP 描述成一个相对稳定的 AR(1) 采样器和 30-bin head，而当前公开代码已经演化成研究框架：sampler、labeler、融合方式、辅助头和数据布局都可替换。因此复现实验时必须锁定 commit、ablation、`source_standard_stride`、feature stride 和 retention threshold；直接运行仓库默认 recipe 不等于复现论文 Table 1。官方 `docs/reproduce_sim.md` 固定 policy-training 为 `uynitsuj/openpi@9c8e7b75`、batched rollout 为 `uynitsuj/abc-rabc@59db543d`；这些仿真配方与可选研究分支要分开。本文核对了采样器、标签器、Transformer、损失、密集推理与注入代码，未重训模型或下载全部策略权重复跑实验。
 
 ## 5. 实验
 
@@ -256,66 +262,102 @@ $$
 
 - **真实 T-shirt folding**：双臂 I2RT YAM，从随机皱缩的衣物开始，在 240 s 超时内完成抓取、铺平、折袖、对折两次并移到左上角；每个策略 20 次试验。
 - **真实 bottle-in-bin**：每次试验把 4 个塑料瓶放入箱子，20 次试验，共 80 个瓶子，单 trial 超时 90 s。
-- **模拟 bottle-in-bin**：MuJoCo-Warp 中每场景 6 个瓶子，128 个配对场景、60 s 超时，共 768 个瓶子；同一场景种子用于比较 vanilla BC 与 WARP-BC。
+- **模拟 bottle-in-bin**：v4 在 MuJoCo-Warp 中使用 **512 个配对场景**，每场景 6 个瓶子。名义时限 60 s，实际为 1,800 个动作、每步 0.034 s，共 **61.2 s**。各方法使用相同场景种子。策略每次预测 30 步并全部执行，再重新规划，不能把它当作逐动作闭环重规划。
 
-T-shirt 数据按 episode 时长分 tier：D1 ≤60 s（2,427 episodes，36.1 h）、D2 ≤90 s（4,124，71.3 h）、D3 ≤120 s（6,473，139.7 h）。更长 episode 被当作包含更多 hesitation、fumble 和 recovery 的混合质量数据。这里的长度只是实验用 proxy，不是 WARP-RM 的训练标签。
+T-shirt 数据按 episode 时长分 tier：D1 ≤60 s（2,427 episodes，36.1 h）、D2 ≤90 s（4,124，71.3 h）、D3 ≤120 s（6,473，139.7 h）。更长 episode 被当作包含更多 hesitation、fumble 和 recovery 的混合质量数据。这里的 episode 总长度是划分数据质量的粗代理；WARP 标签则来自局部源帧的时间差。长轨迹也可能对应更难初态或不同操作风格，D1→D3 同时增加样本量和时长尾部，不能解释成只控制了质量的单因素实验。
+
+**【Paper】** 实体试验还有附录 F 的剔除规则：瓶子任务中打翻箱子的试验，以及折衣任务前 10 秒抓住箱子而非衣物的试验，会重置重做而不计分；所有方法遵守同一规则。因此表中 20 次是计分试验，不能解读成所有启动尝试的无条件成功率。
 
 ### 5.2 Main Results
 
 **【Paper】** T-shirt folding 的跨 tier 结果：
 
-| 方法 | 指标 | D1 | D2 | D3 |
-| --- | --- | ---: | ---: | ---: |
-| Vanilla BC | 成功 | 20/20 | 2/20 | 0/20 |
-| Vanilla BC | 平均 TTC (s) | 113.8 | 199.0 | N/A |
-| Vanilla BC | 吞吐 (/h) | 31.6 | 1.5 | 0.0 |
-| WARP-BC | 成功 | 20/20 | 19/20 | 14/20 |
-| WARP-BC | 平均 TTC (s) | 63.9 | 118.8 | 117.4 |
-| WARP-BC | 吞吐 (/h) | 56.3 | 27.4 | 16.3 |
-| WARP-BC | 保留 action chunks | 35.7% | 34.4% | 22.5% |
+| 方法       | 指标               |    D1 |    D2 |    D3 |
+| ---------- | ------------------ | ----: | ----: | ----: |
+| Vanilla BC | 成功               | 20/20 |  2/20 |  0/20 |
+| Vanilla BC | 平均 TTC (s)       | 113.8 | 199.0 |   N/A |
+| Vanilla BC | 吞吐 (/h)          |  31.6 |   1.5 |   0.0 |
+| WARP-BC    | 成功               | 20/20 | 19/20 | 14/20 |
+| WARP-BC    | 平均 TTC (s)       |  63.9 | 118.8 | 117.4 |
+| WARP-BC    | 吞吐 (/h)          |  56.3 |  27.4 |  16.3 |
+| WARP-BC    | 保留 action chunks | 35.7% | 34.4% | 22.5% |
+
+**【Paper】** TTC 只平均成功试验；失败试验按完整 240 秒进入吞吐分母，人类重置时间不计入。其定义为：
+
+$$
+\mathrm{Throughput}=\frac{3600\,n_{\mathrm{success}}}{\sum_{i\in\mathrm{success}}\mathrm{TTC}_i+240\,n_{\mathrm{failure}}}.
+$$
+
+**【Analysis】** 因而 D2 的约 18 倍是综合完成率与失败超时的吞吐收益；成功样本平均 TTC 从 199.0 到 118.8 秒，并不是动作执行快了 18 倍。只看成功时间的分布图，还会遗漏 18 次失败所消耗的时间。
 
 ![T-shirt folding time-to-completion distribution from paper Figure 4](https://pic.hana0721.top/blog/paper-deep-dive-warp-rm/ttc-distribution.58i3vpe9rl.webp)
 
-**【Paper】** 在加入人工标注数据的 matched comparison 中，D4 = D1 ∪ DA、D5 = D2 ∪ DA。D5 上 WARP-BC 仍为 19/20，而 SARM 和 SCIZOR 都降到 2/20；DemInf 达到 18/20，但吞吐只有 25.3/h，低于 WARP-BC 的 27.4/h。SARM 依赖人工阶段边界，不能被视为完全自监督基线。
+**【Paper】** Table 2 将 867 条带阶段标注的示教 $D_A$ 并入基准，得到 $D_4=D_1\cup D_A$、$D_5=D_2\cup D_A$；只有 SARM 使用这些标签。v4 的 WARP-BC 在 D4/D5 上均为 **20/20**，TTC 为 **71.2/80.7 s**、吞吐 **50.6/44.6 h⁻¹**。D5 的 DemInf 为 18/20、25.3/h，SARM 与 SCIZOR 均为 2/20。这里不能挪用 D2 的 19/20、27.4/h：训练集不同，结果也不同。
+
+WARP-BC 与 DemInf 在 D4/D5 分别匹配 45.6%/33.7% 保留率，但 SARM、SCIZOR 保留约 78%/67%，因此这个实体对比只对前两者控制了数据预算。v4 仿真实验才把所有筛选方法的保留比例统一起来。
 
 真实 bottle-in-bin 结果为：
 
-| 方法 | 放入瓶数 | 平均每瓶时间 (s) | 吞吐 (/h) | 保留 chunks |
-| --- | ---: | ---: | ---: | ---: |
-| Vanilla BC | 59/80 | 15.9 | 147.8 | 100% |
-| WARP-BC | 74/80 | 11.3 | 237.8 | 30.6% |
+| 方法       | 放入瓶数 | 平均每瓶时间 (s) | 吞吐 (/h) | 保留 chunks |
+| ---------- | -------: | ---------------: | --------: | ----------: |
+| Vanilla BC |    59/80 |             15.9 |     147.8 |        100% |
+| WARP-BC    |    74/80 |             11.3 |     237.8 |       30.6% |
+
+平均每瓶时间统计成功放入之间的间隔，未放入的瓶子不会直接进入该均值；吞吐则把超时试验完整计为 90 秒。真实瓶子数据有 1,374 条、26.4 小时；WARP-RM 在其中最短的 687 条、10.2 小时上**重新训练**（附录 B），不是把折衣 reward model 零样本迁移到放瓶子。
 
 ![Real-world bottle-in-bin placement-time distribution from paper Figure 5](https://pic.hana0721.top/blog/paper-deep-dive-warp-rm/bottle-distribution.2yz3c7thhw.webp)
 
-模拟 128 配对场景中，WARP-BC 放入 598/768 个瓶子，vanilla BC 为 509/768；每场景平均 4.67 对 3.98，平均每瓶时间 8.8 s 对 10.7 s，吞吐 301.3/h 对 243.0/h。论文报告配对检验均显著：瓶数 $p<10^{-5}$、时间 $p<10^{-6}$、吞吐 $p<10^{-7}$。
+**【Paper】** v4 Table 5 的 512 场景结果如下。所有筛选方法都保留 31.5% 的候选数据；WARP 与 IID 变体均用**二值筛选、保留样本等权**：
 
-![Simulated bottle-in-bin placement-time distribution from paper Figure 6](https://pic.hana0721.top/blog/paper-deep-dive-warp-rm/sim-bottle-distribution.86udz7mi21.webp)
+| 方法                    | 每场景放入瓶数 | 吞吐（瓶/h） | 6 瓶全部放入 |
+| ----------------------- | -------------: | -----------: | -----------: |
+| Vanilla BC（100% 数据） |          3.885 |          237 |         9.4% |
+| Random                  |          3.770 |          230 |        10.9% |
+| ReWiND                  |          3.781 |          231 |         9.4% |
+| SARM（oracle 阶段边界） |          4.191 |          265 |        20.5% |
+| WARP-BC（IID）          |          4.285 |          269 |        18.9% |
+| SCIZOR                  |          4.299 |          270 |        19.1% |
+| DemInf                  |          4.332 |          271 |        18.8% |
+| WARP-BC（AR(1)）        |      **4.533** |      **290** |    **25.0%** |
+
+所有策略都用同一 π₀ base、batch size 32、30,000 步训练。训练集 2,438 条、17.5 小时，包含 2–6 个瓶子的场景；RM 参考集按瓶数分层选最短 25%（610 条），避免参考集全由更容易完成的少瓶子任务占据。保留率的分母是**每个源帧作为 chunk 起点的全部候选位置**，尾部不足 30 帧以最后一帧补齐；31.5% 不是保留了 31.5% 的完整 episode，也不是独立样本数量。
+
+**【Paper】** 配对场景统计中，WARP 相对 vanilla 的吞吐增益为 +53 瓶/h（95% CI [42,64]），相对 DemInf 为 +19 [9,29]，相对 SCIZOR 为 +20 [8,32]。相对等预算随机筛选，每场景多放 0.764 个瓶子 [0.60,0.93]，说明优势不只来自丢掉更多数据。额外一个训练种子中 WARP/DemInf 仍为 287/261 瓶/h，但尚不足以估计所有方法的多训练种子方差。
+
+**【Analysis】** 这组更充分的实验支持 WARP 的片段选择效果；因为保留样本等权，它不能用来论证连续权重本身的优势。31.5% 与相同步数控制了筛选方法之间的数据复用程度，vanilla 使用全量数据，其每样本复用次数仍不同。
+
+下图保留的是**旧版 128 场景的放瓶时间分布**（WARP/vanilla 每场景 4.67/3.98 个瓶子），仅帮助理解成功放瓶时间的分布。v4 Figure 6 已换成上述 512 场景的吞吐对照图，不能把旧图当作新版表格的可视化。
+
+![Historical 128-scene simulated bottle placement distribution](https://pic.hana0721.top/blog/paper-deep-dive-warp-rm/sim-bottle-distribution.86udz7mi21.webp)
 
 ### 5.3 Ablation Study
 
 **【Paper】** D2 上的关键消融：
 
-| 组件 | 变体 | 成功 | 吞吐 (/h) | 保留 |
-| --- | --- | ---: | ---: | ---: |
-| Weighting | $\tau=0$ | 3/20 | 2.3 | 97.0% |
-| Weighting | $\tau=1$ binary | 16/20 | 18.0 | 34.4% |
-| Weighting | $\tau=1$ continuous | 19/20 | 27.4 | 34.4% |
-| Aggregation | chunk mean | 15/20 | 17.4 | 34.0% |
-| Aggregation | future-offset mean | 14/20 | 15.9 | 34.3% |
-| Aggregation | terminal $\hat v_{end}$ | 19/20 | 27.4 | 34.4% |
-| Sampler | IID log-normal | 18/20 | 22.8 | 28.7% |
-| Sampler | AR(1) | 19/20 | 27.4 | 34.4% |
+| 组件        | 变体                    |  成功 | 吞吐 (/h) |  保留 |
+| ----------- | ----------------------- | ----: | --------: | ----: |
+| Weighting   | $\tau=0$                |  3/20 |       2.3 | 97.0% |
+| Weighting   | $\tau=1$ binary         | 16/20 |      18.0 | 34.4% |
+| Weighting   | $\tau=1$ continuous     | 19/20 |      27.4 | 34.4% |
+| Aggregation | chunk mean              | 15/20 |      17.4 | 34.0% |
+| Aggregation | future-offset mean      | 14/20 |      15.9 | 34.3% |
+| Aggregation | terminal $\hat v_{end}$ | 19/20 |      27.4 | 34.4% |
+| Sampler     | IID log-normal          | 18/20 |      22.8 | 28.7% |
+| Sampler     | AR(1)                   | 19/20 |      27.4 | 34.4% |
 
 **【Analysis】** 两个结果最能说明方法的实际创新：
 
-1. binary gate 与 continuous weight 保留相同数量 chunk，但连续权重明显更好，说明“保留哪些”之外，“保留片段之间如何分配梯度”同样重要。
-2. terminal velocity 优于 chunk mean。均值会让前半段短暂的高速进展掩盖后半段的回退；末帧 gate 更像在检查动作 chunk 的落点是否仍处于有效前沿。
+1. binary 与 continuous 保留相同的 34.4%，连续权重在这组 20 次试验中得到更高吞吐，提示保留样本之间的梯度分配可能有价值；16/20 对 19/20 仍是小样本描述，不足以独立确认普遍显著的提升。
+2. terminal aggregation 在这组配置中优于两种均值。‘前半段推进掩盖后半段回退’是合理机制解释，但没有逐案例证明，也不能把末帧分数当作因果价值函数；它使用双向长窗口上下文。
+3. 实体 AR(1)/IID 保留率为 34.4%/28.7%，混合了相关性和筛选量影响。v4 仿真把两者调到同一 31.5% 后，吞吐 290/269 瓶/h，为时间相关采样提供了更直接的对照。官方配方为 IID 调整阈值到约 1.047659，不能双方机械使用同一个数值阈值却声称等预算。
 
 ### 5.4 Generalization
 
-**【Paper】** 从 T-shirt folding 到 bottle placement，WARP-BC 在真实和模拟环境都提升成功数量、执行速度与吞吐。模拟实验的配对设计和公开评估 artifact 让统计结论比 20 次实体试验更稳定。
+**【Paper】** 跨任务结果验证的是同一训练/筛选方法能否复用，各任务仍训练自己的 reward model。实体折衣测试使用训练未见的不同颜色、中等尺寸 T-shirt；这不等于验证所有衣物形状或新机器人。仿真的配对设计减少场景难度引入的比较噪声，但不能替代跨任务、跨平台或训练随机性的评估。
 
-**【Code】** 官方仓库进一步公开了 MuJoCo-Warp 的复现路径、n=128 scorer self-test 和 n=512 traces。README 中的 n=512 表格（4.533 vs 3.885 bottles/scene）与论文正文的 n=128 表格（4.67 vs 3.98）属于不同评估规模，不能混写成同一个实验结果。
+v4 §4.8 还直接检查分数是否识别错误：独立标注者在本工作之前为 452 条专家折衣轨迹作标注，实际比较的错误窗口配对是 **24 对**。23/24 的错误窗口分数低于同轨迹等时长的有效操作窗口；其中参考集之外为 12/13。逐帧错误判别 AUROC 为 0.83，高于本体运动速度的 0.61 和衣物面积变化的 0.68。它支持分数不只是测量画面/关节运动大小，但样本很小、部分轨迹进入过 RM 参考集，也未证明筛选一定保留有用的恢复动作。
+
+**【Code】** [复现指南](https://github.com/uynitsuj/WARP-RM/blob/main/docs/reproduce_sim.md)区分 128 场景历史 scorer 自检与 512 场景主结果；前者是确定性打分器校验，不能替代后者。指南也明确 ReWiND、DemInf 的部分生成流程仅支持 verification-only，缺少完整第三方 RM 训练或 MI/KSG 打分路径；本次读取的 artifact 表还将其他六组策略权重标为上传中。因此公开 trace、可校验分数与从头重现每条基线，是不同级别的可复现性。
 
 ## 6. 方法分析
 
@@ -335,15 +377,15 @@ T-shirt 数据按 episode 时长分 tier：D1 ≤60 s（2,427 episodes，36.1 h�
 
 ### 6.3 与已有方法的本质区别
 
-| 方法 | 监督形态 | 质量粒度 | 是否需要人工标注 |
-| --- | --- | --- | --- |
-| ReWiND | 绝对时间 / 语言引导 reward | frame | 否，但依赖绝对轴 |
-| SARM / ARM | 阶段或 advantage reward | frame / chunk | 是或需要额外标注 |
-| DemInf | episode 互信息 | episode | 否 |
-| SCIZOR | 自监督时间距离 | frame / chunk | 否 |
-| **WARP** | signed relative progress velocity | frame → chunk | **否** |
+| 方法       | 监督形态                          | 质量粒度      | 是否需要人工标注 |
+| ---------- | --------------------------------- | ------------- | ---------------- |
+| ReWiND     | 绝对时间 / 语言引导 reward        | frame         | 否，但依赖绝对轴 |
+| SARM / ARM | 阶段或 advantage reward           | frame / chunk | 是或需要额外标注 |
+| DemInf     | episode 互信息                    | episode       | 否               |
+| SCIZOR     | 自监督时间距离                    | frame / chunk | 否               |
+| **WARP**   | signed relative progress velocity | frame → chunk | **否**           |
 
-**【Analysis】** WARP 不试图学习跨任务的语义 reward，也不直接估计 RL value。它牺牲了任务语义泛化，换取高频、低成本、对单一任务数据清晰的局部质量排序。
+**【Analysis】** WARP 不试图学习跨任务的语义 reward，也不直接估计 RL value。它以任务内参考示教为基础，给离线数据提供密集、相对低成本的质量排序；没有证据表明同一 reward model 已具备跨任务通用尺度。
 
 ### 6.4 关键假设
 
@@ -372,7 +414,7 @@ T-shirt 数据按 episode 时长分 tier：D1 ≤60 s（2,427 episodes，36.1 h�
 
 - **参考集选择会决定尺度**：最短 episode 不一定是最有信息的 episode；如果最短数据存在过快操作或遗漏步骤，$\hat v=1$ 的校准会偏移。
 - **单目视觉可辨识性有限**：遮挡、深度变化或接触力不足以由 RGB 判断时，模型可能把“画面变化”当作进度。
-- **窗口与动作 chunk 的时间尺度耦合**：论文用 1.5 s 窗口 stride 和约 1 s action chunk；换成不同控制频率或 action horizon，$\tau=1$ 不一定仍然合理。
+- **时间尺度与非因果上下文**：实体 RM 的 32 个 token 跨 46.5 秒，下游动作 chunk 约 1 秒；双向窗口和重叠平均使末帧分数依赖更宽上下文。更换帧率、窗口间隔或 horizon 后，必须重新检查尺度与保留率，不能直接沿用 $\tau=1$。
 - **过滤可能损害 recovery coverage**：高进度片段更容易是专家的顺利路径，低进度片段中却可能包含策略部署时最需要的纠错动作。
 - **实体试验样本量有限**：20 次 trial 下 19/20 与 20/20 的差异可能仍处于二项抽样噪声，吞吐和 TTC 比单看 success 更有解释力。
 - **工程实现持续演化**：当前仓库加入了 delta label、连续 Beta-CDF sampler、多相机 fusion 和辅助 head；如果不锁定版本，复现实验数字会混入代码变化。
@@ -390,5 +432,7 @@ T-shirt 数据按 episode 时长分 tier：D1 ≤60 s（2,427 episodes，36.1 h�
 如果把论文压缩成一个研究问题，就是：**在不增加人工标注的前提下，能否把“示教中哪里真正推进了任务”变成可计算、可验证、可下游使用的训练信号？** WARP-RM 给出的答案是肯定的，但它仍需要在更多 embodiment、更多失败模式和更长的在线闭环任务上接受检验。
 
 <Aside type='note' title='阅读提示'>
-  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方仓库实现，`【Analysis】` 表示基于论文和代码的分析推断。论文 Table 1/4/5 与官方仓库 README 的 n=128、n=512 模拟结果属于不同评估规模，已分别标注。
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方仓库实现，`【Analysis】`
+  表示基于论文和代码的分析推断。结果与实验定义以 2026-09-06 的 arXiv v4 为准；保留的 n=128
+  旧版图已单独标注，v4 Table 5 为 n=512。本文完成原文与代码阅读核验，未执行机器人或仿真训练复现。
 </Aside>

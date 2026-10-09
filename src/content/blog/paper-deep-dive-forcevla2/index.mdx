@@ -1,7 +1,7 @@
 ---
 title: 'ForceVLA2 论文精读：让 VLA 学会感知并控制接触力'
 publishDate: 2026-08-26
-updatedDate: 2026-08-26
+updatedDate: 2026-09-22
 description: '精读 ForceVLA2：用 Force Prompt、Cross-Scale MoE 与混合力位控制，把力觉从辅助观测变成接触丰富操作中的闭环控制信号。'
 heroImage:
   { src: 'https://pic.hana0721.top/98000873_p0_master1200.491vjnsp6s.webp', color: '#7D766C' }
@@ -68,7 +68,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** 现有 VLA（例如 $\pi_0$、$\pi_{0.5}$、OpenVLA）擅长视觉语义对齐，却通常输出末端位姿或关节动作。对按压、擦拭、插入和装配这类任务，视觉很难判断“是否已经接触”“接触是否过大”，单纯追踪位置会导致卡死、过载或失去接触。
 
-ForceVLA 已经证明，把力作为输入可以提升接触任务表现，但论文认为这仍主要是感知层的增强：模型看到力，却不一定学会主动调节力。ForceVLA2 的问题设定因此更具体：如何让语言层理解当前接触阶段，同时让动作层在毫秒级别利用力反馈改变控制模式。
+ForceVLA 已经证明，把力作为输入可以提升接触任务表现，但论文认为这仍主要是感知层的增强：模型看到力，却不一定学会主动调节力。ForceVLA2 的问题设定因此更具体：如何让语言层理解当前接触阶段，同时让动作层利用力反馈生成目标位姿与目标力。附录 C 报告 RTX 4090 上推理为 **15 Hz、action chunk 为 30**；传感器的 300 Hz 采样率不能当作神经策略的更新频率。
 
 **【Analysis】** 这也解释了为什么作者不把所有力 token 都塞进 VLM：高层语义推理需要稳定上下文，瞬时力信号则更像控制回路中的高频反馈，两者的延迟和职责不同。
 
@@ -79,9 +79,9 @@ ForceVLA 已经证明，把力作为输入可以提升接触任务表现，但�
 - 三路 RGB 视角（两路第三人称、一路腕部相机）；
 - 全局任务提示 $T_t$；
 - 当前子任务对应的 Force Prompt $T_f$；
-- 末端执行器位姿 $mathbf p$ 与 6D 力/力矩 $mathbf f_{mathrm{raw}}$。
+- 末端执行器位姿 $\mathbf p$ 与 6D 力/力矩 $\mathbf f_{\mathrm{raw}}$。
 
-策略输出混合力位控制命令，包括末端位姿变化、目标接触力和子任务进度信号。论文正文把位姿 token 写成 7 维（位置加四元数），而附录的控制分析又使用 6D 位姿；因此动作总维度在论文不同段落之间并不完全一致，**【Analysis】** 这里应把它理解为“位姿控制量 + 6D 力/力矩”，而不是依赖某个固定维度。
+策略输出位姿变化与目标 6D 力/力矩，并预测子任务进度。式 (9) 将位姿变化写为 7 维、力写为 6 维，另列进度变量。**【Analysis】** 物理位姿的 6 个自由度可以用位置三维加四元数四维编码，不能仅凭“6D/7D”认定论文矛盾；真正待复现核实的是旋转增量的参数化、夹爪与控制模式如何进入执行接口，以及进度预测头如何训练。四元数旋转变化也不能直接当作普通四维向量相减。
 
 机器人平台是 7-DoF Flexiv Rizon 4s，配 DH Robotics AG-95 夹爪和末端 6D F/T 传感器。评测覆盖 press bottle、clean vase、clean board、retrieve plate、assemble gears 五项任务。
 
@@ -89,7 +89,7 @@ ForceVLA 已经证明，把力作为输入可以提升接触任务表现，但�
 
 ### 4.1 Overall Architecture
 
-**【Paper】** ForceVLA2 的数据流可以压缩为一句话：多视角图像、任务提示和 Force Prompt 进入 VLM 形成长时程任务概念；末端位姿经多模态编码器与 VLM 对齐，而实时力信号保留一条旁路直接进入 Cross-Scale MoE；MoE 再条件化 flow-matching Action Expert，生成混合力位动作。
+**【Paper】** ForceVLA2 的数据流可以压缩为一句话：多视角图像、任务提示和 Force Prompt 进入 VLM 形成长时程任务概念；末端位姿与力组成的状态 token 通过 cross-attention 读取 VLM 上下文，力 embedding 还额外保留一条旁路直接进入 Cross-Scale MoE；MoE 再条件化 flow-matching Action Expert，生成混合力位动作。
 
 **【Analysis】** 这是一种“语义规划 + 反应控制”的双时间尺度结构，而不是把 VLM 和控制器简单串联。
 
@@ -103,13 +103,13 @@ ForceVLA 已经证明，把力作为输入可以提升接触任务表现，但�
 
 #### Proprioceptive-force Encoding：位姿与力的不同路径
 
-**【Paper】** 末端位姿 $mathbf p$ 经线性层 $phi_P$ 投影为 $mathbf E_P$，原始 6D 力/力矩 $mathbf f_{mathrm{raw}}$ 经 $phi_F$ 投影为 $mathbf E_F$。位姿和力 token 先组成状态表示，并通过 Cross-Attention 从 VLM token 中取得任务上下文。
+**【Paper】** 末端位姿 $\mathbf p$ 经线性层 $\phi_P$ 投影为 $\mathbf E_P$，原始 6D 力/力矩 $\mathbf f_{\mathrm{raw}}$ 经 $\phi_F$ 投影为 $\mathbf E_F$。位姿和力 token 先组成状态表示，并通过 Cross-Attention 从 VLM token 中取得任务上下文。
 
-关键区别是：慢变化的位姿进入多模态编码器，而快速变化的力保留 bypass，直接送入 MoE。这样既能让力理解任务语境，又避免高层融合抹平接触瞬态。
+关键在于**力有两条路径**：它既参与带上下文的状态表示，又以未经 cross-attention 的 embedding 进入 MoE。旁路不是未处理的原始传感器数值，也不表示力完全绕开语义条件；设计意图是同时保留接触细节和任务相关解释。
 
 #### Cross-Scale MoE：按阶段选择主导模态
 
-**【Paper】** MoE 包含视觉、状态和力三个轻量 MLP expert。门控网络为每个 token 产生 $w_V,w_S,w_F$，再按 token 动态加权。自由空间运动时，视觉和位姿可以占主导；接触、擦拭或插入时，力 expert 的权重可以上升。
+**【Paper】** MoE 包含视觉、状态和力三个轻量 MLP expert。门控网络为每个 token 产生 $w_V,w_S,w_F$，再按 token 动态加权。作者希望自由空间运动更依赖视觉与位姿，接触时更依赖力。**【Analysis】** 这些是表示层的路由权重，不能直接解释为底层控制器的刚度、力位分配矩阵或物理控制模式；论文没有给出门控权重与这些量的一一对应验证。
 
 ![ForceVLA2-Dataset 的任务与模态示意（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-forcevla2/3_rename-crop.webp)
 
@@ -125,7 +125,7 @@ $$
 \mathbf E = \mathrm{VLM}([f(\mathbf E_v);g([\mathbf T_t;\mathbf T_f])])
 $$
 
-其中 $f$、$g$ 分别是视觉和文本编码器，$mathbf T_t$ 是任务提示，$mathbf T_f$ 是 Force Prompt。
+其中 $f$、$g$ 分别是视觉和文本编码器，$\mathbf T_t$ 是任务提示，$\mathbf T_f$ 是 Force Prompt。
 
 状态条件化为：
 
@@ -148,19 +148,21 @@ $$
 \frac{d\mathbf a_t^{(\tau)}}{d\tau}=F_\theta(\mathbf a_t^{(\tau)},\mathbf E_{MoE},\tau),\quad \tau\in[0,1]
 $$
 
-离散实现从 $mathbf a_t^{(0)}\sim\mathcal N(0,I)$ 开始迭代更新。**【Paper】** 论文还用 $Theta$（姿态对齐）、$L$（到目标距离）和 $F$（力幅值）构造子任务转移概率：
+离散实现从 $\mathbf a_t^{(0)}\sim\mathcal N(0,I)$ 开始迭代更新。**【Paper】** 论文还用 $\Theta$（姿态对齐）、$L$（到目标距离）和 $F$（力幅值）构造子任务转移概率：
 
 $$
 \hat s_t=\theta^\alpha e^{-\lambda l}\frac{f-n}{m-n},\qquad \alpha=2,\ \lambda=2
 $$
 
-它把“姿态接近目标、距离缩短、接触力达到条件”组合为阶段进度信号；超过阈值后切换子任务并重置。
+这里 $\theta$ 是姿态对齐程度，$l$ 是剩余距离，$f$ 是接触力幅值，$[n,m]$ 是力的归一化范围。式 (10) 假设三者分别服从 Beta、指数与均匀分布，并把联合事件分解成三个因子；其 Gamma 系数可约去，得到上式。
+
+**【Analysis】** 这是由人工分布假设和条件独立分解构造的进度监督，不是经实验证明校准的成功概率。它随力幅值增大而单调上升，因此不能泛化成“力越大越接近成功”的控制原则，阶段条件和力的有效范围非常关键。此外，原文先规定 $s_t\in[0,1]$，又写“超过 1 切换”，随后改用未指定阈值；这个边界条件本身不一致，代码未公开时不能替作者确定阈值或输出激活函数。
 
 ### 4.4 Training
 
 **【Paper】** 数据采集使用 force-feedback GELLO 遥操作。三路相机同步记录，F/T 传感器以 300 Hz 记录，视觉统一缩放到 480×640。模型在 8 张 A100 上训练 30,000 steps，batch size 为 32，优化器为 AdamW，学习率采用 cosine decay，EMA decay 为 0.99；论文报告训练约 10 小时。
 
-**【Code】** 项目主页当前只提供论文、演示视频和 “code and dataset is coming soon” 占位链接，没有公开可核验的模型定义、DataLoader、训练脚本或 checkpoint。因此下面的训练流程是论文级描述，不应被误称为官方代码行为。
+**【Paper】** 截至 2026-09-22，[官方项目页](https://sites.google.com/view/force-vla2/home) 仍标注代码和数据集即将公开。下面按论文描述整理训练流程；论文没有完整给出动作与进度监督的联合损失、权重和预测头实现。
 
 <Algorithm number={1} title='ForceVLA2 Training' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>ForceVLA2-Dataset、任务提示、Force Prompt、位姿与 6D 力/力矩</div>
@@ -170,20 +172,22 @@ $$
   <AlgorithmStep>将位姿和力编码，并通过 Cross-Attention 与 VLM 表示对齐</AlgorithmStep>
   <AlgorithmStep>把瞬时力旁路与视觉、状态 token 一起送入 Cross-Scale MoE</AlgorithmStep>
   <AlgorithmStep>用 flow-matching head 预测混合力位动作和子任务进度</AlgorithmStep>
-  <AlgorithmStep>根据示教动作计算 flow-matching / 行为克隆损失，使用 AdamW 更新参数</AlgorithmStep>
+  <AlgorithmStep>
+    用示教动作训练条件 flow-matching 策略，并提供阶段进度监督；联合损失细节待实现核实
+  </AlgorithmStep>
 </Algorithm>
 
 ### 4.5 Inference
 
 **【Paper】** 推理时，机器人持续读取三路图像、当前任务提示、阶段性 Force Prompt、末端位姿和实时 F/T。VLM 负责判断当前阶段与空间语义；Cross-Scale MoE 根据 token 级门控融合高层概念和瞬时力；flow-matching Action Expert 生成下一段混合力位命令，并由底层机器人控制器执行。达到进度阈值后，Force Prompt 切换到下一个子任务。
 
-**【Analysis】** 旁路的意义在于缩短“力变化 → 动作修正”的路径。它不需要等待历史轨迹或高层 VLM 重新组织全部上下文，因此更适合处理突然改变的接触几何。
+**【Analysis】** 旁路的意义在于缩短“力变化 → 动作修正”的路径。但短的网络路径不等于已实现独立异步控制环；论文未给出“保持 VLM 缓存、只刷新力分支”的部署时序或端到端响应延迟。15 Hz 策略、300 Hz 传感器和底层控制器是三个不同层次，不能据此声称模型完成了毫秒级闭环。
 
 <Algorithm number={2} title='Force-aware Inference' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>当前多视角观察、任务提示、Force Prompt、位姿和实时 F/T</div>
   <div slot='output'>执行的混合力位动作与下一阶段提示</div>
   <AlgorithmStep>编码图像、任务提示和当前 Force Prompt，更新 VLM task concepts</AlgorithmStep>
-  <AlgorithmStep>编码末端位姿，并通过 Cross-Attention 注入视觉语言上下文</AlgorithmStep>
+  <AlgorithmStep>编码末端位姿与力，并通过 Cross-Attention 注入视觉语言上下文</AlgorithmStep>
   <AlgorithmStep>将瞬时力信号直接注入 Cross-Scale MoE，动态选择视觉、状态或力 expert</AlgorithmStep>
   <AlgorithmStep>从噪声初始化并迭代 flow-matching action，得到位姿变化和目标力</AlgorithmStep>
   <AlgorithmStep>执行动作并计算子任务进度；超过阈值则切换 Force Prompt</AlgorithmStep>
@@ -191,7 +195,7 @@ $$
 
 ### 4.6 代码实现对照
 
-**【Code】** 截至本文写作，项目主页明确标注代码和数据集“coming soon”，GitHub 链接仍是通用占位地址，GitHub API 也没有找到名为 ForceVLA2 的公开仓库。因此无法核对模型类、损失实现、采样步数、动作归一化或部署接口；本文不虚构这些实现细节。后续若官方仓库公开，最值得优先核查的是：Force Prompt 的生成器、MoE gate 的输入输出、力旁路是否共享参数，以及 flow-matching action 的实际维度。
+**【Analysis】** 当前项目页未提供可核验实现，因此本节不使用代码证据标签。复现最关键的缺口包括：进度分数如何生成和触发切换、MoE 的稀疏路由规则、动作与进度损失如何组合，以及预测的目标力如何交给底层混合控制器。输出目标力只是控制接口的一部分，不能把神经网络的预测直接等同于真实接触力的跟踪效果。
 
 ## 5. 实验
 
@@ -212,29 +216,29 @@ $$
 | ForceVLA             |           70 |         25 |          55 |             15 |             10 |     35 |
 | **ForceVLA2**        |       **80** |     **75** |      **70** |         **35** |         **70** | **66** |
 
-**【Paper】** ForceVLA2 在五项任务上平均 66%，尤其在 Assemble gears 上达到 70%，比第二名高 50 个百分点。朴素地把力拼到 $\pi_0$ 输入中只有 17%，说明“有力信号”不等于“会使用力信号”。
+**【Paper】** ForceVLA2 在五项任务上平均 66%，尤其在 Assemble gears 上达到 70%，比第二名高 50 个百分点。朴素地把力拼到 $\pi_0$ 输入中只有 17%，说明该实现中的输入拼接没有带来收益。每项 20 次试验意味着单任务 5 个百分点仅对应一次成败，论文未报告跨随机种子的区间。另需注意：结论段误把 48、35、31 写成三个基线的平均成功率；它们实际是 ForceVLA2 相对基线的提升幅度，绝对成功率应以 Table 1 的 18、31、35 为准。
 
 ![典型任务的定性结果与过载规避（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-forcevla2/5-crop.webp)
 
 ### 5.3 Ablation Study
 
-组件逐步消融结果为：$\pi_0$ 基线 18%，加入 Force Prompt 后 27%，再加入多模态编码器后 40%，最后加入 Cross-Scale MoE 达到 66%。**【Paper】** 其中 MoE 带来的增益最大，说明动态路由比静态拼接更重要。
+**【Paper】** Table 2 的逐步增配结果为：$\pi_0$ 基线 18%，加入 Force Prompt 后 27%，再加入多模态编码器后 40%，最后加入 Cross-Scale MoE 达到 66%。**【Analysis】** 最后一步增幅最大，但这是依赖前面组件的条件收益；缺少所有组合的消融，不能据此给模块的独立重要性排序，也不能把 26 个百分点全归因于某一种路由机制。
 
 | Cross-Scale MoE 输入 | 平均成功率 |
 | -------------------- | ---------: |
 | 仅状态（基线）       |         36 |
-| 视觉模态             |         50 |
-| 视觉 + 力模态        |     **66** |
+| 状态 + 视觉          |         50 |
+| 状态 + 视觉 + 力     |     **66** |
 
-视觉和力大致贡献相当，但 Press bottle 与 Clean board 加入额外力 token 后略有下降。**【Analysis】** 这些任务的控制模式较简单，过多自由度可能扰动本来稳定的位姿策略。
+**【Paper】** Table 3 中依次加入视觉和力的平均增益为 14、16 个百分点；Press bottle 和 Clean board 却分别从 85% 降至 80%、从 85% 降至 70%。附录 Table 5 还比较力注入位置：VLM pathway 为 5%，多模态编码器为 58%，state fusion 为 66%。**【Analysis】** 这些结果支持“力的注入位置与融合方式很重要”，但不能证明两种模态同等重要、所有 VLM 力输入都无效，或个别下降必然由控制自由度增加造成。
 
-![Cross-Scale MoE 与 Force Prompt 的组件消融（论文 Table 2 / Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-forcevla2/6_2-crop.webp)
+![外部扰动下的位置跟随、方向跟随与重新定位定性测试（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-forcevla2/6_2-crop.webp)
 
 ### 5.4 Generalization
 
 **【Paper】** 作者额外测试了突然改变桌面高度、改变花瓶倾角和视觉失效后的重新抓取。ForceVLA2 能通过力反馈重新建立接触、沿花瓶表面滑动，或在沙盒中进行力引导探索；纯位姿基线往往继续追踪旧轨迹并触发过载。
 
-**【Analysis】** 这些实验更像“分布外扰动下的闭环恢复”而不是传统静态泛化，验证重点是反应速度和可恢复性。
+**【Analysis】** 这些是外部扰动下恢复行为的定性展示，支持系统具备一定调整能力；未报告扰动幅度分层、恢复成功率或响应时间，因而尚不能量化泛化范围、反应速度或安全保证。
 
 ## 6. 方法分析
 
@@ -243,7 +247,7 @@ $$
 **【Analysis】** 有三层原因：
 
 1. Force Prompt 把连续的接触信息压缩为可解释的阶段概念，减少 VLM 在长任务中丢失阶段状态的风险。
-2. 位姿走多模态上下文路径、瞬时力走旁路，分别满足语义一致性和低延迟反馈。
+2. 力同时走上下文路径与直接 embedding 路径，使动作头能结合任务含义与当前接触状态；低延迟是设计动机，仍需独立时序测量。
 3. MoE 允许模型在自由空间、接触和探索阶段切换主导模态，而不是假设所有时刻都应使用相同的融合比例。
 
 ### 6.2 核心创新
@@ -259,7 +263,13 @@ $$
 | ForceVLA            | 将力作为 VLA 感知模态                   | 力参与感知，但控制耦合较弱 |
 | ForceVLA2           | Force Prompt + 力旁路 + Cross-Scale MoE | 任务阶段与瞬时接触双闭环   |
 
-### 6.4 关键假设
+### 6.4 附录的控制论解释能证明什么？
+
+**【Paper】** 附录 A 用位姿与力构成 12 维增广状态，试图通过输入矩阵秩为 6，证明仅位置控制不能完全控制它。
+
+**【Analysis】** 其中 $\operatorname{rank}(\mathcal C)\leq\operatorname{rank}(B)$ 的推导一般不成立：可控性矩阵包含 $B,AB,A^2B,\ldots$，动力学能让少量输入控制更多状态。例如二阶积分器只有一个输入，$B$ 秩为 1，但 $[B,AB]$ 秩为 2。因此不能把该附录当成“增加力输出必然获得完全可控性”的证明。位置与接触力受环境约束，增加网络输出维度也不会增加机器人的物理自由度。论文更扎实的证据来自真实任务对比，而非这条秩不等式。
+
+### 6.5 关键假设
 
 **【Paper】** 方法依赖若干前提：任务可以拆成 3–5 个阶段；每个阶段的 Force Prompt 可以预先定义；末端有可靠的 6D F/T 传感器；训练示教覆盖足够多的接触变化。
 
@@ -277,8 +287,8 @@ $$
 
 - 五个任务、单一 Flexiv 平台和 20 次试验仍不足以证明跨机器人、跨传感器迁移。
 - Force Prompt 依赖人工子任务列表和离线阶段标注，标注成本及错误传播没有单独量化。
-- 论文报告成功率，但没有系统报告力跟踪误差、峰值接触力、延迟或安全约束，因而难以判断“成功”是否同时代表柔顺和高精度。
-- 论文正文对 6D/7D 位姿及动作维度的表述存在不一致，公开代码缺失也使复现和接口核验暂时受限。
+- 论文报告 15 Hz 推理速度和任务成功率，但没有系统报告力跟踪误差、峰值接触力及端到端反馈延迟，因而难以判断“成功”是否同时代表柔顺和高精度。
+- 进度分数的区间与切换阈值表述不一致；预测目标力到实际混合控制器的映射也缺乏足够实现细节。
 
 ## 8. 启发与研究思考
 
@@ -286,10 +296,11 @@ $$
 
 1. 可以把触觉、力觉或关节电流视为高频控制信号，而不是必须经过语言模型的普通 token。
 2. 未来的 VLA 数据集应同时标注接触阶段、目标力和失败恢复事件，让模型学习“何时切换控制模式”。
-3. MoE gate 的权重可以成为可解释的控制诊断信号：如果模型在接触阶段仍长期依赖视觉 expert，可能意味着传感器、标定或数据覆盖存在问题。
+3. 可以研究 MoE gate 与实际控制需求的关系，但需通过模态干预、传感器故障实验和跟踪误差验证；仅看 expert 权重，还不能诊断传感器或标定出了问题。
 4. 下一步值得研究自动发现 Force Prompt、跨机器人力标定，以及把成功率之外的力跟踪误差和安全约束纳入训练目标。
 
 <Aside type='note' title='阅读提示'>
-  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码或项目页信息，`【Analysis】`
+  本文依据 [arXiv v1](https://arxiv.org/html/2603.15169v1) 及官方项目页核验。`【Paper】`
+  表示论文或官方发布明确内容，`【Code】` 仅用于已核验的实现，`【Analysis】`
   表示基于论文和可核验资料的分析推断。项目页目前标注代码和数据集即将公开，本文没有把占位链接当作代码来源。
 </Aside>

@@ -1,7 +1,7 @@
 ---
 title: 'EBench 论文精读：通用移动操作能力诊断'
 publishDate: 2026-08-27
-updatedDate: 2026-08-27
+updatedDate: 2026-09-22
 description: '精读 EBench：用 26 个跨移动、长时程与灵巧精密操作的任务，把通用操作策略的单一成功率拆成五维能力画像和四类泛化诊断。'
 heroImage:
   { src: 'https://pic.hana0721.top/103975128_p0_master1200.8vniavqp93.webp', color: '#8C8275' }
@@ -63,6 +63,8 @@ import { Aside } from '@/components/user'
 
 ![EBench benchmark teaser from paper Figure 1](https://pic.hana0721.top/blog/paper-deep-dive-ebench/teaser-1.icuyxspc6.webp)
 
+**版本说明**：本次以 [2026-09-10 的 arXiv v3](https://arxiv.org/html/2606.18239v3) 重核全文。v3 更新了 $\pi_0$ / $\pi_{0.5}$ 结果；原博客保留的能力和泛化结果图片来自早期版本，作为图表组织示例，具体数值请以本次更新的 v3 表格与原文为准。
+
 ### 一句话总结
 
 **【Paper】** EBench 是一个基于 NVIDIA Isaac Sim 的通用移动操作 benchmark：26 个任务同时覆盖 mobile pick-and-place、long-horizon multi-stage 与 tabletop dexterous-and-precise，并把每个任务标注为五个能力轴，再通过 Background、Object、Instruction、Mix 四种 OOD 条件测量泛化。
@@ -74,7 +76,7 @@ import { Aside } from '@/components/user'
 1. 提供数据合成、评分库和分布式评测 runner 的开源代码；完整 validation split 在 8 张消费级 GPU 上约 30 分钟完成。
 2. 设计 26 个任务、9 类室内场景和 11 类 atomic skill，避免只用一个 leaderboard scalar 掩盖能力短板。
 3. 通过资产级 train/test 隔离和四种受控扰动，测量视觉、语言、物理与组合分布偏移。
-4. 在 $pi_0$、$pi_{0.5}$、XVLA、InternVLA-A1 上展示：总体 Test SR 仅相差 5.1 个百分点，但能力剖面可相差数十个百分点。
+4. 在 $\pi_0$、$\pi_{0.5}$、XVLA、InternVLA-A1 上展示：v3 的总体 Test SR 为 24.7%–41.0%，但能力剖面可相差数十个百分点。
 
 ## 2. 背景与相关工作
 
@@ -84,7 +86,7 @@ import { Aside } from '@/components/user'
 
 ## 3. 问题定义
 
-**【Paper】** 每个 episode 接受三路 $224\times224$ RGB 视角（left、right、topdown）、proprioceptive state 和自然语言指令；双臂各输出 6-DoF joint position 或 end-effector pose 加 gripper width，移动底盘输出 $(v_x,v_y,\omega)$。物理仿真为 60 Hz，最长 episode 为 5,000 steps（约 83 秒）。
+**【Paper】** 每个 episode 接受三路 $224\times224$ RGB 视角（left、right、topdown）、proprioceptive state 和自然语言指令；双臂各输出 6-DoF joint position 或 end-effector pose 加 gripper width，移动底盘输出 $(v_x,v_y,\omega)$。物理仿真为 60 Hz，最长 episode 为 5,000 steps（约 83 秒仿真时间）。这个时钟描述环境步进，不表示一次完整神经网络推理必须在 16.7 ms 内完成。
 
 任务标签由五个轴组成：Scene（9 类）、Atomic Skill（11 类）、Range（短 / 长时程）、Precision（低 / 中 / 高，high 为小于 1 cm）和 Operating Mode（mobile / fixed-base dexterous）。
 
@@ -107,7 +109,7 @@ import { Aside } from '@/components/user'
 
 #### Scoring library
 
-**【Paper】** 评分由可组合 primitive 构成，包括 scene-graph object relation、关节角、物体倾角 / 朝向和子目标 temporal ordering，并同时返回 binary Success Rate 与连续 progress Score。
+**【Paper】** 评分由可组合 primitive 构成，包括 scene-graph object relation、关节角、物体倾角 / 朝向和子目标 temporal ordering，并同时返回 binary Success Rate 与连续 progress Score。每个任务是有序阶段序列，只有当前阶段满足条件后才推进，下游阶段偶然被满足不会跳过前序要求；SR 在最终阶段完成时才为 1。Score 因此衡量部分完成，不能当成成功概率，也不能简单视为到目标的几何距离。
 
 #### Evaluation runner
 
@@ -115,11 +117,11 @@ import { Aside } from '@/components/user'
 
 ### 4.3 关键公式
 
-**【Paper】** 对模型 $m$ 和任务子集 $S$，成功率可写为：
+**【Analysis】** 为解释能力切片，令 $S$ 是满足某个能力标签的评测 episode 集，而非任务名称集合；其 episode-weighted 成功率可写为：
 
 $$\mathrm{SR}(m,S)=\frac{1}{|S|}\sum_{i\in S}\mathbf{1}[\mathrm{success}_i(m)]$$
 
-其中 $S$ 可以是某个 capability 轴的切片，而不是整个测试集。Test-to-Validation retention 定义为：
+若按任务等权宏平均，则应先算每任务 SR 再平均；两者在各任务 episode 数不等时不相同。论文 Test 中两项任务只有 15 条，其余为 20 条，复现时需沿用官方聚合逻辑，不能无说明切换分母。Test-to-Validation retention 定义为：
 
 $$R_{\mathrm{SR}}=\frac{\mathrm{SR}_{test}}{\mathrm{SR}_{val\text{-}train}},\qquad R_{score}=\frac{Score_{test}}{Score_{val\text{-}train}}$$
 
@@ -127,7 +129,9 @@ $$R_{\mathrm{SR}}=\frac{\mathrm{SR}_{test}}{\mathrm{SR}_{val\text{-}train}},\qqu
 
 ### 4.4 Training
 
-**【Paper】** 四个 baseline 都从 pretrained checkpoint 在同一 EBench 数据上 fine-tune 200K steps，batch size 128，AdamW，cosine scheduler + warm-up，peak learning rate $1\times10^{-5}$。每帧使用三路图像、状态和指令，策略按 60 Hz 查询。
+**【Paper】** 四个 baseline 都从 pretrained checkpoint 在同一 EBench 数据上 fine-tune 200K steps，batch size 128，AdamW，cosine scheduler + warm-up，主文给出上述共同预算，附录同时说明架构相关超参数按各模型官方配置保留，因此不把单一 peak learning rate 外推到全部模型。
+
+**【Paper / Code】** v3 附录 A 明确预测 50 步、实际执行前 30 步后再规划。在 60 Hz 仿真时钟下，30 步对应 0.5 秒仿真时间；官方 `InternVLA-A1/inference.py` 也只在 action queue 空时重新预测。因此主文“policy queried at 60 Hz”应区分每步取队列动作与重新运行网络，不能写成 VLA 每秒完整推理 60 次。
 
 <Algorithm
   number={1}
@@ -164,7 +168,7 @@ $$R_{\mathrm{SR}}=\frac{\mathrm{SR}_{test}}{\mathrm{SR}_{val\text{-}train}},\qqu
 
 ### 4.6 代码实现对照
 
-**【Code】** `baselines/X-VLA/run.py` 用 `AutoModel.from_pretrained(..., trust_remote_code=True)` 加载模型，拼接 joints、缩放后的 base 和 gripper 为 proprio，调用 `model.inference_api(..., steps=10)` 产生 chunk，再反缩放并逐步发送。`baselines/InternVLA-A1/inference.py` 维护 30 步 action queue 与图像历史，使用 `EvalClient` 执行 chunk；若通信失败，两者都会重建 client 并 reset。
+**【Code】** [官方 X-VLA adapter](https://github.com/InternRobotics/EBench/blob/main/baselines/X-VLA/run.py) 用 `AutoModel.from_pretrained(..., trust_remote_code=True)` 加载模型，拼接 joints、缩放后的 base 和 gripper 为 proprio，调用 `model.inference_api(..., steps=10)` 产生 chunk，再反缩放并默认逐步发送，也支持一次提交 chunk；`used_chunk_size` 默认 30。[InternVLA-A1 adapter](https://github.com/InternRobotics/EBench/blob/main/baselines/InternVLA-A1/inference.py) 维护 30 步 action queue 与图像历史，使用 `EvalClient` 执行 chunk；若通信失败，两者都会重建 client 并 reset。
 
 **【Analysis】** 代码的核心不是重写 simulator，而是把不同策略的输入输出适配到同一个 client contract，这正是跨架构比较可复现的关键。
 
@@ -174,36 +178,44 @@ $$R_{\mathrm{SR}}=\frac{\mathrm{SR}_{test}}{\mathrm{SR}_{val\text{-}train}},\qqu
 
 ![EBench capability profiling setup from paper Figure 3](https://pic.hana0721.top/blog/paper-deep-dive-ebench/capability_profiling-1.3gp52g0yka.webp)
 
-**【Paper】** 26 任务包括 10 mobile pick-and-place、9 mobile long-horizon、7 tabletop dexterous；每模型评测三次并报告均值 ± 标准差。OOD 轴分别固定改变 background、object、instruction，或同时改变三者。
+**【Paper】** 26 任务包括 10 mobile pick-and-place、9 mobile long-horizon、7 tabletop dexterous；每模型评测三次并报告均值 ± 标准差。Val-Train 为 130 条（每任务 5 条），Val-Unseen 为 154 条未见物体 episode，Test 为 510 条（24 个任务各 20 条，另外两个长任务各 15 条）。训练自身已有三类随机化，OOD 检查的是未见资产池中的 background、object、instruction，或三者组合，并非训练完全没有扰动、测试才首次引入。
 
 ### 5.2 Main Results
 
-| Model        | Val-Train SR |   Test SR | SR retention |
-| ------------ | -----------: | --------: | -----------: |
-| $\pi_0$      |        30.5% |     24.4% |         0.80 |
-| XVLA         |        28.3% |     24.7% |         0.87 |
-| InternVLA-A1 |    **33.1%** |     27.6% |         0.83 |
-| $\pi_{0.5}$  |        32.1% | **29.5%** |     **0.92** |
+**【Paper】** v3 Table 2（SR，%，三次评测均值 ± 标准差）：
 
-**【Paper】** $\pi_{0.5}$ 同时取得最高 Test SR、Score（45.6%）和 retention；InternVLA-A1 的 Val-Train SR 最高，却在 Val-Unseen 降到 20.8%。因此总分相近并不表示行为相近。
+| Model        |   Val-Train SR |        Test SR | SR retention |
+| ------------ | -------------: | -------------: | -----------: |
+| $\pi_0$      |     41.3 ± 0.4 |     34.4 ± 0.8 |         0.83 |
+| XVLA         |     28.3 ± 2.5 |     24.7 ± 1.1 |         0.87 |
+| InternVLA-A1 |     33.1 ± 2.0 |     27.6 ± 1.6 |         0.83 |
+| $\pi_{0.5}$  | **44.9 ± 4.2** | **41.0 ± 1.2** |     **0.91** |
+
+**【Paper】** $\pi_{0.5}$ 的 Test Score 为 56.8%，Score retention 为 0.97；它在总体指标上领先，$\pi_0$ 却在高精度子集以 21.7% 超过其他模型的 5.0%–11.3%。InternVLA-A1 的移动 / 固定灵巧成绩为 35.9% / 5.0%，而 $\pi_0$ 为 35.7% / 31.0%。这才是能力画像提供的额外信息：接近的移动成绩可以对应完全不同的接触控制表现。
+
+**【Analysis】** 同一任务可同时属于高精度、固定底座、长时程和某个场景，五轴并非五个独立实验。切片差异是描述性诊断，不能仅凭某模型长任务表现弱，就归因为其 decoder 的“信用分配能力”不足；数据来源、动作归一化和任务组合也可能参与影响。
 
 ### 5.3 Ablation Study
 
 ![EBench generalization results from paper Figure 4](https://pic.hana0721.top/blog/paper-deep-dive-ebench/generalize-sr-1.4g58fm3pta.webp)
 
-**【Paper】** 预训练敏感性实验显示，EBench 是三套 benchmark 中最能拉开 pretrained / from-scratch 差距的一套：$\pi_{0.5}$ 从零训练到预训练提升 8.5%→29.5% SR（+21.0），$\pi_0$ 提升 +13.2，XVLA 提升 +9.0；LIBERO 已接近饱和，RoboTwin 2.0 Hard 的 from-scratch 结果甚至可超过预训练 baseline。
+**【Paper】** v3 Table 3 中，EBench 的同架构预训练对照为：$\pi_{0.5}$ 15.9%→41.0%（+25.1 个百分点），$\pi_0$ 24.8%→34.4%（+9.6），XVLA 15.7%→24.7%（+9.0）。
+
+**【Analysis】** 跨 benchmark 的部分格子来自其他论文，并非全部同预算重训：LIBERO / RoboTwin 的随机初始化 $\pi_0$ 项实际是采用 Qwen3-VL-4B 的 StarVLA-$\pi$ 变体，Fast-WAM 也只有 from-scratch 行。它们不能作为“预训练损害 RoboTwin 泛化”的严格因果证据。可靠结论是 EBench 内部的同架构对照有显著预训练收益。另有原文内部冲突：XVLA pretrained 的 Score 在 Table 2 为 37.5%，Table 3 为 38.7%，这里不混用两者计算收益。
 
 ### 5.4 Generalization
 
 ![Fit-generalization curves across training steps from paper Figure 5](https://pic.hana0721.top/blog/paper-deep-dive-ebench/sr-vs-steps-1.9ddp9ghhqn.webp)
 
-**【Paper】** Background / Instruction 的 Test SR 约为 27–35%，Object swap 降至 21–29%，三者混合的 Mix 最难（18–23%）。训练动态上，$\pi_{0.5}$ 的 Val-Train 与 Test 曲线最同步；XVLA 在中间 checkpoint 非单调；InternVLA-A1 到 200K 时拟合最强但保留率仍只有 0.83。
+**【Paper】** v3 的 Background / Instruction 为 29%–42%，Object 为 21%–41%，Mix 为 19%–38%；$\pi_{0.5}$ 在四种扰动均领先。Object 并非对所有模型都比单纯视觉/语言扰动破坏更大，Mix 则是每个模型最难的条件。25k/50k/100k/200k 的曲线中，XVLA 中间出现非单调变化；InternVLA-A1 的 Test 总体增加，但 Val-Train 有波动。
+
+**【Analysis】** Retention 是两个不同评测集聚合分数的比，不是同一 episode 在扰动前后的保留概率。低基数也能得到高 retention，因此应同时读绝对 SR、标准差和能力切片。
 
 ## 6. 方法分析
 
 ### 6.1 为什么有效？
 
-**【Analysis】** EBench 有效的原因不是任务数量本身，而是把“能力标签”和“受控扰动”绑定到同一资产协议：模型失败后，可以区分是高精度控制、长时程信用分配、物体物理变化还是语言改写导致的。
+**【Analysis】** EBench 有效的原因不是任务数量本身，而是把“能力标签”和“受控扰动”绑定到同一资产协议：模型失败后，可以定位失败集中在哪些任务属性与扰动；若要确认原因，仍需匹配任务、逐阶段日志和受控模型消融。
 
 ### 6.2 核心创新
 
@@ -218,7 +230,7 @@ $$R_{\mathrm{SR}}=\frac{\mathrm{SR}_{test}}{\mathrm{SR}_{val\text{-}train}},\qqu
 
 ### 6.4 关键假设
 
-**【Paper】** 任务标签能代表关键能力，且模拟中的受控资产变化可近似部署中的分布偏移。**【Analysis】** 这两个假设若不成立，五轴分数可能只是 benchmark-specific correlation，而非真实机器人能力。
+**【Analysis】** 任务标签能代表关键能力，且模拟中的受控资产变化可近似部署中的分布偏移。**【Analysis】** 这两个假设若不成立，五轴分数可能只是 benchmark-specific correlation，而非真实机器人能力。
 
 ## 7. 局限性
 

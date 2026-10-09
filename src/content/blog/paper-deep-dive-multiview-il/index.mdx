@@ -1,7 +1,7 @@
 ---
 title: '多相机视角扩展论文精读：用同步视角提升模仿学习的数据效率'
 publishDate: 2026-08-26
-updatedDate: 2026-08-26
+updatedDate: 2026-09-22
 description: '精读 Multi-Camera View Scaling：把一条同步多相机示教展开为伪示范，并以相机坐标动作和多视角动作聚合提升机器人模仿学习的数据效率与泛化。'
 heroImage:
   { src: 'https://pic.hana0721.top/133376054_p0_master1200.1ziuqmv790.webp', color: '#8C8275' }
@@ -49,7 +49,7 @@ import { Aside } from '@/components/user'
 
 **项目主页**：[Multiview Imitation Learning](https://yichen928.github.io/robot_multiview/)
 
-**代码状态**：截至本文撰写时，论文与项目主页均未公开官方代码仓库。
+**代码状态**：截至 2026-09-22 核查，arXiv v1 与项目主页未提供官方源码链接；以下实现细节以论文为限。
 
 <img
   src='https://pic.hana0721.top/blog/paper-deep-dive-multiview-il/multiview-il-overview-cropped.3uvkt0pjjw.webp'
@@ -64,7 +64,7 @@ import { Aside } from '@/components/user'
 
 ### 一句话总结
 
-**【Paper】** 本文不通过重复遥操作收集更多轨迹，而是在一次示范时同步安装多台相机，把同一轨迹转成多条视觉和动作表征不同的 **pseudo-demonstrations**。这以很小的额外采集成本增加视角多样性，并提升视觉模仿策略的样本效率与视角泛化。
+**【Paper】** 本文不通过重复遥操作收集更多轨迹，而是在一次示范时同步安装多台相机，把同一轨迹转成多条视觉和动作表征不同的 **pseudo-demonstrations**。它增加同一场景的观测覆盖，实验显示固定遥操作次数下可提高成功率。成本主要节省在重复示教，新增相机、同步、标定与存储并非零成本。
 
 ### 核心贡献
 
@@ -131,7 +131,7 @@ $$
 | EEF        | 转到当前末端坐标系后共享标签          | 当前 EEF 位姿 | 表达相对末端变化             |
 | Camera     | 每台相机独立变换                      | 外参与标定    | 视角和动作标签一起变化       |
 
-**【Paper】** base space 直接复制动作；EEF space 用当前末端旋转把位移/旋转写成局部量；camera space 依据每个相机的外参重表达动作。对于单固定相机，base 与 camera 表达可互相转换；多相机时 camera space 同时扩展视觉输入和标签数值。
+**【Paper】** base space 直接复制动作；EEF space 用当前末端旋转把位移/旋转写成局部量；camera space 依据每个相机的外参重表达动作。三者中动作的物理效果相同，camera space 增加的是标签的坐标表达多样性，并没有产生新的行为或新的恢复轨迹。对于单固定相机，base 与 camera 表达可互相转换；多相机时 camera space 同时扩展视觉输入和标签数值。
 
 #### 多视角动作聚合
 
@@ -156,7 +156,9 @@ $$
 \Delta\mathbf{R}_{i,t}^{v}=\mathbf{R}^{ext}_v\Delta\mathbf{R}_{i,t}(\mathbf{R}^{ext}_v)^T.
 $$
 
-这里 $\mathbf{R}^{ext}_v$ 将同一物理末端变化改写为该相机参考系下的动作，因此不同视角拥有与各自图像一致的标签。
+这里 $\mathbf{R}^{ext}_v$ 必须约定为 base 到 camera 的旋转。平移外参不出现，是因为固定相机下位置差 $p_{t+1}-p_t$ 的平移项相消；旋转增量则用共轭变换更换基。夹爪状态保持不变。若标定文件给的是 camera-to-base，应先取逆，不能直接把数值代入。
+
+**【Analysis】** 这套公式针对固定参考系中的有限位姿增量；不能把绝对位姿变换、Euler 角逐项相减、移动相机位姿和同一公式混用。相机坐标标签会随视角改变，所以目标是跨视角一致的物理动作，不是强制所有视角输出同一个数值向量。
 
 #### 组合后的条件分布
 
@@ -167,11 +169,22 @@ p_\Theta(\mathbf{a}_{aggr}\mid\{\mathbf{o}^v\}_{v=1}^{V})
 \propto\prod_{v=1}^{V}p_\Theta(\mathbf{a}\mid\mathbf{o}^v).
 $$
 
-**【Paper】** 在第 $t$ 个去噪步，预测 $\epsilon_\Theta(\mathbf{o}^v)$ 先经 $\mathcal{F}^{v^{-1}}$ 对齐到共同坐标系、按 $\gamma$ 累加，再映射回采样空间更新 $\mathbf{a}_{aggr}^t$。$\gamma$ 是聚合超参数，论文未明确报告具体取值。
+**【Paper】** Eq. 9 与 Algorithm 1 将各视角输出通过 $\mathcal F^{v^{-1}}$ 变回共同坐标、按 $\gamma$ 求和。原文将去噪网络简写为 $\epsilon_\Theta(o^v)$，没有写出当前噪声动作和扩散步；最终更新外侧的 $\mathcal F^v$ 也未明确选哪个参考视角。$\gamma$ 的数值与 scheduler 细节均未报告，因此它表达的是聚合思路，尚不是完整可复现的采样器。
+
+**【Analysis】** 严格地说，需要先把每个条件分布搬到共同动作变量 $a$ 上，再谈相乘：$q(a)\propto\prod_v p_v(\mathcal F^v(a)\mid o^v)$，必要时还要包含变量变换的 Jacobian。其核心是对数梯度相加：
+
+$$
+\nabla_a\log q(a)=\sum_v J_{\mathcal F^v}(a)^\top
+\nabla_{a^v}\log p_v(a^v\mid o^v)\big|_{a^v=\mathcal F^v(a)}.
+$$
+
+在各视角使用一致噪声日程、线性正交坐标变换的条件下，变换 score / 噪声向量可简化为旋转回公共系再相加。不同动作归一化、旋转参数化或非线性映射不能直接套用“对动作做逆变换”处理噪声。每个去噪步还必须让各视角看到**同一个候选动作在自身坐标系中的版本**；分别采出几个完整动作再平均是另一种算法。
+
+Product-of-experts 偏好共同支持的动作，但不自动等于真实多视角后验：相关视角会重复计入共享先验。即使视角完全相同，$p(a)^V$ 也比 $p(a)$ 更尖锐；$\gamma$ 因而同时影响聚合强度与分布锐度。某个 expert 误判时也可能压低正确动作，不能把乘积一概解释为校准后的置信度提升。
 
 ### 4.4 Training
 
-**【Paper】** 训练时，从同步多视角示范中选择视角，将 RGB 观测与同坐标系动作配对，并用 Diffusion Policy 的模仿目标更新模型。仿真实验采用预训练 DINOv3-base 视觉编码器并用 LoRA 微调；真实机器人使用 ResNet-18、Spatial Softmax 与 FiLM 条件化。
+**【Paper / Analysis】** 训练时，从同步多视角示范中选择视角，将 RGB 观测与同坐标系动作配对，并用 Diffusion Policy 的去噪监督更新模型。对时间窗口应保持图像序列与动作块采用同一个相机定义，避免在窗口内把相机跳变误当成物体运动；这一采样细节原文没有展开。仿真实验采用预训练 DINOv3-base 视觉编码器并用 LoRA 微调；真实机器人使用 ResNet-18、Spatial Softmax 与 FiLM 条件化。
 
 <Algorithm number={1} title='Camera View Scaling 训练' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>同步多相机示教集 $D$、相机变换 $\{\mathcal{F}^{v}\}$、单视角 Diffusion Policy $\epsilon_\Theta$</div>
@@ -180,7 +193,7 @@ $$
   <AlgorithmStep keyword='for'>每次训练迭代</AlgorithmStep>
   <AlgorithmStep indent={1}>采样轨迹 $\tau_i$、时间步 $t$ 与相机视角 $v$</AlgorithmStep>
   <AlgorithmStep indent={1}>取 $\mathbf{o}_{i,t}^{v}$，计算 $\mathbf{a}_{i,t}^{v}=\mathcal{F}^{v}(\mathbf{a}_{i,t})$</AlgorithmStep>
-  <AlgorithmStep indent={1}>以 $\mathbf{o}_{i,t}^{v}$ 为条件执行 diffusion 前向训练，计算专家动作损失</AlgorithmStep>
+  <AlgorithmStep indent={1}>给专家动作块采样噪声与扩散时间，以选定视角为条件计算 Diffusion Policy 去噪损失</AlgorithmStep>
   <AlgorithmStep indent={1}>更新 $\Theta$</AlgorithmStep>
   <AlgorithmStep keyword='end for' />
   <AlgorithmStep keyword='return'>训练好的单视角策略 $\epsilon_{\hat\Theta}$</AlgorithmStep>
@@ -188,16 +201,16 @@ $$
 
 ### 4.5 Inference
 
-**【Paper】** 不启用聚合时，策略如普通单视角 Diffusion Policy：输入 $Cam_F$，迭代去噪生成动作并执行。启用聚合时，仍由同一个策略独立处理 $V$ 张图，额外计算只发生在每个去噪步的动作变换与求和；论文将其作为多相机可用时的可选收益。
+**【Paper】** 不启用聚合时，策略如普通单视角 Diffusion Policy：输入 $Cam_F$，迭代去噪生成动作并执行。启用聚合时，仍由同一个策略独立处理 $V$ 张图，需要额外的多视角图像编码和多次条件去噪网络评估，再做动作变换与求和；GPU batching 可缩短墙钟延迟，但不消除计算与显存开销，论文未给出延迟实测；论文将其作为多相机可用时的可选收益。
 
-<Algorithm number={2} title='多视角 Diffusion 动作聚合' inputLabel='输入' outputLabel='输出'>
+<Algorithm number={2} title='多视角 Diffusion 动作聚合（依照论文补全条件的概念流程）' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>多视角观测 $\{\mathbf{o}^v\}_{v=1}^{V}$、策略 $\epsilon_{\hat\Theta}$、变换 $\mathcal{F}^{v}$、系数 $\gamma$</div>
   <div slot='output'>聚合后的机器人动作 $\mathbf{a}_{aggr}^{0}$</div>
   <AlgorithmStep>从高斯噪声初始化 $\mathbf{a}_{aggr}^{T}$</AlgorithmStep>
   <AlgorithmStep keyword='for'>$t=T,T-1,\ldots,1$</AlgorithmStep>
   <AlgorithmStep indent={1}>令共同坐标系去噪方向 $\delta^t\leftarrow0$</AlgorithmStep>
   <AlgorithmStep indent={1} keyword='for'>每个视角 $v=1,\ldots,V$</AlgorithmStep>
-  <AlgorithmStep indent={2}>累加 $\delta^t\leftarrow\delta^t+\gamma\mathcal{F}^{v^{-1}}(\epsilon_{\hat\Theta}(\mathbf{o}^v))$</AlgorithmStep>
+  <AlgorithmStep indent={2}>将当前公共噪声动作变换到视角 $v$，以该动作、扩散步 $t$ 和图像预测去噪方向，再按对应坐标映射累加到 $\delta^t$</AlgorithmStep>
   <AlgorithmStep indent={1} keyword='end for' />
   <AlgorithmStep indent={1}>按 diffusion scheduler 以 $\delta^t$ 更新 $\mathbf{a}_{aggr}^{t-1}$</AlgorithmStep>
   <AlgorithmStep keyword='end for' />
@@ -206,7 +219,7 @@ $$
 
 ### 4.6 代码实现对照
 
-**【Code】** 论文 arXiv 页面与项目主页均未提供官方源码链接。因此无法核验 model definition、数据加载、损失、采样器、标定接口或训练超参数；本文不以项目页动图和文字推断代码行为。
+**【Source】** 论文 arXiv 页面与项目主页均未提供官方源码链接。因此无法核验 model definition、数据加载、损失、采样器、标定接口或训练超参数；本文不以项目页动图和文字推断代码行为。
 
 **【Paper】** 可确认的实现信息仅来自论文：仿真默认 baseline 是 Diffusion Policy，视觉编码器为 DINOv3-base + LoRA；真实实验使用 ResNet-18、Spatial Softmax、FiLM 条件化的 diffusion policy。更细的配置、训练轮数、batch size 与 $\gamma$ 取值，论文未明确说明。
 
@@ -216,9 +229,9 @@ $$
 
 ![FANUC CRX-10iA 真实倒水任务、平行夹爪与双相机设置（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-multiview-il/multiview-il-real-robot-cropped.6wrgu8qvxf.webp)
 
-**【Paper】** 仿真选取 robomimic 的 Square、Can、Lift，以成功率为指标。默认相机为正前方 $Cam_F$；相机绕工作区中心向左、右、上、下各旋转 $15^\circ$，得到 $Cam_{FL}$、$Cam_{FR}$、$Cam_{FU}$、$Cam_{FD}$。除特殊说明外，部署仅用 $Cam_F$。
+**【Paper】** 仿真选取 robomimic 的 Square、Can、Lift，各任务单独训练，以成功率为指标。仿真从已有专家轨迹随机选取 $N$ 条，并非重新做 $N V$ 次遥操作。默认相机为正前方 $Cam_F$；相机绕工作区中心向左、右、上、下各旋转 $15^\circ$，得到 $Cam_{FL}$、$Cam_{FR}$、$Cam_{FU}$、$Cam_{FD}$。除特殊说明外，部署仅用 $Cam_F$。
 
-**【Paper】** 真实任务是抓取茶壶并向锅中倒水。系统为配平行夹爪与硅胶软指尖的 FANUC CRX-10iA，使用左右两个固定 RGB 相机；通过遥操作收集 50 条示范，并分别用 $N=25$ 和 $N=50$ 训练。
+**【Paper】** 真实任务是抓取茶壶并向锅中倒水。系统为配平行夹爪与硅胶软指尖的 FANUC CRX-10iA，使用左右两个固定 RGB 相机；通过遥操作收集 50 条示范，并分别用 $N=25$ 和 $N=50$ 训练。每次试验随机化茶壶与锅的位置和朝向。论文未明确给出评估 rollout 数、随机种子重复数、误差条或固定优化预算协议，因此不能从表格小数反推试验次数，也不能将微小差距当作显著提升。
 
 ### 5.2 Main Results
 
@@ -232,25 +245,25 @@ $$
 | 5 views / Base      | 0.18 / 0.42 / 0.55  | 0.32 / 0.65 / 0.80 | 0.80        |
 | 5 views / Camera    | 0.18 / 0.39 / 0.58  | 0.37 / 0.68 / 0.85 | 0.85        |
 
-**【Paper】** 例如 Can 的 $N=10$ 从 0.18 提升至 0.37，Lift 的 $N=10$ 从 0.69 提升至 0.85。结果显示更多视角在多数设置中继续有益，但增益随任务、动作坐标和示范数量变化，并不严格单调。
+**【Paper】** 例如 Can 的 $N=10$ 从 0.18 提升至 0.37，Lift 的 $N=10$ 从 0.69 提升至 0.85，分别增加 19 和 16 个百分点。Can 的 18%→37% 也可称约 106% 相对提升，但不能写成提升 106 个百分点。Square 上 25 条五视角 Base 为 42%，恰与 50 条单视角相同，这是特定设置下可少采示教的证据，而非普遍“相机翻倍替代轨迹翻倍”的定律。结果显示更多视角在多数设置中继续有益，但增益随任务、动作坐标和示范数量变化，并不严格单调。
 
-**【Paper】** 真实倒水中，单视角训练在 $N=25/50$ 时的成功率为 0.45/0.70；双视角训练、不做聚合为 0.50/0.85；双视角训练并启用聚合为 0.75/0.85。
+**【Paper】** 真实倒水中，单视角训练在 $N=25/50$ 时的成功率为 0.45/0.70；双视角训练、不做聚合为 0.50/0.85；双视角训练并启用聚合为 0.75/0.85。拆开看，$N=25$ 时训练增强贡献 5 个百分点、部署聚合再加 25 个百分点；$N=50$ 时训练增强贡献 15 个百分点，聚合没有进一步提升。两种收益来源不宜合并成一个结论。
 
 ### 5.3 Ablation Study
 
 ![五视角训练的注意力更集中于任务相关区域（论文 Figure 3 上半部分）](https://pic.hana0721.top/blog/paper-deep-dive-multiview-il/multiview-il-attention-multiview-cropped.4clmhlqx9r.webp)
 
-**【Paper】** 在 Square 上，EEF action space 低于 base：单视角 $N=10/25/50$ 为 0.06/0.25/0.32，五视角为 0.09/0.27/0.41，而对应 base 为 0.14/0.26/0.42 和 0.18/0.42/0.55。作者认为原因是 EEF 坐标原点随时间移动，增加了学习难度。
+**【Paper】** 在 Square 上，EEF action space 低于 base：单视角 $N=10/25/50$ 为 0.06/0.25/0.32，五视角为 0.09/0.27/0.41，而对应 base 为 0.14/0.26/0.42 和 0.18/0.42/0.55。作者将其归因于移动 EEF 坐标增加学习难度，这是解释假说。对这里的位移增量，坐标原点平移会相消，真正的变换是时变 $R_t^\top$ 及旋转共轭；图像到局部动作的映射还依赖当前末端朝向，不能简单说“原点移动直接改变了位移标签”。论文仅在 Square 验证 EEF，不能推广为 EEF 表示普遍较差。
 
-**【Paper】** 相机选择也有影响。相近的 $Cam_F, Cam_{FL}, Cam_{FR}$ 在 Square 上取得 0.17/0.29/0.47；换成 front、top、side 三个差异很大的视角后为 0.17/0.24/0.40。作者解释，若最终只在 $Cam_F$ 部署，过远视角的分布差异可能无法帮助前视策略。
+**【Paper】** 相机选择也有影响。相近的 $Cam_F, Cam_{FL}, Cam_{FR}$ 在 Square 上取得 0.17/0.29/0.47；换成 front、top、side 三个差异很大的视角后为 0.17/0.24/0.40。左右偏转增至 30° 后为 0.18/0.26/0.44，也不稳定优于默认 15°。作者解释，若最终只在 $Cam_F$ 部署，过远视角的分布差异可能无法帮助前视策略；注意力图支持这种直觉，但未单独排除遮挡、有效训练样本分配等因素。
 
 **【Paper】** 在 3 视角训练的 Square / Can 中，推理再使用三个视角聚合，成功率从 0.17/0.29/0.47 提升至 0.18/0.33/0.51，以及从 0.30/0.68/0.83 提升至 0.39/0.73/0.85。
 
 ### 5.4 Generalization
 
-**【Paper】** 在 Can，5 视角训练后，模型在 $Cam_F$、$Cam_{FL}$、$Cam_{FU}$ 部署的成功率分别是 $N=10$ 时 0.37、0.30、0.37，$N=25$ 时 0.68、0.66、0.77。只用 $Cam_F$ 训练的模型在后两种相机仅为 0.00/0.01 与 0.07/0.05，说明伪示范明显改善了相邻视角变化下的鲁棒性。
+**【Paper】** 在 Can，5 视角训练后，模型在 $Cam_F$、$Cam_{FL}$、$Cam_{FU}$ 部署的成功率分别是 $N=10$ 时 0.37、0.30、0.37，$N=25$ 时 0.68、0.66、0.77。只用 $Cam_F$ 训练的模型在后两种相机仅为 0.00/0.01 与 0.07/0.05，说明多机位训练使一个共享策略能在这些已覆盖机位上工作。对五视角模型，$Cam_{FL}$ 与 $Cam_{FU}$ 都是训练视角，**这不是 hold-out 新机位的零样本泛化测试**；只有对单视角 baseline 它们是未见视角。
 
-**【Analysis】** 这一结论仍限定在论文的相机视角族，不能直接外推到任意陌生相机、焦距或遮挡模式；视角跨度与部署偏移的可承受范围仍需系统测试。
+**【Analysis】** 需要新增训练中完全没有出现的外参/焦距测试，才能直接测量新机位泛化；当前结论限定在论文已覆盖的相机视角族，不能直接外推到任意陌生相机、焦距或遮挡模式；视角跨度与部署偏移的可承受范围仍需系统测试。
 
 ## 6. 方法分析
 
@@ -288,7 +301,7 @@ $$
 
 ## 8. 启发与研究思考
 
-**【Analysis】** 对数据采集，最实用的结论是把“相机数”作为示教协议的一部分：在不增加遥操作次数时，优先围绕最终部署视角布置小幅、可标定的相机扰动，并保存时间同步与外参。
+**【Analysis】** 对数据采集，最实用的结论是把“相机数”作为示教协议的一部分：在不增加遥操作次数时，优先围绕最终部署视角布置小幅、可标定的相机扰动，并保存时间同步与外参。若采用 base 动作标签，则论文方法并不要求为了训练标签另做相机空间标定；选择 camera 标签与聚合时再评估对应标定成本。
 
 **【Analysis】** 后续可在固定预算下比较新增相机、新采轨迹和场景随机化各带来多少有效分布覆盖；这需要同时考察独立轨迹数、视角跨度、标定误差和部署视角偏移，而不能只报告 $N\times V$。
 

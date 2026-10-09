@@ -1,7 +1,7 @@
 ---
 title: 'BAGEL 论文精读：交错多模态预训练中的涌现能力'
 publishDate: 2026-08-23
-updatedDate: 2026-08-23
+updatedDate: 2026-09-22
 description: '精读 BAGEL：7B active / 14B total 的统一理解与生成模型，用 MoT、Rectified Flow 和视频/网页交错数据训练，并分析 IntelligentBench 与世界建模涌现。'
 heroImage:
   { src: 'https://pic.hana0721.top/104724685_p0_master1200.7p472bcti3.webp', color: '#8C8275' }
@@ -118,7 +118,7 @@ import { Aside } from '@/components/user'
 
 ### 4.1 Overall Architecture
 
-BAGEL 采用 MoT 架构：一个“理解 expert”处理文本与 ViT token，一个“生成 expert”处理 VAE token；两类 token 在每一层都通过同一组 shared self-attention 交换信息，但 attention、FFN、LayerNorm 参数分别属于各自 expert。
+BAGEL 采用 MoT 架构：一个“理解 expert”处理文本与 ViT token，一个“生成 expert”处理 VAE token；两类 token 使用各自的 Q/K/V、输出投影、FFN 与 normalization 参数，再把投影结果放入同一次跨模态 attention 运算。共享的是注意力计算和可见上下文，不是 QKV 权重，也不是两个完整模型各跑一遍。
 
 <img
   src='https://pic.hana0721.top/blog/paper-deep-dive-bagel/arch-final-1.7w7k37h530.webp'
@@ -139,7 +139,7 @@ BAGEL 采用 MoT 架构：一个“理解 expert”处理文本与 ViT token，�
 - 理解视觉编码器用 SigLIP2-so400m/14，初始固定 384 分辨率，位置 embedding 插值到最大 980x980，再用 NaViT 支持原生宽高比。
 - 生成视觉编码器用 FLUX VAE，latent downsampling factor 为 8，latent channel 为 16，再用 `2x2` patch embedding 映射到 LLM hidden size；VAE 在训练中冻结。
 - 扩散 timestep embedding 直接加到 VAE token 的初始 hidden state，而不是像传统 DiT 那样使用 AdaLN。
-- MoT 和 MoE 都使总参数量接近翻倍，但 active FLOPs 与 dense baseline 相同。
+- MoT 和 MoE 都使总参数量接近翻倍；每个 token 只走对应的一套 expert，论文在相同 token 长度下报告与 dense 相同的理论 FLOPs。7B active 是按 token 路由的口径，整个多模态序列仍会用到两套参数，显存、通信和实际时延不因此等同于一个 7B dense 模型。
 
 ### 4.2 核心模块
 
@@ -175,13 +175,13 @@ BAGEL 采用 MoT 架构：一个“理解 expert”处理文本与 ViT token，�
 
 #### Generalized Causal Attention
 
-对于同一个交错样本，token 被划分为多个连续 split。不同 split 之间保持前向可见；split 内部，文本 token 使用 causal attention，视觉 token 使用 bidirectional attention。对每个图像，BAGEL 会同时准备：
+对于同一个交错样本，token 被划分为多个连续 split。不同 split 之间只允许后面的 token 读取前面的上下文；split 内部，文本 token 使用 causal attention，视觉 token 使用 bidirectional attention。对每个图像，BAGEL 会同时准备：
 
 - **Noised VAE tokens**：加噪后用于 Rectified Flow 训练，只计算 MSE，不作为后续生成的 conditioning。
 - **Clean VAE tokens**：无噪 latent，作为后续图像或文本生成的 conditioning。
 - **ViT tokens**：SigLIP2 语义特征，作为跨理解/生成统一输入格式。
 
-对于多图或视频交错生成，论文采用 Diffusion Forcing：每张图使用独立噪声水平，并让后续图 attend 前面图的 noisy representation；同时随机把连续图像分组，组内使用 full attention、相同噪声水平，增强生成一致性。
+上面是 Figure 15(a) 的图文交错条件。Figure 15(b) 的多图/视频联合生成采用另一种 mask，不能把两套可见性规则混用：这里使用 Diffusion Forcing，每张图使用独立噪声水平，并让后续图 attend 前面图的 noisy representation；同时随机把连续图像分组，组内使用 full attention、相同噪声水平，增强生成一致性。
 
 <img
   src='https://pic.hana0721.top/blog/paper-deep-dive-bagel/attention-final-1.58i3suo3rx.webp'
@@ -194,11 +194,11 @@ BAGEL 采用 MoT 架构：一个“理解 expert”处理文本与 ViT token，�
   style='max-width:100%; height:auto;'
 />
 
-**【Paper】** 训练时用 PyTorch FlexAttention 实现 generalized causal attention，相比 naive scaled-dot-product attention 约快 2 倍。推理时只缓存 clean VAE token 和 ViT token 的 KV；一张图生成完成后，把上下文中的 noised VAE token 替换成 clean 版本，从而加速后续多图解码。
+**【Paper】** 训练时用 PyTorch FlexAttention 实现 generalized causal attention，相比 naive scaled-dot-product attention 约快 2 倍。推理时文本 KV 照常缓存；视觉部分缓存 clean VAE token 和 ViT token 的 KV；一张图生成完成后，把上下文中的 noised VAE token 替换成 clean 版本，从而加速后续多图解码。
 
 #### Classifier-Free Guidance
 
-**【Paper】** 训练时按 `0.1 / 0.5 / 0.1` 的概率随机 drop text、ViT、clean VAE token。推理时保留一条完整条件路径和一条被 drop 的 unconditional 路径，通过 CFG 控制文本遵循度与图像保持度。
+**【Paper】** 训练时按 `0.1 / 0.5 / 0.1` 的概率随机 drop text、ViT、clean VAE token。推理代码分别构造完整条件、去文本条件和去图像条件的上下文；删掉一种条件的分支仍可能保留另一种条件，不能都称为完全 unconditional。
 
 ### 4.3 关键公式
 
@@ -250,19 +250,18 @@ $$
 t = \frac{\text{shift} \cdot u}{1 + (\text{shift} - 1) \cdot u}
 $$
 
-PT 阶段 `timestep_shift=1.0`，CT 与 SFT 阶段提高为 `4.0`，用于让更多去噪步骤落在噪声较大、决定布局的阶段。
+PT 阶段 `timestep_shift=1.0`，CT 与 SFT 阶段提高为 `4.0`。对 $0<u<1$，shift 大于 1 会把采样时间推向高噪声端；训练时改变 loss 的噪声分布，推理时则改变积分网格，两者应分开理解。
 
 #### CFG 更新
 
-**【Code】** 代码支持文本 CFG 和图像 CFG：
+**【Code】** 记完整条件速度为 $v_c$、去文本条件为 $v_{-T}$、去图像条件为 $v_{-I}$。忽略 renormalization 时，代码先做文本引导，再做图像引导：
 
 $$
-v_{\text{cfg}} =
-v_{\text{uncond}} +
-s_{\text{text}} \cdot (v_{\text{cond}} - v_{\text{uncond}})
+v_T=v_{-T}+s_T(v_c-v_{-T}),\qquad
+v_{\rm cfg}=v_{-I}+s_I(v_T-v_{-I}).
 $$
 
-图像 CFG 类似，用 $s_{\text{img}}$ 控制输入图像细节保持程度；代码还支持 `global`、`channel`、`text_channel` 三种 velocity renormalization。
+实际实现可在文本阶段或组合后做范数重缩放，支持 `global`、`channel`、`text_channel`。对应 scale 为 1 时不额外执行该引导分支。两个 scale 会相互作用，并非两项独立、可直接相加的梯度。
 
 ### 4.4 Training
 
@@ -315,9 +314,11 @@ $$
 
 **【Paper】** 视频数据来自公开在线视频、Koala36M 和 MVImgNet2.0，用蒸馏后的 Qwen2.5-VL-7B 小模型为相邻帧生成 30 token 以内的 inter-frame caption，平均每段采样约 4 帧，得到 45M 条视频交错序列。网页数据基于 OmniCorpus/Common Crawl，先做 fastText 初筛和 Qwen2.5-14B LLM 细筛，再做 UI 去除、分辨率、清晰度、OCR 文本密度、CLIP 相关性、文档裁剪和图片数量等过滤，最终得到 20M 条结构化网页交错序列。
 
+**【Analysis】** Table 1 是数据池规模；Table 3 是按混合比例重复抽样后实际见到的 token，不能把两张表当成互相矛盾的唯一 token 计数。CT 还同时改变分辨率、上下文长度与交错采样比例，因此后面的学习曲线没有控制所有变量。
+
 #### 推理增强数据
 
-**【Paper】** 论文构造约 500K 条 reasoning-augmented 多模态样例，覆盖文本到图像、自由形式图像操作、概念编辑等四类结构关系：
+**【Paper】** 论文构造约 500K 条 reasoning-augmented 多模态样例，覆盖文本到图像、自由形式图像操作、概念编辑等结构关系（§3.3.4 写“四类”，但正文只列出这三组标题）：
 
 - T2I 用 Qwen2.5-72B 生成 query-guidance pair 和详细 prompt，再由 FLUX.1-dev 生成目标图。
 - 自由形式编辑从 OmniEdit 和交错视频中采样 source-target 图对，用 DeepSeek-R1 风格的 reasoning trace 标注。
@@ -343,7 +344,7 @@ $$
 
 ### 4.5 Inference
 
-**【Paper】** 推理时模型既可以纯文本回答，也可以按交错输入生成一张或多张图像，还可以在生成图像前先输出 `&lt;think&gt;...&lt;/think&gt;` reasoning。官方默认图像生成使用 50 个 flow timestep。
+**【Paper】** 推理时模型既可以纯文本回答，也可以按交错输入生成一张或多张图像，还可以在生成图像前先输出 `&lt;think&gt;...&lt;/think&gt;` reasoning。**【Code】** `InterleaveInferencer` 默认 `num_timesteps=50`，而 `Bagel.generate_image` 建立 50 个时间网格点、循环 49 个区间；因此严格说是 49 次积分更新，不应把配置值直接当成模型调用次数（CFG 还可能增加前向调用）。
 
 **【Code】** `InterleaveInferencer` 把文本、图像依次写入 KV cache：文本走 `update_context_text`，图像用 `update_context_image` 同时缓存 clean VAE 和 ViT；生成时从 Gaussian noise 初始化 latent，逐 timestep 调用 `generate_image`，最后用 FLUX VAE decoder 解码。
 
@@ -371,7 +372,7 @@ $$
 
 ### 4.6 代码实现对照
 
-**【Code】** 官方仓库与论文描述总体一致，但有几个实现层面的细节值得单独说明：
+**【Code】** 核对官方仓库 `main`（2026-09-22），有几个实现层面的细节值得单独说明：
 
 - `modeling/bagel/bagel.py` 的 `Bagel.forward` 先准备 clean latent，再随机加噪，`target = noise - packed_latent_clean`，只对 `has_mse = packed_timesteps > 0` 的位置计算 MSE。
 - `modeling/bagel/qwen2_navit.py` 的 `Qwen2MoTDecoderLayer` 明确实现 hard routing：text/ViT 用理解参数，VAE 用 `_moe_gen` 参数，两者在 `PackedAttentionMoT` 中共享 attention 计算。
@@ -401,7 +402,7 @@ IntelligentBench 每例 0-2 分，最终归一化到 100 分。论文同时用 R
 
 #### 图像生成
 
-**【Paper】** GenEval 上 BAGEL 为 0.82，使用 LLM rewriter 后到 0.88，超过 FLUX.1-dev（0.82）、Janus-Pro-7B（0.80）和 MetaQuery-XL（0.80）。WISE 上 BAGEL 为 0.52，使用 Self-CoT 后到 0.70，超过此前开源 SOTA MetaQuery-XL 的 0.55，仅次于 GPT-4o 的 0.80。
+**【Paper】** GenEval 上 BAGEL 为 0.82，使用 LLM rewriter 后到 0.88，原始 0.82 与 FLUX.1-dev 表中 0.82 持平；0.88 则额外使用 rewriter，比较时需保留这一条件。WISE 上 BAGEL 为 0.52，使用 Self-CoT 后到 0.70，超过此前开源 SOTA MetaQuery-XL 的 0.55，仅次于 GPT-4o 的 0.80。
 
 #### 图像编辑与推理编辑
 
@@ -415,6 +416,8 @@ IntelligentBench 每例 0-2 分，最终归一化到 100 分。论文同时用 R
 | BAGEL       |             44.9 |       6.1 |      56.21 |
 | BAGEL + CoT |             55.3 |      11.9 |      60.18 |
 
+**【Paper】** Table 8 的闭源模型分母不同：GPT-4o 只对回答的 318/350 例评分，Gemini 为 349/350，拒答未计入该平均分。故 78.9、57.6 与 BAGEL 全集结果不是完全相同的评测覆盖范围。Self-CoT 是额外推理计算下的结果，不能和无 thinking 曲线混为一组。
+
 ### 5.3 Ablation Study
 
 #### 架构消融
@@ -427,7 +430,7 @@ IntelligentBench 每例 0-2 分，最终归一化到 100 分。论文同时用 R
 
 #### ViT 语义条件
 
-**【Paper】** 去掉 ViT token 对经典 GEdit-Bench 影响很小，但 IntelligentBench 下降约 16%，说明复杂自由形式编辑依赖语义视觉推理，而不只是低层 latent 保真。
+**【Paper】** 去掉 ViT token 对经典 GEdit-Bench 影响很小，但 IntelligentBench 下降约 16%，支持语义视觉特征对复杂编辑有帮助；这是去掉输入 ViT token 的性能对照，不等于从头训练一版无 ViT 模型，也不是对内部推理过程的直接证明。
 
 #### 能力涌现曲线
 
@@ -459,7 +462,7 @@ IntelligentBench 每例 0-2 分，最终归一化到 100 分。论文同时用 R
   style='max-width:100%; height:auto;'
 />
 
-**【Paper】** 模型可以跟随指令生成动态数量的图像来完成导航、旋转和未来视角预测；虽然导航数据主要是真实街道视频，模型仍能泛化到水墨画、卡通和游戏场景。
+**【Paper】** 模型可以跟随指令生成动态数量的图像来完成导航、旋转和未来视角预测；虽然导航数据主要是真实街道视频，论文展示了水墨画、卡通和游戏场景的定性样例。这里的导航是按指令合成未来视图，并没有控制机器人、评估碰撞或验证三维几何一致性；且它来自专门提高视频/导航比例的微调，不能作为基础 checkpoint 零样本世界建模的证据。
 
 ## 6. 方法分析
 
@@ -513,7 +516,7 @@ IntelligentBench 每例 0-2 分，最终归一化到 100 分。论文同时用 R
 1. 完整训练语料没有直接发布，官方仓库只提供样例数据与 protocol；要完整复现 trillions token 训练仍需自行收集和过滤数据。
 2. IntelligentBench 只有 350 个样例，且使用 GPT-4o 评分，复杂任务的分数稳定性和跨模型公平性仍有风险。
 3. 世界建模、导航、3D 操作主要通过定性展示，缺少可复用的自动指标和标准 benchmark。
-4. “涌现”依赖历史 checkpoint 上某个固定 85% 阈值，不同任务峰值、训练阶段和评测设置可能改变结论。
+4. 85% 峰值阈值描述达到较高性能的时间，不是能力突然出现的统计检验。CT 同时增加分辨率、交错数据比例和上下文；没有固定这些因素的缩放对照，不能把后期智能编辑增长仅归因于 token 数，更没有证明一个不可预测的相变。
 5. 7B active / 14B total 在统一多模态模型中仍属于中等规模，更大参数量、更长视频序列和 RLHF 的价值尚待验证。
 
 ## 8. 启发与研究思考

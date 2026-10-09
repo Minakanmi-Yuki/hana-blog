@@ -1,7 +1,7 @@
 ---
 title: 'ChatVLA-2 论文精读：让 VLA 保留 VLM 的开放世界推理'
 publishDate: 2026-08-24
-updatedDate: 2026-08-24
+updatedDate: 2026-09-22
 description: '精读 ChatVLA-2：通过 Dynamic MoE、reasoning-following action expert 与两阶段训练，让 VLA 在数学、OCR 和空间关系任务中利用预训练 VLM 的开放世界知识。'
 heroImage:
   { src: 'https://pic.hana0721.top/56422576_p0_master1200.7i0z6ufn65.webp', color: '#8C8275' }
@@ -119,7 +119,7 @@ $$
 - **中间模块**：MLP 投影 reasoning，生成后半 action-expert layers 的 scale 与 shift 参数。
 - **输出**：被 reasoning 条件化的 action features。
 - **关键设计**：用 reasoning representation 替换原 observation embedding 的对应输入，并只注入 action expert 的后半层，而不是全层注入。
-- **为什么需要**：前半层更负责稳定的动作/观测表征，后半层对高层条件更敏感；把开放世界 reasoning 直接注入后半层，可增强指令跟随而少干扰低层控制。
+- **为什么放在后半层**：附录 C.2 观察到前半层替换 observation embedding 会使动作更不稳定，作者推测早期层丢失了必要的观测信息；这比“浅层专管控制、深层专管理解”的确定分工更谨慎。后半层注入是由消融选出的有效配置，而不是已验证的通用层级规律。
 
 #### VLM 与 Action Expert
 
@@ -130,6 +130,8 @@ $$
 ### 4.3 关键公式
 
 #### Dynamic MoE
+
+**【Analysis】** 论文没有给出路由或训练目标的完整数学定义。以下是便于理解的示意形式；top-k 权重是否再次归一化、是否使用负载均衡损失，不能据此推定。
 
 对第 $l$ 层输入 token $x$，router 产生 experts 的打分 $g(x)\in\mathbb R^N$，选择 top-$k$ 专家集合 $\mathcal T(x)$：
 
@@ -170,6 +172,8 @@ $$
 ![ChatVLA-2 的两阶段训练：Stage 1 保留开放世界理解，Stage 2 冻结 VLM 并训练 reasoning-following action expert（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-chatvla-2/Stages-crop.3k8qvtchi9.webp)
 
 **【Paper】** Stage 1 在图文数据和机器人数据上 co-training。图文部分约包含 COCO 32k、TextVQA 20k、GQA 54k、RoboPoint 约 2k，以及约 5k 个真实环境样本；机器人部分包含数学匹配 600 条与玩具摆放 300 条轨迹，图文:机器人采样比例为 1:3。训练 15k steps，初始 learning rate 为 $2\times10^{-5}$。
+
+**【Paper】** 训练步数存在原文内部不一致：正文 §3.3 的 Stage 1 段写 50k steps，而附录 B.1 明确写 Stage 1 为 15k、Stage 2 为 50k。本文按附录分阶段记录，复现时应向作者核对，不能将两处合并成一个确定配方。
 
 **【Paper】** Stage 2 冻结整个 VLM，只训练 action expert，使它把上层输出的 reasoning 当作可执行条件。论文实现细节给出 50k steps、AdamW、FP16、3k steps warm-up、cosine scheduler，学习率从 $2\times10^{-5}$ 衰减到 $2\times10^{-6}$，总训练成本约 340 GPU hours。
 
@@ -212,7 +216,7 @@ $$
 
 ### 4.6 代码实现对照
 
-**【Code】** 截至本文撰写时，论文项目主页只提供论文、演示与视频资源，未提供 ChatVLA-2 官方 GitHub 代码、训练配置或 checkpoint。项目页中曾保留一个注释掉的 `ChatVLA_public` 链接，但它不是 ChatVLA-2 的可用实现。因此无法对模型定义、DataLoader、loss、checkpoint 和 inference API 做逐文件核对。
+**【Paper】** 截至 2026-09-22，本次核验的[官方项目页](https://chatvla-2.github.io/)公开入口提供论文与演示，未找到 ChatVLA-2 可用的官方训练代码或 checkpoint。本文未进行可执行代码核对，因此不把项目页面信息标记为 `【Code】`。
 
 **【Analysis】** 这会影响复现：读者可以根据论文重建 Qwen2-VL + Dynamic MoE + ScaleDP 的原型，但无法确认 router loss、expert 初始化的精确代码、diffusion scheduler、动作归一化、停止条件和真实机器人控制接口。本文后续所有“实现层面”的表述都以论文正文/附录为准，并明确标注为 `【Paper】`，没有把推测写成 `【Code】`。
 
@@ -229,7 +233,7 @@ $$
 | Math Matching Game | ARX R5 双臂、顶部 RealSense L515、50 Hz          | 数字/符号与组合是否见过训练集    | OCR 4 分、数学推理 2 分、操控成功率      |
 | Toy Placement      | Franka 7-DoF、Robotiq gripper、侧置 ZED 2、15 Hz | 目标物、参考物和方向指令是否未见 | 物体识别、spatial affordance、操控成功率 |
 
-数学任务的开放世界测试使用训练集中没有出现过的方程与手写风格；空间任务要求模型识别新物体、找到指令中的参考物，并理解相对位置。
+数学任务的开放世界测试使用训练中未出现的方程；手写风格差异在 in-domain 测试中也存在，不能单凭字形变化就判为 open-world。OCR 4 分具体由手写数字 1 分、卡片数值及位置 1 分、运算符 2 分组成；数学 2 分分别评价答案正确与选卡正确。因此这两列是人工定义的综合分，不是 OCR 字符准确率或纯数学题正确率。50 Hz 与 15 Hz 是遥操作数据采集频率，也不等于模型前向频率。
 
 ### 5.2 Main Results
 
@@ -258,13 +262,15 @@ $$
 | 3B Dense                        |     0.04/4 |     0.00/2 |      2/52 |
 | 7B Dense                        |     0.08/4 |     0.00/2 |      8/52 |
 
-两阶段训练消融显示：只做 Stage 1 时成功率为 12/52，只做 Stage 2 时为 3/52，完整两阶段为 43/52。Stage 1 缺失会让 OCR/数学推理几乎消失；Stage 2 缺失则说明“会推理”尚未转化成“会按推理行动”。
+两阶段训练消融显示：只做 Stage 1 时 OCR/Math 仍有 3.20/4、1.33/2，但成功率仅 12/52；只做 Stage 2 时为 3/52，完整两阶段为 43/52。作者说明移除 Stage 2 的对照保持相同训练步数，因而差异不能简单归结为多训练了一段时间。Stage 1 缺失会让 OCR/数学推理几乎消失；Stage 2 缺失则说明“会推理”尚未转化成“会按推理行动”。
 
 附录还比较了专家数量和 reasoning 注入层位：8/2 优于 6/3 与 4/2；后半层注入成功率为 43/52，全层为 36/52，前半层为 22/52。
 
 ### 5.4 Generalization
 
-**【Paper】** 泛化并非来自专门训练数学、OCR 或方向词。Stage 1 的 TextVQA 样本还过滤了数字 OCR 与数学运算符，作者希望测试模型是否能调用预训练知识，而不是背诵目标技能。开放世界成功因此同时依赖三层能力：VLM 认出新内容，语言头组织成 reasoning，action expert 按 reasoning 选择正确的接触动作。
+**【Paper】** 这里的 open-world 是相对于机器人微调数据的未见方程、对象和部分空间指令，并不是模型从未接触过 OCR 或空间监督。附录 B.2 只说明 TextVQA 过滤了含数字 OCR token 或数学运算符的样本；训练仍包含 TextVQA、带空间问答的 RoboPoint、真实场景问答和带子推理标注的机器人轨迹。预训练 VLM 的数据是否包含测试概念也未被排除。
+
+**【Analysis】** 因此，实验支持“保留并调用预训练能力来泛化到新的机器人任务组合”，不支持“完全无相关监督学会数学/空间推理”。要进一步分离知识保留与新增数据收益，还需要固定架构后逐项移除 TextVQA、RoboPoint 和机器人 reasoning 标注。
 
 ## 6. 方法分析
 

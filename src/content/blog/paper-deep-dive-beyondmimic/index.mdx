@@ -1,7 +1,7 @@
 ---
 title: 'BeyondMimic 论文精读：从动作跟踪到可组合的人形机器人控制'
 publishDate: 2026-08-27
-updatedDate: 2026-08-27
+updatedDate: 2026-09-22
 description: '精读 BeyondMimic：用统一强化学习动作跟踪获得敏捷、自然的人形技能，再以状态–动作潜空间扩散和分类器引导实现零样本任务组合。'
 heroImage:
   { src: 'https://pic.hana0721.top/94819769_p0_master1200.4xv4u7folx.webp', color: '#6F766C' }
@@ -53,7 +53,7 @@ import { Aside } from '@/components/user'
 
 ### 一句话总结
 
-**【Paper】** BeyondMimic 把“学会动作”和“完成任务”拆成互补的两阶段：第一阶段用紧凑、与动作无关的 RL 配方跟踪大量人类动作；第二阶段把这些策略滚动出的状态–动作轨迹压到 VAE 潜空间，用 guided diffusion 在部署时对未来状态施加新目标，因而无需为每个任务重新训练。
+**【Paper】** BeyondMimic 把“学会动作”和“完成任务”拆成互补的两阶段：第一阶段为各段参考动作训练策略，共享同一套 RL 配方；第二阶段先用条件 VAE 蒸馏动作跟踪策略，再对它滚动生成的状态–潜变量轨迹建模，用 guided diffusion 在部署时对未来状态施加新目标，因而无需为每个任务重新训练。
 
 ### 核心贡献
 
@@ -62,7 +62,7 @@ import { Aside } from '@/components/user'
 1. 用相同 MDP、奖励、随机化和超参数训练不同动作，约 2.5 小时人类动作在仿真中全部验证，并将 30 段（约 15 分钟）部署到真实 Unitree G1。
 2. 通过相对身体位姿、低阻抗 PD setpoint、三项正则和自适应采样，兼顾敏捷性、自然性与 sim-to-real 稳定性。
 3. 提出状态–动作 co-diffusion：VAE 提供平滑动作潜变量，扩散模型同时预测短时域状态和潜变量，允许在推理时加入任意可微任务代价。
-4. 在未见过的速度/航点控制、关键帧 inpainting、障碍物绕行和任务切换上实现零样本组合，并在真实机器人上展示。
+4. 在未见过的速度/航点控制、关键帧 inpainting、障碍物绕行和任务切换上实现零样本组合，并在真实机器人上展示；导航和避障的状态与环境信息依赖动捕系统（S4）。
 
 ## 2. 背景与相关工作
 
@@ -74,8 +74,8 @@ import { Aside } from '@/components/user'
 
 **【Paper】**
 
-- **输入（跟踪策略）**：运动相位 $oldsymbol\psi$、anchor 位姿误差、IMU twist、相对默认姿态的关节位置、关节速度和上一动作；不使用时间堆叠。
-- **输出**：归一化关节位置 setpoint $mathbf a$，经 $oldsymbol\theta^{sp}=\boldsymbol\theta^0+\boldsymbol\alpha\odot\mathbf a$ 送入低层位置 PD，产生关节力矩。
+- **输入（跟踪策略）**：运动相位 $\boldsymbol\psi$、anchor 位姿误差、IMU twist、相对默认姿态的关节位置、关节速度和上一动作；不使用时间堆叠。这里的“phase”是一帧参考关节位置/速度向量，不是单个相位标量；它提示动作进度，奖励仍在身体任务空间计算。
+- **输出**：归一化关节位置 setpoint $\mathbf a$，经 $\boldsymbol\theta^{sp}=\boldsymbol\theta^0+\boldsymbol\alpha\odot\mathbf a$ 送入低层位置 PD，产生关节力矩。
 - **跟踪目标**：参考动作经前向运动学得到各目标身体的位姿与 twist；非 anchor 身体在 yaw 对齐、保持高度的 anchor-centered 坐标中比较，以容忍全局漂移。
 - **数据与 embodiment**：重定向的人类动作（LAFAN1 及补充动作集），Unitree G1 人形机器人；训练在 Isaac Lab 仿真，部署在真实硬件。
 - **扩散阶段输入/输出**：过去 $N$ 步、当前步和未来 $H$ 步的状态–潜变量轨迹；每次解码当前潜变量，输出最新的关节 setpoint。
@@ -98,19 +98,21 @@ import { Aside } from '@/components/user'
 - **随机化**：仅随机地面摩擦/恢复系数、默认关节偏置、躯干质心，并周期性施加速度扰动。
 - **自适应采样**：根据片段失败率提高困难片段采样概率，学会后再回到近似均匀分布。
 
+**【Paper】** “统一”首先指配方统一：正文明确各参考动作可有自己的 tracker，一段分钟级序列也可包含多个技能；不能理解成一个 RL checkpoint 已覆盖全部 2.5 小时。动作 setpoint 是产生力矩的中间控制量，论文刻意不按运动学关节限位裁剪它；需要限制的是实际关节运动，而非把 setpoint 当作必须精确到达的姿态。
+
 **【Code】** `tracking_env_cfg.py` 以 Isaac Lab manager 配置 MDP；`mdp/commands.py` 计算相位、anchor 和身体误差，`rewards.py` 实现指数型跟踪奖励，`events.py` 实现三类随机化，`scripts/rsl_rl/train.py` 调用 PPO 训练。代码仓库覆盖动作跟踪训练；部署控制器位于另一个 `motion_tracking_controller` 仓库。
 
 #### VAE 动作表示
 
-- **输入**：参考相位 $oldsymbol\psi$ 与 anchor 误差。
-- **输出**：动作潜变量 $mathbf z$；decoder 还读取重力投影、IMU twist、关节状态和上一动作，重建 $hat{\mathbf a}$。
-- **作用**：把尖锐、不规则的 PD setpoint 转成平滑、低维且带动作意图的表示，减轻扩散直接拟合力矩尖峰的不稳定。
+- **输入**：参考相位 $\boldsymbol\psi$ 与 anchor 误差。
+- **输出**：动作潜变量 $\mathbf z$；decoder 还读取重力投影、IMU twist、关节状态和上一动作，重建 $\hat{\mathbf a}$。
+- **作用**：编码参考动作意图，再由本体状态条件下的 decoder 模仿 teacher 的 PD setpoint；它不是把原始 action 压缩再重建的普通 action autoencoder。Table S6 的 latent 维度为 32，KL 权重 0.01。DAgger 让 student 访问的偏离状态也获得 teacher 标签，减少仅拟合专家轨迹的分布偏移。
 
 #### State–Latent Diffusion
 
 - **输入**：混合 character/yaw-centric 参数化的状态序列与 latent 序列，并为每个 state/latent 位置独立采样噪声步。
 - **输出**：未来短时域的状态–latent 轨迹；当前 latent 经 decoder 变成动作。
-- **作用**：状态预测提供动作影响未来的因果线索，因此任务代价可以直接写在未来状态上，不需要额外的高维 forward dynamics model。
+- **作用**：联合状态/潜变量建模学习动作与未来运动的统计耦合，因此任务代价可以直接写在未来状态上，不需要额外的高维 forward dynamics model；它并没有施加精确的刚体动力学约束，所以“生成可行轨迹”仍是经验性质。
 
 #### Classifier Guidance
 
@@ -124,7 +126,7 @@ $$
 r=\sum_{s\in\{p,R,v,\omega\}}\exp\left(-\frac{\bar e_s}{\sigma_s^2}\right)-\lambda_l r_{limit}-\lambda_s r_{smooth}-\lambda_c r_{contact}
 $$
 
-**【Paper】** $ar e_s$ 是所有目标身体在位置、方向、线速度或角速度上的平均平方误差，$\sigma_s$ 是尺度；三个 $\lambda$ 控制硬件安全、平滑性和自碰撞。指数形式让小误差区域的改进仍有梯度，同时不同动作共享同一奖励尺度。
+**【Paper】** $\bar e_s$ 是所有目标身体在位置、方向、线速度或角速度上的平均平方误差，$\sigma_s$ 是尺度；三个 $\lambda$ 控制硬件安全、平滑性和自碰撞。容差尺度取 $0.3,0.4,1.0,3.14$，并可额外加入权重 0.5 的 anchor 位置/姿态奖励（Table S1）。上式减去的三个 $\lambda$ 应取正数 $10,0.1,0.1$；补充正文把它们写成负值，是把奖励表中的有符号权重与“减去罚项”记号混用了。PPO 通过回报估计更新策略，并不直接对物理跟踪误差反向求导。
 
 #### VAE 与 diffusion objective
 
@@ -144,34 +146,48 @@ $$
 \nabla_\tau\log p(\tau|\tau^*)=\nabla_\tau\log p(\tau)-\nabla_\tau G(\tau)
 $$
 
-**【Analysis】** 这解释了“训练任务无关、推理目标可变”：扩散模型提供行为先验梯度，代价梯度只负责在该先验附近选择满足当前任务的模式。
+**【Analysis】** 此式依赖人为选择 $p(\tau^*|\tau)\propto\exp[-G(\tau)]$，是引导分布的定义，不是任务真实成功概率。无须训练分类器，但必须能计算任务代价及梯度；在带噪声的去噪迭代中仍属于近似引导，不能保证全局最优或动力学可行。这解释了“训练任务无关、推理目标可变”：扩散模型提供行为先验梯度，代价梯度只负责在该先验附近选择满足当前任务的模式。
 
 ### 4.4 Training
 
-**【Paper】** 阶段一用 PPO 在 Isaac Lab 中训练 motion tracker；阶段二先用 tracker rollout 收集 state/action，再以 DAgger 训练条件 VAE，最后对 state–latent 轨迹做自监督 DDPM 训练。训练数据不含任务标签，所有策略使用共享配方。作者强调 C++ 低延迟执行、精确同步和厂家动力学参数是迁移关键。
+**【Paper】** 阶段一用 PPO 在 Isaac Lab 中训练 motion tracker；阶段二先用 tracker rollout 收集 state/action，再以 DAgger 训练条件 VAE，最后对 state–latent 轨迹做自监督 DDPM 训练。训练数据不含任务标签，所有策略使用共享配方。S3 为扩散数据加入 OU 相关动作噪声，而非只收集无误差轨迹；原因是过阻尼 PD 会滤掉独立高频噪声，难以形成有效恢复数据。rollout 前 2.5 秒用于采集，再延长至 5 秒检查稳定性，失败样本被排除。作者强调 C++ 低延迟执行、精确同步和厂家动力学参数是迁移关键。
 
 <Algorithm number={1} title='BeyondMimic Training' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>重定向人类动作、G1 仿真模型和共享 MDP 配置</div>
   <div slot='output'>动作跟踪策略、VAE decoder 与 state–latent diffusion</div>
   <AlgorithmStep>将 CSV 动作前向运动学处理为 NPZ，并注册到 WandB Motions collection</AlgorithmStep>
-  <AlgorithmStep>以相对身体目标、统一奖励和有限随机化运行 PPO；按片段失败率自适应采样</AlgorithmStep>
-  <AlgorithmStep>rollout 跟踪策略，收集不含参考信息的 state/action 轨迹</AlgorithmStep>
-  <AlgorithmStep>用 DAgger 训练条件 VAE，得到动作 latent 与轻量 decoder</AlgorithmStep>
+  <AlgorithmStep>
+    以相对身体目标、统一奖励和有限随机化运行 PPO；按片段失败率自适应采样
+  </AlgorithmStep>
+  <AlgorithmStep>
+    以 motion tracker 作为 teacher，用 student rollout 状态收集 DAgger 监督
+  </AlgorithmStep>
+  <AlgorithmStep>
+    训练条件 VAE 后，施加时间相关 OU 动作扰动进行 rollout；保存状态和原始 latent，筛除无法保持 5
+    秒稳定的轨迹
+  </AlgorithmStep>
   <AlgorithmStep>对 state–latent 轨迹逐位置加噪，训练网络重建干净轨迹</AlgorithmStep>
   <AlgorithmStep keyword='return'>验证通过的 tracker、VAE 和 diffusion 模型</AlgorithmStep>
 </Algorithm>
 
 ### 4.5 Inference
 
-**【Paper】** 每个控制周期从当前本体状态构造历史窗口，以高斯噪声初始化 state–latent 未来轨迹；反向去噪时对任务代价求梯度并加入 guidance。当前 latent 用最新观测交给 VAE decoder，解码成关节 setpoint，PD 控制器执行后滚动窗口继续预测。
+**【Paper】** 扩散版本在 25Hz 下运行，以 4 步历史和 16 步未来构造 0.64 秒预测窗口；独立 motion tracker 则是 50Hz。每个控制周期从当前本体状态构造历史窗口，以高斯噪声初始化 state–latent 未来轨迹；反向去噪时对任务代价求梯度并加入 guidance。部署时约 19.8M 参数的 diffusion 在 RTX 4060 Mobile 上异步执行 20 步去噪，一次生成约需 20ms；轻量 decoder 在 CPU 同步读取最新观测。当前 latent 用最新观测交给 VAE decoder，解码成关节 setpoint，PD 控制器执行后滚动窗口继续预测。
 
-<Algorithm number={2} title='Guided Diffusion Predictive Control' inputLabel='输入' outputLabel='输出'>
+<Algorithm
+  number={2}
+  title='Guided Diffusion Predictive Control'
+  inputLabel='输入'
+  outputLabel='输出'
+>
   <div slot='input'>当前状态历史、任务代价 $G$、训练好的 diffusion 与 VAE decoder</div>
   <div slot='output'>当前关节 setpoint 与执行后的新状态</div>
   <AlgorithmStep>固定已观测历史/关键帧，初始化未来 state–latent 为噪声</AlgorithmStep>
   <AlgorithmStep keyword='for'>从最大噪声步反向去噪到零</AlgorithmStep>
   <AlgorithmStep indent={1}>预测干净轨迹，并计算无条件 score</AlgorithmStep>
-  <AlgorithmStep indent={1}>计算 $-\nabla_\tau G(\tau)$，按 guidance weight 修正去噪方向</AlgorithmStep>
+  <AlgorithmStep indent={1}>
+    计算 $-\nabla_\tau G(\tau)$，按 guidance weight 修正去噪方向
+  </AlgorithmStep>
   <AlgorithmStep keyword='end for' />
   <AlgorithmStep>取当前 latent，结合最新 proprioception 经 VAE decoder 得到动作</AlgorithmStep>
   <AlgorithmStep>发送 setpoint 到低层 PD，执行一个控制周期并更新历史</AlgorithmStep>
@@ -179,7 +195,7 @@ $$
 
 ### 4.6 代码实现对照
 
-**【Code】** 官方仓库明确覆盖 motion tracking：`scripts/csv_to_npz.py` 完成动作预处理，`replay_npz.py` 回放，`scripts/rsl_rl/train.py`/`play.py` 训练和评估；`tracking_env_cfg.py` 给出 G1 的观测、动作、奖励、事件和终止配置。README 建议用 Isaac Lab 2.1.0、Isaac Sim 4.5.0、Python 3.10，并通过 WandB registry 管理动作。扩散控制器和 C++ 部署代码不在该仓库中，论文中的第二阶段需结合项目发布的其他组件理解。
+**【Code】** 官方仓库明确覆盖 motion tracking：`scripts/csv_to_npz.py` 完成动作预处理，`replay_npz.py` 回放，`scripts/rsl_rl/train.py`/`play.py` 训练和评估；`tracking_env_cfg.py` 给出 G1 的观测、动作、奖励、事件和终止配置。README 建议用 Isaac Lab 2.1.0、Isaac Sim 4.5.0、Python 3.10，并通过 WandB registry 管理动作。扩散控制器和 C++ 部署代码不在该仓库中，不能据此宣称完整第二阶段已开源。另一个复现差异是当前 `MotionCommandCfg.adaptive_kernel_size=1`，而补充 S1 使用 3-bin 回看核；采用哪套配置会影响困难片段之前的采样权重。
 
 ## 5. 实验
 
@@ -204,7 +220,7 @@ $$
 
 ![MDP 设计、自适应采样与潜空间扩散消融（论文 Figure 8）](https://pic.hana0721.top/blog/paper-deep-dive-beyondmimic/fig8.webp)
 
-**【Paper】** Rot6D 比 quaternion/axis-angle 更利于 sim-to-real；注入 2 ms 延迟已增加速度误差，5 ms 出现失败，10 ms 在三次中失败两次。移除自适应采样后，四个动作中的三个在 30k iteration 仍有困难片段失败；潜空间扩散的 cartwheel 仿真成功率从无 latent 的 5% 提升到 95%。
+**【Paper】** Rot6D 比 quaternion/axis-angle 更利于 sim-to-real；注入 2 ms 延迟已增加速度误差，5 ms 出现失败，10 ms 在三次中失败两次。移除自适应采样后，四个动作中的三个在 30k iteration 仍有困难片段失败；潜空间扩散的 cartwheel 成功率从无 latent 的 5% 提升到 95%，这是 MuJoCo sim-to-sim 完整侧翻且不跌倒的统计，不是真实机器人 95% 成功率。
 
 ### 5.4 Generalization
 
@@ -212,13 +228,15 @@ $$
 
 ![技能切换与任务组合（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-beyondmimic/fig6.webp)
 
-**【Paper】** 推理时可组合航点代价与 SDF 障碍规避代价，绕开障碍后到达目标；也可把 joystick 速度跟踪替换为航点目标，或在走路、跑步和连续空翻之间切换。关键帧每 0.2 s 注入一次时，模型能把稀疏姿态补成连续的 cartwheel，并回到命令控制的步行。
+**【Paper】** 推理时可组合航点代价与 SDF 障碍规避代价，绕开障碍后到达目标；也可把 joystick 速度跟踪替换为航点目标，或在走路、跑步和连续空翻之间切换。导航/避障实验用 motion capture 提供环境上下文和定位，而非只凭本体感知自主发现障碍；joystick 与关键帧任务才只用本体状态估计。关键帧每 0.2 s 注入一次时，模型能把稀疏姿态补成连续的 cartwheel，并回到命令控制的步行。
 
 ## 6. 方法分析
 
 ### 6.1 为什么有效？
 
 **【Analysis】** 第一阶段把复杂的“像人”偏好隐式装进动作数据，同时用相对身体坐标释放无害的全局漂移；第二阶段不直接扩散尖锐 PD action，而是在平滑 latent 上建模，并让 decoder 使用最新 proprioception 修正细节。扩散先验因此负责“选一个可行的人类动作模式”，guidance 只需施加小的任务偏置。
+
+**【Paper】** 第一阶段简化依赖两个具体控制设计：电机转子反射惯量约为 $I_{rotor}g^2$，必须作为真实 armature 建模；PD 增益按 $k_p=I\omega_n^2$、$k_d=2I\zeta\omega_n$ 设置，10Hz 对应 $\omega_n=2\pi\cdot10$，取 $\zeta=2$。这不是随意调低刚度，而是用物理惯量和统一带宽配方控制噪声放大与接触顺应性。自适应采样还把失败权重向前最多两个 1 秒 bin 扩散，因为导致摔倒的错误动作可能发生在终止之前（S1）。
 
 ### 6.2 核心创新
 
@@ -239,6 +257,8 @@ $$
 ### 7.1 作者明确提出的局限
 
 **【Paper】** 扩散控制依赖状态估计质量；当前预测时域约 0.64 s，难以处理需要提前规划的远距离目标。历史窗口有助于稳定预测，却可能让模型陷入重复运动；提高 guidance weight 又会在模式切换和高方差状态下 destabilize。细粒度目标仍需轻量 guidance 调参，起步和收尾阶段更容易绊倒。
+
+**【Analysis】** 这些结果中的 zero-shot 是没有为新任务重新训练/实机微调，不是未见技能也能凭空生成；guidance 权重仍需轻量调节。自然性研究比较的是单一厂商控制器，77 位参与者各看 20 对片段；论文二项检验没有说明如何处理同一参与者和片段的相关性，不能把所有选择当成独立受试者证据。
 
 ### 7.2 自己分析得到的局限
 

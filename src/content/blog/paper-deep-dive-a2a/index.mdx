@@ -1,7 +1,7 @@
 ---
 title: 'A2A 论文精读：用历史动作替代高斯噪声的 Flow Matching 策略'
 publishDate: 2026-08-26
-updatedDate: 2026-08-26
+updatedDate: 2026-09-22
 description: '精读 A2A：把历史本体动作编码为 Flow Matching 的起点，以轻量 MLP 生成未来动作，在单步推理下兼顾低延迟与视觉鲁棒性。'
 heroImage:
   { src: 'https://pic.hana0721.top/74502138_p0_master1200.7i0z6ufn7r.webp', color: '#8C8275' }
@@ -97,9 +97,9 @@ import { Aside } from '@/components/user'
 
 #### 历史—未来动作的共享 latent
 
-**【Paper】** A2A 用 action encoder $E_a$ 将历史序列压缩为 $\mathbf z_0=E_a(\mathbf a_{\le t})$，并将未来目标编码到同一空间；decoder $D_a$ 将生成后的 $\mathbf z_1$ 还原为 $\hat{\mathbf a}_{>t}$。论文的动机是：动作原空间中的近邻关系未必利于 transport，而高维 latent 可让起点和终点的分布对齐得更好。
+**【Paper】** A2A 用 action encoder $E_a$ 将历史序列压缩为 $\mathbf z_0=E_a(\mathbf a_{\le t})$，并将未来目标编码到同一空间；这里“共享”指 latent 的维度与坐标空间，不意味着两条路径必须共享 encoder 参数。decoder $D_a$ 将生成后的 $\mathbf z_1$ 还原为 $\hat{\mathbf a}_{>t}$。论文的动机是：动作原空间中的近邻关系未必利于 transport，而高维 latent 可让起点和终点的分布对齐得更好。
 
-**【Code】** `roboverse_learn/il/policies/a2a/action_ae.py` 的 `CNNActionEncoder` 使用 3 个 kernel size 5、stride 2 的 `Conv1d + ReLU` 层，默认配置的 encoder / decoder hidden dimension 和 latent dimension 都为 512。decoder 是输入投影、4 个 MLP block 与输出投影组成的残差式 MLP。
+**【Code】** `a2a_policy.py` 分别实例化 `history_action_encoder` 和 `action_encoder`，前者读取 state，后者读取 future command；论文统一写作 $E_a$，不能据此把实际实现理解为权重绑定。`roboverse_learn/il/policies/a2a/action_ae.py` 的 `CNNActionEncoder` 使用 3 个 kernel size 5、stride 2 的 `Conv1d + ReLU` 层，默认配置的 encoder / decoder hidden dimension 和 latent dimension 都为 512。decoder 是输入投影、4 个 MLP block 与输出投影组成的残差式 MLP。
 
 #### 视觉条件与 Flow Net
 
@@ -129,7 +129,9 @@ $$
 \left\|f_\theta(\mathbf z_\tau,\tau,\mathbf c)-\mathbf v_\tau(\mathbf z_\tau,\tau,\mathbf c)\right\|_2^2.
 $$
 
-**【Paper】** 为保证 latent 可解码且少步 ODE 的落点可执行，论文再加入：
+**【Paper】** 对配对示教片段的线性路径，监督速度具体为 $\mathbf v_\tau=\mathbf z_1-\mathbf z_0$。**【Analysis】** 这里的配对来自同一条轨迹的过去和未来；线性插值不等于求解了全数据集的最优传输配对，也不保证学习到的边缘速度场处处笔直。
+
+**【Paper】** 为保证 latent 可解码且少步 ODE 的落点与示教一致，论文再加入：
 
 $$
 \mathcal L_{AE}=\mathbb E\left\|\mathbf a_{>t}-D_a(E_a(\mathbf a_{>t}))\right\|_1,
@@ -147,9 +149,9 @@ $$
 
 ### 4.4 Training
 
-**【Paper】** 每个 batch 抽取历史动作、图像序列和未来 action chunk，在 $\tau\sim\mathcal U[0,1]$ 处构造线性路径，训练 vector field；同时让 autoencoder 重建未来 chunk，并将有限步 ODE 的输出拉回 target latent / action。所有实验采用 batch size 32，仿真表格的主比较使用 100 demonstrations、30 epochs。
+**【Paper】** 每个 batch 抽取历史动作、图像序列和未来 action chunk，在 $\tau\sim\mathcal U[0,1]$ 处构造线性路径，训练 vector field；同时让 autoencoder 重建未来 chunk，并将有限步 ODE 的输出拉回 target latent / action。**【Analysis】** 仅用 FM 时，两个 encoder 可以一起把历史与未来压到相同常数，使目标速度与预测速度同时为零；因此低 FM loss 本身不代表可执行策略。重建项防止丢掉动作信息，IC 则检查有限步积分后的落点，而不只是随机时间处的局部速度。所有实验采用 batch size 32，仿真表格的主比较使用 100 demonstrations、30 epochs。
 
-**【Code】** `A2AImagePolicy.compute_loss` 先对 observation 与 action normalization；视觉走 `obs_encoder`，历史部分取 `nobs['agent_pos'][:, :n_obs_steps]`，未来部分取从 `n_obs_steps - 1` 开始的 `n_action_steps` 个 action。配置 `a2a.yaml` 默认 6 个 sampling steps、`consistency_weight=1`、encoder reconstruction weight 0.5、flow reconstruction weight 0.5；代码还可选 InfoNCE contrastive loss，但默认配置将其设为 0。
+**【Code】** `A2AImagePolicy.compute_loss` 先对 observation 与 action normalization；视觉走 `obs_encoder`，历史部分取 `nobs['agent_pos'][:, :n_obs_steps]`，未来部分取从 `n_obs_steps - 1` 开始的 `n_action_steps` 个 action。配置 `a2a.yaml` 默认 6 个 sampling steps、`consistency_weight=1`、encoder reconstruction weight 0.5、flow reconstruction weight 0.5；代码还可选 InfoNCE contrastive loss，但默认配置将其设为 0。另一个需注意的论文/代码差异是：Eq. (5) 的 latent consistency 写作 L1，而公开 `compute_loss` 用 `F.mse_loss`；两种 action reconstruction 才是 L1。
 
 <Algorithm number={1} title='A2A 的联合训练' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>示教 batch $(\mathbf I_{\le t},\mathbf a_{\le t},\mathbf a_{>t})$，权重 $\lambda_0,\ldots,\lambda_3$</div>
@@ -200,7 +202,7 @@ $$
 
 **【Paper】** 仿真评估覆盖 Roboverse 中五个任务：ManiSkill 的 Stack Cube、Pick Cube，RLBench 的 Close Box，以及 LIBERO 的 Open Drawer、Pick-Place Bowl；另在 Franka 上做 Pick Cube 和 Open Drawer 真机实验。对比对象包括 DDPM-UNet / DiT、DDIM-UNet、FM-UNet / DiT、Score-UNet、ACT 和 VITA。
 
-**【Paper】** 主表控制模型规模、chunk size 与 batch size 尽可能一致。五任务成功率的比较采用 100 demonstrations、30 epochs；真机 Pick Cube 用 30 条轨迹训练 100 epochs，Open Drawer 用 30 条轨迹训练 300 epochs，均以 10 次 trial 评估。
+**【Paper】** 主表控制模型规模、chunk size 与 batch size 尽可能一致。五任务成功率的比较采用 100 demonstrations、30 epochs；附录 A.2 还将 RoboVerse ACT 的约 60M 参数减半，使其接近 DDPM-UNet 的约 28M。因此这里比较的是统一预算的实现，而不是各方法原论文的最强配置。真机 Pick Cube 用 30 条轨迹训练 100 epochs，Open Drawer 用 30 条轨迹训练 300 epochs，均以 10 次 trial 评估。
 
 ### 5.2 Main Results
 
@@ -208,7 +210,7 @@ $$
 
 ![Close Box 上的步数—成功率、单步训练收敛与各方法推理耗时（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-a2a/a2a-inference-cost-crop.54yhzhx3aq.webp)
 
-**【Paper】** Close Box 的推理成本图显示，固定 30 epochs 时，4 steps 已达到约 80% 成功率、6 steps 为约 88%，继续增加步数的边际收益趋小；单步设置在约 32 epochs 后超过 90%。在同一 RTX 5090 32GB 上测得，A2A 单步平均 0.56 ms，6 步仍低于 1 ms；论文将这个优势归因于较短 transport 与纯 MLP 运算。
+**【Paper】** Close Box 的推理成本图显示，固定 30 epochs 时，4 steps 已达到约 80% 成功率、6 steps 为约 88%，继续增加步数的边际收益趋小；单步设置在约 32 epochs 后超过 90%。在同一 RTX 5090 32GB 上测得，A2A 单步平均 0.56 ms，论文将这个优势归因于较短 transport 与纯 MLP 运算。Figure 7 的图注明确是 **per sampling step** 的平均推理时间，因此不能把图里的亚毫秒值直接写成包含 6 次迭代、视觉编码和机器人通信的闭环总时延。
 
 **【Paper】** 真机实验中，A2A 在 30 条训练轨迹下的 in-distribution Pick Cube 与 Open Drawer 均报告 100% 成功率；替换为未见发光方块时，A2A 为 80%，两种 UNet 基线为 0%。这些数值来自每种设置 10 次 trial，应理解为小样本实验的估计值。
 
@@ -223,6 +225,8 @@ $$
 ### 5.4 Generalization
 
 **【Paper】** Close Box 的分级随机化中，Level 0 只有初始物体位姿变化；Level 1 再加背景，Level 2 再加光照，Level 3 再加相机视角。六步 A2A 在 Level 0–3 分别为 100%、38%、42%、38%，均高于表中的基线；单步 A2A 为 100%、20%、16%、22%。
+
+**【Paper】** Table 2 的泛化模型在 Level 0 用 100 条示教训练 **200 epochs**，并非主表的 30 epochs；Figure S3 也显示 UNet 基线在增加训练后可达到 100%。主表优势主要支持给定训练预算下的效率，不能推出其收敛后的能力上限更高。
 
 **【Paper】** 方法同时暴露出对 action history 偏差的敏感性：初始关节位姿被扰动时性能下降。论文发现向历史动作加入小噪声能改善这种不确定性下的表现，并报告在 Level 1 上，STD 0.02 的历史噪声可将结果从 20% 提升到 52%。
 
@@ -267,7 +271,7 @@ $$
 1. 论文的少步结论建立在短 horizon、特定模型规模和任务集上；当 action chunk 变长、存在遮挡或需要重规划时，历史 source 与未来 target 的距离可能明显增加。
 2. 使用历史 executed actions 要求实时反馈可靠、时间戳一致；真实硬件的滤波、延迟或丢包会把 source 推离论文设定的分布。
 3. 真机每种条件 10 次 trial，虽然展示了趋势，但对 100% / 80% 这类比例的统计不确定性仍较大；还缺少更长时程、多接触与安全约束任务的报告。
-4. 小噪声可恢复多模态性，却引入 noise scale 这一新的部署超参数；不同动作尺度、机器人和扰动水平下很难预先保证同一 STD 合适。
+4. 给定同一个历史与视觉条件，无噪声 A2A 的 source 是固定点，确定性 ODE 不会凭空产生多个动作模式。Figure S8 的双模态导航依赖历史加噪；跨样本 source 分布有宽度，不等于每个固定条件下都有随机性。小噪声可提供多模态性，却引入 noise scale 这一新的部署超参数；不同动作尺度、机器人和扰动水平下很难预先保证同一 STD 合适。
 
 ## 8. 启发与研究思考
 

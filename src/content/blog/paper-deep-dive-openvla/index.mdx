@@ -1,7 +1,7 @@
 ---
 title: 'OpenVLA 论文精读'
 publishDate: 2026-08-23
-updatedDate: 2026-08-23
+updatedDate: 2026-09-22
 description: '精读 OpenVLA：一个 7B 开源视觉-语言-动作模型，如何融合 DINOv2、SigLIP 与 Llama 2，用动作 tokenization 在 Open X-Embodiment 上实现多机器人控制与低成本微调。'
 heroImage:
   { src: 'https://pic.hana0721.top/133535742_p0_master1200.icpovr2id.webp', color: '#8C8275' }
@@ -61,7 +61,7 @@ import { Aside } from '@/components/user'
 
 **会议 / 期刊**：CoRL 2024
 
-**论文链接**：[arXiv](https://arxiv.org/abs/2406.09246)
+**论文链接**：[arXiv v3](https://arxiv.org/abs/2406.09246v3)（2024-09-05，含 LIBERO 补充实验）
 
 **代码链接**：[openvla/openvla](https://github.com/openvla/openvla)
 
@@ -86,7 +86,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】**
 
-1. 提出 OpenVLA，一个 7B 参数开源 VLA，在 29 个任务、两种机器人 embodiment 上比闭源 RT-2-X（55B）平均绝对成功率高 16.5%，参数量却少约 7 倍。
+1. 提出 OpenVLA，一个 7B 参数开源 VLA，在 29 个任务、两种机器人 embodiment 上比闭源 RT-2-X（55B）按 rollout 汇总的平均得分高 16.5 个百分点，参数量却少约 7 倍。
 2. 系统研究 VLA 的高效适配：在 7 个 Franka 任务上证明 OpenVLA 微调优于 Octo 微调与从零训练的 Diffusion Policy；在语言 grounding、多物体、多指令场景中优势尤其明显。
 3. 证明 LoRA 和 4-bit 量化可把微调与推理成本降到消费级 GPU，且 4-bit 推理基本不损失下游成功率。
 4. 完整开源模型权重、微调 notebook、部署与训练代码，并支持在 Open X-Embodiment 上大规模训练 VLA。
@@ -109,19 +109,19 @@ import { Aside } from '@/components/user'
 
 - **Task**：给定一张第三视角 RGB 观测图和一条自然语言指令，输出机器人末端执行器的 7 维控制动作。
 - **Observation**：单张 RGB 图像，最终分辨率 `224x224`；论文与代码版本均未使用 proprioception 或历史观测。
-- **Action**：相对位置控制，即末端执行器增量 `(Δx, Δy, Δz, Δroll, Δpitch, Δyaw, Δgrip)`，共 7 维。
+- **Action**：相对位置控制，即末端位姿增量加夹爪状态 `(Δx, Δy, Δz, Δroll, Δpitch, Δyaw, grip)`，共 7 维。
 - **Action Space**：连续动作被归一化并离散化为 token；推理时再反离散化回连续动作。
 - **Robot / Embodiment**：开箱评测使用 BridgeData V2 WidowX 和 Google mobile manipulator；适配实验使用 Franka Emika Panda。
 - **Dataset**：Open X-Embodiment 中筛选出的 970k 条真实机器人轨迹，覆盖多种 embodiment、场景和任务。
-- **Training Objective**：把动作预测表达为 vision-language 任务，只在动作 token 上计算 next-token cross-entropy loss。
+- **Training Objective**：把动作预测表达为 vision-language 任务，对动作 response 做 next-token cross-entropy；公开训练实现默认还监督 response 结尾的 EOS。
 
-形式上，输入图像 $x_{\text{img}}$、指令 $x_{\text{text}}$，输出动作 token 序列 $y_{1:N}$，目标是最大化：
+形式上，输入图像 $x_{\text{img}}$、指令 $x_{\text{text}}$，输出动作 token 序列 $y_{1:N}$，负对数似然损失为：
 
 $$
 \mathcal L(\theta) = -\sum_{t \in \mathcal A} \log p_\theta(y_t \mid x_{\text{img}}, x_{\text{text}}, y_{<t})
 $$
 
-其中 $\mathcal A$ 是动作 token 的位置集合，非动作位置被 mask 掉，不参与 loss。
+其中 $\mathcal A$ 是动作监督位置；论文用动作 token 描述目标。**【Code】** `RLDSBatchTransform` 实际保留最后 `len(action)+1` 个 label，默认 `predict_stop_token=True`，因此动作后的 EOS 也参与损失，图像和输入指令则被 mask。
 
 ## 4. 方法
 
@@ -159,10 +159,10 @@ OpenVLA 的结构就是标准 VLM 三步：视觉编码器、视觉-语言 proje
 
 - **输入**：projected visual patch token 与 tokenized instruction。
 - **输出**：自回归生成的 7 个动作 token。
-- **功能**：用互联网预训练的语言推理能力进行动作生成。
-- **为什么需要**：7B LLM 是策略的表达能力和跨任务泛化的主要来源。
+- **功能**：用预训练视觉—语言表征和自回归序列模型生成动作；这里没有显式输出推理链。
+- **为什么需要**：复用已完成视觉—语言对齐的骨干。论文没有单独隔离“语言推理能力”对每项控制表现的贡献。
 
-**【Code】** 训练与推理时 patch token 被插到 `<BOS>` 之后，即在 `input_embeddings[:, :1]` 与 `input_embeddings[:, 1:]` 之间拼接，图像 patch 对应 label 全部设为 `IGNORE_INDEX`。
+**【Code】** 训练与推理时 patch token 被插到 `<BOS>` 之后，即在 `input_embeddings[:, :1]` 与 `input_embeddings[:, 1:]` 之间拼接，图像 patch 对应 label 全部设为 `IGNORE_INDEX`。两个 patch14 编码器在 224px 下各有 16×16 个空间 patch；按 channel 拼接会扩大特征宽度，而不会把视觉序列长度翻倍。
 
 #### Action Tokenizer / De-Tokenizer
 
@@ -177,13 +177,13 @@ OpenVLA 的结构就是标准 VLM 三步：视觉编码器、视觉-语言 proje
 
 #### 动作归一化
 
-论文说每个动作维度在训练数据第 1 和第 99 分位数之间均匀划分成 256 个 bin。代码先做 q01/q99 归一化，把动作映射到 `[-1,1]`：
+论文说每个动作维度在训练数据第 1 和第 99 分位数之间均匀划分成 256 个 bin。对于被 normalization mask 选中的维度，代码做 q01/q99 归一化并裁剪：
 
 $$
-a'_d = 2 \cdot \frac{a_d - q_{01,d}}{q_{99,d} - q_{01,d}} - 1
+a'_d = \operatorname{clip}\left(2 \frac{a_d-q_{01,d}}{q_{99,d}-q_{01,d}+\epsilon}-1,-1,1\right)
 $$
 
-然后离散化：
+**【Code】** EEF 动作配置的 mask 是前 6 维为真、夹爪为假；夹爪统一为绝对开合量（通常 1=open、0=close），不是第七个位姿增量。恒定维度另外置零。然后离散化：
 
 $$
 b_d = \text{digitize}(a'_d; \text{256 equal-width bins over } [-1, 1])
@@ -195,15 +195,19 @@ $$
 \text{token\_id}_d = V - b_d
 $$
 
-其中 $V$ 是 Llama tokenizer 的 vocab size。推理时反向执行：先把 token id 转回 bin center，再做反归一化：
+其中 $V$ 是 tokenizer 原始词表大小，HF 实现会扣除模型为对齐计算所补的词表槽位。公开代码的一个精确细节是：`linspace(-1,1,256)` 产生 **256 个边界、255 个区间中心**；`digitize` 可输出 1 到 256，解码时先减 1 再裁剪至 0 到 254，因此最顶端两个 token 可落到同一中心。论文“256 bins”是方法概述，复现时应使用配套 tokenizer，不能自行按 256 个不同中心重写。
+
+推理时先转回 bin center，再对 mask 为真的维度执行：先把 token id 转回 bin center，再做反归一化：
 
 $$
 \hat a_d = 0.5 \cdot (\hat a'_d + 1) \cdot (q_{99,d} - q_{01,d}) + q_{01,d}
 $$
 
+**【Analysis】** q01/q99 缩窄常见动作的量化范围，代价是区间外动作饱和、连续动作有有限分辨率；它不是无损表示。反归一化统计也属于策略的一部分，同一组 token 在不同 `unnorm_key` 下会产生不同物理位移。
+
 #### Next-Token Prediction
 
-训练使用标准 causal language model 交叉熵，但只对动作 token 计 loss：
+训练使用标准 causal language model 交叉熵，以下写出动作部分（代码默认另含 EOS）：
 
 $$
 \mathcal L = -\frac{1}{|\mathcal A|} \sum_{t \in \mathcal A} \log p_\theta(y_t \mid x_{\text{img}}, x_{\text{text}}, y_{<t})
@@ -219,7 +223,7 @@ $$
 - **训练数据**：Open X-Embodiment 中筛选出至少有一个第三视角相机、单臂末端执行器控制的 manipulation 数据集；基本沿用 Octo 的 mixture weight，再加入 DROID 等新数据集，最终约 970k 条轨迹。
 - **DROID 处理**：先以 10% weight 加入 DROID，但发现其 action token accuracy 始终较低，为保护最终模型，最后三分之一训练将其移除并重新分配 weight。
 - **Image Resolution**：`224x224`；与 `384x384` 相比性能无差异，但后者训练慢 3 倍。
-- **Vision Encoder**：与 VLM 训练时冻结视觉编码器不同，VLA 训练必须微调视觉编码器，否则空间细节不足。
+- **Vision Encoder**：作者的小规模实验发现微调优于冻结，因此最终全量更新视觉编码器；“需要精细空间特征”是解释，不是被单独测量的因果机制，也不是所有 VLA 都必须遵循的定律。
 - **Epochs**：完整训练跑 27 个 epoch，直到训练 action token accuracy 超过 95%。
 - **Learning Rate**：固定 `2e-5`，不使用 warmup。
 - **Optimization / Infrastructure**：64 块 A100，batch size 2048，训练 14 天，约 21,500 A100-hours；使用 AMP、FlashAttention、FSDP。
@@ -229,7 +233,7 @@ $$
 - 训练入口 `vla-scripts/train.py` 默认加载 `DINOSIGLIP_224PX_MX_OXE_MAGIC_SOUP_PLUS` 配置。
 - `prismatic/conf/vla.py` 中该配置的 `global_batch_size=2048`、`per_device_batch_size=32`、`expected_world_size=64`、`learning_rate=2e-5`、`lr_scheduler_type=constant`。
 - 数据读取与动作归一化使用 `NormalizationType.BOUNDS_Q99`，把 q01/q99 映射到 `[-1,1]`。
-- prompt 训练格式来自 `RLDSBatchTransform`：human 指令为 `What action should the robot take to {lang}?`，response 是 action token 串；非动作 label 全部置为 `-100`。
+- prompt 训练格式来自 `RLDSBatchTransform`：human 指令为 `What action should the robot take to {lang}?`，response 是 action token 串；输入 prompt label 置为 `-100`，默认保留动作和 EOS 监督。
 
 <Algorithm number={1} title='OpenVLA Training' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>预训练 Prismatic VLM、Open X-Embodiment 数据混合、动作归一化统计量</div>
@@ -242,11 +246,13 @@ $$
   <AlgorithmStep indent={1}>视觉编码器提取 DINOv2 + SigLIP 特征并拼接</AlgorithmStep>
   <AlgorithmStep indent={1}>projector 把视觉 patch 映射到 LLM embedding 空间，插入 `<BOS>` 后</AlgorithmStep>
   <AlgorithmStep indent={1}>Llama 2 对图像与文本序列做 causal forward</AlgorithmStep>
-  <AlgorithmStep indent={1}>只在动作 token 位置计算 cross-entropy loss</AlgorithmStep>
+  <AlgorithmStep indent={1}>对动作 response 及默认保留的 EOS 计算 cross-entropy loss</AlgorithmStep>
   <AlgorithmStep indent={1}>AdamW、BF16、FSDP、FlashAttention 更新参数</AlgorithmStep>
   <AlgorithmStep keyword='end for' />
-  <AlgorithmStep keyword='return'>达到目标 action accuracy 或训练步数后的 checkpoint</AlgorithmStep>
+  <AlgorithmStep keyword='return'>完成指定训练预算后的 checkpoint；训练 token accuracy 作为诊断量</AlgorithmStep>
 </Algorithm>
+
+**【Analysis】** 95% 是逐 token 的训练集准确率，不是闭环成功率；它也不等于 95% 的完整 7 维动作都正确。反复看同一数据 27 epochs 的经验不能直接替代验证集或真实 rollout 的 checkpoint 选择。
 
 ### 4.5 Inference
 
@@ -256,7 +262,7 @@ $$
 - 默认使用 `bfloat16` 加载，约 15GB GPU 显存；单块 RTX 4090 上约 6Hz，未使用 compilation、speculative decoding 等加速手段。
 - 提供远程 VLA inference server，把动作预测流式发送给机器人，降低本地算力门槛。
 
-**【Code】** `OpenVLA.predict_action` 构造 `PurePromptBuilder` 风格的 prompt，生成 `get_action_dim(unnorm_key)` 个 token，取最后 `action_dim` 个，用 `action_tokenizer.decode_token_ids_to_actions` 恢复归一化动作，再用 `q01/q99` 反归一化。HF 版对应逻辑在 `OpenVLAForActionPrediction.predict_action`。
+**【Code】** `OpenVLA.predict_action` 构造 `PurePromptBuilder` 风格的 prompt，生成 `get_action_dim(unnorm_key)` 个 token，取最后 `action_dim` 个，用 `action_tokenizer.decode_token_ids_to_actions` 恢复归一化动作，再按 mask 用所选 dataset 的 `q01/q99` 反归一化。HF 版对应逻辑在 `OpenVLAForActionPrediction.predict_action`。
 
 <Algorithm number={2} title='OpenVLA Inference' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>当前 RGB 观测、语言指令、目标 dataset 的反归一化统计</div>
@@ -280,11 +286,11 @@ $$
 | Llama 2 骨干与 patch 插入    | `prismatic/extern/hf/modeling_prismatic.py`            | patch 插在 `<BOS>` 后，图像 patch label 为 `-100` |
 | 动作离散化                   | `prismatic/vla/action_tokenizer.py`                    | 256 bins，`np.digitize`，映射到最后 256 token     |
 | 数据归一化                   | `prismatic/vla/datasets/rlds/utils/data_utils.py`      | q01/q99 归一化到 `[-1,1]`                         |
-| 训练损失                     | HF `language_model(...)` + `labels`                    | causal CE，只对动作 token 计 loss                 |
+| 训练损失                     | HF `language_model(...)` + `labels`                    | causal CE，默认动作 token 加 EOS                  |
 | LoRA 微调                    | `vla-scripts/finetune.py`                              | PEFT `LoraConfig`，`target_modules='all-linear'`  |
 | 4-bit 训练                   | `vla-scripts/finetune.py`                              | `BitsAndBytesConfig` `load_in_4bit=True, nf4`     |
 
-**【Analysis】** 论文正文说“把每个动作维度在第 1 与第 99 分位数之间均匀分成 256 个 bin”，而代码实际是先把动作按 q01/q99 归一化到 `[-1,1]`，再在 `[-1,1]` 上做 256-bin 均匀离散化。二者语义一致，但实现细节上是“归一化 + 固定区间离散化”的组合。
+**【Code】** `use_quantization=True` 支持 NF4 + LoRA 微调，但默认关闭。代码支持这条路径，不代表论文 Table 1 已经对 QLoRA 做了同等成功率验证；论文的 4-bit 成功率表研究的是推理量化。
 
 ## 5. 实验
 
@@ -295,10 +301,12 @@ $$
 - **开箱评测**：BridgeData V2 WidowX 环境 17 个任务、170 次 rollout；Google robot 环境 12 个任务、60 次 rollout。所有比较都是相同初始机器人/物体状态下的 A/B 评测。
 - **适配评测**：Franka-Tabletop 5Hz 与 Franka-DROID 15Hz 两类真实 Franka 环境，共 7 个任务、10-150 条示教；另有 LIBERO 四个仿真 task suite。
 - **Baselines**：RT-1-X、Octo、RT-2-X、Diffusion Policy、Diffusion Policy（matched）、OpenVLA（scratch）。
-- **Metrics**：平均成功率与 StdErr；部分任务允许 0.5 partial credit。
+- **Metrics**：论文称平均成功率与 StdErr，但 Bridge/Franka 部分任务允许 0.5 partial credit，因此不少数字严格说是归一化任务得分，不能当作完整成功 episode 的比例。
 - **Generalization 轴**：visual、motion、physical、semantic 以及 language grounding。
 
 ![Franka-DROID 的 Wipe Table 微调任务：左为 in-distribution，右为加入干扰物的 OOD 场景（论文 Figure 11）](https://pic.hana0721.top/blog/paper-deep-dive-openvla/droid-wipe-task.1e9c8uxab0.webp)
+
+**【Paper】** `OpenVLA (scratch)` 仍从已预训练的 Prismatic VLM 出发，只是没有 OpenX 机器人预训练，不是随机初始化全网络。完整 Diffusion Policy 有两帧 RGB+本体状态、动作 chunk 和绝对位置控制；matched 版才使用单图、无状态/历史、单步相对动作。分别比较有助于区分强控制基线与相同输入输出接口，但仍无法把所有收益都归因于一种网络架构。
 
 ### 5.2 Main Results
 
@@ -324,15 +332,17 @@ Google robot 环境中的平均成功率为：
 | RT-2-X  | **78.3 ± 5.4%** |
 | OpenVLA | **85.0 ± 4.6%** |
 
-在该环境中 OpenVLA 与 RT-2-X 表现接近，但都显著高于 RT-1-X 和 Octo。
+在该环境中 OpenVLA 与 RT-2-X 表现接近；Google OOD 子集二者恰好均为 82.9%，差别主要来自分布内任务。论文的 16.5 点总体提升可由 $(170\times20+60\times6.67)/230$ 还原，是按 230 次 rollout 汇总，不能解释为对两个机器人或 29 个任务等权后的增益。表中 ± 是标准误，不是跨训练 seed 的标准差。
 
-**【Paper】** 在新机器人适配实验中，OpenVLA 全量微调取得最高平均性能。Franka-Tabletop 平均成功率 67.2 ± 4.0%，Franka-DROID 平均 58.3 ± 7.2%。Diffusion Policy 在窄的单指令任务上更稳，例如 `Put Carrot in Bowl`、`Pour Corn into Pot`；但在多物体、多指令、language grounding 任务中，OpenVLA 和 Octo 等预训练策略明显更强。论文指出，OpenVLA 是唯一在所有评测任务上成功率都至少达到 50% 的方法。
+**【Paper】** 在新机器人适配实验中，OpenVLA 全量微调取得最高平均性能。Franka-Tabletop 平均成功率 67.2 ± 4.0%，Franka-DROID 平均 58.3 ± 7.2%。Diffusion Policy 在窄的单指令任务上更稳，例如 `Put Carrot in Bowl`、`Pour Corn into Pot`；但在多物体、多指令、language grounding 任务中，OpenVLA 和 Octo 等预训练策略明显更强。“每个任务至少 50%”针对合并 ID/OOD 的七个任务家族：例如 Table 7 的 carrot OOD 仍只有 40%。Wipe Table 的 58.3% 是 30 次测试所得 35/60 分，扫入全部三件得 2 分、仅一两件得 1 分，不能反推为 58.3% 的完整清扫成功率。
 
 ![新机器人适配实验：Diffusion Policy 与微调后的 Octo、OpenVLA 在 Franka 任务上的对比（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-openvla/finetune-results.5trre49nlw.webp)
 
 ### 5.3 Ablation Study
 
 **【Paper】**
+
+**【Paper】** 先固定实验对象：Section 5.3/5.4 的脚注 4 明确说明，LoRA 与量化测试使用较小的 Octo 数据混合、**SigLIP-only** 的早期 OpenVLA 版本，不是主结果的 DinoSigLIP + 970k 配方。
 
 #### 参数高效微调
 
@@ -345,7 +355,7 @@ Google robot 环境中的平均成功率为：
 | LoRA r=32       | 68.2 ± 7.5% |           97.6 |         59.7 GB |
 | LoRA r=64       | 68.2 ± 7.8% |          195.2 |         60.5 GB |
 
-LoRA 只训练约 1.4% 参数，就能匹配 full fine-tuning 的性能；论文推荐默认 rank 32。
+这些结果来自两个 Franka 任务家族的 ID/OOD 共 33 次 rollout；LoRA 的点估计接近全量微调，支持低成本适配，而非证明所有任务上等价。论文推荐 rank 32，在单张 A100 上约 10–15 小时。表中 batch 16 仍需约 59.7GB，不能直接读成“24GB 消费卡用同样 batch 即可”；星号表示全量/冻结视觉版本通过 FSDP 分片到两张卡，显存为合计。
 
 #### 量化推理
 
@@ -355,17 +365,17 @@ LoRA 只训练约 1.4% 参数，就能匹配 full fine-tuning 的性能；论文
 | int8     |   58.1 ± 5.1% | 10.2 GB |
 | int4     |   71.9 ± 4.7% |  7.0 GB |
 
-4-bit 量化在显存减半以上的同时性能基本不下降；8-bit 因为量化操作开销反而更慢，导致系统动态与训练时 5Hz 控制器不匹配。
+**【Paper】** 量化表使用 8 个 Bridge 任务、每任务 10 次。A5000 上 int8 只有 1.2Hz，而 int4 约 3Hz；在训练用 5Hz non-blocking 控制器下，延迟会改变实际运动，精度和闭环动力学被混在一起。附录 D.4 改用“执行完动作再预测”的 blocking 控制后，bf16/int8/int4 得分为 70.0/74.4/68.8%，支持原先 int8 下滑主要与速度有关。这个控制实验比仅凭 token accuracy 推测更有说服力；4-bit 数值接近不等于所有任务无损，Table 5 的 Lift AAA Battery 仍从 7/10 降至 3/10。
 
-![OpenVLA 在不同 GPU 与 bf16/int4 精度下的推理速度（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-openvla/inference-speed.64el79owhz.webp)
+![OpenVLA 在不同 GPU 与 bf16/int4 精度下的推理速度（论文 Figure 6）](https://pic.hana0721.top/blog/paper-deep-dive-openvla/inference-speed.64el79owhz.webp)
 
 #### 其他消融
 
 **【Paper】** 附录还验证了三点：
 
 - **OpenX 预训练**：只用 BridgeData V2 训练的 `OpenVLA-Bridge` 在 8 个 Bridge 任务上平均 45.6%，显著低于完整 OpenVLA 的 76.3%，说明跨 embodiment 数据多样性很关键。
-- **双视觉编码器**：去掉 DINOv2、只用 SigLIP 的 `OpenVLA-Bridge-SigLIP` 平均 40.6%，进一步下降。
-- **视觉编码器是否微调**：微调视觉编码器平均 80.0%，冻结只有 46.7%；说明 VLA 需要继续适配视觉特征。
+- **双视觉编码器**：去掉 DINOv2、只用 SigLIP 的 `OpenVLA-Bridge-SigLIP` 平均 40.6%，差 5 个百分点。相比 OpenX 消融的约 30 点差距，这个效应更小，且不是在完整混合上重新训练的 DINOv2 消融。
+- **视觉编码器是否微调**：附录 D.3 的 80.0% 对 46.7% 来自早期 SigLIP 与 LLaVA 两种骨干中双方都完成测试的条目；部分冻结设置因不稳定被提前停止。它支持该开发配方中的视觉适配，不能当作最终 DinoSigLIP 模型同一评估集上的完整消融。
 
 ### 5.4 Generalization
 
@@ -374,7 +384,7 @@ LoRA 只训练约 1.4% 参数，就能匹配 full fine-tuning 的性能；论文
 - **BridgeData V2**：显式覆盖 visual、motion、physical、semantic 和 language grounding 五类分布外评测。OpenVLA 在多数类别最强，但 semantic generalization 不如 RT-2-X。
 - **Google robot**：在 in-distribution 与 unseen objects/tasks/backgrounds/concepts 的 OOD 任务上与 RT-2-X 接近。
 - **Franka 适配**：在 unseen object、tablecloth、distractor 等 OOD 场景中仍保持竞争力。
-- **LIBERO 仿真**：OpenVLA LoRA 微调平均成功率 76.5%、平均 rank 1.5，高于 Octo 和 Diffusion Policy，但优势比真实任务小。论文把这一现象归因于 OpenVLA 只用真实机器人数据预训练，与仿真存在 domain gap。
+- **LIBERO 仿真**：每个 suite 独立训练一个策略；全部方法用同样清洗过的数据和单个第三视角相机。作者重新渲染 256px 图像、删去 no-op 与回放不成功的示教（四套分别删 68/46/72/121 条），并在每套 3 seeds × 500 rollouts 上评估。OpenVLA 四套得分为 84.7/88.4/79.2/53.7%，均值 76.5%，但 Object 不及 Diffusion Policy、Goal 不及 Octo。收益较真实任务小被作者解释为 real-to-sim gap；本文没有加入仿真预训练的受控实验来单独确认这一解释。
 
 **【Analysis】** 这些结果支持“互联网预训练带来一定语义与物体泛化能力”的结论，但评测仍是每个 benchmark 内有限的 OOD 变化，不等价于开放世界任意任务。
 
@@ -388,7 +398,7 @@ LoRA 只训练约 1.4% 参数，就能匹配 full fine-tuning 的性能；论文
 2. **融合视觉特征**：DINOv2 提供空间细节，SigLIP 提供语义；这种互补对抓取、定位、语言 grounding 都更友好。
 3. **动作 tokenization**：把动作当作文本 token，使模型能沿用成熟的 LLM 训练、FSDP、FlashAttention 和 serving 基础设施。
 4. **数据规模与多样性**：970k 跨 embodiment 数据比单数据集更能学到可泛化控制先验。
-5. **数据清洗**：过滤 Bridge 数据中的全零动作，避免 VLA 学到“冻结”行为；这是相比 RT-2-X 在 Bridge 评测中显著占优的工程因素之一。
+5. **数据清洗**：删除 Bridge 每条示教的第一个全零 transition，减轻“冻结”行为。原文没有说删掉该数据所有 no-op；RT-2-X 基线始终查询第二高概率动作来缓解同一问题。这种不同预处理/解码路径与训练数据量（970k 对 350k）一起限制了架构归因。
 
 ### 6.2 核心创新
 
@@ -404,12 +414,12 @@ LoRA 只训练约 1.4% 参数，就能匹配 full fine-tuning 的性能；论文
 
 ### 6.4 关键假设
 
-**【Paper】** 方法依赖以下前提：
+**【Analysis】** 本配方选择了以下建模边界，而不是证明这些条件普遍成立：
 
 - 单张第三视角图像足以确定当前动作，不需要多视角、深度、proprioception 或历史；
-- 动作可以无损地近似为 256 个离散 bin；
+- 动作可用有限精度离散化满足所测控制需求，且 q01/q99 之外的尾部动作可被裁剪；
 - 互联网预训练视觉/语言先验能迁移到机器人控制；
-- 数据可以用统一的单臂末端执行器动作空间表示；
+- 筛选后的数据可由单臂末端动作与数据集专属反归一化接口处理；
 - 控制频率足够慢，允许 7B 模型的推理延迟。
 
 ## 7. 局限性
@@ -468,5 +478,6 @@ LoRA 只训练约 1.4% 参数，就能匹配 full fine-tuning 的性能；论文
 
 <Aside type='note' title='阅读提示'>
   本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码实现，`【Analysis】`
-  表示基于论文和代码的分析推断。论文与代码在动作归一化实现上的细微差异已在 4.6 中单独指出。
+  表示基于论文和代码的分析推断。主模型、早期
+  LoRA/量化模型以及开发消融使用不同配方，阅读实验时需保留这些边界。
 </Aside>

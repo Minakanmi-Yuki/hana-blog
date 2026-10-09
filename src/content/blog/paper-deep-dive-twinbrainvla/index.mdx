@@ -1,7 +1,7 @@
 ---
 title: 'TwinBrainVLA 论文精读：冻结通用大脑的双流 VLA'
 publishDate: 2026-08-26
-updatedDate: 2026-08-26
+updatedDate: 2026-09-22
 description: '精读 TwinBrainVLA：冻结 Left Brain、训练 Right Brain，并用 AsyMoT 将通用视觉语义注入 Flow-Matching 控制器，缓解 VLA 的 catastrophic forgetting。'
 heroImage:
   { src: 'https://pic.hana0721.top/71187447_p0_master1200.13mdb6lism.webp', color: '#7C8795' }
@@ -48,9 +48,9 @@ import { Aside } from '@/components/user'
 
 **论文名称**：《TwinBrainVLA: Unleashing the Potential of Generalist VLMs for Embodied Tasks via Asymmetric Mixture-of-Transformers》
 
-**作者**：Bin Yu、Shijie Lian、Xiaopeng Lin 等（中关村科学院、哈尔滨工业大学等）
+**作者**：Bin Yu、Shijie Lian、Xiaopeng Lin 等（中关村学院、中关村人工智能研究院、哈尔滨工业大学等）
 
-**论文链接**：[arXiv:2601.14133](https://arxiv.org/abs/2601.14133)
+**论文链接**：[arXiv:2601.14133v2](https://arxiv.org/html/2601.14133v2)
 
 **代码链接**：[ZGC-EmbodyAI/TwinBrainVLA](https://github.com/ZGC-EmbodyAI/TwinBrainVLA)
 
@@ -64,7 +64,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】**
 
-1. 用 POPE、SEED-Bench、ScienceQA 和 MME 追踪 VLA 微调过程，展示只用机器人数据、甚至混入通用视觉问答数据，仍会出现严重的 catastrophic forgetting。
+1. 用 POPE、SEED-Bench、ScienceQA 和 MME 追踪 VLA 微调过程，在作者的机器人数据训练与 1:1 通用 QA co-training 配方下观察到通用问答指标大幅退化。这是特定实验结果，不是所有 VLA 微调或所有 co-training 必然失败的证明。
 2. 提出双流架构：Left Brain 始终冻结并保留通用能力，Right Brain 专门学习 sensorimotor control，并额外接收 proprioceptive state。
 3. 提出 AsyMoT：Right Brain 的 Query 同时访问自身 KV 与 Left Brain KV；Left Brain 只做自己的 self-attention，因此信息流是单向的。
 4. 在 SimplerEnv、RoboCasa、LIBERO 和 Franka Research 3 实验中验证 OOD 泛化，并通过 freezing、交互频率和 twin-to-one distillation 做补充分析。
@@ -94,9 +94,9 @@ $$
 \pi(a_{t:t+H}\mid I_{t}, T, s_t)
 $$
 
-其中 $H$ 是 action horizon，动作可以包含末端位姿、夹爪或关节控制量。论文实验主要使用 Qwen2.5-VL-3B-Instruct 和 Qwen3-VL-4B-Instruct 两种 backbone；训练数据来自 OXE 的 Bridge-V2、Fractal，以及 RoboCasa 使用的 PhysicalAI-Robotics-GR00T-X-Embodiment-Sim。代码实现还支持多 embodiment 条件和 action query token。
+其中 $H$ 是 action horizon，动作可以包含末端位姿、夹爪或关节控制量。论文实验主要使用 Qwen2.5-VL-3B-Instruct 和 Qwen3-VL-4B-Instruct 两种 backbone；训练数据来自 OXE 的 Bridge-V2、Fractal，以及 RoboCasa 使用的 PhysicalAI-Robotics-GR00T-X-Embodiment-Sim。应注意附录 B 明确说明：**所有仿真实验关闭状态编码器**，真机预训练与微调才使用状态；不能用仿真成绩直接证明本体状态融合的效果。后续代码还引入 action query token，须与论文版本分开理解。
 
-这里的核心约束不是“如何再加一个视觉 encoder”，而是：**如何在 Right Brain 专门化时，让控制策略仍能访问没有被机器人数据污染的语义表示？**
+这里的核心约束不是“如何再加一个视觉 encoder”，而是：**如何在 Right Brain 专门化时，让控制策略仍能访问没有被机器人动作损失改写的语义表示？**
 
 ## 4. 方法
 
@@ -115,11 +115,11 @@ $$
 - **作用**：作为 semantic capability reservoir，保留 VLM 预训练的 open-world knowledge。
 - **为什么需要**：如果它参与 action loss 的梯度更新，就会重新落入单流 VLA 的遗忘路径。
 
-**【Paper】** Left Brain 从训练开始到结束都保持冻结。**【Code】** `PhysBrainVLA.py` 的 `MoT_Qwen_VL_Interface` 载入两份独立 VLM，并在 `freeze_left_vlm` 为真时调用 `freeze_qwen_vl`；前向时还对 Left Brain 的 hidden/KV 使用 `detach`，确保 joint attention 不把梯度传回左路。
+**【Paper】** Left Brain 从训练开始到结束都保持冻结。**【Analysis】** 这保证同输入和同推理模式下该副本的参数映射不变，但不自动保证右路会正确利用它，也不保证融合后的控制器保留完整问答能力。左右脑只是架构命名，并非对人类脑功能的实验结论。**【Code】** `PhysBrainVLA.py` 的 `MoT_Qwen_VL_Interface` 载入两份独立 VLM，并在 `freeze_left_vlm` 为真时调用 `freeze_qwen_vl`；前向时还对 Left Brain 的 hidden/KV 使用 `detach`，确保 joint attention 不把梯度传回左路。
 
 #### Right Brain：带状态的 Specialist
 
-- **输入**：图像 $I$、指令 $T$、proprioceptive state $s$，以及代码实现中的 `&lt;|propri|&gt;`、`&lt;|action|&gt;` 特殊 token。
+- **论文输入**：图像 $I$、指令 $T$、在真机配置中启用的 proprioceptive state $s$。`&lt;|propri|&gt;` 配置项与后续实现中的 action query 不应直接等同于论文实际训练接口。
 - **中间模块**：vision encoder、text tokenizer、state encoder $\phi$、Right VLM Transformer。
 - **输出**：用于 action expert 的条件表示 $H_R$，或 action query token 的 hidden states。
 - **作用**：让可训练路径专门吸收机器人动力学、embodiment 差异和动作时序。
@@ -127,17 +127,17 @@ $$
 状态编码器把关节角等状态投影到 VLM embedding 空间：
 
 $$
-H_R^0=[V(I);T(T);\phi(s)]
+H_R^0=[\mathcal V(I);\mathcal T(T);\phi(s)]
 $$
 
-**【Code】** 公开的 PhysBrain 实现比论文初版更具体：Right Brain 可使用 prior/posterior 两种 action-token 排布，并引入 LLR regularization 防止模型过度依赖 Left Brain KV；这属于集成实现的扩展，不应倒推为 arXiv 论文正文的核心训练目标。
+**【Code】** 本次固定核对 PhysBrain-VLA [commit ffcc6cb](https://github.com/Phys-Brain/PhysBrain-VLA/tree/ffcc6cbd11d30d612440fe7463371cb7dcc64841)。`build_qwenvl_inputs` 实际返回 `state_tensor=None, embodiment_id_tensor=None`；虽计算了 robot type，最终 prompt 没有使用它。`predict_action` 随后把原始 state **另传给 action head**。因此不能因为仓库里存在 `state_encoder` 工具类，就说公开路径已把状态嵌入右侧 VLM。prior/posterior 排布与 LLR 是后续 LangForce 集成扩展，不是 TwinBrainVLA 原论文的 action-only 目标；主要文件以推理发布为主，训练 forward 位于 `private/PhysBrainVLA.py`。
 
 #### AsyMoT：单向语义桥
 
 **【Paper】** 在第 $l$ 层，Left Brain 只做自身注意力：
 
 $$
-H_L^{l+1}=\operatorname{Attn}(Q_L^l,K_L^l,V_L^l)+\operatorname{FFN}(H_L^l)
+Z_L^l=\operatorname{Attn}(Q_L^l,K_L^l,V_L^l;M_L)
 $$
 
 Right Brain 则构造：
@@ -150,10 +150,12 @@ $$
 再用 $Q_R^l$ 查询：
 
 $$
-H_R^{l+1}=\operatorname{Softmax}\!\left(\frac{Q_R^lK_{joint}^{l\top}}{\sqrt{d_k}}\right)V_{joint}^l+\operatorname{FFN}(H_R^l)
+Z_R^l=\operatorname{Softmax}\!\left(\frac{Q_R^l(K_{joint}^l)^\top}{\sqrt{d_k}}+M_R\right)V_{joint}^l
 $$
 
-它和 Cross-Attention 的差别是：Cross-Attention 的 Query 通常只能看另一路 KV；AsyMoT 让 Right Brain 同时看 Left Brain 和自己的上下文，因此既能读取语义锚点，又不会丢掉本体状态与动作 token 的局部信息。
+这里 $Z$ 只表示 attention 输出，$M$ 表示可见性 mask；完整 Transformer 还包含输出投影、残差、归一化和 FFN，不能把论文的简写当成逐行更新式。联合 KV 在序列维拼接，两路仍有各自的投影与 FFN，不是参数共享或 top-k 专家路由。
+
+**【Analysis】** 与单独的 cross-attention 子层相比，AsyMoT 把左右 KV 放进**同一个 softmax 归一化**，使右路 query 在两类信息之间分配权重。普通 Transformer 也可以组合 self-attention 与 cross-attention，因此区别不应夸大成“cross-attention 架构无法保留自身信息”。冻结参数与单向 mask 分别控制梯度和前向信息流，二者不能互相替代。
 
 **【Code】** `private/PhysBrainVLA.py` 在每一层分别投影两路 QKV，并以 `torch.cat([f_k, t_k], dim=2)`、`torch.cat([f_v, t_v], dim=2)` 构造联合 KV；`mot_attention_mode='unidirectional'` 时 frozen stream 只看自身，trainable stream 看联合 KV。代码还实现了 `full_joint` 作为消融/兼容模式。
 
@@ -189,18 +191,26 @@ $$
 
 ### 4.4 Training
 
-**【Paper】** SimplerEnv 使用 OXE Bridge-V2 与 Fractal 子集；RoboCasa 使用 Humanoid Tabletop Manipulation 数据。实验训练基于 starVLA，使用 16 张 NVIDIA H100，并保持两条 VLM 以相同预训练权重初始化。Left Brain 不更新，Right Brain、state encoder 和 action expert 由 flow-matching action loss 更新。
+**【Paper】** SimplerEnv 使用 OXE Bridge-V2 与 Fractal 子集；RoboCasa 使用 Humanoid Tabletop Manipulation 数据。仿真主配置基于 starVLA，16 张 H100、每卡 batch 16、40K steps、AdamW 峰值学习率 $10^{-5}$，两路使用相同 VLM 初始化。真机则先在 20 个 OXE 子集共 254,786 条轨迹上预训练，再用 300 条示范在 8 张 H100、每卡 batch 16 上微调 80K steps；不能概括成所有结果都没有机器人预训练。Left Brain 不更新，Right Brain、state encoder 和 action expert 由 flow-matching action loss 更新。
 
-**【Code】** 官方 TwinBrainVLA 仓库目前主要提供 README 和架构资产，完整可运行的模型逻辑在 PhysBrain-VLA 的 `physbrain_vla/PhysBrainVLA.py`；代码实际会加载两份 VLM，显存成本近似翻倍，并支持 Qwen2.5-VL、Qwen3-VL（以及集成分支中的 Qwen3.5）。
+**【Code】** 原 TwinBrainVLA 仓库主要提供 README 与架构资产，并链接后续 PhysBrain 实现。公开文件加载两份独立 VLM，支持多个 Qwen 版本，但仍依赖匹配的 starVLA 与配置模块，本文没有据此完成训练复现。**【Analysis】** 多一份 backbone 会增加权重存储和前向计算，但左路不保存同等训练梯度与优化器状态，所以不能把总训练显存简单写成精确翻倍。
 
 <Algorithm number={1} title='TwinBrainVLA Training' inputLabel='输入' outputLabel='输出'>
-  <div slot='input'>机器人示教批次 $(I,T,s,a)$、冻结的 Left Brain、可训练 Right Brain 和 Action Expert</div>
+  <div slot='input'>
+    机器人示教批次 $(I,T,s,a)$、冻结的 Left Brain、可训练 Right Brain 和 Action Expert
+  </div>
   <div slot='output'>训练后的 Right Brain、state encoder 与 flow-matching action expert</div>
-  <AlgorithmStep keyword='Given'>用同一预训练 checkpoint 初始化 Left Brain 与 Right Brain</AlgorithmStep>
+  <AlgorithmStep keyword='Given'>
+    用同一预训练 checkpoint 初始化 Left Brain 与 Right Brain
+  </AlgorithmStep>
   <AlgorithmStep>冻结 Left Brain 参数，并对其 hidden/KV 建立 stop-gradient 路径</AlgorithmStep>
   <AlgorithmStep>为 Left Brain 构造 $(I,T)$ 输入，为 Right Brain 构造 $(I,T,s)$ 输入</AlgorithmStep>
-  <AlgorithmStep>逐层计算两路 self-attention；Right Brain 的 Query 查询拼接后的 $[K_L;K_R]$、$[V_L;V_R]$</AlgorithmStep>
-  <AlgorithmStep>取 Right Brain 条件表示，采样噪声动作和时间 $t$，计算 flow-matching vector-field loss</AlgorithmStep>
+  <AlgorithmStep>
+    逐层计算两路 self-attention；Right Brain 的 Query 查询拼接后的 $[K_L;K_R]$、$[V_L;V_R]$
+  </AlgorithmStep>
+  <AlgorithmStep>
+    取 Right Brain 条件表示，采样噪声动作和时间 $t$，计算 flow-matching vector-field loss
+  </AlgorithmStep>
   <AlgorithmStep>只更新 Right Brain、state encoder 与 Action Expert；重复直到收敛</AlgorithmStep>
   <AlgorithmStep keyword='return'>得到可用于连续控制的 TwinBrainVLA policy</AlgorithmStep>
 </Algorithm>
@@ -209,7 +219,7 @@ $$
 
 **【Paper】** 推理时不需要 CVAE 或额外语义数据：机器人读取图像、指令和状态，Left Brain 产生冻结的语义 KV，Right Brain 通过 AsyMoT 查询它们，Action Expert 从噪声动作开始沿 learned vector field 去噪，输出一个连续动作 chunk，再交给底层控制器执行。
 
-**【Code】** PhysBrain 实现会定位 `&lt;|action|&gt;` query token 的 hidden states 作为 action head 条件，并支持按 embodiment id 注入机器人类型；这说明公开实现已经把论文中的“状态条件”落实为具体 token/embedding 接口。
+**【Code】** PhysBrain 实现定位 `&lt;|action|&gt;` query hidden states 作为 action-head 条件；该版本的状态由动作头另收，不能声称 embodiment id 已注入右脑。缓存当前观测的左路 KV 可供同次前向使用，但图像改变后不能无限沿用旧 KV。
 
 <Algorithm number={2} title='TwinBrainVLA Inference' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>当前图像 $I_t$、任务指令 $T$、本体状态 $s_t$</div>
@@ -223,20 +233,20 @@ $$
 
 ### 4.6 代码实现对照
 
-| 论文概念 | 官方实现位置 | 实际行为 |
-| --- | --- | --- |
-| 双 VLM | `physbrain_vla/PhysBrainVLA.py:MoT_Qwen_VL_Interface` | 载入 `frozen_vlm` 与 `trainable_vlm` 两份模型 |
-| 冻结 Left Brain | `physbrainvla_conf/utils.py`、`freeze_left_vlm` | 冻结参数，前向结果 detach；可切换为不冻结做消融 |
-| AsyMoT | `private/PhysBrainVLA.py` 的逐层 attention loop | Right Q 查询 `[frozen KV; trainable KV]`，默认单向 |
-| 状态输入 | `build_qwenvl_inputs`、`embodiment_conditioned_mlp.py` | `&lt;|propri|&gt;` token、state encoder 与 embodiment id |
-| Action Expert | `starVLA/.../GR00T_ActionHeader.py` | FlowmatchingActionHead / DiT 负责连续动作 |
-| 训练与部署 | `deployment/`、`README.md` | 仓库 README 称 TwinBrainVLA 已集成到 PhysBrain 1.0；原始论文仓库本身没有独立训练脚本 |
+| 论文概念        | 官方实现位置                                          | 实际行为                                                                              |
+| --------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| 双 VLM          | `physbrain_vla/PhysBrainVLA.py:MoT_Qwen_VL_Interface` | 载入 `frozen_vlm` 与 `trainable_vlm` 两份模型                                         |
+| 冻结 Left Brain | `physbrainvla_conf/utils.py`、`freeze_left_vlm`       | 冻结参数并 detach；配置转换比较的是字符串 `none`，不能假设布尔 false 就等价于解除冻结 |
+| AsyMoT          | `private/PhysBrainVLA.py` 的逐层 attention loop       | Right Q 查询 `[frozen KV; trainable KV]`，默认单向                                    |
+| 状态输入        | `build_qwenvl_inputs`、`predict_action`               | 前者返回空 state/embodiment tensor，后者将 state 另传动作头                           |
+| Action Expert   | `starVLA/.../GR00T_ActionHeader.py`                   | FlowmatchingActionHead / DiT 负责连续动作                                             |
+| 训练与部署      | `deployment/`、`README.md`                            | 仓库 README 称 TwinBrainVLA 已集成到 PhysBrain 1.0；原始论文仓库本身没有独立训练脚本  |
 
 ## 5. 实验
 
 ### 5.1 Experimental Setup
 
-**【Paper】** 主要指标是独立试验的平均成功率：SimplerEnv 每个任务 Avg@480，RoboCasa 每个任务 50 次，真实 Franka 任务每个设置 30 次。SimplerEnv 包含 WidowX 的四个 OOD 操作；RoboCasa GR1 Tabletop 包含 24 个带铰接物体的操作任务；真实实验使用 Franka Research 3，训练 300 条遥操作轨迹。
+**【Paper】** 主要指标是独立试验的平均成功率：SimplerEnv 每个任务 Avg@480，RoboCasa 每个任务 50 次，真实 Franka 任务每个设置 30 次。SimplerEnv 包含 WidowX 的四个 OOD 操作；RoboCasa GR1 Tabletop 包含 24 个带铰接物体的操作任务；真实实验使用 Franka Research 3 与两台 D435；附录 A.2 的 300 条示范分别是红、绿、蓝方块各 100 条，OOD 使用黄块，Pick-All 要依次放入红蓝绿黄四块。正文只写红块是简写，不能据此断言训练只见过一种颜色。
 
 ![RoboCasa GR1 Tabletop 的任务可视化（论文 Appendix Figure 9）](https://pic.hana0721.top/blog/paper-deep-dive-twinbrainvla/RoboCasa_visualize.webp)
 
@@ -246,36 +256,36 @@ $$
 
 **【Paper】** SimplerEnv 的平均成功率如下：
 
-| 方法 | Qwen2.5-VL-3B | Qwen3-VL-4B |
-| --- | ---: | ---: |
-| Vanilla VLA | 52.5 | 55.2 |
-| Isaac-GR00T-N1.6-Bridge | 57.1 | 57.1 |
-| TwinBrainVLA | **58.4** | **64.5** |
+| 方法                    | Qwen2.5-VL-3B | Qwen3-VL-4B |
+| ----------------------- | ------------: | ----------: |
+| Vanilla VLA             |          52.5 |        55.2 |
+| Isaac-GR00T-N1.6-Bridge |          57.1 |        57.1 |
+| TwinBrainVLA            |      **58.4** |    **64.5** |
 
-Qwen3-VL-4B 版本相对最强基线提升 $+7.4$ 个百分点。RoboCasa 24 任务平均成功率为 Qwen2.5-VL-3B **53.5%**、Qwen3-VL-4B **54.6%**，高于 Isaac-GR00T-N1.6 的 47.6%、QwenGR00T 的 47.8% 和 QwenPI 的 43.9%。LIBERO 四个 suite 合并训练时，TwinBrainVLA 达到 **97.6%** 平均成功率。
+Qwen3-VL-4B 版本相对最强基线提升 $+7.4$ 个百分点。RoboCasa 24 任务平均成功率为 Qwen2.5-VL-3B **53.5%**、Qwen3-VL-4B **54.6%**，高于 Isaac-GR00T-N1.6 的 47.6%、QwenGR00T 的 47.8% 和 QwenPI 的 43.9%。LIBERO 四个 suite 合并训练时，TwinBrainVLA 达到 **97.6%** 平均成功率。这些标签中的 3B/4B 是**单路 VLM 规模**，双路总权重约为两份 backbone 加动作头，不能把它当成总计 4B 的策略与其他单模型比参数效率。RoboCasa 基线部分来自官方仓库表格，并非所有模型都由作者在同一预算重新训练；Table 8 也不是逐任务全部获胜，例如 Can→Drawer 为 72，QwenGR00T 为 80。
 
 真实 Franka 结果也体现 OOD 差异：
 
-| 方法 | In-Domain | OOD | Pick-All |
-| --- | ---: | ---: | ---: |
-| OpenVLA | 7/30 | 0/30 | 0/30 |
-| π0.5 | 28/30 | 13/30 | 2/30 |
-| Vanilla VLA | 22/30 | 9/30 | 0/30 |
+| 方法         | In-Domain |       OOD | Pick-All |
+| ------------ | --------: | --------: | -------: |
+| OpenVLA      |      7/30 |      0/30 |     0/30 |
+| π0.5         |     28/30 |     13/30 |     2/30 |
+| Vanilla VLA  |     22/30 |      9/30 |     0/30 |
 | TwinBrainVLA | **28/30** | **15/30** | **3/30** |
 
-**【Analysis】** 绝对收益在 In-Domain 上并不夸张，主要差异出现在改变颜色的 OOD 和 Pick-All 长时域任务；这和论文“保留通用语义”的动机是相符的，但仍不能据此断言它已经解决了开放世界泛化。
+**【Analysis】** 相对 Vanilla VLA，ID 与 OOD 都多成功 6/30，Pick-All 多 3/30，不能说绝对收益主要集中在 OOD。相对 π0.5，ID 持平、OOD 多 2 次、Pick-All 多 1 次，样本量不足以据此宣称显著优势；Pick-All 的 3/30 也表明完整长任务仍很困难。冻结副本保存了一个语义来源，尚不等于控制策略解决了开放世界泛化。
 
 ### 5.3 Ablation Study
 
-**【Paper】** 去掉冻结策略（让 Left Brain 也训练）后，Qwen3-VL-4B 在 SimplerEnv 的平均成功率从 64.5% 降至 58.8%，约下降 5.7 个百分点；论文正文将其概括为约 7% 的下降。去掉 Left Brain 和跨脑连接后退化为 Vanilla VLA，平均性能约下降 7 个百分点。
+**【Paper】** 去掉冻结策略（让 Left Brain 也训练）后，Qwen3-VL-4B 在 SimplerEnv 的平均成功率从 64.5% 降至 58.8%，约下降 5.7 个百分点；论文正文将其概括为约 7% 的下降。去掉 Left Brain 后，对应 Qwen2.5 的下降是 5.9 个百分点，Qwen3 是 9.3 个百分点；不能把正文“约 7”作为每个 backbone 的精确值。
 
-AsyMoT 交互频率的消融显示，过度稀疏的跨脑连接会损害性能：Qwen3-VL-4B 在间隔 $k=8$ 层时为 61.9%，而完整连接为 64.5%；不过 Qwen2.5-VL-3B 在 $k=1$、Qwen3-VL-4B 在 $k=2$ 有轻微波动优势，说明“每层交互”不是普适最优的唯一选择。
+AsyMoT 交互频率的消融显示，过度稀疏的跨脑连接会损害性能：Qwen3-VL-4B 在间隔 $k=8$ 层时为 61.9%，而完整连接为 64.5%；这里 $k=0$ 才是每层交互，$k=1$ 表示交互层与普通层交替；Qwen2.5 在 $k=1$ 为 59.4，Qwen3 在 $k=2$ 为 66.7，分别高于默认值 1.0 / 2.2 个百分点，未报告方差时也不应擅自称为随机波动，说明“每层交互”不是普适最优的唯一选择。
 
 ![Right Brain 查询 Left Brain 语义 token 的运行时注意力图（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-twinbrainvla/attn_map.webp)
 
 ### 5.4 Generalization
 
-**【Paper】** 论文的泛化证据来自三个层次：SimplerEnv 的 OOD 场景、LIBERO 跨 suite 合并训练、以及真实 Franka 中改变颜色并要求 Pick-All。另一个补充实验是 twin-to-one distillation：用 TwinBrainVLA 作为 teacher，把语义增强的 Right Brain 表示蒸馏给单流 student，平均成功率从 Vanilla VLA 的 55.2% 提升到 58.4%，但仍低于 teacher 的 64.5%。
+**【Paper】** SimplerEnv 的 OOD 指评估场景不在训练集中，真机则改变颜色或指令组合。LIBERO 四套数据**全部参与训练**，测试是相同任务族上的评估，论文也称它为 in-domain；合并训练体现多任务兼容性，不能写成留出 suite 的跨域泛化。附录 F 单独使用 8 张 H100、100K steps，并以每套 10 任务×50 次给出评估量级。另一个补充实验是 twin-to-one distillation：用 TwinBrainVLA 作为 teacher，把语义增强的 Right Brain 表示蒸馏给单流 student，平均成功率从 Vanilla VLA 的 55.2% 提升到 58.4%，但仍低于 teacher 的 64.5%。蒸馏监督是右路最后层所有 token 的特征 MSE，权重 $\lambda=1$，再加动作损失，teacher stop-gradient；这是离线特征蒸馏，并非在线执行时还需要第二个 VLM。
 
 ## 6. 方法分析
 
@@ -293,11 +303,11 @@ AsyMoT 交互频率的消融显示，过度稀疏的跨脑连接会损害性能�
 
 ### 6.3 与已有方法的本质区别
 
-| 路线 | 防遗忘方式 | 代价 |
-| --- | --- | --- |
-| Co-training | 混入通用 QA 数据 | 数据配比、标注和任务冲突难以控制 |
-| CoT-VLA | 让模型学习显式推理链 | 需要昂贵的 embodied CoT 标注 |
-| TwinBrainVLA | 结构性冻结语义副本，并让控制流查询它 | 多一份 VLM 的显存与推理计算 |
+| 路线           | 防遗忘方式                           | 代价                             |
+| -------------- | ------------------------------------ | -------------------------------- |
+| Co-training    | 混入通用 QA 数据                     | 数据配比、标注和任务冲突难以控制 |
+| 显式推理链路线 | 通过中间推理监督辅助控制             | 标注和推理成本依赖具体方案       |
+| TwinBrainVLA   | 结构性冻结语义副本，并让控制流查询它 | 多一份 VLM 的显存与推理计算      |
 
 **【Analysis】** 这是一种“用算力换数据工程”的设计：它把防遗忘的维护成本从数据侧转移到了模型侧。
 
@@ -318,10 +328,10 @@ AsyMoT 交互频率的消融显示，过度稀疏的跨脑连接会损害性能�
 
 **【Analysis】**
 
-1. 论文中 catastrophic forgetting 的诊断主要是 VLM benchmark 曲线，尚未建立“某个语义能力被保留”到“某个机器人 OOD 成功”的逐样本因果对应。
+1. 遗忘诊断使用通用问答输出分数；分数下降既可能涉及内部知识，也可能涉及回答格式、指令遵循或输出头变化。论文未将这些因素完全分离，注意力热图也不证明读取某个 token 就因果地改善了动作。冻结副本这一事实与“融合策略如何利用知识”仍是两个问题。
 2. SimplerEnv、RoboCasa 和 Franka 的提升来自不同数据与 embodiment，跨设置的统一 scaling law 仍未知；两条 VLM 还可能共享同一视觉偏差。
-3. 公开 TwinBrainVLA 仓库主要是说明与架构资产，完整训练实现转移到 PhysBrain-VLA，论文版本和集成版本之间存在 LLR、action token、embodiment conditioning 等扩展，复现实验需要仔细对齐 commit 与配置。
-4. 两份模型都执行视觉编码和 Transformer 计算，部署时延、显存和能耗可能抵消部分泛化收益；twin-to-one 只展示了初步蒸馏结果。
+3. 公开 TwinBrainVLA 仓库主要是说明与架构资产，后续集成实现转移到 PhysBrain-VLA，论文版本和集成版本之间存在 LLR、action token、embodiment conditioning 等扩展，复现实验需要仔细对齐 commit 与配置。
+4. 评估口径仍有待补充：RoboCasa 宣称每任务 50 次二元成功率，但 Table 8 的 Qwen2.5 “Placemat→Bowl” 为 59%，无法由恰好 50 次单次二元试验直接得到；可能涉及额外聚合，论文未说明。两份模型都执行视觉编码和 Transformer 计算，部署时延、显存和能耗可能抵消部分泛化收益；twin-to-one 只展示了初步蒸馏结果。
 
 ## 8. 启发与研究思考
 
@@ -334,6 +344,7 @@ AsyMoT 交互频率的消融显示，过度稀疏的跨脑连接会损害性能�
 - 把 Left Brain 扩展为可检索的多专家 memory，而不是一份固定 VLM 副本。
 
 <Aside type='note' title='阅读提示'>
-  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码或 PhysBrain-VLA 实现，`【Analysis】`
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方代码或 PhysBrain-VLA
+  实现，`【Analysis】`
   表示基于论文和代码的分析推断。论文仓库与集成代码的行为若有差异，已在对应段落单独说明。
 </Aside>

@@ -1,7 +1,7 @@
 ---
 title: 'InternVLA-A1 论文精读：把理解、想象与动作统一起来'
 publishDate: 2026-08-26
-updatedDate: 2026-08-26
+updatedDate: 2026-09-22
 description: '精读 InternVLA-A1：用 Mixture-of-Transformers 统一场景理解、视觉前瞻与 Flow Matching 动作，在动态双臂操作中提升泛化。'
 heroImage:
   { src: 'https://pic.hana0721.top/90399055_p0_master1200.4g535npbv6.webp', color: '#8C8275' }
@@ -23,7 +23,7 @@ paper:
     - 'InternVLA-A1 Team'
   venue: 'arXiv'
   year: 2026
-  code: 'https://github.com/InternRobotics/InternVLA-A1/tree/InternVLA-A1'
+  code: 'https://github.com/InternRobotics/InternVLA-A-series/tree/InternVLA-A1'
   project: 'https://internrobotics.github.io/internvla-a1.github.io/'
 ---
 
@@ -40,12 +40,12 @@ import { Aside } from '@/components/user'
 
 ## 1. 论文概述
 
-**论文名称**：《InternVLA-A1: Unifying Understanding, Generation and Action for Robotic Manipulation》  
-**作者**：InternVLA-A1 Team（第一作者 Junhao Cai、Zetao Cai 等）  
-**机构**：上海人工智能实验室等  
-**年份**：2026（arXiv:2601.02456）  
-**论文链接**：[arXiv](https://arxiv.org/abs/2601.02456)  
-**代码**：[InternVLA-A1](https://github.com/InternRobotics/InternVLA-A1/tree/InternVLA-A1)  
+**论文名称**：《InternVLA-A1: Unifying Understanding, Generation and Action for Robotic Manipulation》
+**作者**：InternVLA-A1 Team（论文以团队署名；附录按姓氏字母顺序列出贡献者）
+**机构**：上海人工智能实验室等
+**年份**：2026（arXiv:2601.02456）
+**论文链接**：[arXiv](https://arxiv.org/abs/2601.02456)
+**代码**：[InternVLA-A1](https://github.com/InternRobotics/InternVLA-A-series/tree/InternVLA-A1)
 **项目主页**：[InternVLA-A1](https://internrobotics.github.io/internvla-a1.github.io/)
 
 ![InternVLA-A1 总览与任务结果（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-internvla-a1/figure1_teaser_internvla_a1.8z79i8gy4a.webp)
@@ -59,13 +59,13 @@ import { Aside } from '@/components/user'
 **【Paper】**
 
 1. 用统一的 masked self-attention 串联三个专家：Understanding Expert 编码多视角图像和语言，Generation Expert 预测未来视觉状态，Action Expert 以 Flow Matching 生成动作 chunk。
-2. 采用轻量、非自回归的 Generation Expert：三视角、两个时间点共 6 张图像先经 COSMOS VAE，再压缩为 96 个 token，一次前向预测未来帧，目标运行频率约 13 Hz。
+2. 采用轻量、非自回归的 Generation Expert：三视角、两个时间点共 6 张图像先经 COSMOS VAE，再压缩为 96 个 token，一次前向预测未来帧；整套策略在单张 RTX 4090、启用 `torch.compile` 时约 13 Hz。
 3. 设计混合预训练配方：InternData-A1、RoboTwin 仿真数据，AgiBot-World、RoboMind 真实机器人数据，以及 EgoDex 人类第一视角视频，共约 692M 帧。
 4. 在 10 个静态、2 个动态真实任务和 RoboTwin 2.0 上验证。3B 模型静态任务平均成功率 75.1%，动态任务平均 86.7%，RoboTwin Easy/Hard 为 89.4%/89.6%。
 
 ## 2. 背景与相关工作
 
-**【Paper】** 以 $pi_0$、$pi_{0.5}$ 和 GR00T 为代表的 VLA 通常从 MLLM 的视觉—语言特征直接回归动作。文本 token 对物理规律、接触和惯性的表达并不自然，因此策略多是反应式的：看到当前画面后立刻选动作，却很少显式考虑“执行后场景会变成什么”。在传送带分拣、运动中取食材等任务中，这种缺少 foresight 的策略容易错过时机。
+**【Paper】** 以 $\pi_0$、$\pi_{0.5}$ 和 GR00T 为代表的 VLA 通常从 MLLM 的视觉—语言特征直接回归动作。文本 token 对物理规律、接触和惯性的表达并不自然，因此策略多是反应式的：看到当前画面后立刻选动作，却很少显式考虑“执行后场景会变成什么”。在传送带分拣、运动中取食材等任务中，这种缺少 foresight 的策略容易错过时机。
 
 另一条路线是 World Model：根据当前观察和动作预测未来视频，再据此规划。它能表达动态，但预测误差会逐步累积，而且视频生成模型未必理解“哪个物体与指令相关”。InternVLA-A1 的出发点是让语义和动力学共享上下文，而不是把两个独立模型串联。
 
@@ -75,14 +75,14 @@ import { Aside } from '@/components/user'
 
 **【Paper】** 将机器人操作建模为从多视角观察 $o_t$、语言指令 $l$、本体状态 $q_t$ 到动作 chunk $a_{t:t+k}$ 的策略学习问题。输入包括头部相机和左右腕部相机图像、历史帧、语言以及关节/末端执行器状态；输出是连续动作序列。模型还要预测时间间隔 $m=15$ 后的视觉状态，以学习局部动力学。
 
-| 项目 | 论文设定 |
-| --- | --- |
-| Robot / Embodiment | Agibot Genie-1、ARX Lift-2、ARX AC One，均为双臂平台 |
-| Observation | 头部 + 左右腕部多视角图像，当前与 $t-15$ 历史帧，本体状态 |
-| Action | 连续动作 chunk，使用 Flow Matching 从噪声积分到目标动作 |
-| Horizon | 未来视觉间隔 $m=15$；动作 chunk 长度由配置 `chunk_size` 决定 |
-| 数据 | 396M InternData-A1、17M RoboTwin、206M AgiBot-World、5M RoboMind、68M EgoDex 帧 |
-| 评测 | 10 个静态真实任务、Express Sorting、In-motion Ingredient Picking、RoboTwin 2.0 |
+| 项目               | 论文设定                                                                                   |
+| ------------------ | ------------------------------------------------------------------------------------------ |
+| Robot / Embodiment | Agibot Genie-1、ARX Lift-2、ARX AC One，均为双臂平台                                       |
+| Observation        | 头部 + 左右腕部多视角图像，当前与 $t-15$ 历史帧，本体状态                                  |
+| Action             | 连续动作 chunk，使用 Flow Matching 从噪声积分到目标动作                                    |
+| Horizon            | 未来视觉间隔 $m=15$；代码默认动作 chunk 为 50 步，Euler 去噪 10 步；视觉间隔以数据帧为单位 |
+| 数据               | 396M InternData-A1、17M RoboTwin、206M AgiBot-World、5M RoboMind、68M EgoDex 帧            |
+| 评测               | 10 个静态真实任务、Express Sorting、In-motion Ingredient Picking、RoboTwin 2.0             |
 
 ## 4. 方法
 
@@ -91,6 +91,8 @@ import { Aside } from '@/components/user'
 ![InternVLA-A1 的 MoT 三专家架构（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-internvla-a1/figure2_method_InternVLA-A1.1764ilnzpa.webp)
 
 **【Paper】** 信息按 Understanding → Generation → Action 的方向流动：理解专家产生语义上下文，生成专家基于上下文和历史图像预测未来视觉 latent，动作专家再结合本体状态输出动作。三个 token 流通过 blockwise masked self-attention 连接，后面的 block 可以看见前面的 block，前面的 block 不能反向读取后面的输出。
+
+**【Analysis】** MoT 在这里指各模态有独立 Transformer 参数、同层 Q/K/V 统一做注意力，并不是按 token 动态选择少数专家的稀疏 MoE。这个方向也是信息访问约束，不是现实世界的因果证明：Generation Expert 不能读取后面的候选动作，预测的是示范分布下的未来，不支持直接查询“如果改执行另一动作，会发生什么”。
 
 ### 4.2 核心模块
 
@@ -129,7 +131,7 @@ $$
 \mathcal L_{gen}=\mathbb E_{\xi_1}\left[\left\|f_{gen}(z_{t-m},z_t;h_{und})-\operatorname{sg}[z_{t+m}]\right\|_2^2\right]
 $$
 
-$\xi_1=(o_{t-m},o_t,o_{t+m},l)$；$\operatorname{sg}$ 表示 stop-gradient。该项让模型在 latent 空间学习“当前状态向未来如何演化”，而不是只记住静态外观。
+$\xi_1=(o_{t-m},o_t,o_{t+m},l)$；$\operatorname{sg}$ 表示 stop-gradient。该项监督未来 latent，但输入里没有待评估的候选动作。确定性 MSE 在多种未来均合理时倾向预测条件均值，因此“预测模糊”既可能来自压缩，也可能来自未来不确定性；不能仅凭可视化推断模型已掌握接触物理。
 
 #### Flow Matching 动作损失
 
@@ -139,7 +141,7 @@ $$
 a^\tau_{t:t+k}=(1-\tau)\epsilon+\tau a_{t:t+k},\quad \tau\sim\operatorname{Beta}(1.5,1.0)
 $$
 
-动作专家学习把噪声搬运到示教动作的速度场：
+动作专家学习把噪声搬运到示教动作的速度场（下面先遵循论文 Eq. 2 的时间约定）：
 
 $$
 \mathcal L_{act}=\mathbb E_{\xi_2}\left[\left\|v_\theta(q_t,a^\tau_{t:t+k};h_{und},h_{gen})-(a_{t:t+k}-\epsilon)\right\|_2^2\right]
@@ -151,47 +153,61 @@ $$
 \mathcal L_{total}=\lambda\mathcal L_{gen}+\mathcal L_{act},\qquad \lambda=0.01
 $$
 
+**【Code】** 官方实现采用相反时间约定：$x_s=(1-s)a+s\epsilon$、目标速度 $u=\epsilon-a$，从 $s=1$ 到 $0$ 以负步长积分。两套路径可通过 $s=1-\tau$ 对应，但符号、起点和步长必须一起转换；后面的推理算法采用代码约定。还要注意，代码采样 $s=0.999B+0.001$、$B\sim\operatorname{Beta}(1.5,1)$，而论文在数据权重 $\tau$ 上使用同一 Beta 参数，因此二者对噪声区间的训练加权并不完全等价。
+
 ### 4.4 Training
 
-**【Paper】** 训练分为预训练和任务后训练两阶段，但两阶段使用相同的视觉前瞻 + 动作联合目标。预训练混合三类数据；后训练针对目标任务降低学习率。预训练 700K steps、batch size 512、AdamW、$5\times10^{-5}$ 恒定学习率；后训练 60K steps、batch size 128，学习率从 $5\times10^{-5}$ 衰减到 $5\times10^{-6}$，warmup 2000 steps，均使用 bfloat16 和 1.0 梯度裁剪。
+**【Paper】** 训练分为预训练和任务后训练两阶段，但两阶段使用相同的视觉前瞻 + 动作联合目标。预训练混合三类数据，其中 EgoDex 的手部动作标注明确不使用，只通过 $\mathcal L_{gen}$ 提供未来视觉监督，$\mathcal L_{act}$ 仅用于有动作标注的机器人子集；后训练针对目标任务使用 warmup 和衰减；Table 2 的峰值仍是预训练的 $5\times10^{-5}$，并非初始峰值已经降低。预训练 700K steps、batch size 512、AdamW、$5\times10^{-5}$ 恒定学习率；后训练 60K steps、batch size 128，学习率从 $5\times10^{-5}$ 衰减到 $5\times10^{-6}$，warmup 2000 steps，均使用 bfloat16 和 1.0 梯度裁剪。
 
 **【Paper】** 训练数据的采样权重为 InternData-A1 0.64、RoboTwin 0.08、AgiBot-World 0.18、RoboMind 0.02、EgoDex 0.08。作者还提出 Load-balanced Parallel Training（LPT）：按数据集规模降序，将下一个数据集分配给当前负载最小的 worker；数据集少于 worker 时允许受控复制，以减少 I/O 竞争和隐式重加权。
 
-**【Code】** 官方 A1 分支通过 `launch/internvla_a1_3b_pretrain.sh` 和 `launch/internvla_a1_3b_finetune.sh` 进入 LeRobot 训练入口；策略实现位于 `src/lerobot/policies/InternVLA_A1_3B/modeling_internvla_a1.py`。代码冻结 COSMOS tokenizer 参数，可按配置冻结视觉编码器或仅训练专家；默认以 bfloat16 运行，并支持 gradient checkpointing 与 `torch.compile`。
+**【Code】** 官方 A1 分支通过 `launch/internvla_a1_3b_pretrain.sh` 和 `launch/internvla_a1_3b_finetune.sh` 进入 LeRobot 训练入口；策略实现位于 `src/lerobot/policies/InternVLA_A1_3B/modeling_internvla_a1.py`。代码冻结 COSMOS tokenizer 参数，可按配置冻结视觉编码器或仅训练专家；默认以 bfloat16 运行，并支持 gradient checkpointing 与 `torch.compile`。公开 pretrain 脚本当前扫描 `data/a1`，示例参数是 7,000,000 steps、batch 16；不能直接当作 Table 2 的 700K/512 实验命令。所核验策略 `forward` 也会无条件读取 state/action 并计算动作损失，没有在该接口内展示无动作人类视频的 loss 分支；论文的数据目标与公开机器人训练入口应分开理解。
 
 <Algorithm number={1} title='InternVLA-A1 联合训练' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>混合数据集中的 (oₜ₋ₘ, oₜ, oₜ₊ₘ, l, qₜ, aₜ:ₜ₊ₖ)</div>
   <div slot='output'>训练后的理解、生成和动作专家</div>
-  <AlgorithmStep>用 MLLM 视觉编码器和文本 tokenizer 得到理解 token，并计算 h<sub>und</sub>。</AlgorithmStep>
-  <AlgorithmStep>用 COSMOS VAE 编码历史/当前/未来图像；对输入 latent 下采样后送入 Generation Expert。</AlgorithmStep>
-  <AlgorithmStep>用 masked self-attention 融合三个专家的 token，得到未来 latent 表示和动作专家输出。</AlgorithmStep>
-  <AlgorithmStep>计算 L<sub>gen</sub> 与 Flow Matching 的 L<sub>act</sub>，按 λ 加权后反向传播。</AlgorithmStep>
+  <AlgorithmStep>
+    用 MLLM 视觉编码器和文本 tokenizer 得到理解 token，并计算 h<sub>und</sub>。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    用 COSMOS VAE 编码历史/当前/未来图像；对输入 latent 下采样后送入 Generation Expert。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    用 masked self-attention 融合三个专家的 token，得到未来 latent 表示和动作专家输出。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    计算 L<sub>gen</sub> 与 Flow Matching 的 L<sub>act</sub>，按 λ 加权后反向传播。
+  </AlgorithmStep>
 </Algorithm>
 
 ### 4.5 Inference
 
-**【Code】** 推理时先缓存 Understanding Expert 的 KV，再处理当前/历史图像的 Generation Expert 输出；随后从高斯噪声开始，以固定步数 Euler ODE 反向积分动作速度场。视觉未来帧只在需要可视化时解码，低延迟部署可跳过 COSMOS decoder。
+**【Code】** 推理时先缓存 Understanding Expert 的 KV，再处理当前/历史图像的 Generation Expert 输出；随后从高斯噪声开始，以固定步数 Euler ODE 反向积分动作速度场。动作分支读取的是 Generation Expert 的中间 token/KV，而不是把解码后的未来 RGB 再送进视觉编码器。`decode_image=False` 时会跳过未来 latent 的上采样重建和 VAE decoder，但仍执行历史/当前图像的 VAE 编码和 Generation Expert；它不是把前瞻模块整个关闭。
 
 <Algorithm number={2} title='动作推理与执行' inputLabel='输入' outputLabel='输出'>
   <div slot='input'>多视角图像、语言指令、本体状态 qₜ</div>
   <div slot='output'>当前控制周期的动作 chunk</div>
   <AlgorithmStep>编码语言和图像，运行 Understanding Expert 并缓存其 KV。</AlgorithmStep>
-  <AlgorithmStep>编码 t−15 与 t 的三视角图像，运行 Generation Expert 得到未来上下文。</AlgorithmStep>
-  <AlgorithmStep>采样 x₁~N(0,I)，对 τ 从 1 积分到 0：x←x+Δτ·v<sub>θ</sub>(qₜ,x;h<sub>und</sub>,h<sub>gen</sub>)。</AlgorithmStep>
+  <AlgorithmStep>
+    编码 t−15 与 t 的三视角图像，运行 Generation Expert 得到未来上下文。
+  </AlgorithmStep>
+  <AlgorithmStep>
+    采样 x₁~N(0,I)，对 τ 从 1 积分到 0：x←x+Δτ·v<sub>θ</sub>(qₜ,x;h<sub>und</sub>,h<sub>gen</sub>)。
+  </AlgorithmStep>
   <AlgorithmStep>将最终 x 的前若干动作发送给机器人，下一控制周期重新观察并闭环执行。</AlgorithmStep>
 </Algorithm>
 
 ### 4.6 代码实现对照
 
-| 论文概念 | 官方代码位置 / 行为 |
-| --- | --- |
-| 三专家 MoT | `Qwen3VLWithExpertModel` 将 Understanding、Generation、Action 三个 Transformer 的同层 Q/K/V 拼接后统一注意力计算 |
-| Understanding 输入 | `embed_prefix` 调用 Qwen3-VL vision encoder，并将 image token 替换为视觉 embedding |
-| Generation token 压缩 | `get_cosmos_features` → `cosmos_in_proj` → `downsample_conv`；`embed_middle` 展平为中间 token |
-| 未来图像解码 | `decode_cosmos` 做时间平均、`upsample_conv` 和线性投影；COSMOS tokenizer 全程冻结 |
-| Flow Matching | `forward` 用噪声与动作插值构造 `x_t`，监督速度 `u_t=noise-actions`；`sample_actions` 用 Euler 步进 |
-| 注意力 mask | `make_att_2d_masks` 以累计 segment mask 实现 prefix → middle → suffix 的信息流 |
-| 工程优化 | 配置支持 `gradient_checkpointing`、`compile_model`，并可冻结视觉编码器或只训练专家 |
+| 论文概念              | 官方代码位置 / 行为                                                                                              |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| 三专家 MoT            | `Qwen3VLWithExpertModel` 将 Understanding、Generation、Action 三个 Transformer 的同层 Q/K/V 拼接后统一注意力计算 |
+| Understanding 输入    | `embed_prefix` 调用 Qwen3-VL vision encoder，并将 image token 替换为视觉 embedding                               |
+| Generation token 压缩 | `get_cosmos_features` → `cosmos_in_proj` → `downsample_conv`；`embed_middle` 展平为中间 token                    |
+| 未来图像解码          | `decode_cosmos` 做时间平均、`upsample_conv` 和线性投影；COSMOS tokenizer 全程冻结                                |
+| Flow Matching         | `forward` 用噪声与动作插值构造 `x_t`，监督速度 `u_t=noise-actions`；`sample_actions` 用 Euler 步进               |
+| 注意力 mask           | `make_att_2d_masks` 以累计 segment mask 实现 prefix → middle → suffix 的信息流                                   |
+| 工程优化              | 配置支持 `gradient_checkpointing`、`compile_model`，并可冻结视觉编码器或只训练专家                               |
 
 ## 5. 实验
 
@@ -201,31 +217,31 @@ $$
 
 ![动态任务设置（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-internvla-a1/figure5_dynamic_tasks.46f7ps64s.webp)
 
-RoboTwin 2.0 覆盖 50 个双臂任务，Easy 使用干净场景，Hard 使用域随机化；微调共 27,500 条示范，评估结果平均 100 次试验。
+RoboTwin 2.0 覆盖 50 个双臂任务，Easy 使用干净场景，Hard 使用域随机化；微调共 27,500 条示范（每任务 50 条 clean 与 500 条 randomized），评估结果平均 100 次试验。Hard 接近甚至略高于 Easy 的成绩应在使用了大量随机化训练数据的背景下读，不能拿来证明无需域随机化也能自动鲁棒。
 
 ### 5.2 Main Results
 
 **【Paper】** 静态任务平均成功率如下：
 
-| 方法 | 平均成功率 |
-| --- | ---: |
-| GR00T N1.5 | 33.0% |
-| π₀ (3.3B) | 60.6% |
-| π₀.₅ | 70.7% |
-| InternVLA-A1 (2B) | 64.7% |
-| **InternVLA-A1 (3B)** | **75.1%** |
+| 方法                  | 平均成功率 |
+| --------------------- | ---------: |
+| GR00T N1.5            |      33.0% |
+| π₀ (3.3B)             |      60.6% |
+| π₀.₅                  |      70.7% |
+| InternVLA-A1 (2B)     |      64.7% |
+| **InternVLA-A1 (3B)** |  **75.1%** |
 
-3B 模型在 Make Sandwich 达到 93.3%，Operate Oven 86.7%，Zip Bag 73.3%。它比 π₀.₅ 的静态平均值高 4.4%，说明视觉前瞻不仅改善高层任务选择，也能帮助接触丰富的低层控制。
+3B 模型在 Make Sandwich 达到 93.3%，Operate Oven 86.7%，Zip Bag 73.3%。它比 π₀.₅ 的静态平均值高 4.4 个百分点，但 Wipe Stain（86.7% vs. 93.3%）和 Place Flower（60.0% vs. 66.7%）仍落后。架构、backbone 与预训练配方都在变化，整模型对比无法把增益单独归于视觉前瞻。Table 4 的 Sort Rubbish 还报告 97.3%，不落在 30 次二元 rollout 的 3.33 个百分点粒度上；正文没有解释额外聚合口径，因此保留原表数值，不反推其成功次数。
 
 动态任务结果更能体现方法动机：
 
-| 方法 | Express Sorting | In-motion Ingredient Picking | 平均 |
-| --- | ---: | ---: | ---: |
-| GR00T N1.5 | 40.0% | 20.0% | 30.0% |
-| π₀ | 36.7% | 20.0% | 28.4% |
-| π₀.₅ | 53.3% | 66.7% | 60.0% |
-| InternVLA-A1 (2B) | 70.0% | 20.0% | 45.0% |
-| **InternVLA-A1 (3B)** | **80.0%** | **93.3%** | **86.7%** |
+| 方法                  | Express Sorting | In-motion Ingredient Picking |      平均 |
+| --------------------- | --------------: | ---------------------------: | --------: |
+| GR00T N1.5            |           40.0% |                        20.0% |     30.0% |
+| π₀                    |           36.7% |                        20.0% |     28.4% |
+| π₀.₅                  |           53.3% |                        66.7% |     60.0% |
+| InternVLA-A1 (2B)     |           70.0% |                        46.7% |     58.4% |
+| **InternVLA-A1 (3B)** |       **80.0%** |                    **93.3%** | **86.7%** |
 
 RoboTwin 2.0 上，InternVLA-A1 (3B) 的 Easy/Hard 平均成功率为 89.4%/89.6%，分别比 π₀.₅ 高 2.6 个百分点。
 
@@ -237,19 +253,19 @@ RoboTwin 2.0 上，InternVLA-A1 (3B) 的 Easy/Hard 平均成功率为 89.4%/89.6
 
 ![去掉 Generation Expert 的对比（论文 Figure 9）](https://pic.hana0721.top/blog/paper-deep-dive-internvla-a1/figure9_ablation_study_on_gen_expert.3nscxiuw3v.webp)
 
-去掉 Generation Expert 后平均成功率由 77.0% 降到 57.6%，12 个任务中有 11 个变差，动态任务降幅尤其明显。这直接支持“预测未来状态是动作生成的有效条件”这一设计。
+去掉 Generation Expert 后平均成功率由 77.0% 降到 57.6%，12 个任务中有 11 个变差，动态任务降幅尤其明显。这支持保留整套生成分支的实用价值，但删除分支同时改变模型容量、历史图像通路与辅助监督；未提供等容量分支、打乱未来标签或仅移除生成损失的控制，不能进一步拆分“未来监督”与“新增时序特征”的贡献。
 
 ### 5.4 Generalization
 
-**【Paper】** 三种数据源承担互补角色：仿真提供大规模场景和轨迹多样性，真实机器人数据提供接触动力学与 sim-to-real 锚点，人类视频提供手—物交互和第一视角运动先验。三者联合训练在仿真和真实任务上同时最好，而不是只优化某一个 benchmark。
+**【Paper】** 三种数据源承担互补角色：仿真提供大规模场景和轨迹多样性，真实机器人数据提供接触动力学与 sim-to-real 锚点，人类视频提供手—物交互和第一视角运动先验。Table 5 的全量配方在所测列上最好或并列，但真实数据消融只覆盖 Place Flower 和 Sort Parts 两项，且缺少 Sim+Real 一行；因此无法量化人类视频在已经有真实机器人数据时的独立边际收益。
 
-**【Analysis】** 动态任务的提升（相对 π₀.₅ 平均 +26.7 个百分点）比静态任务更大，说明 Generation Expert 学到的不是单纯的物体识别，而是与时间相关的决策线索，例如传送带速度、目标即将出现的位置和双臂协同的时机。
+**【Analysis】** 动态任务的提升（相对 π₀.₅ 平均 +26.7 个百分点）比静态任务更大，与时序表征有益的解释相符，但尚无速度估计或接触状态探针证明网络具体表示了哪些物理变量。2B 和 3B 同时更换 backbone 与输入分辨率，也不能把二者差异仅当作参数规模效应。
 
 ## 6. 方法分析
 
 ### 6.1 为什么有效？
 
-**【Analysis】** 反应式 VLA 只需拟合 $p(a_t|o_t,l)$；InternVLA-A1 先构造一个近似的 $p(o_{t+m}|o_{t-m},o_t,l)$，再让动作专家读取这个动态表征。即使未来图像不够清晰，latent 中的运动方向也能把动作从“看到再追”变成“预测后拦截”。同时，三个专家共享 attention 层，避免独立 world model 与 policy 之间的表示错位。
+**【Analysis】** 反应式 VLA 只需拟合 $p(a_t|o_t,l)$；InternVLA-A1 先构造一个近似的 $p(o_{t+m}|o_{t-m},o_t,l)$，再让动作专家读取这个动态表征。即使未来图像不够清晰，latent 中的运动方向也能把动作从“看到再追”变成“预测后拦截”。同时，三个专家共享一次注意力计算、保留各自参数，避免独立 world model 与 policy 之间的表示错位。
 
 ### 6.2 核心创新
 
@@ -260,12 +276,12 @@ RoboTwin 2.0 上，InternVLA-A1 (3B) 的 Easy/Hard 平均成功率为 89.4%/89.6
 
 ### 6.3 与已有方法的本质区别
 
-| 路线 | 语义理解 | 动态预测 | 动作生成 | 主要问题 |
-| --- | --- | --- | --- | --- |
-| 传统 VLA | 强 | 隐式 | 直接/Flow Matching | 对快速变化场景缺少 foresight |
-| 视频策略 + 独立动作头 | 中等 | 强 | 独立模块 | 多阶段训练、模块接口脆弱 |
-| 独立 World Model + Planner | 取决于模型 | 强 | 规划器 | 误差累积、语义和控制分离 |
-| **InternVLA-A1** | **MLLM** | **Generation Expert** | **Action Expert** | 统一训练，仍需更强语义与更高保真预测 |
+| 路线                       | 语义理解   | 动态预测              | 动作生成           | 主要问题                             |
+| -------------------------- | ---------- | --------------------- | ------------------ | ------------------------------------ |
+| 传统 VLA                   | 强         | 隐式                  | 直接/Flow Matching | 对快速变化场景缺少 foresight         |
+| 视频策略 + 独立动作头      | 中等       | 强                    | 独立模块           | 多阶段训练、模块接口脆弱             |
+| 独立 World Model + Planner | 取决于模型 | 强                    | 规划器             | 误差累积、语义和控制分离             |
+| **InternVLA-A1**           | **MLLM**   | **Generation Expert** | **Action Expert**  | 统一训练，仍需更强语义与更高保真预测 |
 
 ### 6.4 关键假设
 
@@ -288,18 +304,19 @@ RoboTwin 2.0 上，InternVLA-A1 (3B) 的 Easy/Hard 平均成功率为 89.4%/89.6
 **【Analysis】**
 
 - 预测间隔固定为 15 帧，面对不同速度的传送带或长时延接触，单一时间尺度可能不够；多尺度 foresight 尚未验证。
-- 论文主要报告成功率，缺少控制频率、ODE 步数、视觉解码开关对能耗和端到端延迟的完整消融，因此“13 Hz”不等于所有机器人部署条件下都能达到 13 Hz。
+- 论文主要报告成功率，缺少控制频率、ODE 步数、视觉解码开关对能耗和端到端延迟的完整消融，因此“13 Hz”只是指定 GPU 与编译配置的策略推理速度，既不等于相机采样频率，也不自动等于每个低层动作都读取新画面。代码默认执行步数 `n_action_steps=50`，实际闭环周期还取决于部署时执行多少步再重规划。
 - 混合数据的采样权重由经验设定，数据集之间的动作空间和相机分布差异可能导致隐性偏置；LPT 解决负载问题，但不自动解决语义/动力学域偏移。
 - 未来视觉预测目前作为动作条件使用，论文没有证明生成图像本身能支持可解释的显式规划或失败恢复。
 
 ## 8. 启发与研究思考
 
 1. **把“想象”做成可训练的中间监督**：未来状态预测不必追求视频生成的观感，只需保留会改变动作选择的因素，这为低延迟 world model 提供了实际目标。
-2. **统一架构的价值在接口而非参数共享**：MoT 的关键是 attention mask 定义了语义→动态→动作的因果接口；未来可以把触觉、力矩或语言计划作为新的 block 插入同一信息流。
+2. **统一架构的价值在接口而非参数共享**：MoT 的关键是 attention mask 定义了语义→动态→动作的有向信息接口；未来可以把触觉、力矩或语言计划作为新的 block 插入同一信息流。
 3. **数据互补应与任务难度对齐**：仿真扩大覆盖面，真实数据校准接触，人类视频补充运动先验。对动态任务，后两者可能比继续增加静态仿真轨迹更有价值。
 4. **下一步可研究自适应时间尺度**：让模型同时预测短期和长期 latent，并让动作专家按不确定性选择观察/规划频率，可能比固定 15 帧更适合跨平台部署。
 5. **评测应加入预测质量与控制质量的因果联系**：除了成功率，还应报告未来 latent 的校准度、动作对预测误差的敏感性，以及关闭 foresight 后的能耗和延迟变化。
 
 <Aside type='note' title='阅读提示'>
-  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方 InternVLA-A1 分支中的实现，`【Analysis】` 表示基于论文和代码的分析推断。论文图像使用原始 LaTeX figure 提取并裁切后上传；由于图床 CDN 可能延迟，正文暂使用 GitHub Raw URL。
+  本精读中 `【Paper】` 表示论文明确内容，`【Code】` 表示官方 InternVLA-A1
+  分支中的实现，`【Analysis】` 表示基于论文和代码的分析推断。
 </Aside>
