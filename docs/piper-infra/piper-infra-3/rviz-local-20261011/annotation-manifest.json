@@ -1,0 +1,130 @@
+{
+  "screenshotPixels": "Original screenshot embedded unchanged at 1850x1016; only SVG boxes, badges and arrows added as a separate layer, with no added title, legend or caption text.",
+  "generator": "annotate-rviz-screenshots.mjs",
+  "figures": [
+    {
+      "input": "rviz-overview.png",
+      "output": "rviz-interface-annotated",
+      "title": "RViz 界面：先找到模型、规划面板与视角工具",
+      "items": [
+        [
+          "A",
+          "Displays：模型、坐标系与显示选项"
+        ],
+        [
+          "B",
+          "MotionPlanning：选择目标、规划和执行"
+        ],
+        [
+          "C",
+          "Views：当前视角与观察距离"
+        ],
+        [
+          "D",
+          "工具栏：Interact 操作目标，Move Camera 调整视角"
+        ],
+        [
+          "E",
+          "三维视图：观察机械臂、目标姿态与规划轨迹"
+        ]
+      ],
+      "note": "Move Camera / Orbit：左键旋转，中键平移，滚轮缩放。Fixed Frame 使用 base_link。"
+    },
+    {
+      "input": "rviz-overview.png",
+      "output": "rviz-overview-annotated",
+      "title": "操作 1：选择机械臂目标，并拖动末端标记",
+      "items": [
+        [
+          "1",
+          "Planning Group 选择 arm"
+        ],
+        [
+          "2",
+          "Start State 选 <current>；Goal State 选 home"
+        ],
+        [
+          "3",
+          "Velocity / Accel. Scaling 都设为 0.10"
+        ],
+        [
+          "4",
+          "点击工具栏中的 Interact"
+        ],
+        [
+          "5",
+          "拖动框出的红色箭头，让目标末端向上移动"
+        ]
+      ],
+      "note": "彩色箭头改变末端位置，圆环改变朝向。本次示例使用箭头调整位置。"
+    },
+    {
+      "input": "rviz-plan-trail.png",
+      "output": "rviz-plan-trail-annotated",
+      "title": "操作 2：点击 Plan，并查看轨迹中的沿途姿态",
+      "items": [
+        [
+          "1",
+          "点击 Plan，生成并预览轨迹"
+        ],
+        [
+          "2",
+          "在 Displays → MotionPlanning → Planned Path\n勾选 Show Trail"
+        ],
+        [
+          "3",
+          "Trail Step Size 设为 10"
+        ],
+        [
+          "4",
+          "观察叠影，查看机械臂经过的姿态"
+        ]
+      ],
+      "note": "Plan 完成后 Execute 按钮可用；右侧叠影展示本次规划的轨迹。"
+    },
+    {
+      "input": "rviz-arm-executed.png",
+      "output": "rviz-arm-executed-annotated",
+      "title": "操作 3：执行机械臂轨迹，并查看完成状态",
+      "items": [
+        [
+          "1",
+          "轨迹预览完成后，点击 Execute"
+        ],
+        [
+          "2",
+          "执行完成后，状态显示 Executed"
+        ],
+        [
+          "3",
+          "观察模型更新到执行后的姿态"
+        ]
+      ],
+      "note": "截图取自执行完成之后，此时 Execute 已变灰。此处执行的是本地虚拟机械臂。"
+    },
+    {
+      "input": "rviz-gripper-executed.png",
+      "output": "rviz-gripper-executed-annotated",
+      "title": "操作 4：切换夹爪规划组，执行半开目标",
+      "items": [
+        [
+          "1",
+          "Planning Group 切换为 gripper"
+        ],
+        [
+          "2",
+          "Goal State 选择 gripper_half"
+        ],
+        [
+          "3",
+          "先点击 Plan，再点击 Execute"
+        ],
+        [
+          "4",
+          "查看 Executed，并观察夹爪的半开状态"
+        ]
+      ],
+      "note": "Start State 保持 <current>。截图取自执行完成之后，此时 Execute 已变灰。"
+    }
+  ]
+}

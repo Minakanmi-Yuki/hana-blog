@@ -1,0 +1,42 @@
+{
+  "date": "2026-10-11",
+  "remotePulledFirst": {
+    "from": "faf346a",
+    "to": "d521d82",
+    "command": "git pull --ff-only"
+  },
+  "article": "src/content/blog/piper-infra-3/index.mdx",
+  "draftFieldRemoved": true,
+  "scope": "Official agx_arm_ros configuration link and RViz visualization, target editing, planning, arm execution and gripper execution.",
+  "cover": {
+    "id": "49383596",
+    "source": "https://pic.hana0721.top/49383596_p0_master1200.6t7pmts45l.webp",
+    "countBeforeAssignment": 3,
+    "countAfterAssignment": 4,
+    "minimumBeforeAssignment": 3,
+    "tiedCandidates": 48,
+    "countingRule": "Actual heroImage.src file-name Pixiv ID, one count per article slug including local pending articles; bilingual mirrors deduplicated.",
+    "poolImages": 67,
+    "priorPosts": [
+      "paper-reading-umllm2",
+      "paper-deep-dive-rdt-1b",
+      "paper-deep-dive-open-h-embodiment"
+    ]
+  },
+  "screenshots": [
+    "/images/piper-infra-3/rviz-local/rviz-interface-annotated.png",
+    "/images/piper-infra-3/rviz-local/rviz-overview-annotated.png",
+    "/images/piper-infra-3/rviz-local/rviz-plan-trail-annotated.png",
+    "/images/piper-infra-3/rviz-local/rviz-arm-executed-annotated.png",
+    "/images/piper-infra-3/rviz-local/rviz-gripper-executed-annotated.png"
+  ],
+  "annotationStyle": "Original 1850x1016 RViz screenshots with only badges, boxes and arrows; explanations remain in the article body.",
+  "validation": {
+    "astroCheck": "passed, 0 errors and 0 warnings, 149 existing informational hints",
+    "mdxFormatting": "Prettier applied to chapter 3 only",
+    "browser": "Local article rendered; all five RViz screenshots and the selected CDN hero loaded; image zoom verified.",
+    "viewportWidths": [1280, 390],
+    "pageWidths": [1274, 384],
+    "screenshotWidths": [760, 352]
+  }
+}

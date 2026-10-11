@@ -1,0 +1,181 @@
+---
+title: 'Piper Infra (3)：配置官方驱动，用 RViz 规划与执行运动'
+publishDate: 2026-10-11
+description: '按照官方 agx_arm_ros 仓库配置 Piper 单臂与夹爪，认识 RViz 界面，通过带操作标注的本地截图完成目标设置、轨迹规划、运动执行和夹爪开合，为后续开发准备控制流程。'
+category: 'tech'
+tags: ['piper', 'robotics', 'infra', 'ros2', 'moveit', 'rviz']
+heroImage:
+  { src: 'https://pic.hana0721.top/49383596_p0_master1200.6t7pmts45l.webp', color: '#8C8275' }
+pixivLink: '49383596'
+---
+
+上一章准备好了 Ubuntu 22.04 和 ROS 2 Humble。本章接入官方的 Piper 驱动，在 RViz 中查看机械臂、设置目标姿态，并完成一次轨迹规划与执行，为后续编写控制程序准备好操作流程。
+
+## 1. 配置官方驱动并启动 RViz
+
+按照官方 [agx_arm_ros 仓库](https://github.com/agilexrobotics/agx_arm_ros)的 ROS 2 配置说明，完成 SDK、驱动、MoveIt 依赖、工作空间编译和 CAN 配置。下面使用 **Piper 单臂、agx_gripper 夹爪，CAN 接口为 `can0`**。
+
+启动前，固定好机械臂底座，留出活动空间，让机械臂处于已校准的零位，并将空夹爪闭合。这条组合启动命令会启动控制节点、MoveIt 和 RViz，默认自动使能机械臂。
+
+在已加载 ROS 2 和工作空间环境的终端中执行：
+
+```bash
+ros2 launch agx_arm_ctrl start_single_agx_arm_moveit.launch.py \
+  can_port:=can0 arm_type:=piper effector_type:=agx_gripper
+```
+
+三个参数分别指定 CAN 接口、机械臂型号和末端执行器。启动后，RViz 会显示 Piper 模型，并加载用于规划和执行运动的 `MotionPlanning` 面板。
+
+也可以先用官方的本地演示熟悉界面：
+
+```bash
+ros2 launch agx_arm_moveit demo.launch.py \
+  arm_type:=piper effector_type:=agx_gripper
+```
+
+本篇截图由这条演示命令在本地运行后截取，操作对象是虚拟机械臂。下面按“设置目标 → 规划 → 预览 → 执行”的顺序练习。
+
+## 2. 认识 RViz 界面
+
+先对照图中的 A–E，找到后面要用的区域。
+
+<img
+  src='/images/piper-infra-3/rviz-local/rviz-interface-annotated.png'
+  alt='本地 RViz 界面，A 到 E 分别标出 Displays、MotionPlanning、Views、工具栏和三维视图'
+  class='zoomable'
+  width='1850'
+  height='1016'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+图 1：RViz 界面分区。[查看原尺寸](/images/piper-infra-3/rviz-local/rviz-interface-annotated.png)
+
+| 标记 | 区域           | 用途                                              |
+| ---- | -------------- | ------------------------------------------------- |
+| A    | Displays       | 设置模型、坐标系、目标标记和轨迹的显示方式        |
+| B    | MotionPlanning | 选择规划组与目标，生成轨迹并执行                  |
+| C    | Views          | 调整观察视角与相机距离                            |
+| D    | 工具栏         | 用 `Interact` 操作目标，用 `Move Camera` 调整视角 |
+| E    | 三维视图       | 观察机械臂模型、末端目标和规划轨迹                |
+
+`Displays → Global Options → Fixed Frame` 使用 `base_link`，让显示以机械臂基座坐标系为参考。选择 `Move Camera` 后，在当前 `Orbit` 视角中，左键拖动旋转视角，中键拖动平移，滚轮缩放。
+
+后续主要使用 B 区的 `Planning` 标签页。左侧 `Commands` 放着 `Plan`、`Execute` 等按钮；中间 `Query` 用来选择规划组、起点和目标；右侧 `Options` 设置规划时间、尝试次数以及速度和加速度缩放。
+
+三维视图中会同时显示模型和末端交互标记。设置目标时观察目标姿态，规划后观察动画与轨迹叠影，执行后再看模型更新到的位置。
+
+## 3. 设置机械臂目标
+
+这一轮让末端从当前姿态向上移动一小段。按图中①到⑤操作：
+
+1. **选择规划组。** 将 `Planning Group` 设为 `arm`，对机械臂进行规划。
+2. **设置起点与目标。** `Start State` 选择 `<current>`，以当前状态为起点；`Goal State` 选择 `home`，从这个预设开始编辑目标。`home` 对应模型的六轴零目标。
+3. **设置轨迹缩放。** 将 `Velocity Scaling` 和 `Accel. Scaling` 都设为 `0.10`，调整规划轨迹的速度与加速度缩放。
+4. **启用交互工具。** 点击工具栏中的 `Interact`。
+5. **拖动目标。** 在三维视图中按住框出的红色箭头，沿标注方向向上拖动一小段。彩色箭头改变末端位置，圆环改变末端朝向。
+
+<img
+  src='/images/piper-infra-3/rviz-local/rviz-overview-annotated.png'
+  alt='操作标注：选择 arm，设置 current 与 home、两项缩放为 0.10，点击 Interact 后向上拖动末端箭头'
+  class='zoomable'
+  width='1850'
+  height='1016'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+图 2：设置规划目标。①到⑤对应上面的操作步骤，棕色箭头表示拖动方向。[查看原尺寸](/images/piper-infra-3/rviz-local/rviz-overview-annotated.png)
+
+先做小幅位置调整，观察模型如何跟随目标变化。松开鼠标后，这个姿态就是接下来交给规划器的目标。
+
+## 4. 点击 Plan，预览运动轨迹
+
+目标设置好后，点击左侧的 `Plan`。MoveIt 会根据起点、目标和模型约束生成轨迹，RViz 随后播放规划动画。
+
+为了看清机械臂沿途经过的姿态，按图中①到④操作：
+
+1. 点击 `Plan`，生成并预览轨迹。
+2. 在 `Displays → MotionPlanning → Planned Path` 中勾选 `Show Trail`。
+3. 将 `Trail Step Size` 设为 `10`，调整叠影显示的采样间隔。
+4. 观察右侧的轨迹叠影，查看机械臂从起点到目标经过的姿态。
+
+<img
+  src='/images/piper-infra-3/rviz-local/rviz-plan-trail-annotated.png'
+  alt='操作标注：点击 Plan，勾选 Show Trail，将 Trail Step Size 设为 10，并查看轨迹中的沿途姿态'
+  class='zoomable'
+  width='1850'
+  height='1016'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+图 3：规划完成后开启轨迹叠影，框出的模型轮廓展示沿途姿态。[查看原尺寸](/images/piper-infra-3/rviz-local/rviz-plan-trail-annotated.png)
+
+预览时沿着轨迹观察关节、末端和周围空间。要调整目标，可以重新拖动末端标记，再点击 `Plan`，查看新目标对应的轨迹。
+
+## 5. 执行已规划的轨迹
+
+完成轨迹预览后，取消 `Show Trail` 和 `Loop Animation`，让执行过程更容易观察，再点击 `Execute`。
+
+图中①标出执行按钮的位置，②标出完成后的 `Executed` 状态，③指向执行后的模型姿态。截图展示的是执行完成后的界面，此时 `Execute` 已变灰。
+
+<img
+  src='/images/piper-infra-3/rviz-local/rviz-arm-executed-annotated.png'
+  alt='操作标注：Execute 按钮、执行完成后的 Executed 状态，以及机械臂执行后的模型姿态'
+  class='zoomable'
+  width='1850'
+  height='1016'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+图 4：本地虚拟机械臂执行轨迹后，模型停在新的姿态。[查看原尺寸](/images/piper-infra-3/rviz-local/rviz-arm-executed-annotated.png)
+
+三个常用按钮可以这样理解：
+
+| 按钮             | 操作                           |
+| ---------------- | ------------------------------ |
+| `Plan`           | 生成轨迹，并在 RViz 中预览     |
+| `Execute`        | 将已经生成的轨迹交给控制器执行 |
+| `Plan & Execute` | 连续完成规划和执行             |
+
+刚开始练习时，先点击 `Plan` 查看轨迹，再点击 `Execute`，便于把目标设置、规划结果和执行过程对应起来。接入真实驱动后，执行时同时观察机械臂的实际运动和 RViz 中的状态更新。[MoveIt RViz 操作教程](https://moveit.picknik.ai/humble/doc/tutorials/quickstart_in_rviz/quickstart_in_rviz_tutorial.html)
+
+## 6. 规划并执行夹爪开合
+
+接着将操作对象切换到夹爪。官方模型提供了三个命名目标：
+
+| 目标            | 含义     |
+| --------------- | -------- |
+| `gripper_open`  | 张开预设 |
+| `gripper_half`  | 半开预设 |
+| `gripper_close` | 闭合预设 |
+
+这次使用半开目标，按图中①到④操作：
+
+1. 将 `Planning Group` 切换为 `gripper`。
+2. 保持 `Start State` 为 `<current>`，将 `Goal State` 设为 `gripper_half`。
+3. 先点击 `Plan` 查看夹爪开合的规划，再点击 `Execute`。
+4. 等状态显示 `Executed`，观察三维视图中的夹爪半开姿态。
+
+<img
+  src='/images/piper-infra-3/rviz-local/rviz-gripper-executed-annotated.png'
+  alt='操作标注：切换 gripper 规划组，选择 gripper_half，依次规划与执行，并观察 Executed 和夹爪半开状态'
+  class='zoomable'
+  width='1850'
+  height='1016'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+图 5：夹爪半开目标执行完成。两处④分别标出完成状态和夹爪姿态。[查看原尺寸](/images/piper-infra-3/rviz-local/rviz-gripper-executed-annotated.png)
+
+随后可以选择 `gripper_close`，再按相同顺序完成一次闭合。这样就熟悉了机械臂和夹爪各自的规划组，以及从当前状态到命名目标的控制流程。
+
+后续编写程序时，可以沿用这里的顺序：读取当前状态，设置目标，调用规划器，检查轨迹，再提交执行。RViz 则继续作为观察模型、目标和轨迹的窗口，帮助我们把程序中的控制步骤与机械臂运动对应起来。

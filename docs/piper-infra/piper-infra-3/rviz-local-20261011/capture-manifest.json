@@ -1,0 +1,30 @@
+{
+  "date": "2026-10-11T11:08:48.967282+08:00",
+  "workspace": "/home/juhuahua233/agx_arm_ws",
+  "source_commit": "f228cd730a3ea9c1c29af08f66226f79a7a843d1",
+  "command": "ros2 launch agx_arm_moveit demo.launch.py arm_type:=piper effector_type:=agx_gripper",
+  "mode": "official local demo, mock_components/GenericSystem, no agx_arm_ctrl driver",
+  "capture": "X11 import -window, unchanged window pixels",
+  "view": {
+    "distance": 0.8,
+    "camera": "Orbit",
+    "fixed_frame": "base_link"
+  },
+  "operations": [
+    "select arm, Start <current>, Goal home",
+    "drag goal marker upward in two small steps",
+    "Plan succeeded",
+    "Show Trail enabled; Trail Step Size 10",
+    "Execute arm succeeded",
+    "select gripper, Goal gripper_half",
+    "Plan and Execute gripper succeeded"
+  ],
+  "screenshots": [
+    "rviz-overview.png",
+    "rviz-plan-trail.png",
+    "rviz-arm-executed.png",
+    "rviz-gripper-executed.png"
+  ],
+  "hardware": "No CAN interfaces present; user chose local planning screenshots",
+  "cleanup": "Stopped the screenshot demo after capture; MoveGroup logged a destructor segfault during exit, after both execution actions had succeeded."
+}
