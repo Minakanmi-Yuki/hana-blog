@@ -185,6 +185,19 @@ export function getCollectionsByCategory(collections: Collections, category: str
 
 const sidebarCollectionRules = [
   {
+    key: 'piper-infra',
+    title: {
+      zh: 'Piper Infra：从硬件接入到可复现实验',
+      en: 'Piper Infra: From Hardware to Reproducible Experiments'
+    },
+    description: {
+      zh: 'Piper 单臂、夹爪与手部 D435 的接入、控制、标定与实验记录',
+      en: 'Connectivity, control, calibration, and experiment records for a Piper arm and hand camera'
+    },
+    slugPrefix: 'piper-infra-',
+    entryHref: '/blog/piper-infra-0'
+  },
+  {
     key: 'rl-notes',
     title: {
       zh: 'RL 笔记系列',
