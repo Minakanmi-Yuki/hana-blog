@@ -5,7 +5,10 @@ import { fileURLToPath } from 'node:url'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(here, '../../../..')
-const assetDir = path.join(root, 'public/images/piper-infra-3/rviz-local')
+if (!process.argv[2]) {
+  throw new Error('用法：node annotate-rviz-screenshots.mjs <本地原始截图目录>')
+}
+const assetDir = path.resolve(process.argv[2])
 const require = createRequire(path.join(root, 'package.json'))
 const sharp = require('sharp')
 const width = 1850

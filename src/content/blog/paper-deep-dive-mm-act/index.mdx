@@ -52,7 +52,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** 《MM-ACT: Learn from Multimodal Parallel Generation to Act》提出一个统一的 Vision-Language-Action（VLA）模型：文本任务规划、未来图像预测和动作 chunk 都在同一个离散 token 空间里生成。模型使用 bidirectional attention，把三种任务写成“给定共享上下文，补全一个被 mask 的 block”。文本与图像使用 re-mask parallel decoding，动作则默认一次前向并行生成整个 chunk。
 
-![MM-ACT 与 AR/Hybrid Unified VLA 的范式对比（论文 Figure 1）](/blog/paper-deep-dive-mm-act/motivation.webp)
+![MM-ACT 与 AR/Hybrid Unified VLA 的范式对比（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-mm-act/motivation.8vnpgzuxs0.webp)
 
 ### 一句话总结
 
@@ -89,7 +89,7 @@ import { Aside } from '@/components/user'
 
 ### 4.1 Overall Architecture
 
-![MM-ACT 的共享 token 空间与三种输出 block（论文 Figure 2）](/blog/paper-deep-dive-mm-act/method.webp)
+![MM-ACT 的共享 token 空间与三种输出 block（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-mm-act/method.2dphnojyio.webp)
 
 **【Paper】** 多视角图像、语言、状态和模态标记先经过各自 tokenizer，形成交错的 shared context；Transformer 对完整序列做 bidirectional attention，再根据 modal token 在尾部补全文本、图像或动作 block。
 
@@ -204,7 +204,7 @@ $$
 
 **【Paper】** 实验覆盖三个层次：LIBERO 四个子基准（Spatial、Object、Goal、Long）的 Franka 仿真；RoboTwin2.0 的 Agilex Piper 双臂、八个任务类型的未见指令、场景与物体位置组合；以及 Franka Research 3 真实机器人上的 Press Button、Stack Block、Sort Vegetables and Fruits。这八种 RoboTwin 任务都参与训练，各采集 500 条专家轨迹，过滤后约 70k 个训练样本；这里的 unseen 不是未见任务类型。RoboTwin 使用这些样本联合训练，Franka 每个任务收集 100 条 teleoperation demonstrations。
 
-![Franka Research 3 的真实机器人设置与三个任务（论文 Figure 4）](/blog/paper-deep-dive-mm-act/franka.webp)
+![Franka Research 3 的真实机器人设置与三个任务（论文 Figure 4）](https://pic.hana0721.top/blog/paper-deep-dive-mm-act/franka.41yukva8ov.webp)
 
 ### 5.2 Main Results
 
@@ -219,7 +219,7 @@ $$
 
 ### 5.3 Ablation Study
 
-![Context-Shared Multimodal Learning 的训练数据构造（论文 Figure 3）](/blog/paper-deep-dive-mm-act/training.webp)
+![Context-Shared Multimodal Learning 的训练数据构造（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-mm-act/training.1zj1wtbnnl.webp)
 
 **【Paper】** RoboTwin action-only baseline 的平均成功率是 43.13%。加入 text、image、text+image 后分别为 46.50%（+3.37）、48.75%（+5.62）和 52.38%（+9.25）。这支持所测试配方中的辅助监督互补，但没有固定总计算量或打乱上下文对应关系的对照；辅助配置还多出 Stage 1，因而尚未单独证明“相同上下文”本身是收益的必要原因。分任务也并非一致改善，例如 Lift Pot 从 vanilla 的 40% 降至三模态的 31%。
 
@@ -229,7 +229,7 @@ $$
 
 ### 5.4 Generalization
 
-![RoboTwin unseen 场景中的未来图像预测（论文 Figure 5）](/blog/paper-deep-dive-mm-act/image-generation.webp)
+![RoboTwin unseen 场景中的未来图像预测（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-mm-act/image-generation.3gp6ykfse8.webp)
 
 **【Paper】** Table 4 测试 +Image 配置在 1,000 个未见样本上的预测：Stage 1→2，PSNR 12.08→14.23、SSIM 0.79→0.80、LPIPS 0.11→0.09。Table 5 则测试另一个 +Text 配置，1,000 次文本规划评估由 81.5% 降至 68.7%。后者定义为 GPT-4o 判断生成计划与参考计划意图、决策一致并回答 yes 的比例（Figure 7 给出完整提示），不是人类审定准确率，也不是生成计划的实际执行成功率。
 

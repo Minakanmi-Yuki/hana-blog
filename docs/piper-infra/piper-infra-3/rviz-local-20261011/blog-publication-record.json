@@ -24,11 +24,11 @@
     ]
   },
   "screenshots": [
-    "/images/piper-infra-3/rviz-local/rviz-interface-annotated.png",
-    "/images/piper-infra-3/rviz-local/rviz-overview-annotated.png",
-    "/images/piper-infra-3/rviz-local/rviz-plan-trail-annotated.png",
-    "/images/piper-infra-3/rviz-local/rviz-arm-executed-annotated.png",
-    "/images/piper-infra-3/rviz-local/rviz-gripper-executed-annotated.png"
+    "https://pic.hana0721.top/blog/piper-infra-3/rviz-interface-annotated.51exy1487z.webp",
+    "https://pic.hana0721.top/blog/piper-infra-3/rviz-overview-annotated.1lcm5xul9a.webp",
+    "https://pic.hana0721.top/blog/piper-infra-3/rviz-plan-trail-annotated.70b4od9qqi.webp",
+    "https://pic.hana0721.top/blog/piper-infra-3/rviz-arm-executed-annotated.7ehkf8i1p3.webp",
+    "https://pic.hana0721.top/blog/piper-infra-3/rviz-gripper-executed-annotated.3gp6yk715d.webp"
   ],
   "annotationStyle": "Original 1850x1016 RViz screenshots with only badges, boxes and arrows; explanations remain in the article body.",
   "validation": {
@@ -38,5 +38,15 @@
     "viewportWidths": [1280, 390],
     "pageWidths": [1274, 384],
     "screenshotWidths": [760, 352]
+  },
+  "imageHosting": {
+    "date": "2026-10-13",
+    "host": "https://pic.hana0721.top",
+    "format": "webp",
+    "quality": 90,
+    "imageHostCommit": "e758772",
+    "localSourceArchive": "/home/juhuahua233/piper_lab/artifacts/blog-image-migration-20261013/piper-infra-3/rviz-local",
+    "sourceBytes": 1213260,
+    "hostedBytes": 497108
   }
 }

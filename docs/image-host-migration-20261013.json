@@ -1,0 +1,345 @@
+{
+  "date": "2026-10-13",
+  "scope": "Local raster images used by already published, Git-tracked blog posts.",
+  "host": "https://pic.hana0721.top",
+  "archiveRoot": "/home/juhuahua233/piper_lab/artifacts/blog-image-migration-20261013",
+  "conversion": {
+    "png": "WebP quality 90, original resolution",
+    "webp": "Original bytes preserved",
+    "gif": "Original format and bytes preserved; no GIF in this migration"
+  },
+  "imageHostCommits": [
+    {
+      "batch": "piper3",
+      "commit": "e758772"
+    },
+    {
+      "batch": "mm-act",
+      "commit": "84997bc"
+    },
+    {
+      "batch": "mmada-vla",
+      "commit": "a355848"
+    }
+  ],
+  "totals": {
+    "articles": 3,
+    "images": 15,
+    "sourceBytes": 1907916,
+    "hostedBytes": 1191764,
+    "removedDeploymentFiles": 24,
+    "removedDeploymentBytes": 4549461
+  },
+  "images": [
+    {
+      "article": "piper-infra-3",
+      "source": "public/images/piper-infra-3/rviz-local/rviz-interface-annotated.png",
+      "originalUrl": "/images/piper-infra-3/rviz-local/rviz-interface-annotated.png",
+      "url": "https://pic.hana0721.top/blog/piper-infra-3/rviz-interface-annotated.51exy1487z.webp",
+      "sourceBytes": 238524,
+      "hostedBytes": 97772,
+      "format": "webp",
+      "quality": 90,
+      "width": 1850,
+      "height": 1016,
+      "sha256": "6dc9f5b5fcca1a896d08d3fc424cab6c1856e2aed7a35e5de012b2342dc76c78"
+    },
+    {
+      "article": "piper-infra-3",
+      "source": "public/images/piper-infra-3/rviz-local/rviz-overview-annotated.png",
+      "originalUrl": "/images/piper-infra-3/rviz-local/rviz-overview-annotated.png",
+      "url": "https://pic.hana0721.top/blog/piper-infra-3/rviz-overview-annotated.1lcm5xul9a.webp",
+      "sourceBytes": 239070,
+      "hostedBytes": 97742,
+      "format": "webp",
+      "quality": 90,
+      "width": 1850,
+      "height": 1016,
+      "sha256": "cd1d969a92707c6bd6beaf63968154233256c683215fb694da5cb2b5a3da4f8d"
+    },
+    {
+      "article": "piper-infra-3",
+      "source": "public/images/piper-infra-3/rviz-local/rviz-plan-trail-annotated.png",
+      "originalUrl": "/images/piper-infra-3/rviz-local/rviz-plan-trail-annotated.png",
+      "url": "https://pic.hana0721.top/blog/piper-infra-3/rviz-plan-trail-annotated.70b4od9qqi.webp",
+      "sourceBytes": 285823,
+      "hostedBytes": 108054,
+      "format": "webp",
+      "quality": 90,
+      "width": 1850,
+      "height": 1016,
+      "sha256": "4bb821eef873c10ef5e98b52833bbd2fa3c00219eb139c97c7399da33e39acfc"
+    },
+    {
+      "article": "piper-infra-3",
+      "source": "public/images/piper-infra-3/rviz-local/rviz-arm-executed-annotated.png",
+      "originalUrl": "/images/piper-infra-3/rviz-local/rviz-arm-executed-annotated.png",
+      "url": "https://pic.hana0721.top/blog/piper-infra-3/rviz-arm-executed-annotated.7ehkf8i1p3.webp",
+      "sourceBytes": 256433,
+      "hostedBytes": 101750,
+      "format": "webp",
+      "quality": 90,
+      "width": 1850,
+      "height": 1016,
+      "sha256": "1d8d2380edc03363faa7d2da0825b63b35dcd5facd91fbd1adaa0a77615e9f46"
+    },
+    {
+      "article": "piper-infra-3",
+      "source": "public/images/piper-infra-3/rviz-local/rviz-gripper-executed-annotated.png",
+      "originalUrl": "/images/piper-infra-3/rviz-local/rviz-gripper-executed-annotated.png",
+      "url": "https://pic.hana0721.top/blog/piper-infra-3/rviz-gripper-executed-annotated.3gp6yk715d.webp",
+      "sourceBytes": 193410,
+      "hostedBytes": 91790,
+      "format": "webp",
+      "quality": 90,
+      "width": 1850,
+      "height": 1016,
+      "sha256": "8cd2a8576bbbc172b0e8f52f6dd9dffd4de3042c115b895a7628770efef9dce6"
+    },
+    {
+      "article": "paper-deep-dive-mm-act",
+      "source": "public/blog/paper-deep-dive-mm-act/franka.webp",
+      "originalUrl": "/blog/paper-deep-dive-mm-act/franka.webp",
+      "url": "https://pic.hana0721.top/blog/paper-deep-dive-mm-act/franka.41yukva8ov.webp",
+      "sourceBytes": 135516,
+      "hostedBytes": 135516,
+      "format": "webp",
+      "reencoded": false,
+      "width": 2121,
+      "height": 484,
+      "sha256": "3ce55fc43789be515c95c366cc2480c6bb49180674b3cb1fa9d533ee2793c1d3"
+    },
+    {
+      "article": "paper-deep-dive-mm-act",
+      "source": "public/blog/paper-deep-dive-mm-act/image-generation.webp",
+      "originalUrl": "/blog/paper-deep-dive-mm-act/image-generation.webp",
+      "url": "https://pic.hana0721.top/blog/paper-deep-dive-mm-act/image-generation.3gp6ykfse8.webp",
+      "sourceBytes": 151000,
+      "hostedBytes": 151000,
+      "format": "webp",
+      "reencoded": false,
+      "width": 2027,
+      "height": 688,
+      "sha256": "6c2318491465ce2bcac17b968a3cd6e8af141e4208f864e24616096a3cd3e28d"
+    },
+    {
+      "article": "paper-deep-dive-mm-act",
+      "source": "public/blog/paper-deep-dive-mm-act/method.webp",
+      "originalUrl": "/blog/paper-deep-dive-mm-act/method.webp",
+      "url": "https://pic.hana0721.top/blog/paper-deep-dive-mm-act/method.2dphnojyio.webp",
+      "sourceBytes": 58550,
+      "hostedBytes": 58550,
+      "format": "webp",
+      "reencoded": false,
+      "width": 1380,
+      "height": 778,
+      "sha256": "76e590c2dc807e7bf296cddd7f80e4e6632338b37e5baf9660f458962a1e602a"
+    },
+    {
+      "article": "paper-deep-dive-mm-act",
+      "source": "public/blog/paper-deep-dive-mm-act/motivation.webp",
+      "originalUrl": "/blog/paper-deep-dive-mm-act/motivation.webp",
+      "url": "https://pic.hana0721.top/blog/paper-deep-dive-mm-act/motivation.8vnpgzuxs0.webp",
+      "sourceBytes": 45542,
+      "hostedBytes": 45542,
+      "format": "webp",
+      "reencoded": false,
+      "width": 1545,
+      "height": 541,
+      "sha256": "54cc838092dec3bf997b60af5cf021826cb6b867f0e9330eca553e6bba1de162"
+    },
+    {
+      "article": "paper-deep-dive-mm-act",
+      "source": "public/blog/paper-deep-dive-mm-act/training.webp",
+      "originalUrl": "/blog/paper-deep-dive-mm-act/training.webp",
+      "url": "https://pic.hana0721.top/blog/paper-deep-dive-mm-act/training.1zj1wtbnnl.webp",
+      "sourceBytes": 42332,
+      "hostedBytes": 42332,
+      "format": "webp",
+      "reencoded": false,
+      "width": 1426,
+      "height": 560,
+      "sha256": "0d767b920000a540987546fe0320d5881b62a6be49d2aa3ae67177f2d1a48e0d"
+    },
+    {
+      "article": "paper-deep-dive-mmada-vla",
+      "source": "public/images/paper-deep-dive-mmada-vla/figure-1.webp",
+      "originalUrl": "/images/paper-deep-dive-mmada-vla/figure-1.webp",
+      "url": "https://pic.hana0721.top/blog/paper-deep-dive-mmada-vla/figure-1.51exy1e963.webp",
+      "sourceBytes": 57246,
+      "hostedBytes": 57246,
+      "format": "webp",
+      "reencoded": false,
+      "width": 1320,
+      "height": 430,
+      "sha256": "552a0ab160797588fb90e32b483a0e0e6523d99d604b21e73e8210b28bb5a008"
+    },
+    {
+      "article": "paper-deep-dive-mmada-vla",
+      "source": "public/images/paper-deep-dive-mmada-vla/figure-2.webp",
+      "originalUrl": "/images/paper-deep-dive-mmada-vla/figure-2.webp",
+      "url": "https://pic.hana0721.top/blog/paper-deep-dive-mmada-vla/figure-2.6il2zsidwr.webp?v=a355848",
+      "sourceBytes": 60026,
+      "hostedBytes": 60026,
+      "format": "webp",
+      "reencoded": false,
+      "width": 1320,
+      "height": 700,
+      "sha256": "94c819c89ff148d27fe6e52d1eea22b7d79f94c2ffc04fd0d9ca8d17a9634a9e",
+      "cacheVersion": "a355848"
+    },
+    {
+      "article": "paper-deep-dive-mmada-vla",
+      "source": "public/images/paper-deep-dive-mmada-vla/figure-3.webp",
+      "originalUrl": "/images/paper-deep-dive-mmada-vla/figure-3.webp",
+      "url": "https://pic.hana0721.top/blog/paper-deep-dive-mmada-vla/figure-3.67y96n35rg.webp",
+      "sourceBytes": 74644,
+      "hostedBytes": 74644,
+      "format": "webp",
+      "reencoded": false,
+      "width": 1320,
+      "height": 520,
+      "sha256": "3b14cc4659652ecbb4a111d9ec206fd0cb44564c7092fe990cf8d22d844bf267"
+    },
+    {
+      "article": "paper-deep-dive-mmada-vla",
+      "source": "public/images/paper-deep-dive-mmada-vla/figure-5.webp",
+      "originalUrl": "/images/paper-deep-dive-mmada-vla/figure-5.webp",
+      "url": "https://pic.hana0721.top/blog/paper-deep-dive-mmada-vla/figure-5.77ecjt5wx8.webp",
+      "sourceBytes": 60544,
+      "hostedBytes": 60544,
+      "format": "webp",
+      "reencoded": false,
+      "width": 1320,
+      "height": 360,
+      "sha256": "4990b6e50a0901a7d65f1f81a393d231e7bd0d42fcebd435c207694aaa45a4a2"
+    },
+    {
+      "article": "paper-deep-dive-mmada-vla",
+      "source": "public/images/paper-deep-dive-mmada-vla/figure-7.webp",
+      "originalUrl": "/images/paper-deep-dive-mmada-vla/figure-7.webp",
+      "url": "https://pic.hana0721.top/blog/paper-deep-dive-mmada-vla/figure-7.4cloe0qq5o.webp",
+      "sourceBytes": 9256,
+      "hostedBytes": 9256,
+      "format": "webp",
+      "reencoded": false,
+      "width": 580,
+      "height": 380,
+      "sha256": "a95130837515fcc856ff1d7e85585b8e0039623ab69bcccbe8c8f479d9765d5f"
+    }
+  ],
+  "verification": {
+    "productionBuild": "passed",
+    "remoteImages": [
+      {
+        "url": "https://pic.hana0721.top/blog/piper-infra-3/rviz-interface-annotated.51exy1487z.webp",
+        "status": 200,
+        "type": "image/webp",
+        "bytes": 97772,
+        "webp": true
+      },
+      {
+        "url": "https://pic.hana0721.top/blog/piper-infra-3/rviz-overview-annotated.1lcm5xul9a.webp",
+        "status": 200,
+        "type": "image/webp",
+        "bytes": 97742,
+        "webp": true
+      },
+      {
+        "url": "https://pic.hana0721.top/blog/piper-infra-3/rviz-plan-trail-annotated.70b4od9qqi.webp",
+        "status": 200,
+        "type": "image/webp",
+        "bytes": 108054,
+        "webp": true
+      },
+      {
+        "url": "https://pic.hana0721.top/blog/piper-infra-3/rviz-arm-executed-annotated.7ehkf8i1p3.webp",
+        "status": 200,
+        "type": "image/webp",
+        "bytes": 101750,
+        "webp": true
+      },
+      {
+        "url": "https://pic.hana0721.top/blog/piper-infra-3/rviz-gripper-executed-annotated.3gp6yk715d.webp",
+        "status": 200,
+        "type": "image/webp",
+        "bytes": 91790,
+        "webp": true
+      },
+      {
+        "url": "https://pic.hana0721.top/blog/paper-deep-dive-mm-act/franka.41yukva8ov.webp",
+        "status": 200,
+        "contentType": "image/webp",
+        "bytes": 135516,
+        "sha256Matches": true
+      },
+      {
+        "url": "https://pic.hana0721.top/blog/paper-deep-dive-mm-act/image-generation.3gp6ykfse8.webp",
+        "status": 200,
+        "contentType": "image/webp",
+        "bytes": 151000,
+        "sha256Matches": true
+      },
+      {
+        "url": "https://pic.hana0721.top/blog/paper-deep-dive-mm-act/method.2dphnojyio.webp",
+        "status": 200,
+        "contentType": "image/webp",
+        "bytes": 58550,
+        "sha256Matches": true
+      },
+      {
+        "url": "https://pic.hana0721.top/blog/paper-deep-dive-mm-act/motivation.8vnpgzuxs0.webp",
+        "status": 200,
+        "contentType": "image/webp",
+        "bytes": 45542,
+        "sha256Matches": true
+      },
+      {
+        "url": "https://pic.hana0721.top/blog/paper-deep-dive-mm-act/training.1zj1wtbnnl.webp",
+        "status": 200,
+        "contentType": "image/webp",
+        "bytes": 42332,
+        "sha256Matches": true
+      },
+      {
+        "url": "https://pic.hana0721.top/blog/paper-deep-dive-mmada-vla/figure-1.51exy1e963.webp",
+        "status": 200,
+        "contentType": "image/webp",
+        "bytes": 57246,
+        "sha256Matches": true
+      },
+      {
+        "url": "https://pic.hana0721.top/blog/paper-deep-dive-mmada-vla/figure-2.6il2zsidwr.webp?v=a355848",
+        "referer": true,
+        "status": 200,
+        "contentType": "image/webp",
+        "bytes": 60026,
+        "sha256Matches": true
+      },
+      {
+        "url": "https://pic.hana0721.top/blog/paper-deep-dive-mmada-vla/figure-3.67y96n35rg.webp",
+        "status": 200,
+        "contentType": "image/webp",
+        "bytes": 74644,
+        "sha256Matches": true
+      },
+      {
+        "url": "https://pic.hana0721.top/blog/paper-deep-dive-mmada-vla/figure-5.77ecjt5wx8.webp",
+        "status": 200,
+        "contentType": "image/webp",
+        "bytes": 60544,
+        "sha256Matches": true
+      },
+      {
+        "url": "https://pic.hana0721.top/blog/paper-deep-dive-mmada-vla/figure-7.4cloe0qq5o.webp",
+        "status": 200,
+        "contentType": "image/webp",
+        "bytes": 9256,
+        "sha256Matches": true
+      }
+    ],
+    "existingWebpBytesPreserved": true,
+    "gifTest": "Two-frame GIF output SHA-256, frame count, delay and loop match the input.",
+    "articleChanges": "Image URLs only; screenshot dimensions, overlays and body text preserved."
+  }
+}

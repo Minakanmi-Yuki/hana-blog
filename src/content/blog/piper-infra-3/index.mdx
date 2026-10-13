@@ -40,7 +40,7 @@ ros2 launch agx_arm_moveit demo.launch.py \
 先对照图中的 A–E，找到后面要用的区域。
 
 <img
-  src='/images/piper-infra-3/rviz-local/rviz-interface-annotated.png'
+  src='https://pic.hana0721.top/blog/piper-infra-3/rviz-interface-annotated.51exy1487z.webp'
   alt='本地 RViz 界面，A 到 E 分别标出 Displays、MotionPlanning、Views、工具栏和三维视图'
   class='zoomable'
   width='1850'
@@ -50,7 +50,7 @@ ros2 launch agx_arm_moveit demo.launch.py \
   style='max-width:100%; height:auto;'
 />
 
-图 1：RViz 界面分区。[查看原尺寸](/images/piper-infra-3/rviz-local/rviz-interface-annotated.png)
+图 1：RViz 界面分区。[查看原尺寸](https://pic.hana0721.top/blog/piper-infra-3/rviz-interface-annotated.51exy1487z.webp)
 
 | 标记 | 区域           | 用途                                              |
 | ---- | -------------- | ------------------------------------------------- |
@@ -77,7 +77,7 @@ ros2 launch agx_arm_moveit demo.launch.py \
 5. **拖动目标。** 在三维视图中按住框出的红色箭头，沿标注方向向上拖动一小段。彩色箭头改变末端位置，圆环改变末端朝向。
 
 <img
-  src='/images/piper-infra-3/rviz-local/rviz-overview-annotated.png'
+  src='https://pic.hana0721.top/blog/piper-infra-3/rviz-overview-annotated.1lcm5xul9a.webp'
   alt='操作标注：选择 arm，设置 current 与 home、两项缩放为 0.10，点击 Interact 后向上拖动末端箭头'
   class='zoomable'
   width='1850'
@@ -87,7 +87,7 @@ ros2 launch agx_arm_moveit demo.launch.py \
   style='max-width:100%; height:auto;'
 />
 
-图 2：设置规划目标。①到⑤对应上面的操作步骤，棕色箭头表示拖动方向。[查看原尺寸](/images/piper-infra-3/rviz-local/rviz-overview-annotated.png)
+图 2：设置规划目标。①到⑤对应上面的操作步骤，棕色箭头表示拖动方向。[查看原尺寸](https://pic.hana0721.top/blog/piper-infra-3/rviz-overview-annotated.1lcm5xul9a.webp)
 
 先做小幅位置调整，观察模型如何跟随目标变化。松开鼠标后，这个姿态就是接下来交给规划器的目标。
 
@@ -103,7 +103,7 @@ ros2 launch agx_arm_moveit demo.launch.py \
 4. 观察右侧的轨迹叠影，查看机械臂从起点到目标经过的姿态。
 
 <img
-  src='/images/piper-infra-3/rviz-local/rviz-plan-trail-annotated.png'
+  src='https://pic.hana0721.top/blog/piper-infra-3/rviz-plan-trail-annotated.70b4od9qqi.webp'
   alt='操作标注：点击 Plan，勾选 Show Trail，将 Trail Step Size 设为 10，并查看轨迹中的沿途姿态'
   class='zoomable'
   width='1850'
@@ -113,7 +113,7 @@ ros2 launch agx_arm_moveit demo.launch.py \
   style='max-width:100%; height:auto;'
 />
 
-图 3：规划完成后开启轨迹叠影，框出的模型轮廓展示沿途姿态。[查看原尺寸](/images/piper-infra-3/rviz-local/rviz-plan-trail-annotated.png)
+图 3：规划完成后开启轨迹叠影，框出的模型轮廓展示沿途姿态。[查看原尺寸](https://pic.hana0721.top/blog/piper-infra-3/rviz-plan-trail-annotated.70b4od9qqi.webp)
 
 预览时沿着轨迹观察关节、末端和周围空间。要调整目标，可以重新拖动末端标记，再点击 `Plan`，查看新目标对应的轨迹。
 
@@ -124,7 +124,7 @@ ros2 launch agx_arm_moveit demo.launch.py \
 图中①标出执行按钮的位置，②标出完成后的 `Executed` 状态，③指向执行后的模型姿态。截图展示的是执行完成后的界面，此时 `Execute` 已变灰。
 
 <img
-  src='/images/piper-infra-3/rviz-local/rviz-arm-executed-annotated.png'
+  src='https://pic.hana0721.top/blog/piper-infra-3/rviz-arm-executed-annotated.7ehkf8i1p3.webp'
   alt='操作标注：Execute 按钮、执行完成后的 Executed 状态，以及机械臂执行后的模型姿态'
   class='zoomable'
   width='1850'
@@ -134,7 +134,7 @@ ros2 launch agx_arm_moveit demo.launch.py \
   style='max-width:100%; height:auto;'
 />
 
-图 4：本地虚拟机械臂执行轨迹后，模型停在新的姿态。[查看原尺寸](/images/piper-infra-3/rviz-local/rviz-arm-executed-annotated.png)
+图 4：本地虚拟机械臂执行轨迹后，模型停在新的姿态。[查看原尺寸](https://pic.hana0721.top/blog/piper-infra-3/rviz-arm-executed-annotated.7ehkf8i1p3.webp)
 
 三个常用按钮可以这样理解：
 
@@ -164,7 +164,7 @@ ros2 launch agx_arm_moveit demo.launch.py \
 4. 等状态显示 `Executed`，观察三维视图中的夹爪半开姿态。
 
 <img
-  src='/images/piper-infra-3/rviz-local/rviz-gripper-executed-annotated.png'
+  src='https://pic.hana0721.top/blog/piper-infra-3/rviz-gripper-executed-annotated.3gp6yk715d.webp'
   alt='操作标注：切换 gripper 规划组，选择 gripper_half，依次规划与执行，并观察 Executed 和夹爪半开状态'
   class='zoomable'
   width='1850'
@@ -174,7 +174,7 @@ ros2 launch agx_arm_moveit demo.launch.py \
   style='max-width:100%; height:auto;'
 />
 
-图 5：夹爪半开目标执行完成。两处④分别标出完成状态和夹爪姿态。[查看原尺寸](/images/piper-infra-3/rviz-local/rviz-gripper-executed-annotated.png)
+图 5：夹爪半开目标执行完成。两处④分别标出完成状态和夹爪姿态。[查看原尺寸](https://pic.hana0721.top/blog/piper-infra-3/rviz-gripper-executed-annotated.3gp6yk715d.webp)
 
 随后可以选择 `gripper_close`，再按相同顺序完成一次闭合。这样就熟悉了机械臂和夹爪各自的规划组，以及从当前状态到命名目标的控制流程。
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdir, mkdtemp, readdir, rm, stat } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readdir, rm, stat } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import sharp from 'sharp'
@@ -8,24 +8,25 @@ import sharp from 'sharp'
 const DEFAULT_REPO = 'git@github.com:Minakanmi-Yuki/picx-images-hosting.git'
 const DEFAULT_BRANCH = 'master'
 const DEFAULT_BASE_URL = 'https://pic.hana0721.top'
-const IMAGE_EXTENSIONS = new Set(['.avif', '.jpeg', '.jpg', '.png', '.webp'])
+const IMAGE_EXTENSIONS = new Set(['.avif', '.gif', '.jpeg', '.jpg', '.png', '.webp'])
 
 const printHelp = () => {
   console.log(`用法：
   pnpm images:upload -- <图片或目录> [...更多图片或目录]
 
 选项：
-  --quality <1-100>       WebP 质量，默认 80
+  --quality <1-100>       静态图片转 WebP 的质量，默认 80
   --remote-dir <目录>     图床仓库中的目标目录，默认根目录
   --repo <SSH 地址>       图床仓库，默认 ${DEFAULT_REPO}
   --branch <分支>         目标分支，默认 ${DEFAULT_BRANCH}
   --pages-branch <分支>   GitHub Pages 分支，默认 gh-pages
   --base-url <地址>       输出链接前缀，默认 ${DEFAULT_BASE_URL}
   --no-pages              只推送图片分支，不同步 GitHub Pages
-  --dry-run               只转换并打印结果，不 clone、commit 或 push
+  --dry-run               只准备图片并打印结果，不 clone、commit 或 push
   --keep-temp              保留临时目录，便于排查问题
   -h, --help              显示帮助
 
+PNG/JPG/AVIF 转为 WebP；已有 WebP 和 GIF 保持原格式、原字节上传。
 也可以使用环境变量：PICX_REPO、PICX_BRANCH、PICX_PAGES_BRANCH、PICX_BASE_URL、PICX_REMOTE_DIR。
 `)
 }
@@ -153,14 +154,14 @@ const getPicxHash = () => {
   return Number(`${Math.random().toString().substring(2, 4)}${Date.now()}`).toString(36)
 }
 
-const getOutputName = (sourcePath, usedNames) => {
+const getOutputName = (sourcePath, targetExtension, usedNames) => {
   const sourceName = path.basename(sourcePath)
   const extensionIndex = sourceName.lastIndexOf('.')
   const originalName = sourceName.slice(0, extensionIndex).trim().replaceAll(' ', '-')
 
   let outputName
   do {
-    outputName = `${originalName}.${getPicxHash()}.webp`
+    outputName = `${originalName}.${getPicxHash()}${targetExtension}`
   } while (usedNames.has(outputName))
 
   usedNames.add(outputName)
@@ -213,7 +214,7 @@ const main = async () => {
 
   const uniqueImages = [...new Set(sourceImages)]
   if (!uniqueImages.length) {
-    throw new Error('没有找到支持的图片（支持 .png、.jpg、.jpeg、.webp、.avif）')
+    throw new Error('没有找到支持的图片（支持 .png、.jpg、.jpeg、.webp、.avif、.gif）')
   }
 
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'hana-blog-image-host-'))
@@ -238,10 +239,16 @@ const main = async () => {
     const usedNames = new Set(await readdir(outputDir))
     const uploads = []
     for (const sourcePath of uniqueImages) {
-      const outputName = getOutputName(sourcePath, usedNames)
+      const sourceExtension = path.extname(sourcePath).toLowerCase()
+      const targetExtension = sourceExtension === '.gif' ? '.gif' : '.webp'
+      const outputName = getOutputName(sourcePath, targetExtension, usedNames)
       const outputPath = path.join(outputDir, outputName)
 
-      await sharp(sourcePath).rotate().webp({ quality: options.quality }).toFile(outputPath)
+      if (sourceExtension === '.webp' || sourceExtension === '.gif') {
+        await copyFile(sourcePath, outputPath)
+      } else {
+        await sharp(sourcePath).rotate().webp({ quality: options.quality }).toFile(outputPath)
+      }
 
       const relativePath = path.relative(workingTree, outputPath)
       const sourceSize = (await stat(sourcePath)).size
@@ -259,7 +266,7 @@ const main = async () => {
     if (!options.dryRun) {
       const relativePaths = uploads.map((upload) => upload.relativePath)
       runGit(['add', '--', ...relativePaths], workingTree)
-      runGit(['commit', '-m', `images: upload ${uploads.length} webp`], workingTree)
+      runGit(['commit', '-m', `images: upload ${uploads.length} files`], workingTree)
       console.log('正在推送到 GitHub...')
       runGit(['push', 'origin', options.branch], workingTree)
       if (options.deployPages) {
@@ -276,7 +283,7 @@ const main = async () => {
     }
 
     const completionMessage = options.dryRun
-      ? '转换完成（dry-run，未推送）'
+      ? '图片准备完成（dry-run，未推送）'
       : options.deployPages
         ? '上传并部署完成'
         : '上传完成'

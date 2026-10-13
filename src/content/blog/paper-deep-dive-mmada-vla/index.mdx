@@ -50,7 +50,7 @@ import { Aside } from '@/components/user'
 
 **【Paper】** MMaDA-VLA（MM ’26）提出一种 fully native、pretrained 的离散扩散 VLA：当前观测与语言指令作为条件，模型同时预测未来 goal observation 和一段 action chunk。它不再把 VLM、world model、inverse dynamics 或 policy head 串成多个阶段，而是让这些信息在一个共享的离散 token 序列中被联合去噪。
 
-![MMaDA-VLA 与传统 VLA、world-model VLA 的比较（论文 Figure 1）](/images/paper-deep-dive-mmada-vla/figure-1.webp)
+![MMaDA-VLA 与传统 VLA、world-model VLA 的比较（论文 Figure 1）](https://pic.hana0721.top/blog/paper-deep-dive-mmada-vla/figure-1.51exy1e963.webp)
 
 ### 一句话总结
 
@@ -103,7 +103,7 @@ $$
 
 ### 4.1 Overall Architecture
 
-![MMaDA-VLA 框架与训练流水线（论文 Figure 2）](/images/paper-deep-dive-mmada-vla/figure-2.webp)
+![MMaDA-VLA 框架与训练流水线（论文 Figure 2）](https://pic.hana0721.top/blog/paper-deep-dive-mmada-vla/figure-2.6il2zsidwr.webp?v=a355848)
 
 **【Paper】** 统一序列写成：
 
@@ -228,7 +228,7 @@ $$
 
 **【Paper】** LIBERO 报告 Spatial、Object、Goal、Long 四个 suite；CALVIN 使用 ABC→D 设置，在 A/B/C 训练、D 测试，并统计连续五个子任务的成功率与平均完成长度。真实实验使用 AgileX PiPER、第三视角 RealSense D435 和腕部 DX200-2.8mm 相机；四类任务各收集 300 条 demonstration，每类评估 30 次。
 
-![真实机器人设置、任务示例与成功率（论文 Figure 3）](/images/paper-deep-dive-mmada-vla/figure-3.webp)
+![真实机器人设置、任务示例与成功率（论文 Figure 3）](https://pic.hana0721.top/blog/paper-deep-dive-mmada-vla/figure-3.67y96n35rg.webp)
 
 ### 5.2 Main Results
 
@@ -247,7 +247,7 @@ $$
 
 ### 5.3 Ablation Study
 
-![生成目标观测与 ground truth 对比（论文 Figure 5）](/images/paper-deep-dive-mmada-vla/figure-5.webp)
+![生成目标观测与 ground truth 对比（论文 Figure 5）](https://pic.hana0721.top/blog/paper-deep-dive-mmada-vla/figure-5.77ecjt5wx8.webp)
 
 **【Paper】** 在省去额外机器人数据预训练的 CALVIN 设置中，完整模型平均长度为 4.56；去掉 world-model 目标观测后降到 4.08，去掉 parallel denoising 后为 4.38，改为 causal attention 为 4.49，改为完全 bidirectional attention 为 4.52。
 
@@ -265,7 +265,7 @@ $$
 
 **【Analysis】** 这表明 compact visual code 更像 dynamics abstraction，而不是像素级 world model：它对控制有用的原因可能是状态可辨识性，而非图像重建保真度。
 
-![不同去噪步数与 cache 刷新设置下的延迟—性能折中（论文 Figure 7）](/images/paper-deep-dive-mmada-vla/figure-7.webp)
+![不同去噪步数与 cache 刷新设置下的延迟—性能折中（论文 Figure 7）](https://pic.hana0721.top/blog/paper-deep-dive-mmada-vla/figure-7.4cloe0qq5o.webp)
 
 **【Paper】** Figure 7 在同一组随机抽取的 20 个 CALVIN 评测任务上比较效率，规模小于主表的 1,000 rollouts。单张 A100 上，cache 将匹配设置的平均延迟约从 2.0 s 降到 1.4 s；文中报告 24 steps 的最好平均长度为 4.65，并选择 24 步、每 6 步刷新缓存。4.65 不是主表 4.78 的直接复测，1.4 s 也是一次动作块推理的延迟，不是单个动作耗时或端到端控制周期。
 
