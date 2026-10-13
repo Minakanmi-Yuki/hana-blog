@@ -1,0 +1,130 @@
+---
+title: 'Piper Infra (1)：单臂装配、Windows 上位机与零点校准'
+publishDate: 2026-10-09
+description: '固定 Piper 单臂与夹爪，下载并连接 Windows 上位机，再按官方教程完成机械臂和夹爪零点校准，为后续的软件控制准备好硬件与位置基准。'
+category: 'tech'
+tags: ['piper', 'robotics', 'infra', 'windows', 'calibration']
+heroImage:
+  { src: 'https://pic.hana0721.top/3602563_p0_master1200.8hh43k1p88.webp', color: '#8C8275' }
+pixivLink: '3602563'
+draft: false
+---
+
+搭建 Piper 平台，第一步是把机械臂装好、连上电脑，并建立正确的位置基准。这一章从单臂装配开始，介绍 Windows 上位机的下载与连接，再完成机械臂和夹爪的零点校准，为后续的软件控制做好准备。
+
+手册、软件和演示视频统一收录在官方的 [PIPER 产品使用资料清单](https://agilexsupport.yuque.com/staff-hso6mo/alxgtf/gg11q9ywverdd8rk?singleDoc) 中，后面用到时可以直接从这里查找。
+
+## 1. 完成单臂装配
+
+先准备好 Piper 机械臂、二指夹爪、电源适配器、USB-CAN 模块，以及配套线缆和螺丝。装配和接线在断电状态下完成。
+
+首先固定底座。机械臂运动时会对安装位置产生作用力，因此底座需要牢固地安装在工作台或安装板上。Piper 底座采用四个 M5 安装孔，孔距为 70 mm，制作安装板时可以按这个尺寸预留孔位。[官方用户手册](https://agilexsupport.yuque.com/staff-hso6mo/alxgtf/ge7fevr2roh4tx33?singleDoc)
+
+接着安装末端夹爪。将夹爪与末端法兰的安装位置对齐，用配套螺丝固定，再接好夹爪与 J6 之间的线缆。在关节附近留出活动余量，让线缆能够随机械臂转动和夹爪开合自然跟随。
+
+最后连接电源与 CAN 通信线。电脑和机械臂之间的通信路径是：
+
+**Windows 电脑 → USB-CAN 模块 → Piper 机械臂**
+
+接线完成后，检查底座固定、夹爪安装和各个插头，再给机械臂上电。
+
+## 2. 下载并连接 Windows 上位机
+
+Windows 上位机提供了图形操作界面，可以查看机械臂状态、关节角度和夹爪距离，也能完成零点设置。
+
+从官方的 [Windows 上位机下载页面](https://agilexsupport.yuque.com/staff-hso6mo/alxgtf/zqqdzeszald0i0dz?singleDoc) 获取 ArmRobotUA，解压后打开程序。
+
+将 USB-CAN 模块接入电脑，点击上位机左上角的“机械臂通讯”，在连接窗口中选择对应的 CAN 设备并连接。连接成功后，界面会显示机械臂的状态和反馈数据。
+
+<img
+  src='https://pic.hana0721.top/blog/piper-infra-1/windows-can-connect.8ae1oyfz0g.webp'
+  alt='Windows 上位机 CAN 连接窗口，选择设备后点击连接'
+  class='zoomable'
+  width='774'
+  height='467'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+图 1：选择与机械臂连接的 CAN 设备。
+
+使用上位机控制单臂时，在“联动控制”中将机械臂设为“从臂”，再将运动控制切换到 CAN 模式。具体界面操作可以对照官方的 [上位机使用指南](https://agilexsupport.yuque.com/staff-hso6mo/alxgtf/ermnzf7axdt17chz?singleDoc)。
+
+## 3. 校准机械臂零点
+
+关节角度需要有统一的位置参考。零点校准就是建立这套参考，让上位机中的角度与机械臂的实际姿态对应起来。
+
+这里按照官方的 [Piper 零点设置视频教程](https://agilexsupport.yuque.com/staff-hso6mo/ihw47g/deregd34b6bplwme?singleDoc) 操作：先按视频摆好校准所需的参考姿态，再在上位机中完成零点设置。
+
+<img
+  src='https://pic.hana0721.top/blog/piper-infra-1/arm-reference-pose-42s.5trta192y4.webp'
+  alt='J4 和 J5 的校准参考姿态'
+  class='zoomable'
+  width='1280'
+  height='672'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+图 2：J4/J5 的校准参考姿态。
+
+<img
+  src='https://pic.hana0721.top/blog/piper-infra-1/arm-flange-alignment-48s.1vzftcy292.webp'
+  alt='末端法兰上的记号缺口与自定义按钮前的螺丝孔对齐'
+  class='zoomable'
+  width='1280'
+  height='672'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+图 3：对齐末端法兰上的定位记号。
+
+<img
+  src='https://pic.hana0721.top/blog/piper-infra-1/arm-zero-setting-60s.1lcm07iu7m.webp'
+  alt='上位机电机配置页面中的全部关节零点设置'
+  class='zoomable'
+  width='1280'
+  height='672'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+图 4：摆好参考姿态后，在“电机配置”中选择“全部关节”并确认。
+
+调整姿态时，先托住臂体，再进行关节失能和手动调整。校准完成后，调低运动速度，使用上位机的回零功能，观察机械臂是否能够顺畅地回到规定零位。
+
+**校准用于建立位置参考，回零则是让机械臂按照这套参考运动到零位。**
+
+## 4. 校准夹爪零点
+
+夹爪也需要建立行程参考。闭合位置校准好后，上位机显示的夹爪距离就能与实际开口对应起来。
+
+按照官方的 [Piper 夹爪零点校准教程](https://agilexsupport.yuque.com/staff-hso6mo/ihw47g/vglq4hlgw36zgv53?singleDoc)，在“用户操控区”进入“夹爪控制”，先让夹爪失能，再手动将夹爪闭合，点击“设置零点”。
+
+<img
+  src='https://pic.hana0721.top/blog/piper-infra-1/gripper-zero-setting.8dxnmo91nt.webp'
+  alt='夹爪控制页中的设置零点按钮与右侧夹爪距离反馈'
+  class='zoomable'
+  width='1536'
+  height='865'
+  loading='lazy'
+  decoding='async'
+  style='max-width:100%; height:auto;'
+/>
+
+图 5：闭合夹爪后点击“设置零点”旁的“确认”，再观察右侧的夹爪距离。
+
+设置完成后，右侧的夹爪距离应接近 0；官方教程也说明，读数略微偏离 0 属于正常现象。随后重新使能夹爪，做一次小幅开合，观察夹爪动作与距离反馈是否一致。
+
+完成装配、上位机连接和两项零点校准后，就可以在这套硬件与位置基准上继续接入 SDK，读取状态并编写控制程序。
+
+## 使用结束后的注意事项
+
+使用结束后，先托举住机械臂，再拔出连接电脑的 USB 线，随后拔出底座的电源线。
+
+断电后关节会失能，臂体可能在重力作用下下落。拔线和断电过程中保持支撑，等机械臂放稳后再松手，避免与桌面、底座或其他部件磕碰。

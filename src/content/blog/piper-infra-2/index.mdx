@@ -1,0 +1,196 @@
+---
+title: 'Piper Infra (2)：安装 ROS 2 Humble，准备开发环境'
+publishDate: 2026-10-09
+description: '在 Ubuntu 22.04 上安装 ROS 2 Humble，配置终端环境，并通过 talker 与 listener 完成基础通信测试，为后续 Piper 开发准备软件环境。'
+category: 'tech'
+tags: ['piper', 'robotics', 'infra', 'ubuntu', 'ros2']
+heroImage: { src: 'https://pic.hana0721.top/98073480.3rbvmy4uvn.webp', color: '#8C8275' }
+pixivLink: '98073480'
+---
+
+第一章完成了机械臂装配、Windows 上位机连接和零点校准。接下来把开发工作转到 Ubuntu，安装 ROS 2 Humble，配置终端环境，并运行一组消息收发节点。
+
+后续的机械臂驱动、相机接入和运动规划，都将在这套环境上展开。ROS 2 为这些程序提供统一的通信方式：机械臂节点发布关节状态，相机节点发布图像，其他程序通过对应接口获取数据、完成处理。
+
+## 1. 准备 Ubuntu 22.04
+
+本系列使用 **Ubuntu 22.04 + ROS 2 Humble**。Humble 的 Ubuntu 二进制安装包面向 Ubuntu 22.04，系统代号为 `jammy`，可以通过 apt 安装。[官方安装说明](https://github.com/ros2/ros2_documentation/blob/humble/source/Installation/Ubuntu-Install-Debs.rst)
+
+打开终端，查看系统信息：
+
+```bash
+cat /etc/os-release
+```
+
+其中应能看到：
+
+```text
+VERSION_ID="22.04"
+VERSION_CODENAME=jammy
+```
+
+再检查字符编码：
+
+```bash
+locale
+```
+
+ROS 2 需要支持 UTF-8 的语言环境。常见的 `zh_CN.UTF-8`、`en_US.UTF-8` 和 `C.UTF-8` 都可以使用。如果系统尚未配置 UTF-8，可以按照下面的步骤设置：
+
+```bash
+sudo apt update
+sudo apt install locales
+sudo locale-gen en_US en_US.UTF-8
+sudo update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
+export LANG=en_US.UTF-8
+```
+
+这里使用英文语言环境作为示例，已有中文 UTF-8 配置可以继续沿用。[官方语言环境配置说明](https://github.com/ros2/ros2_documentation/blob/humble/source/Installation/_Ubuntu-Set-Locale.rst)
+
+安装 ROS 2 前，先更新系统软件，再准备下载和配置软件源所需的工具：
+
+```bash
+sudo apt update
+sudo apt upgrade
+sudo apt install curl software-properties-common
+```
+
+如果系统提示需要重启，重启后再继续安装。
+
+## 2. 添加 ROS 2 软件源
+
+apt 根据软件源查找和下载软件包。添加 ROS 2 软件源后，就可以直接安装 Humble 及其配套工具。
+
+首先启用 Ubuntu 的 Universe 仓库：
+
+```bash
+sudo add-apt-repository universe
+```
+
+接着下载 `ros2-apt-source` 配置包。它会为系统添加 ROS 2 软件源和签名密钥，下面的命令按照官方流程获取配置包版本并下载适用于 `jammy` 的文件：
+
+```bash
+ros_source_version=$(curl -fsSL \
+  https://api.github.com/repos/ros-infrastructure/ros-apt-source/releases/latest \
+  | /usr/bin/python3 -c 'import json, sys; print(json.load(sys.stdin)["tag_name"])')
+
+curl -fL -o /tmp/ros2-apt-source.deb \
+  "https://github.com/ros-infrastructure/ros-apt-source/releases/download/${ros_source_version}/ros2-apt-source_${ros_source_version}.jammy_all.deb"
+
+sudo dpkg -i /tmp/ros2-apt-source.deb
+```
+
+安装配置包后，更新软件包索引：
+
+```bash
+sudo apt update
+```
+
+此时 apt 就能找到 ROS 2 的软件包了。[官方软件源配置说明](https://github.com/ros2/ros2_documentation/blob/humble/source/Installation/_Apt-Repositories.rst)
+
+## 3. 安装 ROS 2 Humble
+
+本系列选择 Desktop 安装，其中包含 ROS 2 常用组件、RViz 和演示程序。后续查看机械臂模型、坐标系和相机数据时，会用到这些图形工具。
+
+执行：
+
+```bash
+sudo apt install ros-humble-desktop
+```
+
+再安装后续开发需要的工具：
+
+```bash
+sudo apt install git build-essential cmake python3-pip \
+  python3-colcon-common-extensions python3-rosdep
+```
+
+其中，Git 用来获取源码，编译工具用于构建程序，`colcon` 用于构建 ROS 工作空间，`rosdep` 根据 ROS 包中的依赖声明查找所需软件。
+
+后面编译 Piper ROS 驱动时，会沿着“获取源码 → 安装依赖 → 构建工作空间”的顺序使用这些工具。
+
+## 4. 配置终端环境
+
+ROS 2 安装在 `/opt/ros/humble` 下。运行它之前，需要让当前终端找到 ROS 的命令、软件包和库：
+
+```bash
+source /opt/ros/humble/setup.bash
+```
+
+`source` 会在当前终端中执行环境脚本，将所需的搜索路径加入环境变量。
+
+加载后检查：
+
+```bash
+printenv ROS_DISTRO
+command -v ros2
+```
+
+预期输出为：
+
+```text
+humble
+/opt/ros/humble/bin/ros2
+```
+
+为了在新终端中自动加载 Humble，可以打开 `~/.bashrc`，在文件末尾加入这一行：
+
+```bash
+source /opt/ros/humble/setup.bash
+```
+
+保存后，新开的 Bash 终端就会自动加载 ROS 环境。当前终端也可以再次执行上面的 `source` 命令，立即使用。[官方终端环境配置说明](https://github.com/ros2/ros2_documentation/blob/humble/source/Tutorials/Beginner-CLI-Tools/Configuring-ROS2-Environment.rst)
+
+后续运行 ROS Python 节点时，沿用 Ubuntu 的系统 Python。它与通过 apt 安装的 ROS Python 组件相匹配；如果终端自动进入了 Conda 环境，先用 `conda deactivate` 退出，再运行 ROS 程序。[ROS Python 环境说明](https://github.com/ros2/ros2_documentation/blob/humble/source/How-To-Guides/Using-Python-Packages.rst)
+
+## 5. 运行第一组 ROS 2 节点
+
+安装完成后，用官方的 talker 和 listener 示例检查基础通信。
+
+可以先把三个概念对应起来：
+
+- **节点**：负责某项任务的程序，例如读取关节状态或采集图像。
+- **话题**：节点发布和订阅数据的通道。
+- **消息**：通过话题传递的具体数据。
+
+这个示例中，talker 持续发布字符串，listener 接收并打印它们。[ROS 2 话题说明](https://github.com/ros2/ros2_documentation/blob/humble/source/Tutorials/Beginner-CLI-Tools/Understanding-ROS2-Topics/Understanding-ROS2-Topics.rst)
+
+在同一台电脑上打开两个终端。本例将通信范围设为本机，便于观察这两个节点的收发过程。
+
+**终端 A：启动发布节点。**
+
+```bash
+source /opt/ros/humble/setup.bash
+export ROS_LOCALHOST_ONLY=1
+ros2 run demo_nodes_cpp talker
+```
+
+终端会持续打印发布消息。省略日志前缀后的输出形式如下：
+
+```text
+Publishing: 'Hello World: 1'
+Publishing: 'Hello World: 2'
+Publishing: 'Hello World: 3'
+```
+
+**终端 B：启动订阅节点。**
+
+```bash
+source /opt/ros/humble/setup.bash
+export ROS_LOCALHOST_ONLY=1
+ros2 run demo_nodes_py listener
+```
+
+listener 会打印收到的内容：
+
+```text
+I heard: [Hello World: 1]
+I heard: [Hello World: 2]
+I heard: [Hello World: 3]
+```
+
+订阅节点启动时，发布节点可能已经发送了几条消息，因此接收编号会从加入时的位置开始。这里同时运行了 C++ 发布节点和 Python 订阅节点，也为后续使用两种语言开发提供了一个起点。[官方通信示例](https://github.com/ros2/ros2_documentation/blob/humble/source/Installation/Ubuntu-Install-Debs.rst#talker-listener)
+
+当 talker 持续发布消息，listener 收到对应内容，且消息编号不断增加时，这组节点就已经建立了通信。
+
+测试完成后，在两个终端分别按 `Ctrl+C` 停止程序。至此，ROS 2 Humble 的安装、终端环境配置和基础通信测试就完成了。
