@@ -1,5 +1,4 @@
 import { spawn } from 'node:child_process'
-import { dirname, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 // Astro
 import type { AstroIntegration, RehypePlugins, RemarkPlugins } from 'astro'
@@ -15,14 +14,14 @@ import { UserConfigSchema, type UserInputConfig } from './types/user-config'
 import { parseWithFriendlyErrors } from './utils/error-map'
 
 export default function AstroAxiIntegration(opts: UserInputConfig): AstroIntegration {
-  let integrations: AstroIntegration[] = []
-  let remarkPlugins: RemarkPlugins = []
-  let rehypePlugins: RehypePlugins = []
+  const integrations: AstroIntegration[] = []
+  const remarkPlugins: RemarkPlugins = []
+  const rehypePlugins: RehypePlugins = []
   return {
     name: 'astro-axi',
     hooks: {
       'astro:config:setup': async ({ config, updateConfig }) => {
-        let userConfig = parseWithFriendlyErrors(
+        const userConfig = parseWithFriendlyErrors(
           UserConfigSchema,
           opts,
           'Invalid config passed to astro-axi integration'
@@ -69,7 +68,6 @@ export default function AstroAxiIntegration(opts: UserInputConfig): AstroIntegra
 
         updateConfig({
           vite: {
-            // @ts-ignore
             plugins: [vitePluginUserConfig(userConfig, config)]
           },
           markdown: {
@@ -89,14 +87,21 @@ export default function AstroAxiIntegration(opts: UserInputConfig): AstroIntegra
       'astro:build:done': ({ dir }) => {
         if (!opts.integ.pagefind) return
         const targetDir = fileURLToPath(dir)
-        const cwd = dirname(fileURLToPath(import.meta.url))
-        const relativeDir = relative(cwd, targetDir)
-        return new Promise<void>((resolve) => {
-          spawn('npx', ['-y', 'pagefind', '--site', relativeDir], {
-            stdio: 'inherit',
-            shell: true,
-            cwd
-          }).on('close', () => resolve())
+        return new Promise<void>((resolve, reject) => {
+          // npm scripts expose the pinned local binary; no registry lookup is needed.
+          const child = spawn(
+            'pagefind',
+            ['--site', targetDir, '--root-selector', 'main', '--exclude-selectors', 'aside,nav'],
+            {
+              stdio: 'inherit',
+              shell: process.platform === 'win32'
+            }
+          )
+          child.once('error', reject)
+          child.once('close', (code) => {
+            if (code === 0) resolve()
+            else reject(new Error(`Pagefind indexing failed with exit code ${code}`))
+          })
         })
       }
     }

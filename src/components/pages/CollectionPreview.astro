@@ -1,10 +1,11 @@
 ---
+import type { ImageMetadata } from 'astro'
 import { Image } from 'astro:assets'
 
 import { Icon } from '@/components/user'
 
 type CoverImage = {
-  src?: any
+  src?: ImageMetadata
   alt?: string
   color?: string
   width?: number
@@ -31,7 +32,8 @@ const cardLabel = 'COLLECTION'
 
 <li
   class='post-preview group/card relative flex flex-col overflow-hidden rounded-2xl border border-border bg-background transition-colors ease-in-out hover:bg-muted'
-  style={collection.coverImage?.color && `--preview-highlight:color-mix(in srgb,${collection.coverImage.color} 40%,hsl(var(--foreground)/var(--tw-text-opacity,1)));--preview-highlight-bg:hsl(from ${collection.coverImage.color} h s l/20%)`}
+  style={collection.coverImage?.color &&
+    `--preview-highlight:color-mix(in srgb,${collection.coverImage.color} 40%,hsl(var(--foreground)/var(--tw-text-opacity,1)));--preview-highlight-bg:hsl(from ${collection.coverImage.color} h s l/20%)`}
 >
   <a
     href={collection.href}
@@ -43,8 +45,9 @@ const cardLabel = 'COLLECTION'
         <Image
           alt={collection.coverImage.alt || collection.title}
           class='cover-image absolute end-0 top-0 z-0 h-2/3 w-full object-cover opacity-50 transition-opacity duration-300 group-hover/card:opacity-70 md:h-full md:w-3/5'
-          loading='eager'
-          src={collection.coverImage.src as any}
+          loading='lazy'
+          decoding='async'
+          src={collection.coverImage.src}
           width={collection.coverImage.width || 1200}
           height={collection.coverImage.height || 630}
         />
@@ -79,11 +82,15 @@ const cardLabel = 'COLLECTION'
         >
       </div>
 
-      <p class={`line-clamp-2 pt-1 text-sm text-muted-foreground sm:line-clamp-3 ${collection.coverImage?.src ? 'sm:me-24' : ''}`}>
+      <p
+        class={`line-clamp-2 pt-1 text-sm text-muted-foreground sm:line-clamp-3 ${collection.coverImage?.src ? 'sm:me-24' : ''}`}
+      >
         {collection.description}
       </p>
 
-      <div class='flex items-center gap-1 py-1.5 text-sm italic leading-4 text-muted-foreground sm:py-3'>
+      <div
+        class='flex items-center gap-1 py-1.5 text-sm italic leading-4 text-muted-foreground sm:py-3'
+      >
         <Icon name='package' class='size-4' />
         {countLabel}
       </div>

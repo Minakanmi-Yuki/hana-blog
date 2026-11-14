@@ -1,11 +1,11 @@
 ---
 import { Image } from 'astro:assets'
 import { render, type CollectionEntry, type CollectionKey } from 'astro:content'
-import type { HTMLTag, Polymorphic } from 'astro/types'
 import { getRelativeLocaleUrl } from 'astro:i18n'
+import type { HTMLTag, Polymorphic } from 'astro/types'
 
-import { cn } from '@/utils'
 import { Button, FormattedDate, Icon } from '@/components/user'
+import { cn } from '@/utils'
 
 type Props<Tag extends HTMLTag> = Polymorphic<{ as: Tag }> & {
   post: CollectionEntry<CollectionKey>
@@ -26,13 +26,15 @@ try {
 }
 const postDate = data.updatedDate ?? data.publishDate
 
-const heroImageProps = data.heroImage ? {
-  src: data.heroImage.src,
-  alt: data.heroImage.alt,
-  color: data.heroImage.color,
-  width: data.heroImage.width || 1200,
-  height: data.heroImage.height || 630
-} : undefined
+const heroImageProps = data.heroImage
+  ? {
+      src: data.heroImage.src,
+      alt: data.heroImage.alt,
+      color: data.heroImage.color,
+      width: data.heroImage.width || 1200,
+      height: data.heroImage.height || 630
+    }
+  : undefined
 
 function getLocalizedUrl(locale: string | undefined, path: string) {
   let url = getRelativeLocaleUrl(locale || 'zh', path)
@@ -70,7 +72,8 @@ function getLocalizedUrl(locale: string | undefined, path: string) {
         <Image
           alt={heroImageProps.alt || data.title}
           class='cover-image absolute end-0 top-0 z-0 h-2/3 w-full rounded-2xl object-cover opacity-50 transition-opacity duration-300 group-hover/card:opacity-70 md:h-full md:w-3/5'
-          loading='eager'
+          loading='lazy'
+          decoding='async'
           src={heroImageProps.src}
           width={heroImageProps.width}
           height={heroImageProps.height}
@@ -148,7 +151,11 @@ function getLocalizedUrl(locale: string | undefined, path: string) {
       <ul class='tag-list mt-1 flex flex-wrap gap-2'>
         {data.tags.map((tag: string) => (
           <li>
-            <Button title={tag} href={getLocalizedUrl(Astro.currentLocale, `/tags/${tag}`)} style='pill' />
+            <Button
+              title={tag}
+              href={getLocalizedUrl(Astro.currentLocale, `/tags/${tag}`)}
+              style='pill'
+            />
           </li>
         ))}
       </ul>

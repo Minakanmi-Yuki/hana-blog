@@ -1,22 +1,19 @@
 // @ts-check
 
+import process from 'node:process'
 import { rehypeHeadingIds } from '@astrojs/markdown-remark'
-// Adapters
-import vercel from '@astrojs/vercel'
-import cloudflare from '@astrojs/cloudflare'
-// Integrations
-import AstroAxiIntegration from './src/axi-integration.ts'
 import { defineConfig } from 'astro/config'
 // Rehype & remark packages
 import rehypeKatex from 'rehype-katex'
-import remarkMath from 'remark-math'
 import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
 
+// Integrations
+import AstroAxiIntegration from './src/axi-integration.ts'
 // Others
 // import { visualizer } from 'rollup-plugin-visualizer'
 
 // Local integrations
-import { outputCopier } from './src/plugins/output-copier.ts'
 // Local rehype & remark plugins
 import rehypeAutolinkHeadings from './src/plugins/rehype-auto-link-headings.ts'
 // Shiki
@@ -30,21 +27,18 @@ import {
 } from './src/plugins/shiki-transformers.ts'
 import config from './src/site.config.ts'
 
-const platform = process.env.DEPLOYMENT_PLATFORM || 'vercel'
-const isCloudflare = platform === 'cloudflare'
-const isGithubPages = platform === 'github'
-
-// // Cloudflare 会自动注入 CF_PAGES=1，我们优先检测这个
-// const platform = process.env.CF_PAGES ? 'cloudflare' : (process.env.DEPLOYMENT_PLATFORM || 'vercel')
-// const isCloudflare = platform === 'cloudflare'
-// const isGithubPages = platform === 'github'
+const platform = process.env.DEPLOYMENT_PLATFORM || (process.env.CF_PAGES ? 'cloudflare' : 'vercel')
+/** @type {Record<string, string>} */
+const siteUrls = {
+  vercel: 'https://hana-blog.top/',
+  cloudflare: 'https://hana-blog.pages.dev/',
+  github: 'https://hana-blog.github.io/'
+}
 
 // https://astro.build/config
 export default defineConfig({
   // Top-Level Options
-  // site: isGithubPages ? 'https://axi404.github.io/' : (isCloudflare ? 'https://axi404.pages.dev/' : 'https://axi404.top/'),
-  site: isGithubPages ? 'https://hana-blog.github.io/' : (isCloudflare ? 'https://hana-blog.pages.dev/' : 'https://hana-blog.top/'),
-  // site: 'https://hana-blog.pages.dev/',
+  site: process.env.SITE_URL || siteUrls[platform] || siteUrls.vercel,
   // base: '/docs',
   trailingSlash: 'never',
 
@@ -57,8 +51,8 @@ export default defineConfig({
     }
   },
 
-  adapter: isGithubPages ? undefined : (isCloudflare ? cloudflare() : vercel()),
-  output: isGithubPages ? 'static' : (isCloudflare ? 'static' : 'server'),
+  // Every route, including RSS, is generated once at build time and served by the CDN.
+  output: 'static',
 
   image: {
     service: {
@@ -71,22 +65,16 @@ export default defineConfig({
     // sitemap(),
     // mdx(),
     // tailwind({ applyBaseStyles: false }),
-    AstroAxiIntegration(config),
+    AstroAxiIntegration(config)
     // (await import('@playform/compress')).default({
     //   SVG: false,
     //   Exclude: ['index.*.js']
     // }),
-
-    // Temporary fix vercel adapter
-    // static build method is not needed
-    outputCopier({
-      integ: ['sitemap', 'pagefind']
-    })
   ],
   // root: './my-project-directory',
 
   // Prefetch Options
-  prefetch: true,
+  prefetch: false,
   // Server Options
   server: {
     host: true

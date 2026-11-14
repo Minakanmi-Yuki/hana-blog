@@ -7,9 +7,9 @@
     "dev:check": "astro check --watch & astro dev",
     "build:base": "astro check && astro build",
     "build": "npm run build:base",
-    "build:vercel": "npm run build:base",
-    "build:cloudflare": "npm run build:base",
-    "build:github": "npm run build:base",
+    "build:vercel": "DEPLOYMENT_PLATFORM=vercel npm run build:base",
+    "build:cloudflare": "DEPLOYMENT_PLATFORM=cloudflare npm run build:base",
+    "build:github": "DEPLOYMENT_PLATFORM=github npm run build:base",
     "preview": "astro preview",
     "sync": "astro sync",
     "check": "astro check",
@@ -26,13 +26,11 @@
   },
   "dependencies": {
     "@astrojs/check": "^0.9.6",
-    "@astrojs/cloudflare": "12.6.12",
     "@astrojs/mdx": "4.3.12",
     "@astrojs/rss": "4.0.14",
     "@astrojs/sitemap": "3.6.0",
     "@astrojs/tailwind": "6.0.2",
     "@astrojs/upgrade": "^0.6.2",
-    "@astrojs/vercel": "9.0.2",
     "@pagefind/default-ui": "^1.4.0",
     "@tailwindcss/typography": "^0.5.19",
     "@waline/client": "^3.8.0",
@@ -78,5 +76,6 @@
   },
   "overrides": {
     "@emmetio/css-parser": "0.5.0"
-  }
+  },
+  "packageManager": "pnpm@10.34.9"
 }

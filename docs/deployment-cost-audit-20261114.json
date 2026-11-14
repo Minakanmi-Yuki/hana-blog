@@ -1,0 +1,176 @@
+{
+  "date": "2026-11-14",
+  "baseline_commit": "eb1ed84ce48ccb63a58318a9de2b7536ba77af63",
+  "measurement": "Fresh local production builds. Byte sizes are raw file sums, not transferred bytes or billed usage. The old Vercel output includes intermediate _functions files.",
+  "environment": {
+    "node": "25.8.1",
+    "astro": "5.16.4",
+    "pnpm": "10.34.9"
+  },
+  "before": {
+    "commit": "eb1ed84ce48ccb63a58318a9de2b7536ba77af63",
+    "build_platform": "vercel",
+    "static_html_count": 1254,
+    "static_bytes": 173830368,
+    "pagefind_bytes": 13367955,
+    "font_bytes": 2850268,
+    "vercel_output_bytes": 278043097,
+    "functions_bytes": 70391614,
+    "function_count": 1
+  },
+  "after_vercel": {
+    "platform": "vercel",
+    "html_count": 1281,
+    "static_bytes": 178987640,
+    "pagefind_bytes": 12656339,
+    "font_bytes": 1379108,
+    "function_count": 0,
+    "functions_bytes": 0,
+    "worker_exists": false,
+    "server_directory_exists": false,
+    "missing_baseline_html": [],
+    "new_static_html_count": 27,
+    "rss_items": 228,
+    "cv_sha256": "79ec891656c3d413a396ad8a76f094acf83801a2f619202ee4091cc360a74d40",
+    "search_languages": ["en", "zh"]
+  },
+  "after_cloudflare": {
+    "platform": "cloudflare",
+    "html_count": 1281,
+    "static_bytes": 179049665,
+    "pagefind_bytes": 12656342,
+    "font_bytes": 1379108,
+    "function_count": 0,
+    "functions_bytes": 0,
+    "worker_exists": false,
+    "server_directory_exists": false,
+    "missing_baseline_html": [],
+    "new_static_html_count": 27,
+    "rss_items": 228,
+    "cv_sha256": "79ec891656c3d413a396ad8a76f094acf83801a2f619202ee4091cc360a74d40",
+    "search_languages": ["en", "zh"]
+  },
+  "font_conversion": [
+    {
+      "source": "ComicShannsMonoNerdFontPropo-Regular.otf",
+      "bytes_before": 2325856,
+      "webfont": "ComicShannsMonoNerdFontPropo-Regular.woff2",
+      "bytes_after": 1163564,
+      "glyphs": 11161
+    },
+    {
+      "source": "Satoshi-Variable.ttf",
+      "bytes_before": 127420,
+      "webfont": "Satoshi-Variable.woff2",
+      "bytes_after": 42496,
+      "glyphs": 504
+    },
+    {
+      "source": "Satoshi-VariableItalic.ttf",
+      "bytes_before": 129748,
+      "webfont": "Satoshi-VariableItalic.woff2",
+      "bytes_after": 43888,
+      "glyphs": 504
+    },
+    {
+      "source": "centurygothic.ttf",
+      "bytes_before": 137568,
+      "webfont": "centurygothic.woff2",
+      "bytes_after": 67716,
+      "glyphs": 666
+    },
+    {
+      "source": "centurygothic_bold.ttf",
+      "bytes_before": 129676,
+      "webfont": "centurygothic_bold.woff2",
+      "bytes_after": 61444,
+      "glyphs": 666
+    }
+  ],
+  "waline_raw_resource_bytes_deferred": 202823,
+  "validation": {
+    "build_commands": ["npm run build:vercel", "npm run build:cloudflare"],
+    "production_builds": "passed",
+    "astro_check_errors": 0,
+    "changed_source_eslint": "passed",
+    "changed_files_prettier": "passed",
+    "git_diff_check": "passed",
+    "all_1254_previous_static_html_paths_preserved": true,
+    "new_static_html_pages": 27,
+    "search_languages": ["en", "zh"],
+    "search_queries": [
+      {
+        "language": "zh",
+        "query": "GraSLA",
+        "count": 1,
+        "matched": [
+          {
+            "url": "http://127.0.0.1:4321/academic/",
+            "title": "Academic"
+          }
+        ]
+      },
+      {
+        "language": "en",
+        "query": "GraSLA",
+        "count": 1,
+        "matched": [
+          {
+            "url": "http://127.0.0.1:4321/en/academic/",
+            "title": "Academic"
+          }
+        ]
+      },
+      {
+        "language": "zh",
+        "query": "RustDesk",
+        "count": 10,
+        "matched": [
+          {
+            "url": "http://127.0.0.1:4321/blog/rustdesk-cli-server-setup/",
+            "title": "纯 SSH 服务器配置 RustDesk（命令行方案）"
+          }
+        ]
+      },
+      {
+        "language": "en",
+        "query": "tmux",
+        "count": 10,
+        "matched": [
+          {
+            "url": "http://127.0.0.1:4321/en/blog/tmux-ssh-session-management/",
+            "title": "SSH 断连不掉任务：tmux 入门教程"
+          },
+          {
+            "url": "http://127.0.0.1:4321/en/blog/tech/",
+            "title": "Technical"
+          },
+          {
+            "url": "http://127.0.0.1:4321/en/blog/linux-dl-env-setup/",
+            "title": "A800 服务器深度学习环境标准配置教程"
+          }
+        ]
+      }
+    ],
+    "github_activity": {
+      "viewport_deferred": true,
+      "rendered_days": 371,
+      "six_hour_cache": true,
+      "stale_cache_when_offline": true,
+      "invalid_dates_rejected": true
+    },
+    "comment_styles": {
+      "no_stylesheet_before_init": true,
+      "single_stylesheet_across_calls": true,
+      "waits_for_stylesheet_before_render": true,
+      "failed_load_can_retry": true
+    },
+    "original_font_files_preserved_byte_for_byte": true,
+    "font_conversion_preserves_glyph_order_and_unicode_cmap": true,
+    "waline_js_loaded_with_dynamic_import": true,
+    "waline_css_not_in_initial_article_stylesheets": true,
+    "browser_visual_check": "Unavailable: no browser surface enabled in this session.",
+    "waline_backend_check": "Existing Vercel backend returns DEPLOYMENT_DISABLED; successful comment API calls cannot be verified."
+  },
+  "cost_scope": "The blog no longer builds server functions. Runtime CPU billing reduction has not been measured on Vercel because the account is paused. CDN traffic, builds, and independent services such as Waline remain separate usage."
+}

@@ -104,8 +104,8 @@ src/content/blog/<slug>/
 frontmatter 关键字段见 `src/content.config.ts`，最常用的是：
 
 ```yaml
-title: ""
-description: ""
+title: ''
+description: ''
 publishDate: 2026-01-01
 tags: []
 draft: false
@@ -189,11 +189,21 @@ npm run format
 
 ## 8. 部署和运行方式
 
-- 默认平台分支由 `DEPLOYMENT_PLATFORM` 控制
-- 支持：
-  - `vercel`
-  - `cloudflare`
-  - `github`
+- 所有平台统一生成纯静态站点，输出目录为 `dist/`，包含首页、文章、Academic、RSS、
+  sitemap 和 Pagefind。访问页面和订阅 RSS 不需要运行服务端函数。
+- `DEPLOYMENT_PLATFORM` 支持 `vercel`、`cloudflare`、`github`，仅用于选择默认站点 URL；
+  Cloudflare Pages 的 `CF_PAGES` 环境会自动识别。可设置 `SITE_URL` 覆盖为实际公网地址。
+- 构建命令可选 `npm run build:vercel`、`npm run build:cloudflare`、`npm run build:github`。
+  Vercel 的构建命令和输出目录已写入 `vercel.json`；Cloudflare Pages 的输出目录使用 `dist`。
+- 仓库使用 `pnpm-lock.yaml`，安装依赖请用 `corepack pnpm install --frozen-lockfile`；
+  `npm run ...` 仍可正常执行项目脚本。
+- GitHub 活动图在进入视口时由浏览器直接读取公开 API，并在浏览器缓存 6 小时；
+  服务暂不可用时保留 GitHub 访问入口。首页在线天数由浏览器更新。
+- 关闭链接悬停预取，列表封面使用原生懒加载；正文和首页头像保留正常加载行为。
+- 评论客户端及其样式在接近评论区时才下载；评论仍使用独立配置的 Waline 后端。
+- 搜索索引保留各页面的主内容，排除公共导航与侧栏；索引失败会使构建失败，避免发布缺失搜索的站点。
+- 网页字体使用保留全部字形的 WOFF2 文件，原始字体保存在 `preset/fonts/`，不会复制到部署目录。
+- 2026-11-14 的构建体积和兼容性检查记录见 [部署成本审计](docs/deployment-cost-audit-20261114.json)。
 - i18n：
   - 默认中文不带前缀
   - 英文前缀是 `/en`

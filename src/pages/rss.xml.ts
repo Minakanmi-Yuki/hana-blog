@@ -1,16 +1,18 @@
-import type { AstroGlobal, ImageMetadata } from 'astro'
+import type { APIRoute, ImageMetadata } from 'astro'
 import { getImage } from 'astro:assets'
 import type { CollectionEntry } from 'astro:content'
 import rss from '@astrojs/rss'
+import { getBlogCollection, sortMDByDate } from '@/server'
 import type { Root } from 'mdast'
 import rehypeStringify from 'rehype-stringify'
 import remarkParse from 'remark-parse'
 import remarkRehype from 'remark-rehype'
 import { unified } from 'unified'
 import { visit } from 'unist-util-visit'
+
 import config from '@/site-config'
 
-import { getBlogCollection, sortMDByDate } from '@/server'
+export const prerender = true
 
 // Get dynamic import of images as a map collection
 const imagesGlob = import.meta.glob<{ default: ImageMetadata }>(
@@ -53,7 +55,7 @@ const renderContent = async (post: CollectionEntry<'blog'>, site: URL) => {
   return String(file)
 }
 
-const GET = async (context: AstroGlobal) => {
+const GET: APIRoute = async (context) => {
   const allPostsByDate = sortMDByDate(await getBlogCollection()) as CollectionEntry<'blog'>[]
   const siteUrl = context.site ?? new URL(import.meta.env.SITE)
 
