@@ -131,7 +131,7 @@ const headings = [
         year: '2026',
         type: 'preprint',
         abstract:
-          'Existing 6-DoF grasp detectors often rank candidates by detector confidence, which can be poorly aligned with grasp quality. GraRe re-ranks candidates from frozen detectors using candidate attributes, shell-stratified local geometry, and object context, fused by a Transformer. Experiments on GraspNet-1Billion with three frozen detectors improve Average AP by up to 13.60 points, while real-robot tests demonstrate robust grasping in cluttered scenes.',
+          'GraRe learns to re-rank candidates from frozen 6-DoF grasp detectors without changing detector parameters or grasp poses. It predicts grasp quality using candidate attributes, shell-stratified local geometry, and object context. Candidate attributes condition the local and object-context representations, and a Transformer integrates all three feature types. The quality estimate is then combined with detector confidence for ranking. On GraspNet-1Billion, evaluation across five frozen detectors shows gains of up to 13.56 points in Average AP. Real-robot experiments demonstrate improved grasping in cluttered scenes.',
         links: [
           { type: 'arxiv', href: 'https://arxiv.org/abs/2608.00946' },
           { type: 'website', href: 'https://minakanmi-yuki.github.io/grare/' },
