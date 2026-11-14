@@ -84,8 +84,9 @@ const headings = [
         venue: 'arXiv preprint',
         year: '2026',
         type: 'preprint',
+        // Full abstract from arXiv:2611.15659v1.
         abstract:
-          'GraSLA combines grasp hypotheses from 6-DoF grasp detection with continuous action prediction for language-conditioned manipulation. It encodes scene geometry and task semantics with spatial and language foundation models, then integrates them with grasp hypotheses through bidirectional cross-attention. On LIBERO, it achieves an average success rate of 99.30%.',
+          'This paper focuses on improving the behavioral diversity and effectiveness of language-conditioned manipulation policies trained through imitation learning. Recently, continuous-action policies have become mainstream in robotic manipulation, but the lack of diverse demonstrations tends to restrict their behavioral diversity. For grasping, a fundamental subtask of manipulation, 6-DoF grasp detection provides diverse grasp hypotheses, but open-loop execution constrains responsiveness in dynamic environments. This motivates us to combine the diversity of grasp hypotheses with the adaptability of continuous-action policies. To this end, we propose GraSLA, a lightweight and effective spatial-language-action model with grasp hypotheses as geometric priors. In particular, we employ spatial and language foundation models to encode scene geometry and task semantics, and integrate them with grasp hypotheses through bidirectional cross-attention for continuous action prediction. On LIBERO, GraSLA achieves an average success rate of 99.30%.',
         links: [
           { type: 'arxiv', href: 'https://arxiv.org/abs/2611.15659' },
           // Placeholder code link listed in the paper.
@@ -111,8 +112,9 @@ const headings = [
         venue: 'arXiv preprint',
         year: '2026',
         type: 'preprint',
+        // Full abstract from arXiv:2609.21908v1.
         abstract:
-          'CommitFlow improves long-horizon robot manipulation by checking whether each execution stage has established its required physical conditions. With the base VLA policy frozen, it combines semantic commitment monitoring, local action correction through BoundaryFlow, and Relation and Gain Calibration to control correction strength. Across ten common RoboTwin 2.0 tasks, it reaches a mean success rate of 75.9%, compared with 53.2% for the base pi0.5 policy.',
+          'Although vision-language-action (VLA) policies have advanced rapidly, long-horizon execution may still progress to the next task stage before the required physical effect has been established. We call this a mismatch between semantic commitments—physical conditions that a stage must establish or maintain—and the actual physical state. Because an action command alone cannot confirm such a condition, local deviations can propagate and cause task failure. To address this problem, we present CommitFlow, a closed-loop execution framework that combines commitment monitoring with local correction while keeping the base policy frozen. CommitFlow integrates three components. A Semantic Commitment Monitor (SCM) compares stage requirements against current state evidence and holds back dependent actions when a required condition is unmet or violated. BoundaryFlow then generates a local correction conditioned on the current state and base action, and Relation and Gain Calibration (RGC) selects the smallest correction strength that satisfies the relevant constraints. Across the ten common RoboTwin 2.0 benchmark tasks, CommitFlow achieves a mean success rate of 75.9%, improving on the base policy π₀.₅ by 22.7%. Cross-policy experiments show consistent gains, pointing toward reliable long-horizon robot execution.',
         links: [{ type: 'arxiv', href: 'https://arxiv.org/abs/2609.21908' }],
         status: 'preprint'
       },
@@ -130,8 +132,9 @@ const headings = [
         venue: 'arXiv preprint',
         year: '2026',
         type: 'preprint',
+        // Full abstract from arXiv:2608.00946v3.
         abstract:
-          'GraRe learns to re-rank candidates from frozen 6-DoF grasp detectors without changing detector parameters or grasp poses. It predicts grasp quality using candidate attributes, shell-stratified local geometry, and object context. Candidate attributes condition the local and object-context representations, and a Transformer integrates all three feature types. The quality estimate is then combined with detector confidence for ranking. On GraspNet-1Billion, evaluation across five frozen detectors shows gains of up to 13.56 points in Average AP. Real-robot experiments demonstrate improved grasping in cluttered scenes.',
+          'Existing 6-DoF grasp detectors typically rank grasp candidates by detector confidence. However, our analysis on GraspNet-1Billion shows that detector confidence is often poorly aligned with grasp quality, leaving successful grasp candidates at low ranks. Motivated by this observation, we study whether learned re-ranking can improve candidate ordering while keeping detector parameters and grasp candidates unchanged. We propose GraRe, which estimates grasp quality from candidate attributes, shell-stratified local geometry, and object context. Candidate attributes condition the local geometric and object-context representations, and a Transformer fuses all three feature types. The predicted quality is combined with detector confidence to produce the final ranking. Experiments on GraspNet-1Billion with five frozen detectors show consistent improvements, with gains of up to 13.56 points in Average AP. Real-robot experiments further demonstrate robust grasping in cluttered scenes. These results show that improving candidate ranking provides a practical way to enhance frozen 6-DoF grasp detectors. Project page is available at https://minakanmi-yuki.github.io/grare/.',
         links: [
           { type: 'arxiv', href: 'https://arxiv.org/abs/2608.00946' },
           { type: 'website', href: 'https://minakanmi-yuki.github.io/grare/' },
@@ -176,8 +179,9 @@ const headings = [
         venue: 'arXiv preprint',
         year: '2024',
         type: 'preprint',
+        // Full abstract from arXiv:2404.01582v2.
         abstract:
-          'This paper presents a GPT-3.5-based method for generating 32,927 paired plagiarism-detection examples covering diverse plagiarism strategies. A Faiss-and-BERT retrieval system identifies plagiarism efficiently and accurately, achieving 98.86% accuracy, 98.90% precision, 98.86% recall, and 0.9888 F1 in experiments. A user-friendly demo platform supports uploading a text library for interactive analysis.',
+          'Text plagiarism detection task is a common natural language processing task that aims to detect whether a given text contains plagiarism or copying from other texts. In existing research, detection of high level plagiarism is still a challenge due to the lack of high quality datasets. In this paper, we propose a plagiarized text data generation method based on GPT-3.5, which produces 32,927 pairs of text plagiarism detection datasets covering a wide range of plagiarism methods, bridging the gap in this part of research. Meanwhile, we propose a plagiarism identification method based on Faiss with BERT with high efficiency and high accuracy. Our experiments show that the performance of this model outperforms other models in several metrics, including 98.86%, 98.90%, 98.86%, and 0.9888 for Accuracy, Precision, Recall, and F1 Score, respectively. At the end, we also provide a user-friendly demo platform that allows users to upload a text library and intuitively participate in the plagiarism analysis.',
         links: [{ type: 'arxiv', href: 'https://arxiv.org/abs/2404.01582' }],
         status: 'preprint'
       }
