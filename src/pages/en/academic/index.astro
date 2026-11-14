@@ -86,7 +86,11 @@ const headings = [
         type: 'preprint',
         abstract:
           'GraSLA combines grasp hypotheses from 6-DoF grasp detection with continuous action prediction for language-conditioned manipulation. It encodes scene geometry and task semantics with spatial and language foundation models, then integrates them with grasp hypotheses through bidirectional cross-attention. On LIBERO, it achieves an average success rate of 99.30%.',
-        links: [{ type: 'arxiv', href: 'https://arxiv.org/abs/2611.15659' }],
+        links: [
+          { type: 'arxiv', href: 'https://arxiv.org/abs/2611.15659' },
+          // Placeholder code link listed in the paper.
+          { type: 'code', href: 'https://github.com/Minakanmi-Yuki/GraSLA' }
+        ],
         status: 'preprint'
       },
       {
@@ -107,6 +111,7 @@ const headings = [
           'Existing 6-DoF grasp detectors often rank candidates by detector confidence, which can be poorly aligned with grasp quality. GraRe re-ranks candidates from frozen detectors using candidate attributes, shell-stratified local geometry, and object context, fused by a Transformer. Experiments on GraspNet-1Billion with three frozen detectors improve Average AP by up to 13.60 points, while real-robot tests demonstrate robust grasping in cluttered scenes.',
         links: [
           { type: 'arxiv', href: 'https://arxiv.org/abs/2608.00946' },
+          { type: 'website', href: 'https://minakanmi-yuki.github.io/grare/' },
           { type: 'dataset', href: 'https://huggingface.co/datasets/jibaoyuan/grare-graspnet' },
           { type: 'model', href: 'https://huggingface.co/jibaoyuan/grare-graspnet' },
           { type: 'code', href: 'https://github.com/Minakanmi-Yuki/grare' }
@@ -308,6 +313,7 @@ const headings = [
         status: 'active',
         links: [
           { type: 'arxiv', href: 'https://arxiv.org/abs/2608.00946', label: 'Paper' },
+          { type: 'website', href: 'https://minakanmi-yuki.github.io/grare/', label: 'Website' },
           { type: 'github', href: 'https://github.com/Minakanmi-Yuki/grare', label: 'GitHub' },
           {
             type: 'huggingface',
