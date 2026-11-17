@@ -15,4 +15,4 @@
   Cache-Control: public, max-age=604800
 
 /cv.pdf
-  Cache-Control: public, max-age=0, must-revalidate
+  Cache-Control: public, no-cache, max-age=0, must-revalidate
