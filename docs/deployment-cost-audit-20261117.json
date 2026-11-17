@@ -21,26 +21,26 @@
   },
   "after": {
     "html_count": 1281,
-    "total_bytes": 154789641,
-    "html_bytes": 126280656,
+    "total_bytes": 154789713,
+    "html_bytes": 126280686,
     "inline_script_bytes": 1654762,
     "inline_style_bytes": 0,
-    "pagefind_bytes": 11308584,
+    "pagefind_bytes": 11308626,
     "cv_sha256": "a1f5be2e7f2fc9cea373a9a38c77b45e74472025e1f0be5f348270663b208cad",
     "rss_sha256": "5205fa0e71601831ca8134e9e8364e002d75a8648f46e00c49ad57f5bc66a31f",
     "indexed_pages": 474,
     "build": {
-      "user_cpu_seconds": 37.11,
-      "system_cpu_seconds": 2.21,
-      "elapsed": "0:31.31",
-      "maximum_rss_kib": 2086904
+      "user_cpu_seconds": 35.34,
+      "system_cpu_seconds": 2.26,
+      "elapsed": "0:30.72",
+      "maximum_rss_kib": 1879744
     }
   },
   "reduction": {
-    "total_bytes": 24403575,
+    "total_bytes": 24403503,
     "total_percent": 13.62,
-    "html_bytes": 23073366,
-    "pagefind_bytes": 1357992
+    "html_bytes": 23073336,
+    "pagefind_bytes": 1357950
   },
   "representative_html_bytes": {
     "index.html": {
@@ -49,11 +49,11 @@
     },
     "academic/index.html": {
       "before": 121828,
-      "after": 101605
+      "after": 101620
     },
     "en/academic/index.html": {
       "before": 121868,
-      "after": 101638
+      "after": 101653
     },
     "blog/rl-note-15/index.html": {
       "before": 735498,
@@ -67,7 +67,8 @@
     "Load desktop Live2D only on explicit visitor click; remove the unused automatic WebGL diagnostic.",
     "Replace 100ms TOC polling with cached geometry, passive scroll events and one update per frame. Re-measure on content resize and entrance animation completion.",
     "Observe back-to-top content resizing and batch progress updates; animate signatures only in view and honor reduced motion.",
-    "Apply long immutable browser caching only to fingerprinted assets and search fragments. Keep HTML/search entry defaults and require CV revalidation."
+    "Apply long immutable browser caching only to fingerprinted assets and search fragments. Keep HTML/search entry defaults, request CV revalidation at the Pages origin, and version CV links to handle custom-domain overrides.",
+    "Generate versioned bilingual Academic CV download URLs from the PDF content hash to avoid stale browser caches under custom-domain TTL overrides."
   ],
   "validation": {
     "production_build": "SITE_URL=https://hana0721.top/ npm run build:cloudflare passed",
@@ -205,10 +206,118 @@
     ],
     "cv_cache_followup": {
       "initial_custom_domain_response": "public, max-age=14400, must-revalidate",
-      "change": "Add an explicit no-cache directive for /cv.pdf, so each reuse requires validation even if an intermediary changes max-age.",
+      "change": "The Pages origin now sends no-cache. The custom domain replaces this header, so the final solution uses automatically versioned download links rather than relying on this header alone.",
       "initial_performance_deployment": "f7fb056633ad45d2544af314312ee57fb6bcb88e",
       "live_bilingual_search_queries": 8,
-      "live_bilingual_search_passed": true
+      "live_bilingual_search_passed": true,
+      "origin_preview_response": "public, no-cache, max-age=0, must-revalidate",
+      "origin_preview_url": "https://ef0bd28b.hana-blog.pages.dev/cv.pdf",
+      "origin_primary_response": "public, no-cache, max-age=0, must-revalidate",
+      "custom_domain_still_overrides_header": true,
+      "solution": "Generate Academic download URLs from the actual PDF SHA-256 at build time. Changed PDF bytes create a new query version; no duplicate PDF or runtime hashing is deployed.",
+      "expected_cv_download_url": "/cv.pdf?v=a1f5be2e7f2f",
+      "local_download_url_matches_pdf_sha256": true
+    },
+    "live_production": {
+      "source_commit": "f4c3ac37470895eb30e0679d451deaf8c3f71488",
+      "origin": "https://hana0721.top",
+      "verified_at_utc": "2026-11-17T12:45:24.020043+00:00",
+      "pages": [
+        {
+          "path": "/",
+          "status": 200,
+          "main_text_matches_local": true,
+          "automatic_live2d_script": false
+        },
+        {
+          "path": "/academic/",
+          "status": 200,
+          "main_text_matches_local": true,
+          "automatic_live2d_script": false
+        },
+        {
+          "path": "/en/academic/",
+          "status": 200,
+          "main_text_matches_local": true,
+          "automatic_live2d_script": false
+        },
+        {
+          "path": "/blog/rl-note-15/",
+          "status": 200,
+          "main_text_matches_local": true,
+          "automatic_live2d_script": false
+        },
+        {
+          "path": "/en/blog/rustdesk-cli-server-setup/",
+          "status": 200,
+          "main_text_matches_local": true,
+          "automatic_live2d_script": false
+        }
+      ],
+      "indexed_pages": 474,
+      "cv_sha256": "a1f5be2e7f2fc9cea373a9a38c77b45e74472025e1f0be5f348270663b208cad",
+      "versioned_cv_url": "/cv.pdf?v=a1f5be2e7f2f",
+      "versioned_cv_status": 200,
+      "asset_cache_control": "public, max-age=31536000, immutable",
+      "academic_full_abstract_styles_preserved": true,
+      "search_queries": [
+        {
+          "language": "zh",
+          "query": "Puzzle",
+          "result_count": 1,
+          "expected": "/academic/",
+          "expected_found": true
+        },
+        {
+          "language": "zh",
+          "query": "GraSLA",
+          "result_count": 1,
+          "expected": "/academic/",
+          "expected_found": true
+        },
+        {
+          "language": "zh",
+          "query": "RustDesk",
+          "result_count": 1,
+          "expected": "/blog/rustdesk-cli-server-setup/",
+          "expected_found": true
+        },
+        {
+          "language": "zh",
+          "query": "tmux",
+          "result_count": 4,
+          "expected": "/blog/tmux-ssh-session-management/",
+          "expected_found": true
+        },
+        {
+          "language": "en",
+          "query": "Puzzle",
+          "result_count": 1,
+          "expected": "/en/academic/",
+          "expected_found": true
+        },
+        {
+          "language": "en",
+          "query": "GraSLA",
+          "result_count": 1,
+          "expected": "/en/academic/",
+          "expected_found": true
+        },
+        {
+          "language": "en",
+          "query": "RustDesk",
+          "result_count": 1,
+          "expected": "/en/blog/rustdesk-cli-server-setup/",
+          "expected_found": true
+        },
+        {
+          "language": "en",
+          "query": "tmux",
+          "result_count": 4,
+          "expected": "/en/blog/tmux-ssh-session-management/",
+          "expected_found": true
+        }
+      ]
     }
   },
   "cost_scope": "The site remains static with zero generated server functions. This change reduces raw deployment bytes, repeated asset downloads and unnecessary client rendering/DOM polling. No invoice savings or real-device CPU percentage is claimed.",
@@ -217,6 +326,7 @@
     "pagefind_content_scope": "https://pagefind.app/docs/indexing/",
     "cloudflare_headers": "https://developers.cloudflare.com/pages/configuration/headers/",
     "cloudflare_browser_cache_ttl": "https://developers.cloudflare.com/cache/how-to/edge-browser-cache-ttl/",
-    "cloudflare_origin_cache_control": "https://developers.cloudflare.com/cache/concepts/cache-control/"
+    "cloudflare_origin_cache_control": "https://developers.cloudflare.com/cache/concepts/cache-control/",
+    "cloudflare_skip_docs_deployment": "https://developers.cloudflare.com/pages/configuration/git-integration/github-integration/#skipping-a-build-via-a-commit-message"
   }
 }

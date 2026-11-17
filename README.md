@@ -195,6 +195,8 @@ npm run format
   Cloudflare Pages 的 `CF_PAGES` 环境会自动识别。可设置 `SITE_URL` 覆盖为实际公网地址。
 - 构建命令可选 `npm run build:vercel`、`npm run build:cloudflare`、`npm run build:github`。
   Vercel 的构建命令和输出目录已写入 `vercel.json`；Cloudflare Pages 的输出目录使用 `dist`。
+- 仅更新仓库文档或审计记录、不改变站点产物时，提交信息可用 `[CF-Pages-Skip]` 开头，
+  [跳过不必要的 Cloudflare 构建](https://developers.cloudflare.com/pages/configuration/git-integration/github-integration/#skipping-a-build-via-a-commit-message)。
 - 仓库使用 `pnpm-lock.yaml`，安装依赖请用 `corepack pnpm install --frozen-lockfile`；
   `npm run ...` 仍可正常执行项目脚本。
 - GitHub 活动图在进入视口时由浏览器直接读取公开 API，并在浏览器缓存 6 小时；
