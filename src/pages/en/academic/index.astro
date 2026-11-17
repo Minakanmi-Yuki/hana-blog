@@ -73,6 +73,24 @@ const headings = [
     publications={[
       {
         title:
+          'Puzzle: One Pass Is Not Enough for Open-Vocabulary Remote Sensing Segmentation',
+        authors: [
+          { name: 'Wensong Xu', isEqual: true },
+          { name: 'Siqi Lu', isEqual: true },
+          { name: 'Jibao Yuan', isMe: true, isEqual: true },
+          { name: 'Yongbin Zheng', role: 'corresponding' }
+        ],
+        venue: 'arXiv preprint',
+        year: '2026',
+        type: 'preprint',
+        // Full abstract and author marks from arXiv:2611.19146v1.
+        abstract:
+          'Open-vocabulary remote sensing image segmentation (OVRSIS) enables the segmentation of unseen classes without additional annotation or retraining. By analyzing the predictions of existing OVRSIS methods, we find that many misclassified patches coexist with visually similar, correctly classified patches of the same class within the same image. Unfortunately, most of these methods stop after a single inference rather than using their predictions to guide further inference. Motivated by this observation, we propose Puzzle, a plug-and-play iterative re-inference framework that combines prediction history with a visual-similarity prior to progressively refine patch-level attention. Puzzle employs a lightweight history-conditioned controller to regulate each patch’s contribution as an information source and its reliance on visually similar patches, while an adaptive stopping rule determines when to stop. It keeps the segmentation model frozen and reuses the same controller across different models and datasets without retraining. Extensive experiments demonstrate consistent performance improvements across diverse OVRSIS models and datasets, highlighting the strong transferability of Puzzle. Moreover, Puzzle can further improve the performance of SOTA methods.',
+        links: [{ type: 'arxiv', href: 'https://arxiv.org/abs/2611.19146' }],
+        status: 'preprint'
+      },
+      {
+        title:
           'GraSLA: A Lightweight Spatial-Language-Action Model with Grasp Hypotheses as Geometric Priors',
         authors: [
           { name: 'Jibao Yuan', isMe: true, isEqual: true },
