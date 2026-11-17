@@ -1,5 +1,7 @@
 // @ts-check
 
+import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import process from 'node:process'
 import { rehypeHeadingIds } from '@astrojs/markdown-remark'
 import { defineConfig } from 'astro/config'
@@ -34,6 +36,10 @@ const siteUrls = {
   cloudflare: 'https://hana-blog.pages.dev/',
   github: 'https://hana-blog.github.io/'
 }
+const cvVersion = createHash('sha256')
+  .update(new Uint8Array(readFileSync(new URL('./public/cv.pdf', import.meta.url))))
+  .digest('hex')
+  .slice(0, 12)
 
 // https://astro.build/config
 export default defineConfig({
@@ -121,6 +127,9 @@ export default defineConfig({
     }
   },
   vite: {
+    define: {
+      'import.meta.env.PUBLIC_CV_VERSION': JSON.stringify(cvVersion)
+    },
     build: {
       // Keep shared scripts and small assets cacheable instead of repeating them in HTML.
       assetsInlineLimit: 0

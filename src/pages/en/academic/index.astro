@@ -1,5 +1,6 @@
 ---
 import PageLayout from '@/layouts/CommonPage.astro'
+import { cvDownloadUrl } from '@/utils/cv'
 import {
   Button,
   Icon,
@@ -24,7 +25,7 @@ const headings = [
   </p>
   
   <p>Here is my academic CV, feel free to download it.</p>
-  <Button title='Download CV' class='w-fit' href='/cv.pdf' target='_blank'>
+  <Button title='Download CV' class='w-fit' href={cvDownloadUrl} target='_blank'>
     <Icon class='size-5' name='download' slot='before' />
   </Button>
   <h2 id='research-interests'>
