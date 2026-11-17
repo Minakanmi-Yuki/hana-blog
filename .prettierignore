@@ -1,3 +1,6 @@
 node_modules/**
 src/icons/**
 public/scripts/*
+
+# Pinned upstream assets and minimal documented patches
+vendor/**

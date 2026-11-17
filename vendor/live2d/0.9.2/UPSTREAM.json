@@ -1,0 +1,41 @@
+{
+  "repository": "https://github.com/stevenjoezhang/live2d-widget",
+  "version": "0.9.2",
+  "download_base": "https://fastly.jsdelivr.net/gh/stevenjoezhang/live2d-widget@0.9.2/",
+  "files": {
+    "live2d-lite.js": {
+      "upstream_sha256": "2135c76b0a63d0f6c9c48df746d0eec6ead131999ba6f9678488472e95e1edd6",
+      "local_sha256": "74bb4fad64180047f756643b3078de6ef7135d609246685bf759099e7e951d47"
+    },
+    "waifu-tips.js": {
+      "upstream_sha256": "dbbda54740ac3754da692d1aa77f27d6525f7a386d44bf343ed10102d1366f3a",
+      "local_sha256": "dbbda54740ac3754da692d1aa77f27d6525f7a386d44bf343ed10102d1366f3a"
+    },
+    "waifu.css": {
+      "upstream_sha256": "9610bbc4db6f94e7c35f7f8112635a6f66996b69f59bcdca9eafcf1289f3e192",
+      "local_sha256": "9610bbc4db6f94e7c35f7f8112635a6f66996b69f59bcdca9eafcf1289f3e192"
+    },
+    "waifu-tips.json": {
+      "upstream_sha256": "8785a3daf3723b7a8f708249b4cdd10faefcbfb1c70546a00d4fa92ea6197fbb",
+      "local_sha256": "8785a3daf3723b7a8f708249b4cdd10faefcbfb1c70546a00d4fa92ea6197fbb"
+    }
+  },
+  "patches": [
+    "The engine wrapper delegates its draw/capture callback to window.__hanaLive2D.start(callback, canvas). No global requestAnimationFrame replacement; the Cubism core is otherwise byte-identical.",
+    "Before WebGL initialization the engine calls prepareCanvas(canvas): 300 CSS pixels times min(devicePixelRatio, 2), up to 600x600. Upstream widget, styles and messages are unchanged."
+  ],
+  "engine_replacements": [
+    {
+      "old": "function s(){b||(b=!0,function t(){_();var i=window.requestAnimationFrame||window.mozRequestAnimationFrame||window.webkitRequestAnimationFrame||window.msRequestAnimationFrame;",
+      "new": "function s(){b||(b=!0,window.__hanaLive2D.start(function(){_();"
+    },
+    {
+      "old": "i(t,C)}())}function _()",
+      "new": "},C))}function _()"
+    },
+    {
+      "old": "function o(t){C=document.getElementById(t),C.addEventListener",
+      "new": "function o(t){C=document.getElementById(t),window.__hanaLive2D.prepareCanvas(C),C.addEventListener"
+    }
+  ]
+}

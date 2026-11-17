@@ -13,6 +13,7 @@
     "preview": "astro preview",
     "sync": "astro sync",
     "check": "astro check",
+    "check:live2d": "node scripts/check-live2d.mjs",
     "astro": "astro",
     "images:upload": "node scripts/upload-images.mjs",
     "format": "prettier --write '**/*.{js,jsx,ts,tsx,md,mdx,astro}'",

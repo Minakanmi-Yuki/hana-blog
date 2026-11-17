@@ -1,195 +1,131 @@
-// Loaded only after the visitor enables the optional widget.
+// Desktop auto-start. Only this widget's draw loop is capped; native RAF stays untouched.
 ;(() => {
-  // Live2D async autoload with multi-CDN fallback
-  const widgetBaseCandidates = [
-    window.__LIVE2D_WIDGET_BASE__,
-    'https://fastly.jsdelivr.net/gh/stevenjoezhang/live2d-widget@latest/',
-    'https://cdn.jsdelivr.net/gh/stevenjoezhang/live2d-widget@latest/'
-  ].filter(Boolean)
+  if (window.__hanaLive2D?.booting || window.__hanaLive2D?.loaded) return
+  const config = document.currentScript.dataset
+  const desktop = window.matchMedia('(min-width: 768px)')
+  let draw = null
+  let frame = null
+  let lastDraw = -Infinity
+  let inViewport = true
+  let pageActive = true
+  let observer = null
+  const listeners = new AbortController()
+  const eventOptions = { signal: listeners.signal }
 
-  const localCdnPath = (() => {
-    const fromWindow = document.currentScript?.dataset.modelPath || window.__LIVE2D_CDN_PATH__
-    if (typeof fromWindow === 'string' && fromWindow.length > 0) {
-      return fromWindow.endsWith('/') ? fromWindow : `${fromWindow}/`
-    }
-
-    const script = document.currentScript
-    if (script && typeof script.src === 'string' && script.src.length > 0) {
-      const scriptUrl = new URL(script.src, window.location.href)
-      const base = scriptUrl.pathname.replace(/live2d-autoload\.js(?:\?.*)?$/, '')
-      const normalizedBase = base.endsWith('/') ? base : `${base}/`
-      return `${normalizedBase}live2d-api/`
-    }
-
-    return '/live2d-api/'
-  })()
-
-  function loadExternalResource(url, type) {
-    return new Promise((resolve, reject) => {
-      let tag
-
-      if (type === 'css') {
-        tag = document.createElement('link')
-        tag.rel = 'stylesheet'
-        tag.href = url
-      } else if (type === 'js') {
-        tag = document.createElement('script')
-        tag.src = url
-        tag.async = true
-        tag.defer = true
-      }
-
-      if (!tag) return reject(new Error(`Unsupported resource type: ${type}`))
-      tag.onload = () => resolve(url)
-      tag.onerror = () => reject(new Error(`Failed to load: ${url}`))
-      document.head.appendChild(tag)
-    })
+  function canDraw() {
+    return pageActive && !document.hidden && desktop.matches && inViewport
   }
 
-  async function loadWidgetBundleFromBase(base) {
-    const normalizedBase = base.endsWith('/') ? base : `${base}/`
-    await loadExternalResource(`${normalizedBase}waifu.css`, 'css')
-    await loadExternalResource(`${normalizedBase}live2d.min.js`, 'js')
-    await loadExternalResource(`${normalizedBase}waifu-tips.js`, 'js')
-
-    if (typeof window.initWidget !== 'function') {
-      throw new Error(`initWidget is not available from ${normalizedBase}`)
-    }
-
-    return normalizedBase
+  function cancelFrame() {
+    if (frame !== null) window.cancelAnimationFrame(frame)
+    frame = null
   }
 
-  async function loadWidgetBundleWithFallback() {
-    let lastError
-    for (const base of widgetBaseCandidates) {
-      try {
-        return await loadWidgetBundleFromBase(base)
-      } catch (error) {
-        lastError = error
-      }
+  function tick(timestamp) {
+    frame = null
+    if (!draw || !canDraw()) return
+    if (timestamp - lastDraw >= 1000 / 30 - 0.1) {
+      lastDraw = timestamp
+      draw()
     }
-    throw lastError || new Error('Failed to load live2d widget bundle')
+    frame = window.requestAnimationFrame(tick)
   }
 
-  const minWidth = Number(window.__LIVE2D_MIN_WIDTH__ || 768)
-  const LIVE2D_ACTIVE_KEY = '__live2d_widget_active__'
-
-  function triggerEntranceAnimation() {
-    const reducedMotion =
-      typeof window.matchMedia === 'function' &&
-      window.matchMedia('(prefers-reduced-motion: reduce)').matches
-
-    if (reducedMotion) return
-
-    const applyEntrance = () => {
-      const waifuEl = document.getElementById('waifu')
-      if (!waifuEl) return false
-      if (waifuEl.dataset.live2dEntered === '1') return true
-
-      waifuEl.dataset.live2dEntered = '1'
-      waifuEl.style.willChange = 'transform, opacity'
-      waifuEl.style.transition = 'none'
-      waifuEl.style.opacity = '0'
-      waifuEl.style.transform = 'translate3d(0, 72px, 0)'
-
-      waifuEl.getBoundingClientRect()
-
-      // Give Live2D a short settle window so the first pose transition
-      // (e.g. hand near mouth -> idle) happens offscreen.
-      const settleDelayMs = 680
-
-      const startAnimation = () => {
-        waifuEl.style.transition =
-          'transform 760ms cubic-bezier(0.16, 0.84, 0.24, 1), opacity 560ms ease'
-        waifuEl.style.opacity = '1'
-        waifuEl.style.transform = 'translate3d(0, 0, 0)'
-
-        const clearWillChange = () => {
-          waifuEl.style.willChange = ''
-        }
-
-        waifuEl.addEventListener('transitionend', clearWillChange, { once: true })
-        setTimeout(clearWillChange, 1200)
-      }
-
-      setTimeout(() => {
-        requestAnimationFrame(startAnimation)
-      }, settleDelayMs)
-
-      return true
-    }
-
-    if (applyEntrance()) return
-
-    const observer = new MutationObserver(() => {
-      if (applyEntrance()) {
-        observer.disconnect()
-        clearTimeout(disconnectTimer)
-      }
-    })
-
-    observer.observe(document.body, { childList: true, subtree: true })
-
-    const disconnectTimer = setTimeout(() => {
-      observer.disconnect()
-    }, 3000)
-
-    window.addEventListener(
-      'pagehide',
-      () => {
-        observer.disconnect()
-        clearTimeout(disconnectTimer)
-      },
-      { once: true }
-    )
+  function syncVisibility() {
+    cancelFrame()
+    lastDraw = -Infinity
+    if (draw && canDraw()) frame = window.requestAnimationFrame(tick)
   }
 
-  function cleanupLive2DWidget() {
-    const waifuEl = document.getElementById('waifu')
-    const toggleEl = document.getElementById('waifu-toggle')
-    const live2dCanvas = document.getElementById('live2d')
-
-    if (live2dCanvas instanceof HTMLCanvasElement) {
-      const gl = live2dCanvas.getContext('webgl') || live2dCanvas.getContext('experimental-webgl')
-      if (gl) {
-        const ext = gl.getExtension('WEBGL_lose_context')
-        if (ext) ext.loseContext()
-      }
-    }
-
-    if (waifuEl) waifuEl.remove()
-    if (toggleEl) toggleEl.remove()
-    window[LIVE2D_ACTIVE_KEY] = false
-  }
-
-  if (window.innerWidth >= minWidth && !window[LIVE2D_ACTIVE_KEY]) {
-    window[LIVE2D_ACTIVE_KEY] = true
-    ;(async () => {
-      try {
-        const activeBase = await loadWidgetBundleWithFallback()
-
-        // force default model to index 0 (our local miku)
-        localStorage.setItem('modelId', '0')
-        localStorage.setItem('modelTexturesId', '0')
-
-        initWidget({
-          waifuPath: `${activeBase}waifu-tips.json`,
-          cdnPath: localCdnPath,
-          tools: ['hitokoto', 'photo', 'info', 'quit']
+  const controller = {
+    booting: true,
+    loaded: false,
+    prepareCanvas(canvas) {
+      // CSS remains 300x300. Avoid oversized buffers on 1x screens and >2x supersampling.
+      const ratio = Math.min(Math.max(window.devicePixelRatio || 1, 1), 2)
+      const size = Math.round(300 * ratio)
+      if (canvas.width !== size) canvas.width = size
+      if (canvas.height !== size) canvas.height = size
+    },
+    start(callback, canvas) {
+      draw = callback
+      observer?.disconnect()
+      if ('IntersectionObserver' in window) {
+        observer = new IntersectionObserver(([entry]) => {
+          if (entry.isIntersecting === inViewport) return
+          inViewport = entry.isIntersecting
+          syncVisibility()
         })
-
-        triggerEntranceAnimation()
-        window.dispatchEvent(new Event('live2d:ready'))
-
-        window.addEventListener('pagehide', cleanupLive2DWidget, { once: true })
-        window.addEventListener('beforeunload', cleanupLive2DWidget, { once: true })
-      } catch (error) {
-        window[LIVE2D_ACTIVE_KEY] = false
-        console.error('[live2d] widget failed to load', error)
-        window.dispatchEvent(new Event('live2d:error'))
+        observer.observe(canvas)
       }
-    })()
-  } else {
-    window.dispatchEvent(new Event('live2d:error'))
+      syncVisibility()
+    }
   }
+  window.__hanaLive2D = controller
+  document.addEventListener('visibilitychange', syncVisibility, eventOptions)
+  desktop.addEventListener('change', syncVisibility, eventOptions)
+  window.addEventListener(
+    'pagehide',
+    () => {
+      pageActive = false
+      cancelFrame()
+    },
+    eventOptions
+  )
+  window.addEventListener(
+    'pageshow',
+    () => {
+      pageActive = true
+      syncVisibility()
+    },
+    eventOptions
+  )
+
+  function loadResource(url, type) {
+    return new Promise((resolve, reject) => {
+      const element = document.createElement(type === 'css' ? 'link' : 'script')
+      if (type === 'css') {
+        element.rel = 'stylesheet'
+        element.href = url
+      } else {
+        element.src = url
+        element.async = true
+      }
+      element.onload = resolve
+      element.onerror = () => {
+        element.remove()
+        reject(new Error(`Live2D resource failed: ${url}`))
+      }
+      document.head.appendChild(element)
+    })
+  }
+
+  ;(async () => {
+    try {
+      await Promise.all([loadResource(config.style, 'css'), loadResource(config.engine, 'js')])
+      await loadResource(config.widget, 'js')
+      if (typeof window.initWidget !== 'function')
+        throw new Error('Live2D widget did not initialize')
+
+      // Preserve model index 0 (the existing local Shizuku). Auto-show on each new page.
+      localStorage.setItem('modelId', '0')
+      localStorage.setItem('modelTexturesId', '0')
+      localStorage.removeItem('waifu-display')
+      window.initWidget({
+        waifuPath: config.messages,
+        cdnPath: config.modelPath,
+        tools: ['hitokoto', 'photo', 'info', 'quit']
+      })
+      controller.booting = false
+      controller.loaded = true
+      window.dispatchEvent(new Event('live2d:ready'))
+    } catch (error) {
+      controller.booting = false
+      cancelFrame()
+      observer?.disconnect()
+      listeners.abort()
+      console.error('[live2d] widget failed to load', error)
+      window.dispatchEvent(new Event('live2d:error'))
+    }
+  })()
 })()

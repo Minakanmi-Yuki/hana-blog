@@ -1,0 +1,220 @@
+{
+  "date": "2026-11-17",
+  "preference": "Restore automatic always-visible desktop Live2D while reducing rendering overhead. Mobile behavior stays desktop-only.",
+  "baseline": {
+    "upstream_version": "0.9.2",
+    "model": "Shizuku (unchanged)",
+    "canvas_backing": [
+      800,
+      800
+    ],
+    "css_size": [
+      300,
+      300
+    ],
+    "draw_loop": "Native display refresh rate"
+  },
+  "implementation": {
+    "automatic_start": "Desktop first-page idle callback with a 2s timeout; no manual enable button. Initial hidden tabs wait until visible.",
+    "max_draw_fps": 30,
+    "canvas_sizing": "300 * min(max(devicePixelRatio, 1), 2) on each dimension, set before WebGL/matrix initialization.",
+    "max_canvas_backing": [
+      600,
+      600
+    ],
+    "background_behavior": "Cancel the widget frame request when document hidden, canvas non-intersecting, viewport narrow, or page hidden; resume without reloading the model.",
+    "global_request_animation_frame": "Unmodified; only the pinned engine wrapper delegates draw/capture to this widget scheduler.",
+    "assets": "Pinned 0.9.2 JS, CSS and messages are served as fingerprinted local assets; original model files unchanged.",
+    "photo_tool": "Original capture callback retained and covered by a wrapper test.",
+    "tooltip": "Disable continuous decorative shake animation."
+  },
+  "pixel_budget_note": "At DPR 1 the backing canvas has 90000 pixels rather than 640000; at DPR >=2 it has 360000. These are per-frame pixel counts, not real CPU/GPU savings or measured device performance.",
+  "runtime_validation": {
+    "method": "Node VM event/clock fixtures; no real GPU or browser timing measurements",
+    "rates": [
+      {
+        "display_hz": 60,
+        "simulated_seconds": 10,
+        "draws": 300
+      },
+      {
+        "display_hz": 120,
+        "simulated_seconds": 10,
+        "draws": 300
+      },
+      {
+        "display_hz": 144,
+        "simulated_seconds": 10,
+        "draws": 288
+      },
+      {
+        "display_hz": 240,
+        "simulated_seconds": 10,
+        "draws": 300
+      }
+    ],
+    "sizes": [
+      {
+        "device_pixel_ratio": 1,
+        "backing_size": 300
+      },
+      {
+        "device_pixel_ratio": 1.5,
+        "backing_size": 450
+      },
+      {
+        "device_pixel_ratio": 2,
+        "backing_size": 600
+      },
+      {
+        "device_pixel_ratio": 3,
+        "backing_size": 600
+      }
+    ],
+    "automatic_desktop_start": true,
+    "hidden_and_mobile_initial_load_deferred": true,
+    "duplicate_start_prevented": true,
+    "background_zero_pending_frames": true,
+    "viewport_pause_and_resume": true,
+    "bfcache_reuses_model": true,
+    "native_raf_unchanged": true,
+    "failed_load_can_retry": true,
+    "upstream_restoration_sha256_verified": true,
+    "renderer_capture_hook_works": true
+  },
+  "built_assets": [
+    {
+      "route": "index.html",
+      "config": {
+        "id": "live2d-config",
+        "hidden": null,
+        "data-source": "/live2d-autoload.js?v=20261117-lite-v1",
+        "data-engine": "/_astro/live2d-lite.CxxNRplr.js",
+        "data-widget": "/_astro/waifu-tips.J5QlYXzq.js",
+        "data-messages": "/_astro/waifu-tips.Cf7tbhq2.json",
+        "data-style": "/_astro/waifu.CDemzsHa.css",
+        "data-model-path": "/live2d-api/",
+        "class": "astro-x5aqm5uh"
+      },
+      "assets": {
+        "data-engine": {
+          "url": "/_astro/live2d-lite.CxxNRplr.js",
+          "bytes": 151533,
+          "sha256": "74bb4fad64180047f756643b3078de6ef7135d609246685bf759099e7e951d47"
+        },
+        "data-widget": {
+          "url": "/_astro/waifu-tips.J5QlYXzq.js",
+          "bytes": 11970,
+          "sha256": "dbbda54740ac3754da692d1aa77f27d6525f7a386d44bf343ed10102d1366f3a"
+        },
+        "data-style": {
+          "url": "/_astro/waifu.CDemzsHa.css",
+          "bytes": 4015,
+          "sha256": "03bf53157c76a5ac973d956d266e37a934ebc35b99e06da03ca48e99a899158f"
+        },
+        "data-messages": {
+          "url": "/_astro/waifu-tips.Cf7tbhq2.json",
+          "bytes": 11548,
+          "sha256": "8785a3daf3723b7a8f708249b4cdd10faefcbfb1c70546a00d4fa92ea6197fbb"
+        }
+      }
+    },
+    {
+      "route": "academic/index.html",
+      "config": {
+        "id": "live2d-config",
+        "hidden": null,
+        "data-source": "/live2d-autoload.js?v=20261117-lite-v1",
+        "data-engine": "/_astro/live2d-lite.CxxNRplr.js",
+        "data-widget": "/_astro/waifu-tips.J5QlYXzq.js",
+        "data-messages": "/_astro/waifu-tips.Cf7tbhq2.json",
+        "data-style": "/_astro/waifu.CDemzsHa.css",
+        "data-model-path": "/live2d-api/",
+        "class": "astro-x5aqm5uh"
+      },
+      "assets": {
+        "data-engine": {
+          "url": "/_astro/live2d-lite.CxxNRplr.js",
+          "bytes": 151533,
+          "sha256": "74bb4fad64180047f756643b3078de6ef7135d609246685bf759099e7e951d47"
+        },
+        "data-widget": {
+          "url": "/_astro/waifu-tips.J5QlYXzq.js",
+          "bytes": 11970,
+          "sha256": "dbbda54740ac3754da692d1aa77f27d6525f7a386d44bf343ed10102d1366f3a"
+        },
+        "data-style": {
+          "url": "/_astro/waifu.CDemzsHa.css",
+          "bytes": 4015,
+          "sha256": "03bf53157c76a5ac973d956d266e37a934ebc35b99e06da03ca48e99a899158f"
+        },
+        "data-messages": {
+          "url": "/_astro/waifu-tips.Cf7tbhq2.json",
+          "bytes": 11548,
+          "sha256": "8785a3daf3723b7a8f708249b4cdd10faefcbfb1c70546a00d4fa92ea6197fbb"
+        }
+      }
+    },
+    {
+      "route": "en/academic/index.html",
+      "config": {
+        "id": "live2d-config",
+        "hidden": null,
+        "data-source": "/live2d-autoload.js?v=20261117-lite-v1",
+        "data-engine": "/_astro/live2d-lite.CxxNRplr.js",
+        "data-widget": "/_astro/waifu-tips.J5QlYXzq.js",
+        "data-messages": "/_astro/waifu-tips.Cf7tbhq2.json",
+        "data-style": "/_astro/waifu.CDemzsHa.css",
+        "data-model-path": "/live2d-api/",
+        "class": "astro-x5aqm5uh"
+      },
+      "assets": {
+        "data-engine": {
+          "url": "/_astro/live2d-lite.CxxNRplr.js",
+          "bytes": 151533,
+          "sha256": "74bb4fad64180047f756643b3078de6ef7135d609246685bf759099e7e951d47"
+        },
+        "data-widget": {
+          "url": "/_astro/waifu-tips.J5QlYXzq.js",
+          "bytes": 11970,
+          "sha256": "dbbda54740ac3754da692d1aa77f27d6525f7a386d44bf343ed10102d1366f3a"
+        },
+        "data-style": {
+          "url": "/_astro/waifu.CDemzsHa.css",
+          "bytes": 4015,
+          "sha256": "03bf53157c76a5ac973d956d266e37a934ebc35b99e06da03ca48e99a899158f"
+        },
+        "data-messages": {
+          "url": "/_astro/waifu-tips.Cf7tbhq2.json",
+          "bytes": 11548,
+          "sha256": "8785a3daf3723b7a8f708249b4cdd10faefcbfb1c70546a00d4fa92ea6197fbb"
+        }
+      }
+    }
+  ],
+  "build_validation": {
+    "command": "SITE_URL=https://hana0721.top/ npm run build:cloudflare",
+    "result": "passed",
+    "astro_errors": 0,
+    "astro_warnings": 0,
+    "preexisting_hints": 1,
+    "html_count": 1281,
+    "indexed_pages": 474,
+    "routes_missing_from_baseline": [],
+    "article_and_academic_main_text_unchanged": true,
+    "rss_unchanged": true,
+    "cv_unchanged": true,
+    "local_js_css_references": 29008,
+    "missing_local_js_css": {},
+    "focused_eslint": "passed",
+    "syntax_and_format_checks": "passed"
+  },
+  "browser_validation": "Unavailable: CUA browser inventory is empty. No alternate browser automation or real GPU measurement was performed.",
+  "source_provenance": "vendor/live2d/0.9.2/UPSTREAM.json",
+  "license": "public/licenses/live2d-widget.txt",
+  "references": {
+    "upstream": "https://github.com/stevenjoezhang/live2d-widget",
+    "page_visibility": "https://developer.mozilla.org/en-US/docs/Web/API/Page_Visibility_API",
+    "request_animation_frame": "https://developer.mozilla.org/en-US/docs/Web/API/Window/requestAnimationFrame"
+  }
+}
