@@ -8,12 +8,15 @@ const { header: headerName, content: contentName, needPercent = true } = Astro.p
   aria-label='Back to Top'
   class='z-90 group fixed bottom-8 end-4 flex h-10 w-10 translate-y-28 items-center justify-center rounded-full border-2 border-transparent bg-muted text-muted-foreground opacity-0 transition-all duration-300 hover:border-border/75 data-[show=true]:translate-y-0 data-[show=true]:opacity-100 sm:end-8 sm:h-12 sm:w-12'
   data-show='false'
+  data-header={headerName}
+  data-content={contentName}
+  data-percent={needPercent}
   id='to-top-btn'
 >
   <div
     class='absolute bottom-0 end-0 start-0 top-0 flex items-center justify-center transition-opacity group-hover:opacity-0 group-[.ended]:opacity-0'
   >
-    <span class='text'>10</span>
+    <span class='text'>0</span>
     <span class='text-xs'>%</span>
   </div>
   <Icon
@@ -22,90 +25,63 @@ const { header: headerName, content: contentName, needPercent = true } = Astro.p
   />
 </button>
 
-<script is:inline define:vars={{ headerName, contentName, needPercent }}>
-  const scrollBtn = document.getElementById('to-top-btn')
-  const scrollPercentEl = scrollBtn.children[0].children[0]
-  const targetHeader = document.getElementById(headerName)
-  const articleElement = document.getElementById(contentName)
+<script>
+  const button = document.querySelector<HTMLButtonElement>('#to-top-btn')
+  const text = button?.querySelector<HTMLElement>('.text')
+  const header = document.getElementById(button?.dataset.header || '')
+  const article = document.getElementById(button?.dataset.content || '')
 
-  // scroll to top
-  function callback(entries) {
-    entries.forEach((entry) => {
-      // only show the scroll to top button when the heading is out of view
-      scrollBtn.dataset.show = (!entry.isIntersecting).toString()
+  if (button) {
+    button.addEventListener('click', () => {
+      const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      window.scrollTo({ behavior: reduce ? 'instant' : 'smooth', top: 0 })
     })
-  }
-  scrollBtn.addEventListener('click', () => {
-    document.documentElement.scrollTo({ behavior: 'smooth', top: 0 })
-  })
-  if (targetHeader) {
-    const observer = new IntersectionObserver(callback)
-    observer.observe(targetHeader)
-  } else {
-    console.error(`Element with ID ${headerName} not found.`)
-  }
 
-  if (needPercent) {
-    // scroll percentage
-    let scrollHeight = articleElement.scrollHeight // total height
-    let articleTop = articleElement.offsetTop // article top
-    const clientHeight = document.documentElement.clientHeight // client height
-
-    function recalculateHeights() {
-      scrollHeight = articleElement.scrollHeight
-      articleTop = articleElement.offsetTop
-    }
-
-    const images = articleElement.querySelectorAll('img')
-    let loadedImagesCount = 0
-    const totalImages = images.length
-
-    if (totalImages > 0) {
-      images.forEach((img) => {
-        if (img.complete) {
-          loadedImagesCount++
-        } else {
-          img.addEventListener('load', () => {
-            loadedImagesCount++
-            if (loadedImagesCount === totalImages) {
-              recalculateHeights()
-            }
-          })
-          img.addEventListener('error', () => {
-            loadedImagesCount++
-            if (loadedImagesCount === totalImages) {
-              recalculateHeights()
-            }
-          })
-        }
+    if (header) {
+      const observer = new IntersectionObserver(([entry]) => {
+        button.dataset.show = String(!entry.isIntersecting)
       })
-      if (loadedImagesCount === totalImages) {
-        recalculateHeights()
+      observer.observe(header)
+    }
+
+    if (button.dataset.percent === 'true' && article && text) {
+      let height = 0
+      let top = 0
+      let viewport = 0
+      let previous = -1
+      let frame = 0
+
+      function update() {
+        frame = 0
+        const percent = Math.max(
+          0,
+          Math.min(100, Math.round(((window.scrollY - top) / Math.max(height - viewport, 1)) * 100))
+        )
+        if (percent === previous) return
+        previous = percent
+        text!.textContent = String(percent)
+        button!.classList.toggle('ended', percent >= 100)
       }
+
+      function schedule() {
+        if (!frame) frame = requestAnimationFrame(update)
+      }
+
+      function measure() {
+        height = article!.scrollHeight
+        top = article!.getBoundingClientRect().top + window.scrollY
+        viewport = document.documentElement.clientHeight
+        schedule()
+      }
+
+      // Images and responsive content can change height long after initial page load.
+      if ('ResizeObserver' in window) new ResizeObserver(measure).observe(article)
+      article.addEventListener('animationend', measure)
+      window.addEventListener('resize', measure, { passive: true })
+      document.addEventListener('scroll', schedule, { passive: true })
+      measure()
+    } else {
+      button.classList.add('ended')
     }
-
-    function calculateScrollPercent() {
-      const scrollTop = document.documentElement.scrollTop || document.body.scrollTop
-      if (scrollTop < articleTop) return
-      
-      const scrollableHeight = Math.max(scrollHeight - clientHeight, 1)
-      const scrolledAmount = scrollTop - articleTop
-      
-      const percent = Math.round((scrolledAmount / scrollableHeight) * 100)
-      return Math.max(0, Math.min(100, percent))
-    }
-
-    document.addEventListener('scroll', () => {
-      const scrollPercent = calculateScrollPercent()
-      if (scrollPercent === undefined) return
-      scrollPercentEl.innerText = scrollPercent.toString()
-
-      // If percent is 100, percent won't need to show
-      scrollBtn.classList.toggle('ended', scrollPercent >= 100)
-    })
-
-    window.addEventListener('resize', recalculateHeights)
-  } else {
-    scrollBtn.classList.add('ended')
   }
 </script>

@@ -25,7 +25,7 @@ const { meta, highlightColor, back = '/', ...props } = Astro.props
       <slot name='sidebar' />
     </aside>
 
-    <article class='min-w-0 grow'>
+    <article class='min-w-0 grow' data-pagefind-body>
       {/* Content header */}
       <div id='content-header' class='animate'>
         <slot name='header' />

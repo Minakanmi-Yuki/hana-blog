@@ -107,14 +107,14 @@ const shares = {
         <Icon class='size-5' name='qrcode' />
       </button>
       {
-        (config.content?.share || []).map((share: any) => (
+        (config.content?.share || []).map((share: string) => (
           <a
             href={shares[share as keyof typeof shares].link}
             target='_blank'
             id={`share-${share}`}
             class='group rounded-full bg-muted p-1 text-muted-foreground transition-colors hover:text-primary sm:p-1.5'
           >
-            <Icon class='size-5' name={share as any} />
+            <Icon class='size-5' name={share as keyof typeof shares} />
           </a>
         ))
       }
@@ -207,6 +207,13 @@ const shares = {
     animation-play-state: paused;
   }
 
+  @media (prefers-reduced-motion: reduce) {
+    .signature-path.animate {
+      animation: none;
+      stroke-dashoffset: 0;
+    }
+  }
+
   .signature-svg {
     filter: contrast(1.1) brightness(0.95);
   }
@@ -236,13 +243,14 @@ const shares = {
   })
 
   const signaturePath = document.querySelector('.signature-path') as SVGPathElement | null
-  if (signaturePath) {
+  if (signaturePath && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
     const pathLength = signaturePath.getTotalLength()
     signaturePath.style.strokeDasharray = pathLength.toString()
     signaturePath.style.strokeDashoffset = pathLength.toString()
     signaturePath.style.setProperty('--path-length', pathLength.toString())
-    setTimeout(() => {
-      signaturePath.classList.add('animate')
-    }, 500)
+    const observer = new IntersectionObserver(([entry]) => {
+      signaturePath.classList.toggle('animate', entry.isIntersecting)
+    })
+    observer.observe(signaturePath)
   }
 </script>

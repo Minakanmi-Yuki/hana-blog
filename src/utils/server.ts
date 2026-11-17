@@ -15,13 +15,29 @@ export interface SidebarCollection {
 }
 
 export const prod = import.meta.env.PROD
+const buildCollections = new Map<CollectionKey, Promise<Collections>>()
 
 /** Note: this function filters out draft posts based on the environment */
 export async function getBlogCollection(contentType: CollectionKey = 'blog') {
-  return await getCollection(contentType, ({ data }: CollectionEntry<typeof contentType>) => {
-    // Not in production & draft is not false
-    return prod ? !data.draft : true
-  })
+  const load = () =>
+    getCollection(contentType, ({ data }: CollectionEntry<typeof contentType>) => {
+      return prod ? !data.draft : true
+    })
+
+  // The glob loader recreates entries and resolves image metadata on every getCollection call.
+  // A static build can share that work; development always reads fresh content for live edits.
+  if (!prod) return load()
+  let pending = buildCollections.get(contentType)
+  if (!pending) {
+    pending = load().catch((error) => {
+      buildCollections.delete(contentType)
+      throw error
+    })
+    buildCollections.set(contentType, pending)
+  }
+
+  // Callers sort their own arrays. Never expose the cached array to an in-place sort.
+  return [...(await pending)]
 }
 
 /**
@@ -30,12 +46,7 @@ export async function getBlogCollection(contentType: CollectionKey = 'blog') {
  */
 export async function getBlogCollectionEn(contentType: CollectionKey = 'blogEn') {
   // Get all English versions
-  const englishPosts = await getCollection(
-    contentType,
-    ({ data }: CollectionEntry<typeof contentType>) => {
-      return prod ? !data.draft : true
-    }
-  )
+  const englishPosts = await getBlogCollection(contentType)
 
   // Transform English post IDs from "anygrasp/index-en" to "anygrasp"
   const transformedEnglishPosts = englishPosts.map((post) => ({

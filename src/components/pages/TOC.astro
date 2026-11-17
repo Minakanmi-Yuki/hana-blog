@@ -2,6 +2,7 @@
 import type { MarkdownHeading } from 'astro'
 
 import { generateToc } from '@/plugins/toc'
+
 import TOCHeading from './TOCHeading.astro'
 
 interface Props {
@@ -42,6 +43,11 @@ const toc = generateToc(headings)
     headings: HTMLElement[] = []
     tocLinks: TOCLink[] = []
     headingProgress: Record<string, HeadingProgress> = {}
+    positions: { top: number; end: number }[] = []
+    frame = 0
+    visible = false
+    listeners = new AbortController()
+    resizeObserver?: ResizeObserver
 
     constructor() {
       super()
@@ -57,72 +63,118 @@ const toc = generateToc(headings)
       }))
     }
 
-    updatePositionAndStyle = () => {
-      const windowHeight = window.innerHeight
+    measure = () => {
+      this.visible = this.getClientRects().length > 0
+      if (!this.visible || document.hidden) return
       const contentEl = document.querySelector('#content') as HTMLElement
       const contentTop = contentEl?.getBoundingClientRect().top + window.scrollY || 0
       const postOffset = (contentEl?.offsetHeight || 0) + contentTop
+      const bounds = this.headings.map((heading) => ({
+        top: heading.getBoundingClientRect().top + window.scrollY,
+        height: heading.offsetHeight
+      }))
+      this.positions = bounds.map((bound, index) => ({
+        top: bound.top,
+        end: (bounds[index + 1]?.top ?? postOffset) - bound.height
+      }))
+      this.scheduleUpdate()
+    }
+
+    scheduleUpdate = () => {
+      if (this.frame || !this.visible || document.hidden) return
+      this.frame = requestAnimationFrame(this.updatePositionAndStyle)
+    }
+
+    updatePositionAndStyle = () => {
+      this.frame = 0
+      if (!this.visible || document.hidden) return
+      const windowHeight = window.innerHeight
+      const scrollY = window.scrollY
 
       this.headings.forEach((el, index) => {
-        const elTop = el.getBoundingClientRect().top + window.scrollY
-        const nextHeadingTop = this.headings[index + 1]
-          ? this.headings[index + 1].getBoundingClientRect().top + window.scrollY
-          : postOffset
-        const range = [elTop - window.scrollY, nextHeadingTop - window.scrollY - el.offsetHeight]
-        const progress = (windowHeight - range[0]) / (range[1] - range[0])
+        const position = this.positions[index]
+        if (!position) return
+        const start = position.top - scrollY
+        const end = position.end - scrollY
+        const progress = (windowHeight - start) / Math.max(end - start, 1)
 
         this.headingProgress[el.id] = {
-          inView: range[0] < windowHeight && range[1] > 0,
+          inView: start < windowHeight && end > 0,
           progress: Math.max(0, Math.min(1, progress))
         }
       })
 
       this.tocLinks.forEach(({ element: el, progressBar: bar, slug }, i) => {
-        const { inView, progress } = this.headingProgress[slug]
-        if (this.headingProgress[slug]) {
+        const state = this.headingProgress[slug]
+        if (state) {
+          const { inView, progress } = state
           el.classList.toggle('highlight', inView)
           el.classList.toggle('highlight-bg-translucent', inView)
           el.classList.toggle(
             'rounded-t-2xl',
-            inView && (i == 0 || !this.headingProgress[this.tocLinks[i - 1]?.slug].inView)
+            inView && (i == 0 || !this.headingProgress[this.tocLinks[i - 1]?.slug]?.inView)
           )
           el.classList.toggle(
             'rounded-b-2xl',
             inView &&
               (i == this.tocLinks.length - 1 ||
-                !this.headingProgress[this.tocLinks[i + 1]?.slug].inView)
+                !this.headingProgress[this.tocLinks[i + 1]?.slug]?.inView)
           )
           bar.classList.toggle('readed', !inView && progress == 1)
           bar.classList.toggle('highlight-bg', inView)
-          bar.style.setProperty('height', `${progress * 90}%`)
+          const height = `${Math.round(progress * 9000) / 100}%`
+          if (bar.style.height !== height) bar.style.setProperty('height', height)
         }
       })
     }
 
     connectedCallback() {
+      this.listeners = new AbortController()
       // Smooth scroll
       this.tocLinks.forEach((link) => {
-        link.element.addEventListener('click', (e) => {
-          e.preventDefault()
-          // Push the history to add the hash at the end of the URL
-          const directHeading = this.headings.find((heading) => heading.id === link.slug)
-          if (directHeading) {
+        link.element.addEventListener(
+          'click',
+          (e) => {
+            e.preventDefault()
             // Push the history to add the hash at the end of the URL
-            history.pushState(
-              null,
-              directHeading.textContent || '',
-              link.element.getAttribute('href')
-            )
-            directHeading.scrollIntoView({ behavior: 'smooth' })
-          } else {
-            console.warn(`No heading found for slug: ${link.slug}`)
-          }
-        })
+            const directHeading = this.headings.find((heading) => heading.id === link.slug)
+            if (directHeading) {
+              // Push the history to add the hash at the end of the URL
+              history.pushState(
+                null,
+                directHeading.textContent || '',
+                link.element.getAttribute('href')
+              )
+              const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+              directHeading.scrollIntoView({ behavior: reduce ? 'instant' : 'smooth' })
+            } else {
+              console.warn(`No heading found for slug: ${link.slug}`)
+            }
+          },
+          { signal: this.listeners.signal }
+        )
       })
 
-      // Initial first and listen to scroll event
-      setInterval(this.updatePositionAndStyle, 100)
-      window.addEventListener('scroll', this.updatePositionAndStyle)
+      // Measure on layout changes, then update at most once per frame during scrolling.
+      // An idle article no longer polls all heading positions ten times per second.
+      const options = { passive: true, signal: this.listeners.signal }
+      window.addEventListener('scroll', this.scheduleUpdate, options)
+      window.addEventListener('resize', this.measure, options)
+      document.addEventListener('visibilitychange', this.measure, options)
+      const content = document.querySelector('#content')
+      content?.addEventListener('animationend', this.measure, options)
+      if (content && 'ResizeObserver' in window) {
+        this.resizeObserver = new ResizeObserver(this.measure)
+        this.resizeObserver.observe(content)
+      }
+      this.measure()
+    }
+
+    disconnectedCallback() {
+      this.listeners.abort()
+      this.resizeObserver?.disconnect()
+      cancelAnimationFrame(this.frame)
+      this.frame = 0
     }
   }
 

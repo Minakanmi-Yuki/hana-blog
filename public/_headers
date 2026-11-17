@@ -1,0 +1,18 @@
+# Only fingerprinted build assets are immutable. HTML and search manifests revalidate.
+/_astro/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/pagefind/fragment/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/pagefind/index/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/fonts/*
+  Cache-Control: public, max-age=604800
+
+/live2d-api/*
+  Cache-Control: public, max-age=604800
+
+/cv.pdf
+  Cache-Control: public, max-age=0, must-revalidate

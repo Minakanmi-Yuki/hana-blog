@@ -1,9 +1,11 @@
 ---
+import type { SiteMeta } from '@/types'
+
 import BaseHead from '@/components/BaseHead.astro'
+import { Footer, Header, ThemeProvider } from '@/components/basic'
+import Live2D from '@/components/basic/Live2D.astro'
 import config from '@/site-config'
 
-import { Footer, Header, ThemeProvider } from '@/components/basic'
-import type { SiteMeta } from '@/types'
 // Import the global.css file here so that it is included on
 // all pages through the use of the <BaseLayout /> component.
 import '@/assets/styles/app.css'
@@ -20,10 +22,6 @@ const {
 
 const currentLocale = Astro.currentLocale || 'zh'
 const langAttr = currentLocale === 'en' ? 'en' : 'zh'
-const baseUrl = import.meta.env.BASE_URL || '/'
-const live2dAutoloadVersion = '20260416-entrance-v2'
-const live2dAutoloadSrc = `${baseUrl}live2d-autoload.js?v=${live2dAutoloadVersion}`
-const live2dCdnPath = `${baseUrl}live2d-api/`
 ---
 
 <html lang={langAttr}>
@@ -35,6 +33,7 @@ const live2dCdnPath = `${baseUrl}live2d-api/`
     <script is:inline>
       window.dataLayer = window.dataLayer || []
       function gtag() {
+        // eslint-disable-next-line prefer-rest-params -- Keep Google's gtag arguments format.
         dataLayer.push(arguments)
       }
       gtag('js', new Date())
@@ -44,44 +43,6 @@ const live2dCdnPath = `${baseUrl}live2d-api/`
   </head>
 
   <body class='flex justify-center bg-background'>
-    <!-- <div
-      id='gradient-background'
-      class='pointer-events-none fixed h-screen w-screen blur-2xl transition-opacity duration-1000'
-    >
-      <div
-        class='absolute right-[25%] top-[-90%] h-full w-[75%] rounded-full bg-gradient-to-b from-blue-300 via-pink-300 to-transparent opacity-40 dark:opacity-25'
-      >
-      </div>
-      <div
-        class='absolute left-[25%] top-[-90%] h-full w-[75%] rounded-full bg-gradient-to-b from-blue-300 via-pink-300 to-transparent opacity-40 dark:opacity-25'
-      >
-      </div>
-      <div
-        class='absolute right-[25%] top-[-85%] h-full w-[55%] rounded-full bg-gradient-to-b from-purple-300 via-blue-300 to-transparent opacity-40 dark:opacity-25'
-      >
-      </div>
-      <div
-        class='absolute left-[25%] top-[-85%] h-full w-[55%] rounded-full bg-gradient-to-b from-indigo-300 via-orange-300 to-transparent opacity-40 dark:opacity-25'
-      >
-      </div>
-      <div
-        class='absolute left-[-25%] top-[-75%] h-full w-[65%] rounded-full bg-gradient-to-b from-blue-300 via-pink-300 to-transparent opacity-30 dark:opacity-20'
-      >
-      </div>
-      <div
-        class='absolute right-[-25%] top-[-75%] h-full w-[65%] rounded-full bg-gradient-to-b from-purple-300 via-blue-300 to-transparent opacity-30 dark:opacity-20'
-      >
-      </div>
-      <div
-        class='absolute left-[-30%] top-[-85%] h-full w-[85%] rounded-full bg-gradient-to-b from-indigo-300 via-orange-300 to-transparent opacity-60 dark:opacity-30'
-      >
-      </div>
-      <div
-        class='absolute right-[-30%] top-[-85%] h-full w-[85%] rounded-full bg-gradient-to-b from-orange-300 via-indigo-300 to-transparent opacity-60 dark:opacity-30'
-      >
-      </div>
-    </div> -->
-
     {
       highlightColor && (
         <div
@@ -97,106 +58,9 @@ const live2dCdnPath = `${baseUrl}live2d-api/`
       <Footer />
     </div>
 
-    <script is:inline define:vars={{ live2dAutoloadSrc, live2dCdnPath }}>
-      (() => {
-        const LIVE2D_AUTOLOAD_SRC = live2dAutoloadSrc
-        const LIVE2D_FLAG_KEY = '__live2d_autoload_injected__'
-        const LIVE2D_SCHEDULED_KEY = '__live2d_autoload_scheduled__'
-
-        window.__LIVE2D_CDN_PATH__ = live2dCdnPath
-
-        function injectLive2D() {
-          if (window[LIVE2D_FLAG_KEY]) return
-          window[LIVE2D_FLAG_KEY] = true
-
-          const script = document.createElement('script')
-          script.src = LIVE2D_AUTOLOAD_SRC
-          script.async = true
-          script.defer = true
-          script.crossOrigin = 'anonymous'
-          document.body.appendChild(script)
-        }
-
-        function scheduleLive2DLoad() {
-          if (window[LIVE2D_SCHEDULED_KEY]) return
-          window[LIVE2D_SCHEDULED_KEY] = true
-
-          if ('requestIdleCallback' in window) {
-            window.requestIdleCallback(() => injectLive2D(), { timeout: 3000 })
-          } else {
-            setTimeout(injectLive2D, 1200)
-          }
-        }
-
-        if (document.readyState !== 'loading') {
-          scheduleLive2DLoad()
-        } else {
-          document.addEventListener('DOMContentLoaded', scheduleLive2DLoad, { once: true })
-          window.addEventListener('load', scheduleLive2DLoad, { once: true })
-        }
-
-        document.addEventListener('astro:page-load', scheduleLive2DLoad)
-      })()
-    </script>
-
-    <script is:inline>
-      (() => {
-        const OBSERVER_KEY = '__deferred_image_observer__'
-
-        function revealDeferredImage(img) {
-          const source = img.getAttribute('data-src')
-          if (!source) return
-          img.setAttribute('src', source)
-          img.removeAttribute('data-src')
-          img.removeAttribute('data-deferred-image')
-        }
-
-        function getObserver() {
-          if (!('IntersectionObserver' in window)) return null
-          if (!window[OBSERVER_KEY]) {
-            window[OBSERVER_KEY] = new IntersectionObserver(
-              (entries) => {
-                entries.forEach((entry) => {
-                  if (!entry.isIntersecting) return
-                  const image = entry.target
-                  revealDeferredImage(image)
-                  window[OBSERVER_KEY].unobserve(image)
-                })
-              },
-              {
-                rootMargin: '320px 0px'
-              }
-            )
-          }
-          return window[OBSERVER_KEY]
-        }
-
-        function bindDeferredImages(root = document) {
-          const deferredImages = root.querySelectorAll('img[data-deferred-image="true"][data-src]')
-          if (!deferredImages.length) return
-
-          const observer = getObserver()
-
-          deferredImages.forEach((img) => {
-            if (img.hasAttribute('data-deferred-bound')) return
-            img.setAttribute('data-deferred-bound', 'true')
-
-            if (observer) {
-              observer.observe(img)
-            } else {
-              revealDeferredImage(img)
-            }
-          })
-        }
-
-        if (document.readyState === 'loading') {
-          document.addEventListener('DOMContentLoaded', () => bindDeferredImages(), { once: true })
-        } else {
-          bindDeferredImages()
-        }
-
-        document.addEventListener('astro:page-load', () => bindDeferredImages())
-      })()
+    <Live2D />
+    <script>
+      import '../scripts/page-interactions'
     </script>
 
     {/* Set highlight color */}
@@ -217,7 +81,6 @@ const live2dCdnPath = `${baseUrl}live2d-api/`
         right: 0 !important;
         bottom: 0 !important;
         z-index: 9998 !important;
-        will-change: transform, opacity;
       }
 
       :global(#waifu.live2d-enter-prep) {
@@ -396,281 +259,6 @@ const live2dCdnPath = `${baseUrl}live2d-api/`
         background: #ffe082;
         background: radial-gradient(circle, #ffd54f 0%, #ffe082 100%);
       }
-
-      /* 图形加速检测弹窗样式 */
-      :global(.graphics-warning-overlay) {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0, 0, 0, 0.6);
-        backdrop-filter: blur(8px);
-        z-index: 10000;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans', sans-serif;
-        opacity: 0;
-        animation: fadeIn 0.4s ease-out forwards;
-      }
-
-      :global(.graphics-warning-dialog) {
-        background: hsl(var(--background));
-        color: hsl(var(--foreground));
-        padding: 32px;
-        border-radius: 20px;
-        max-width: 520px;
-        margin: 20px;
-        box-shadow:
-          0 20px 50px rgba(0, 0, 0, 0.3),
-          0 0 0 1px hsl(var(--border) / 0.1);
-        backdrop-filter: blur(20px);
-        transform: translateY(20px) scale(0.95);
-        animation: slideUp 0.4s ease-out 0.1s forwards;
-        border: 1px solid hsl(var(--border) / 0.2);
-      }
-
-      :global(.dark .graphics-warning-dialog) {
-        box-shadow:
-          0 20px 50px rgba(0, 0, 0, 0.5),
-          0 0 0 1px rgba(255, 255, 255, 0.1);
-      }
-
-      :global(.graphics-warning-header) {
-        display: flex;
-        align-items: center;
-        margin-bottom: 20px;
-        gap: 16px;
-      }
-
-      :global(.graphics-warning-icon) {
-        font-size: 32px;
-        background: linear-gradient(135deg, #f59e0b, #f97316);
-        background-clip: text;
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        filter: drop-shadow(0 2px 4px rgba(245, 158, 11, 0.3));
-      }
-
-      :global(.graphics-warning-icon.error) {
-        background: linear-gradient(135deg, #ef4444, #dc2626);
-        background-clip: text;
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        filter: drop-shadow(0 2px 4px rgba(239, 68, 68, 0.3));
-      }
-
-      :global(.graphics-warning-title) {
-        margin: 0;
-        font-size: 20px;
-        font-weight: 700;
-        background: linear-gradient(135deg, hsl(var(--foreground)), hsl(var(--foreground) / 0.8));
-        background-clip: text;
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-      }
-
-      :global(.graphics-warning-content) {
-        line-height: 1.7;
-        margin-bottom: 28px;
-        color: hsl(var(--muted-foreground));
-        font-size: 15px;
-      }
-
-      :global(.graphics-warning-content strong) {
-        color: hsl(var(--foreground));
-        font-weight: 600;
-      }
-
-      :global(.graphics-warning-list) {
-        margin: 16px 0;
-        padding-left: 0;
-        list-style: none;
-      }
-
-      :global(.graphics-warning-list li) {
-        position: relative;
-        padding-left: 20px;
-        margin-bottom: 8px;
-        color: hsl(var(--muted-foreground));
-      }
-
-      :global(.graphics-warning-list li::before) {
-        content: '•';
-        position: absolute;
-        left: 0;
-        color: hsl(var(--primary));
-        font-weight: bold;
-      }
-
-      :global(.graphics-warning-actions) {
-        display: flex;
-        gap: 12px;
-        justify-content: flex-end;
-      }
-
-      :global(.graphics-warning-btn) {
-        background: hsl(var(--primary));
-        color: hsl(var(--primary-foreground));
-        border: none;
-        padding: 12px 24px;
-        border-radius: 12px;
-        cursor: pointer;
-        font-size: 14px;
-        font-weight: 600;
-        transition: all 0.2s ease;
-        position: relative;
-        overflow: hidden;
-      }
-
-      :global(.graphics-warning-btn::before) {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: -100%;
-        width: 100%;
-        height: 100%;
-        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-        transition: left 0.5s ease;
-      }
-
-      :global(.graphics-warning-btn:hover::before) {
-        left: 100%;
-      }
-
-      :global(.graphics-warning-btn:hover) {
-        transform: translateY(-1px);
-        box-shadow: 0 8px 20px hsl(var(--primary) / 0.3);
-      }
-
-      :global(.graphics-warning-btn:active) {
-        transform: translateY(0);
-      }
-
-      @keyframes fadeIn {
-        to {
-          opacity: 1;
-        }
-      }
-
-      @keyframes slideUp {
-        to {
-          transform: translateY(0) scale(1);
-        }
-      }
     </style>
-
-    <script>
-      document.addEventListener('DOMContentLoaded', () => {
-        document.addEventListener('click', (e) => {
-          const target = e.target as HTMLElement
-          const link = target.closest('a[href^="#"]') as HTMLAnchorElement
-
-          if (!link) return
-
-          if (link.closest('toc-heading')) return
-
-          const href = link.getAttribute('href')
-          if (!href || href === '#') return
-
-          const targetId = href.substring(1)
-          const targetElement = document.getElementById(targetId)
-
-          if (!targetElement) return
-
-          e.preventDefault()
-
-          history.pushState(null, '', href)
-
-          targetElement.scrollIntoView({
-            behavior: 'smooth',
-            block: 'start'
-          })
-        })
-      })
-    </script>
-
-    <!-- <script>
-      document.addEventListener('DOMContentLoaded', () => {
-        const originalTitle = document.title
-        document.addEventListener('visibilitychange', () => {
-          if (document.hidden) {
-            document.title = 'ฅ^•ﻌ•^ฅ 主人快回来吧~'
-          } else {
-            document.title = originalTitle
-          }
-        })
-        window.addEventListener('blur', () => {
-          document.title = 'ฅ^•ﻌ•^ฅ 主人快回来吧~'
-        })
-        window.addEventListener('focus', () => {
-          document.title = originalTitle
-        })
-      })
-    </script> -->
-
-    <script>
-      document.addEventListener('DOMContentLoaded', () => {
-        function createParticle(
-          x: number,
-          y: number,
-          angle: number,
-          distance: number,
-          colorIndex: number
-        ) {
-          const particle = document.createElement('div')
-          particle.className = `click-particle color-${colorIndex}`
-          const dx = Math.cos(angle) * distance
-          const dy = Math.sin(angle) * distance
-          particle.style.setProperty('--dx', dx + 'px')
-          particle.style.setProperty('--dy', dy + 'px')
-          particle.style.left = x + 'px'
-          particle.style.top = y + 'px'
-          const size = Math.random() * 6 + 8
-          particle.style.width = size + 'px'
-          particle.style.height = size + 'px'
-          document.body.appendChild(particle)
-          setTimeout(() => {
-            if (particle.parentNode) {
-              particle.parentNode.removeChild(particle)
-            }
-          }, 1100)
-        }
-        document.addEventListener('click', (e) => {
-          const particleCount = 10
-          const baseDistance = 18
-          for (let i = 0; i < particleCount; i++) {
-            const angle = ((Math.PI * 2) / particleCount) * i
-            const distance = baseDistance + Math.random() * 8
-            const colorIndex = (i % 10) + 1
-            setTimeout(() => {
-              createParticle(e.clientX, e.clientY, angle, distance, colorIndex)
-            }, i * 12)
-          }
-          for (let i = 0; i < 4; i++) {
-            const randomAngle = Math.random() * Math.PI * 2
-            const randomDistance = baseDistance + Math.random() * 10
-            const colorIndex = Math.floor(Math.random() * 10) + 1
-            setTimeout(
-              () => {
-                createParticle(e.clientX, e.clientY, randomAngle, randomDistance, colorIndex)
-              },
-              (particleCount + i) * 12
-            )
-          }
-        })
-      })
-    </script>
-
-    <script>
-      import { initializeWebGL } from '@/utils/webgl/index'
-      
-      if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initializeWebGL)
-      } else {
-        initializeWebGL()
-      }
-    </script>
   </body>
 </html>

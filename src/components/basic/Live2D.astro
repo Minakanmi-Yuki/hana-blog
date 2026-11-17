@@ -1,0 +1,51 @@
+---
+const isEnglish = Astro.currentLocale === 'en'
+const baseUrl = import.meta.env.BASE_URL
+---
+
+<button
+  id='enable-live2d'
+  type='button'
+  class='fixed bottom-24 right-4 z-20 hidden rounded-full border border-border bg-background px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-60 sm:right-8 md:block'
+  data-source={`${baseUrl}live2d-autoload.js?v=20261117-on-demand`}
+  data-model-path={`${baseUrl}live2d-api/`}
+  data-loading={isEnglish ? 'Loading…' : '加载中…'}
+  data-retry={isEnglish ? 'Retry Live2D' : '重试看板娘'}
+>
+  {isEnglish ? 'Enable Live2D' : '开启看板娘'}
+</button>
+
+<script>
+  const button = document.querySelector<HTMLButtonElement>('#enable-live2d')
+
+  button?.addEventListener('click', () => {
+    if (button.disabled) return
+    button.disabled = true
+    button.textContent = button.dataset.loading || 'Loading…'
+    const listeners = new AbortController()
+
+    const fail = () => {
+      listeners.abort()
+      button.disabled = false
+      button.textContent = button.dataset.retry || 'Retry Live2D'
+    }
+
+    window.addEventListener(
+      'live2d:ready',
+      () => {
+        listeners.abort()
+        button.remove()
+      },
+      { once: true, signal: listeners.signal }
+    )
+    window.addEventListener('live2d:error', fail, { once: true, signal: listeners.signal })
+
+    // Configuration stays on the element; the renderer is requested only by this click.
+    const script = document.createElement('script')
+    script.src = button.dataset.source || ''
+    script.dataset.modelPath = button.dataset.modelPath
+    script.async = true
+    script.addEventListener('error', fail, { once: true, signal: listeners.signal })
+    document.body.appendChild(script)
+  })
+</script>

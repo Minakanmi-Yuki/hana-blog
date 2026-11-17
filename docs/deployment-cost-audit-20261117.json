@@ -1,0 +1,213 @@
+{
+  "date": "2026-11-17",
+  "baseline_commit": "0901e4ccf175647af06c5acbd4348b9d8b02c026",
+  "measurement": "Complete local Cloudflare production builds on the same checkout and machine. Bytes are raw file sums, not wire transfer or billed usage. Timings are single warm-cache local observations and can vary; they are not Cloudflare billing measurements.",
+  "before": {
+    "html_count": 1281,
+    "total_bytes": 179193216,
+    "html_bytes": 149354022,
+    "inline_script_bytes": 10292997,
+    "inline_style_bytes": 13657580,
+    "pagefind_bytes": 12666576,
+    "cv_sha256": "a1f5be2e7f2fc9cea373a9a38c77b45e74472025e1f0be5f348270663b208cad",
+    "rss_sha256": "5205fa0e71601831ca8134e9e8364e002d75a8648f46e00c49ad57f5bc66a31f",
+    "indexed_pages": 1280,
+    "build": {
+      "user_cpu_seconds": 39.32,
+      "system_cpu_seconds": 2.42,
+      "elapsed": "0:34.20",
+      "maximum_rss_kib": 2084488
+    }
+  },
+  "after": {
+    "html_count": 1281,
+    "total_bytes": 154789642,
+    "html_bytes": 126280656,
+    "inline_script_bytes": 1654762,
+    "inline_style_bytes": 0,
+    "pagefind_bytes": 11308595,
+    "cv_sha256": "a1f5be2e7f2fc9cea373a9a38c77b45e74472025e1f0be5f348270663b208cad",
+    "rss_sha256": "5205fa0e71601831ca8134e9e8364e002d75a8648f46e00c49ad57f5bc66a31f",
+    "indexed_pages": 474,
+    "build": {
+      "user_cpu_seconds": 36.06,
+      "system_cpu_seconds": 2.22,
+      "elapsed": "0:30.85",
+      "maximum_rss_kib": 2010628
+    }
+  },
+  "reduction": {
+    "total_bytes": 24403574,
+    "total_percent": 13.62,
+    "html_bytes": 23073366,
+    "pagefind_bytes": 1357981
+  },
+  "representative_html_bytes": {
+    "index.html": {
+      "before": 58956,
+      "after": 42386
+    },
+    "academic/index.html": {
+      "before": 121828,
+      "after": 101605
+    },
+    "en/academic/index.html": {
+      "before": 121868,
+      "after": 101638
+    },
+    "blog/rl-note-15/index.html": {
+      "before": 735498,
+      "after": 715103
+    }
+  },
+  "changes": [
+    "Emit shared scripts and CSS as fingerprinted assets; retain essential theme initialization inline.",
+    "Cache production build collection reads and return independent arrays; bypass caching in development.",
+    "Index actual content bodies; retain tag, archive, collection, and pagination routes without duplicate search results.",
+    "Load desktop Live2D only on explicit visitor click; remove the unused automatic WebGL diagnostic.",
+    "Replace 100ms TOC polling with cached geometry, passive scroll events and one update per frame. Re-measure on content resize and entrance animation completion.",
+    "Observe back-to-top content resizing and batch progress updates; animate signatures only in view and honor reduced motion.",
+    "Apply long immutable browser caching only to fingerprinted assets and search fragments. Keep HTML/search entry defaults and require CV revalidation."
+  ],
+  "validation": {
+    "production_build": "SITE_URL=https://hana0721.top/ npm run build:cloudflare passed",
+    "astro_check": {
+      "errors": 0,
+      "warnings": 0,
+      "preexisting_hints": 1
+    },
+    "missing_baseline_html": [],
+    "new_static_html": [],
+    "unchanged_main_text_hash_count": 1277,
+    "main_text_order_variations": [
+      "tags/index.html",
+      "links/index.html",
+      "en/tags/index.html",
+      "en/links/index.html"
+    ],
+    "main_text_order_variation_note": "Tags with tied counts and the existing randomized friend list can change order between builds. Their whitespace-token multisets were checked against the pre-update live pages; no text was added or removed. All article and Academic main text hashes match the baseline exactly.",
+    "rss_unchanged": true,
+    "cv_unchanged": true,
+    "generated_server_or_worker_output": false,
+    "local_js_css_references": 29008,
+    "missing_local_js_css": {},
+    "search_languages": [
+      "en",
+      "zh"
+    ],
+    "search_queries": [
+      {
+        "language": "zh",
+        "query": "Puzzle",
+        "result_count": 1,
+        "expected": "/academic/",
+        "expected_found": true
+      },
+      {
+        "language": "zh",
+        "query": "GraSLA",
+        "result_count": 1,
+        "expected": "/academic/",
+        "expected_found": true
+      },
+      {
+        "language": "zh",
+        "query": "RustDesk",
+        "result_count": 1,
+        "expected": "/blog/rustdesk-cli-server-setup/",
+        "expected_found": true
+      },
+      {
+        "language": "zh",
+        "query": "tmux",
+        "result_count": 4,
+        "expected": "/blog/tmux-ssh-session-management/",
+        "expected_found": true
+      },
+      {
+        "language": "en",
+        "query": "Puzzle",
+        "result_count": 1,
+        "expected": "/en/academic/",
+        "expected_found": true
+      },
+      {
+        "language": "en",
+        "query": "GraSLA",
+        "result_count": 1,
+        "expected": "/en/academic/",
+        "expected_found": true
+      },
+      {
+        "language": "en",
+        "query": "RustDesk",
+        "result_count": 1,
+        "expected": "/en/blog/rustdesk-cli-server-setup/",
+        "expected_found": true
+      },
+      {
+        "language": "en",
+        "query": "tmux",
+        "result_count": 4,
+        "expected": "/en/blog/tmux-ssh-session-management/",
+        "expected_found": true
+      }
+    ],
+    "runtime_smoke": {
+      "production_collection_deduplication": true,
+      "sort_isolation": true,
+      "failed_read_retries": true,
+      "development_refresh": true,
+      "english_fallback": true,
+      "live2d_no_automatic_download": true,
+      "click_deduplication": true,
+      "load_error_retry": true,
+      "loader_fallback": true,
+      "loader_can_execute_twice": true
+    },
+    "scroll_smoke": {
+      "toc_no_idle_polling": true,
+      "toc_scroll_batches_one_frame": true,
+      "toc_scroll_no_layout_reads": true,
+      "toc_resize_remeasures": true,
+      "toc_mobile_and_hidden_idle": true,
+      "toc_disconnect_cleanup": true,
+      "toc_missing_heading_safe": true,
+      "back_to_top_progress_and_resize": true
+    },
+    "focused_runtime_eslint": "passed for changed runtime scripts and components",
+    "repository_eslint": "43 pre-existing errors remain, including the unchanged unused back binding in ContentLayout.astro. Other errors are in untouched files.",
+    "formatting": "Focused Prettier checks passed.",
+    "git_diff_check": "passed",
+    "browser_visual_check": "Unavailable: browser inventory is empty and creating an in-app tab returns Browser is not available: iab. No alternate browser automation was used.",
+    "runtime_smoke_method": "Node VM with event/layout fixtures executing the actual source scripts. Search tests execute the generated Pagefind API, WASM and index files. These checks do not replace browser visual QA.",
+    "listing_text_multiset_checks": [
+      {
+        "path": "/tags/",
+        "status": 200,
+        "text_multiset_unchanged": true
+      },
+      {
+        "path": "/links/",
+        "status": 200,
+        "text_multiset_unchanged": true
+      },
+      {
+        "path": "/en/tags/",
+        "status": 200,
+        "text_multiset_unchanged": true
+      },
+      {
+        "path": "/en/links/",
+        "status": 200,
+        "text_multiset_unchanged": true
+      }
+    ]
+  },
+  "cost_scope": "The site remains static with zero generated server functions. This change reduces raw deployment bytes, repeated asset downloads and unnecessary client rendering/DOM polling. No invoice savings or real-device CPU percentage is claimed.",
+  "references": {
+    "astro_shared_styles": "https://docs.astro.build/en/reference/configuration-reference/#buildinlinestylesheets",
+    "pagefind_content_scope": "https://pagefind.app/docs/indexing/",
+    "cloudflare_headers": "https://developers.cloudflare.com/pages/configuration/headers/"
+  }
+}

@@ -54,6 +54,11 @@ export default defineConfig({
   // Every route, including RSS, is generated once at build time and served by the CDN.
   output: 'static',
 
+  // Shared styles are downloaded once and reused across the whole archive.
+  build: {
+    inlineStylesheets: 'never'
+  },
+
   image: {
     service: {
       entrypoint: 'astro/assets/services/sharp'
@@ -116,6 +121,10 @@ export default defineConfig({
     }
   },
   vite: {
+    build: {
+      // Keep shared scripts and small assets cacheable instead of repeating them in HTML.
+      assetsInlineLimit: 0
+    }
     // plugins: [
     //   visualizer({
     //     emitFile: true,
