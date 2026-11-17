@@ -159,7 +159,11 @@ for (const rate of [60, 120, 144, 240]) {
   assert.equal(f.storage.has('waifu-display'), false)
   assert.equal(f.canvas.width, 600)
   f.advance(rate, rate * 10)
-  assert.ok(f.draws <= 301 && f.draws >= 280, `${rate}Hz: ${f.draws} draws`)
+  const expectedDraws = Math.min(rate, 120) * 10
+  assert.ok(
+    f.draws <= expectedDraws + 1 && f.draws >= expectedDraws * 0.99,
+    `${rate}Hz: ${f.draws} draws; expected about ${expectedDraws}`
+  )
   rates.push({ display_hz: rate, simulated_seconds: 10, draws: f.draws })
   await f.load()
   assert.equal(f.initCalls, 1, 'duplicate loader must not initialize another renderer')
@@ -196,6 +200,15 @@ f.window.requestAnimationFrame(() => {
 })
 f.advance(60, 1)
 assert.equal(unrelated, 1, 'widget pausing must not replace the global scheduler')
+
+const delayed = fixture()
+await delayed.load()
+delayed.advance(120, 120)
+const beforeStall = delayed.draws
+delayed.advance(1, 1)
+assert.equal(delayed.draws, beforeStall + 1, 'a foreground stall must not replay missed frames')
+delayed.advance(240, 1)
+assert.equal(delayed.draws, beforeStall + 1, 'the next draw must wait for its normal deadline')
 
 const sizes = []
 for (const ratio of [1, 1.5, 2, 3]) {

@@ -5,7 +5,8 @@
   const desktop = window.matchMedia('(min-width: 768px)')
   let draw = null
   let frame = null
-  let lastDraw = -Infinity
+  const frameInterval = 1000 / 120
+  let nextDraw = null
   let inViewport = true
   let pageActive = true
   let observer = null
@@ -24,8 +25,13 @@
   function tick(timestamp) {
     frame = null
     if (!draw || !canDraw()) return
-    if (timestamp - lastDraw >= 1000 / 30 - 0.1) {
-      lastDraw = timestamp
+    if (nextDraw === null || timestamp >= nextDraw - 0.1) {
+      // Keep the cadence on screens such as 144Hz instead of dropping to every second frame.
+      // Discard missed frames after a stall rather than trying to catch up in a burst.
+      nextDraw =
+        nextDraw === null || timestamp - nextDraw >= frameInterval
+          ? timestamp + frameInterval
+          : nextDraw + frameInterval
       draw()
     }
     frame = window.requestAnimationFrame(tick)
@@ -33,7 +39,7 @@
 
   function syncVisibility() {
     cancelFrame()
-    lastDraw = -Infinity
+    nextDraw = null
     if (draw && canDraw()) frame = window.requestAnimationFrame(tick)
   }
 
